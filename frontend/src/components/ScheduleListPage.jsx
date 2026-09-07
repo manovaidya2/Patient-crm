@@ -101,10 +101,11 @@ const formatDateTime = (iso) =>
 // Grouped-by-assignee summary with status-bucket counts — used for both the
 // Follow-ups and Family Sessions sidebar pages. Each count is clickable and
 // opens a drawer listing exactly those entries (patient, stage, date & time).
-const ScheduleListPage = ({ title, subtitle, apiPath }) => {
+const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = false }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
+  const [followUpTypeFilter, setFollowUpTypeFilter] = useState('all');
   const [dateMode, setDateMode] = useState('today');
   const [dateValue, setDateValue] = useState(() => toDateInputValue(new Date()));
   const [weekValue, setWeekValue] = useState(() => toWeekInputValue(new Date()));
@@ -143,6 +144,9 @@ const ScheduleListPage = ({ title, subtitle, apiPath }) => {
       .filter((r) => r.assignee.toLowerCase().includes(search.toLowerCase()))
       .map((row) => {
         const entries = row.entries.filter((entry) => {
+          if (showFollowUpTypeFilter && followUpTypeFilter !== 'all' && (entry.followUpType || 'normal') !== followUpTypeFilter) {
+            return false;
+          }
           if (!activeRange) return true;
           const entryDate = new Date(entry.dateTime);
           return entryDate >= activeRange.start && entryDate <= activeRange.end;
@@ -154,7 +158,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath }) => {
         return { ...row, entries, counts };
       })
       .filter((row) => row.entries.length > 0);
-  }, [rows, search, activeRange]);
+  }, [rows, search, activeRange, showFollowUpTypeFilter, followUpTypeFilter]);
 
   const filteredTotals = useMemo(() => {
     const totals = { upcoming: 0, late: 0, done: 0, done_late: 0, cancelled: 0 };
@@ -213,6 +217,18 @@ const ScheduleListPage = ({ title, subtitle, apiPath }) => {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
+              {showFollowUpTypeFilter && (
+                <select
+                  value={followUpTypeFilter}
+                  onChange={(e) => setFollowUpTypeFilter(e.target.value)}
+                  className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition sm:w-36"
+                  aria-label="Filter follow-up type"
+                >
+                  <option value="all">All Types</option>
+                  <option value="normal">Normal</option>
+                  <option value="sfs">SFS</option>
+                </select>
+              )}
               <select
                 value={dateMode}
                 onChange={(e) => handleDateModeChange(e.target.value)}
@@ -330,6 +346,11 @@ const ScheduleListPage = ({ title, subtitle, apiPath }) => {
               <p className="mt-1 text-xs text-charcoal/60">
                 {e.stageLabel} · {formatDateTime(e.dateTime)}
               </p>
+              {showFollowUpTypeFilter && (
+                <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-charcoal/45">
+                  {(e.followUpType || 'normal') === 'sfs' ? 'SFS' : 'Normal'}
+                </p>
+              )}
               {e.notes && <p className="mt-1 text-xs text-charcoal/55">{e.notes}</p>}
             </li>
           ))}

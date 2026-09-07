@@ -3,6 +3,7 @@ import { Bot, ChevronLeft, ChevronRight, MessageSquarePlus, RefreshCw, Search, S
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Card from '../../components/ui/Card.jsx';
+import DictationButton from '../../components/ui/DictationButton.jsx';
 import Toast from '../../components/ui/Toast.jsx';
 import { useToast } from '../../components/useToast.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -364,15 +365,23 @@ const CrmChatGPT = () => {
 
           <form onSubmit={submitMessage} className="border-t border-cardline bg-offwhite-100 p-3">
             <div className="flex gap-2">
-              <textarea
-                rows={2}
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                onKeyDown={handleComposerKeyDown}
-                placeholder={isViewingOtherUserChat ? 'This chat history is read-only for admin.' : 'Ask about this CRM...'}
-                disabled={isViewingOtherUserChat}
-                className="min-h-[44px] flex-1 resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-              />
+              <div className="relative flex-1">
+                <textarea
+                  rows={2}
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                  placeholder={isViewingOtherUserChat ? 'This chat history is read-only for admin.' : 'Ask about this CRM...'}
+                  disabled={isViewingOtherUserChat}
+                  className="min-h-[44px] w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                />
+                <DictationButton
+                  value={message}
+                  onChange={setMessage}
+                  disabled={isViewingOtherUserChat}
+                  className="absolute bottom-2 right-2"
+                />
+              </div>
               <Button type="submit" disabled={sending || !message.trim() || isViewingOtherUserChat} className="self-end">
                 <Send size={16} />
                 <span className="hidden sm:inline">{sending ? 'Sending...' : 'Send'}</span>

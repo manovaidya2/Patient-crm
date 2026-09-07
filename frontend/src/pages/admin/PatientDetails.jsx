@@ -9,6 +9,7 @@ import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import EditableField from '../../components/ui/EditableField.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
+import DictationButton from '../../components/ui/DictationButton.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
@@ -1332,13 +1333,16 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
           {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-charcoal">Query</label>
-            <textarea
-              rows={6}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Write the query for the doctor..."
-              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
+            <div className="relative">
+              <textarea
+                rows={6}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Write the query for the doctor..."
+                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+              />
+              <DictationButton value={query} onChange={setQuery} className="absolute bottom-2 right-2" />
+            </div>
           </div>
           <label className="flex items-start gap-2 rounded-lg border border-[#B42318]/25 bg-[#B42318]/5 px-3.5 py-3 text-sm text-charcoal">
             <input
@@ -1372,13 +1376,16 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
           {editError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{editError}</div>}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-charcoal">Query</label>
-            <textarea
-              rows={6}
-              value={editQuery}
-              onChange={(e) => setEditQuery(e.target.value)}
-              placeholder="Write the query for the doctor..."
-              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
+            <div className="relative">
+              <textarea
+                rows={6}
+                value={editQuery}
+                onChange={(e) => setEditQuery(e.target.value)}
+                placeholder="Write the query for the doctor..."
+                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+              />
+              <DictationButton value={editQuery} onChange={setEditQuery} className="absolute bottom-2 right-2" />
+            </div>
           </div>
           <label className="flex items-start gap-2 rounded-lg border border-[#B42318]/25 bg-[#B42318]/5 px-3.5 py-3 text-sm text-charcoal">
             <input

@@ -6,6 +6,7 @@ import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
 import Modal from './ui/Modal.jsx';
 import Badge from './ui/Badge.jsx';
+import DictationButton from './ui/DictationButton.jsx';
 
 const formatDateTime = (iso) =>
   iso
@@ -185,13 +186,16 @@ const AdviceRequestList = ({ mode }) => {
           )}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-charcoal">Advice</label>
-            <textarea
-              rows={6}
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder="Write doctor's advice..."
-              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
+            <div className="relative">
+              <textarea
+                rows={6}
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                placeholder="Write doctor's advice..."
+                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+              />
+              <DictationButton value={reply} onChange={setReply} className="absolute bottom-2 right-2" />
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setReplyTarget(null)}>

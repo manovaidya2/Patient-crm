@@ -365,7 +365,13 @@ const getPatients = asyncHandler(async (req, res) => {
 // @route   GET /api/patients/dashboard-stats
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
-  const patients = await Patient.find({}).select('currentStage stages createdAt');
+  const patients = await Patient.find({}).select('patientName patientCode currentStage stages createdAt');
+  const dateText = String(req.query.followUpDate || '').trim();
+  const selectedFollowUpDate = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
+  const followUpDayStart = new Date(selectedFollowUpDate);
+  followUpDayStart.setHours(0, 0, 0, 0);
+  const followUpDayEnd = new Date(selectedFollowUpDate);
+  followUpDayEnd.setHours(23, 59, 59, 999);
 
   const stageCounts = STAGES.map((stage) => ({
     stage,
@@ -381,6 +387,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     courierPending: 0,
     courierDispatched: 0,
     courierDelivered: 0,
+  };
+
+  const followUpSummary = {
+    date: `${followUpDayStart.getFullYear()}-${String(followUpDayStart.getMonth() + 1).padStart(2, '0')}-${String(followUpDayStart.getDate()).padStart(2, '0')}`,
+    total: 0,
+    done: 0,
+    pending: 0,
+    normal: { total: 0, done: 0, pending: 0 },
+    sfs: { total: 0, done: 0, pending: 0 },
   };
 
   const paymentSummary = patients.reduce(
@@ -402,6 +417,25 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER && request.courier.status === COURIER_STATUSES.PENDING) workflowSummary.courierPending += 1;
         if (request.courier.status === COURIER_STATUSES.DISPATCHED) workflowSummary.courierDispatched += 1;
         if (request.courier.status === COURIER_STATUSES.DELIVERED) workflowSummary.courierDelivered += 1;
+
+        (stage.followUps || []).forEach((entry) => {
+          const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
+          if (!entryDate || entryDate < followUpDayStart || entryDate > followUpDayEnd) return;
+          const type = entry.followUpType === 'sfs' ? 'sfs' : 'normal';
+          const isDone = ['completed', 'done', 'done_late'].includes(entry.status);
+          const isCancelled = entry.status === 'cancelled';
+          if (isCancelled) return;
+
+          followUpSummary.total += 1;
+          followUpSummary[type].total += 1;
+          if (isDone) {
+            followUpSummary.done += 1;
+            followUpSummary[type].done += 1;
+          } else {
+            followUpSummary.pending += 1;
+            followUpSummary[type].pending += 1;
+          }
+        });
       });
       return acc;
     },
@@ -439,6 +473,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     stageCounts,
     paymentSummary,
     workflowSummary,
+    followUpSummary,
     monthlyOnboarding,
   });
 });

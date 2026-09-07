@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, UserCheck, UserX, ArrowRight, ChevronLeft, ChevronRight, Layers, WalletCards, PackageCheck, Truck, AlertTriangle } from 'lucide-react';
+import { Users, UserCheck, UserX, ArrowRight, ChevronLeft, ChevronRight, Layers, WalletCards, PackageCheck, Truck, AlertTriangle, CalendarDays } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
@@ -10,6 +10,10 @@ import { useAuth } from '../../context/AuthContext.jsx';
 const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 
 const chartColors = ['#657B6C', '#A9B5A3', '#E8D5B5', '#C6B28E', '#8B9A84', '#DED2BD'];
+
+const pad2 = (value) => String(value).padStart(2, '0');
+const toDateInputValue = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
 const getEmptyMonthlyRows = () =>
   Array.from({ length: 6 }, (_, index) => {
@@ -147,15 +151,17 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [emergencyAdvice, setEmergencyAdvice] = useState({ count: 0, latest: null });
   const [activeStageIndex, setActiveStageIndex] = useState(0);
+  const [followUpDate, setFollowUpDate] = useState(() => toDateInputValue(new Date()));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      setLoading(true);
       try {
         const usersPromise = isAdmin ? api.get('/users') : Promise.resolve({ data: { users: [] } });
         const [usersRes, statsRes] = await Promise.all([
           usersPromise,
-          api.get('/patients/dashboard-stats'),
+          api.get('/patients/dashboard-stats', { params: { followUpDate } }),
         ]);
         setUsers(usersRes.data.users || []);
         setStats(statsRes.data);
@@ -166,7 +172,7 @@ const Dashboard = () => {
       }
     };
     fetchDashboardData();
-  }, [isAdmin]);
+  }, [isAdmin, followUpDate]);
 
   useEffect(() => {
     if (![ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)) return undefined;
@@ -202,6 +208,13 @@ const Dashboard = () => {
     STAGES.map((stage) => ({ stage, label: STAGE_LABELS[stage], activePatients: 0 }));
   const activeStage = stageCounts[activeStageIndex] || stageCounts[0];
   const paymentSummary = stats?.paymentSummary || { totalAmount: 0, amountPaid: 0, dueAmount: 0 };
+  const followUpSummary = stats?.followUpSummary || {
+    total: 0,
+    done: 0,
+    pending: 0,
+    normal: { total: 0, done: 0, pending: 0 },
+    sfs: { total: 0, done: 0, pending: 0 },
+  };
   const workflowSummary = stats?.workflowSummary || {
     medicineRequested: 0,
     medicineInProcess: 0,
@@ -338,6 +351,49 @@ const Dashboard = () => {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Follow-up Summary</p>
+            <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Normal & SFS follow-ups</h2>
+          </div>
+          <label className="relative w-full sm:w-48">
+            <CalendarDays size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+            <input
+              type="date"
+              value={followUpDate}
+              onChange={(e) => setFollowUpDate(e.target.value)}
+              className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+            />
+          </label>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">Total Follow-ups</p>
+            <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.total}</p>
+          </div>
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">Done</p>
+            <p className="mt-2 font-display text-2xl font-bold text-sage">{loading ? '...' : followUpSummary.done}</p>
+          </div>
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">Pending</p>
+            <p className="mt-2 font-display text-2xl font-bold text-[#8C3B2E]">{loading ? '...' : followUpSummary.pending}</p>
+          </div>
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">Normal</p>
+            <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.normal.total}</p>
+            <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : followUpSummary.normal.done} | Pending {loading ? '...' : followUpSummary.normal.pending}</p>
+          </div>
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">SFS</p>
+            <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.sfs.total}</p>
+            <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : followUpSummary.sfs.done} | Pending {loading ? '...' : followUpSummary.sfs.pending}</p>
+          </div>
+        </div>
+      </Card>
 
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>

@@ -5,6 +5,7 @@ const FollowUps = () => (
     title="Follow Ups"
     subtitle="Who's handling follow-ups, and where things stand."
     apiPath="/schedule/followups"
+    showFollowUpTypeFilter
   />
 );
 
