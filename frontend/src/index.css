@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', sans-serif;
+  }
+
+  body {
+    @apply bg-cream text-charcoal antialiased;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: 'Manrope', sans-serif;
+  }
+
+  /* Visible keyboard focus for accessibility */
+  :focus-visible {
+    outline: 2px solid theme('colors.sage.DEFAULT');
+    outline-offset: 2px;
+  }
+}
+
+@media (max-width: 639px) {
+  .overflow-x-auto > table {
+    min-width: 42rem;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.sage.DEFAULT');
+    border-radius: 999px;
+  }
+}

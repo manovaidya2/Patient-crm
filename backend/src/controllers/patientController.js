@@ -1,0 +1,1599 @@
+const Patient = require('../models/Patient');
+const User = require('../models/User');
+const CallLog = require('../models/CallLog');
+const path = require('path');
+const { asyncHandler } = require('../middleware/errorHandler');
+const { writeTextPdf } = require('../utils/simplePdf');
+const { ALL_CATEGORIES, CATEGORY_LABELS } = require('../constants/patientCategories');
+const {
+  STAGES,
+  STAGE_LABELS,
+  STAGE_STATUSES,
+  ALL_STAGE_STATUSES,
+  STAGE_STATUS_LABELS,
+} = require('../constants/treatmentStages');
+const { PAYMENT_MODES, ALL_PAYMENT_MODES, PAYMENT_MODE_LABELS } = require('../constants/paymentModes');
+const { ROLES, ASSIGN_DOCTOR_ROLES } = require('../constants/roles');
+const { ALL_SCHEDULE_STATUSES, DISPLAY_STATUS_LABELS, getDisplayStatus } = require('../constants/scheduleStatuses');
+
+const MEDICINE_STATUSES = {
+  NOT_REQUESTED: 'not_requested',
+  REQUESTED: 'requested',
+  IN_PROCESS: 'in_process',
+  MADE: 'made',
+  SENT_TO_COURIER: 'sent_to_courier',
+};
+
+const MEDICINE_STATUS_LABELS = {
+  [MEDICINE_STATUSES.NOT_REQUESTED]: 'Not Requested',
+  [MEDICINE_STATUSES.REQUESTED]: 'Medicine Request Sent',
+  [MEDICINE_STATUSES.IN_PROCESS]: 'Medicine Preparation In Process',
+  [MEDICINE_STATUSES.MADE]: 'Medicine Done',
+  [MEDICINE_STATUSES.SENT_TO_COURIER]: 'Sent To Courier',
+};
+
+const ACTIVE_MEDICINE_STATUSES = Object.values(MEDICINE_STATUSES);
+
+const COURIER_STATUSES = {
+  PENDING: 'pending',
+  DISPATCHED: 'dispatched',
+  DELIVERED: 'delivered',
+};
+
+const COURIER_STATUS_LABELS = {
+  [COURIER_STATUSES.PENDING]: 'Courier Pending',
+  [COURIER_STATUSES.DISPATCHED]: 'Courier Dispatched',
+  [COURIER_STATUSES.DELIVERED]: 'Delivered',
+};
+
+const emptyCourier = () => ({
+  status: COURIER_STATUSES.PENDING,
+  receiverName: '',
+  receiverPhone: '',
+  address: '',
+  courierPartner: '',
+  trackingNumber: '',
+  packageImageUrl: null,
+  packageImageFileName: '',
+  packageImages: [],
+  paymentPaidBy: 'clinic',
+  paymentAmount: 0,
+  paymentMode: '',
+  notes: '',
+  dispatchedAt: null,
+  dispatchedByName: '',
+  deliveredAt: null,
+  deliveredByName: '',
+  receivedByName: '',
+  deliveryProofUrl: null,
+  deliveryProofFileName: '',
+  deliveryProofImages: [],
+});
+
+const emptyMedicineRequest = () => ({
+  status: MEDICINE_STATUSES.NOT_REQUESTED,
+  medicines: '',
+  notes: '',
+  prescriptionUrl: null,
+  prescriptionFileName: '',
+  prescriptionFiles: [],
+  requestedAt: null,
+  requestedByName: '',
+  inProcessAt: null,
+  inProcessByName: '',
+  madeAt: null,
+  madeByName: '',
+  medicineImageUrl: null,
+  medicineImageFileName: '',
+  medicineImages: [],
+  sentToCourierAt: null,
+  sentToCourierByName: '',
+  courier: emptyCourier(),
+});
+// Assistant Doctor and Psychologist can only see/edit patients assigned to them.
+// Works whether assignment fields are raw ObjectIds or populated into {_id, name}.
+const canAccessPatient = (user, patient) => {
+  if (user.role !== ROLES.ASSISTANT_DOCTOR && user.role !== ROLES.PSYCHOLOGIST) return true;
+  const assignment = user.role === ROLES.ASSISTANT_DOCTOR ? patient.assignedDoctor : patient.assignedPsychologist;
+  if (!assignment) return false;
+  const assignedId = assignment._id || assignment;
+  return String(assignedId) === String(user._id);
+};
+
+const formatAssignedUser = (assignedUser) => {
+  if (!assignedUser) return null;
+  if (typeof assignedUser === 'object' && assignedUser.name) {
+    return { id: assignedUser._id, name: assignedUser.name };
+  }
+  return { id: assignedUser, name: null };
+};
+
+const populateAssignments = async (patient) => {
+  await patient.populate('assignedDoctor', 'name');
+  await patient.populate('assignedPsychologist', 'name');
+};
+
+const addActivity = (patient, user, action, details = '') => {
+  patient.activityLog.push({
+    action,
+    details,
+    actorName: user?.name || 'System',
+    actorRole: user?.role || '',
+  });
+};
+
+const filesFromRequest = (req) => req.files || (req.file ? [req.file] : []);
+const toFileItems = (files, folder) =>
+  files.map((file) => ({
+    url: `/uploads/${folder}/${file.filename}`,
+    fileName: file.originalname,
+  }));
+const mergeFileItems = (existing = [], items = []) => [...(existing || []), ...items];
+const withLegacyFile = (files = [], url, fileName) => {
+  const list = [...(files || [])];
+  if (url && !list.some((file) => file.url === url)) {
+    list.unshift({ url, fileName: fileName || 'View file' });
+  }
+  return list;
+};
+
+const sameValue = (left, right) => String(left ?? '') === String(right ?? '');
+
+const formatScheduleEntry = (e) => {
+  const displayStatus = getDisplayStatus(e);
+  return {
+    id: e._id,
+    dateTime: e.dateTime,
+    status: e.status,
+    followUpType: e.followUpType || 'normal',
+    displayStatus,
+    displayStatusLabel: DISPLAY_STATUS_LABELS[displayStatus],
+    notes: e.notes,
+    createdByName: e.createdByName,
+    completedAt: e.completedAt || null,
+    completionName: e.completionName || '',
+    completionDetails: e.completionDetails || '',
+    meetRecordingUrl: e.meetRecordingUrl || '',
+    completionFormType: e.completionFormType || '',
+    completionPdfUrl: e.completionPdfUrl || null,
+    completionPdfName: e.completionPdfName || '',
+  };
+};
+
+const formatMedicineRequest = (request = {}) => {
+  const data = { ...emptyMedicineRequest(), ...(request?.toObject?.() || request || {}) };
+  const courier = { ...emptyCourier(), ...(data.courier?.toObject?.() || data.courier || {}) };
+  return {
+    ...data,
+    prescriptionFiles: withLegacyFile(data.prescriptionFiles, data.prescriptionUrl, data.prescriptionFileName),
+    medicineImages: withLegacyFile(data.medicineImages, data.medicineImageUrl, data.medicineImageFileName),
+    courier: {
+      ...courier,
+      packageImages: withLegacyFile(courier.packageImages, courier.packageImageUrl, courier.packageImageFileName),
+      deliveryProofImages: withLegacyFile(courier.deliveryProofImages, courier.deliveryProofUrl, courier.deliveryProofFileName),
+      statusLabel: COURIER_STATUS_LABELS[courier.status] || courier.status,
+    },
+    statusLabel: MEDICINE_STATUS_LABELS[data.status] || data.status,
+  };
+};
+
+const formatCallLog = (callLog) => ({
+  id: callLog._id,
+  patientId: callLog.patient,
+  patientName: callLog.patientName,
+  phoneNumber: callLog.phoneNumber,
+  callType: callLog.callType,
+  durationSeconds: callLog.durationSeconds || 0,
+  durationText: callLog.durationText || '',
+  callAction: callLog.callAction || '',
+  actionCreationTime: callLog.actionCreationTime,
+  recordingUrl: callLog.recordingUrl || '',
+  recordingFileUrl: callLog.recordingFileUrl || '',
+  recordingFileName: callLog.recordingFileName || '',
+  createdAt: callLog.createdAt,
+  updatedAt: callLog.updatedAt,
+});
+
+// Always returns exactly 6 stage entries (1-6), filling in defaults for any that are
+// missing — covers patients created before the stages field existed.
+const normalizeStages = (existing = []) => {
+  const byNumber = new Map(existing.map((s) => [s.number, s]));
+  return STAGES.map((n) => {
+    const found = byNumber.get(n);
+    return {
+      number: n,
+      status: found?.status || STAGE_STATUSES.NOT_STARTED,
+      date: found?.date ?? null,
+      notes: found?.notes || '',
+      packageName: found?.packageName || '',
+      totalAmount: found?.totalAmount || 0,
+      payments: found?.payments || [],
+      recordFileUrl: found?.recordFileUrl || null,
+      recordFileName: found?.recordFileName || '',
+      recordFiles: withLegacyFile(found?.recordFiles || [], found?.recordFileUrl, found?.recordFileName),
+      medicineRequest: { ...emptyMedicineRequest(), ...(found?.medicineRequest?.toObject?.() || found?.medicineRequest || {}) },
+      followUps: found?.followUps || [],
+      familySessions: found?.familySessions || [],
+    };
+  });
+};
+
+const shouldShowFollowUps = (user) =>
+  !user || ![ROLES.PSYCHOLOGIST, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
+
+const shouldShowFamilySessions = (user) =>
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
+
+const cannotSeeScheduleType = (user, fieldKey) =>
+  fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST;
+
+const cannotUpdateScheduleType = (user, fieldKey) =>
+  (fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST) ||
+  (fieldKey === 'familySessions' && user.role === ROLES.ASSISTANT_DOCTOR);
+
+const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
+  id: p._id,
+  patientCode: p.patientCode || `PT-${String(p._id).slice(-6).toUpperCase()}`,
+  patientName: p.patientName,
+  category: p.category,
+  categoryLabel: CATEGORY_LABELS[p.category],
+  age: p.age,
+  number: p.number,
+  guardianName: p.guardianName || null,
+  alternateNumber: p.alternateNumber || null,
+  relativeName: p.relativeName || null,
+  currentStage: p.currentStage || 1,
+  currentStageLabel: STAGE_LABELS[p.currentStage || 1],
+  assignedDoctor: formatAssignedUser(p.assignedDoctor),
+  assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
+  stages: normalizeStages(p.stages).map((s) => {
+    const amountPaid = (s.payments || []).reduce((sum, pay) => sum + (pay.amount || 0), 0);
+    return {
+      number: s.number,
+      status: s.status,
+      statusLabel: STAGE_STATUS_LABELS[s.status],
+      date: s.date,
+      notes: s.notes,
+      packageName: s.packageName,
+      totalAmount: s.totalAmount,
+      amountPaid,
+      remainingAmount: Math.max(s.totalAmount - amountPaid, 0),
+      recordFileUrl: s.recordFileUrl || null,
+      recordFileName: s.recordFileName || '',
+      recordFiles: withLegacyFile(s.recordFiles || [], s.recordFileUrl, s.recordFileName),
+      medicineRequest: formatMedicineRequest(s.medicineRequest),
+      followUps: shouldShowFollowUps(user)
+        ? (s.followUps || []).map(formatScheduleEntry).sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
+        : [],
+      familySessions: shouldShowFamilySessions(user)
+        ? (s.familySessions || []).map(formatScheduleEntry).sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
+        : [],
+      payments: (s.payments || [])
+        .map((pay) => ({
+          id: pay._id,
+          amount: pay.amount,
+          date: pay.date,
+          createdAt: pay.createdAt || pay.date,
+          updatedAt: pay.updatedAt || pay.createdAt || pay.date,
+          paymentMode: pay.paymentMode || PAYMENT_MODES.ONLINE,
+          paymentModeLabel: PAYMENT_MODE_LABELS[pay.paymentMode || PAYMENT_MODES.ONLINE],
+          utr: pay.utr || '',
+          transactionId: pay.transactionId || '',
+          receivedBy: pay.receivedBy || '',
+          screenshotUrl: pay.screenshotUrl || null,
+          screenshotFiles: withLegacyFile(pay.screenshotFiles || [], pay.screenshotUrl, 'Payment screenshot'),
+          recordedByName: pay.recordedByName || '',
+          editedByName: pay.editedByName || '',
+          editedAt: pay.editedAt || null,
+        }))
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    };
+  }),
+  ...(includeActivity
+    ? {
+        activityLog: (p.activityLog || [])
+          .map(formatActivityEntry)
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+      }
+    : {}),
+  createdAt: p.createdAt,
+});
+
+// @desc    List patients received via webhook (search, filter by category, paginated)
+// @route   GET /api/patients
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const getPatients = asyncHandler(async (req, res) => {
+  const { search = '', category, stage, page = 1, limit = 10 } = req.query;
+
+  const filter = {};
+
+  if (category) {
+    if (!ALL_CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: 'Invalid category filter' });
+    }
+    filter.category = category;
+  }
+
+  if (stage) {
+    const stageNum = parseInt(stage, 10);
+    if (!STAGES.includes(stageNum)) {
+      return res.status(400).json({ success: false, message: 'Invalid stage filter' });
+    }
+    filter.currentStage = stageNum;
+  }
+
+  if (search) {
+    filter.$or = [
+      { patientName: { $regex: search, $options: 'i' } },
+      { patientCode: { $regex: search, $options: 'i' } },
+      { number: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  // Assistant Doctor and Psychologist only ever see patients assigned to them.
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
+    filter.assignedDoctor = req.user._id;
+  } else if (req.user.role === ROLES.PSYCHOLOGIST) {
+    filter.assignedPsychologist = req.user._id;
+  }
+
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+  const skip = (pageNum - 1) * limitNum;
+
+  const [patients, total] = await Promise.all([
+    Patient.find(filter)
+      .populate('assignedDoctor', 'name')
+      .populate('assignedPsychologist', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum),
+    Patient.countDocuments(filter),
+  ]);
+
+  res.status(200).json({
+    success: true,
+    count: patients.length,
+    total,
+    page: pageNum,
+    pages: Math.max(Math.ceil(total / limitNum), 1),
+    patients: patients.map((patient) => formatPatient(patient, req.user)),
+  });
+});
+
+// @desc    Admin dashboard patient/payment summary
+// @route   GET /api/patients/dashboard-stats
+// @access  Private/Admin
+const getDashboardStats = asyncHandler(async (req, res) => {
+  const patients = await Patient.find({}).select('currentStage stages createdAt');
+
+  const stageCounts = STAGES.map((stage) => ({
+    stage,
+    label: STAGE_LABELS[stage],
+    activePatients: 0,
+  }));
+
+  const workflowSummary = {
+    medicineRequested: 0,
+    medicineInProcess: 0,
+    medicineMade: 0,
+    sentToCourier: 0,
+    courierPending: 0,
+    courierDispatched: 0,
+    courierDelivered: 0,
+  };
+
+  const paymentSummary = patients.reduce(
+    (acc, patient) => {
+      const currentStage = patient.currentStage || 1;
+      const stageRow = stageCounts.find((row) => row.stage === currentStage);
+      if (stageRow) stageRow.activePatients += 1;
+
+      normalizeStages(patient.stages).forEach((stage) => {
+        const totalAmount = Number(stage.totalAmount || 0);
+        const amountPaid = (stage.payments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+        acc.totalAmount += totalAmount;
+        acc.amountPaid += amountPaid;
+        const request = formatMedicineRequest(stage.medicineRequest);
+        if (request.status === MEDICINE_STATUSES.REQUESTED) workflowSummary.medicineRequested += 1;
+        if (request.status === MEDICINE_STATUSES.IN_PROCESS) workflowSummary.medicineInProcess += 1;
+        if ([MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER].includes(request.status)) workflowSummary.medicineMade += 1;
+        if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER) workflowSummary.sentToCourier += 1;
+        if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER && request.courier.status === COURIER_STATUSES.PENDING) workflowSummary.courierPending += 1;
+        if (request.courier.status === COURIER_STATUSES.DISPATCHED) workflowSummary.courierDispatched += 1;
+        if (request.courier.status === COURIER_STATUSES.DELIVERED) workflowSummary.courierDelivered += 1;
+      });
+      return acc;
+    },
+    { totalAmount: 0, amountPaid: 0 }
+  );
+
+  paymentSummary.dueAmount = Math.max(paymentSummary.totalAmount - paymentSummary.amountPaid, 0);
+
+  const monthFormatter = new Intl.DateTimeFormat('en-IN', { month: 'short' });
+  const now = new Date();
+  const monthlyOnboarding = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+    return {
+      key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
+      label: monthFormatter.format(date),
+      patients: 0,
+    };
+  });
+
+  const monthRowsByKey = monthlyOnboarding.reduce((acc, row) => {
+    acc[row.key] = row;
+    return acc;
+  }, {});
+
+  patients.forEach((patient) => {
+    if (!patient.createdAt) return;
+    const createdAt = new Date(patient.createdAt);
+    const key = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`;
+    if (monthRowsByKey[key]) monthRowsByKey[key].patients += 1;
+  });
+
+  res.status(200).json({
+    success: true,
+    totalPatients: patients.length,
+    stageCounts,
+    paymentSummary,
+    workflowSummary,
+    monthlyOnboarding,
+  });
+});
+
+// @desc    Admin payment ledger across all patients/stages
+// @route   GET /api/patients/payments-ledger
+// @access  Private/Admin
+const getPaymentsLedger = asyncHandler(async (req, res) => {
+  const { filter = 'all', date, month, dateType = 'paid', page = 1, limit = 10 } = req.query;
+  const now = new Date();
+  let from = null;
+  let to = null;
+
+  if (filter === 'today') {
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  } else if (filter === 'date' && date) {
+    const selected = new Date(`${date}T00:00:00`);
+    from = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    to = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() + 1);
+  } else if (filter === 'month' && month) {
+    const [year, monthIndex] = String(month).split('-').map(Number);
+    if (year && monthIndex) {
+      from = new Date(year, monthIndex - 1, 1);
+      to = new Date(year, monthIndex, 1);
+    }
+  }
+
+  const patients = await Patient.find({}).select('patientName number category stages createdAt');
+  const payments = [];
+
+  patients.forEach((patient) => {
+    normalizeStages(patient.stages).forEach((stage) => {
+      (stage.payments || []).forEach((payment) => {
+        const paidAt = payment.date ? new Date(payment.date) : null;
+        const addedAt = payment.createdAt ? new Date(payment.createdAt) : null;
+        const updatedAt = payment.updatedAt ? new Date(payment.updatedAt) : addedAt;
+        const compareDate = dateType === 'added' ? addedAt : paidAt;
+        if (from && to && (!compareDate || compareDate < from || compareDate >= to)) return;
+
+        payments.push({
+          id: payment._id,
+          patientId: patient._id,
+          patientName: patient.patientName,
+          patientNumber: patient.number,
+          category: patient.category,
+          categoryLabel: CATEGORY_LABELS[patient.category],
+          stage: stage.number,
+          amount: Number(payment.amount || 0),
+          paidAt,
+          addedAt,
+          updatedAt,
+          paymentMode: payment.paymentMode,
+          paymentModeLabel: PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode,
+          utr: payment.utr || '',
+          transactionId: payment.transactionId || '',
+          receivedBy: payment.receivedBy || '',
+          recordedByName: payment.recordedByName || '',
+          editedByName: payment.editedByName || '',
+          editedAt: payment.editedAt || null,
+          screenshotUrl: payment.screenshotUrl || null,
+          screenshotFiles: withLegacyFile(payment.screenshotFiles || [], payment.screenshotUrl, 'Payment screenshot'),
+        });
+      });
+    });
+  });
+
+  payments.sort((a, b) => new Date(b.addedAt || 0) - new Date(a.addedAt || 0));
+
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+  const total = payments.length;
+  const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const paginatedPayments = payments.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+
+  res.status(200).json({
+    success: true,
+    count: paginatedPayments.length,
+    total,
+    page: pageNum,
+    pages: Math.max(Math.ceil(total / limitNum), 1),
+    totalAmount,
+    payments: paginatedPayments,
+  });
+});
+
+// @desc    Get a single patient by id
+// @route   GET /api/patients/:id
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const getPatientById = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.params.id)
+    .populate('assignedDoctor', 'name')
+    .populate('assignedPsychologist', 'name');
+
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  }
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    List calling webhook data for one patient
+// @route   GET /api/patients/:id/calls
+// @access  Private, scoped like patient details
+const getPatientCallLogs = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'You can only view calls for assigned patients' });
+  }
+
+  const callLogs = await CallLog.find({ patient: patient._id }).sort({ actionCreationTime: -1, createdAt: -1 }).limit(100);
+  res.status(200).json({ success: true, callLogs: callLogs.map(formatCallLog) });
+});
+
+// @desc    Manually create a patient when it was not received from the CRM webhook
+// @route   POST /api/patients
+// @access  Private/Admin, Manager, Post Counselor
+const createPatient = asyncHandler(async (req, res) => {
+  const {
+    patientCode,
+    patientName,
+    category,
+    age,
+    number,
+    guardianName,
+    alternateNumber,
+    relativeName,
+    currentStage,
+  } = req.body;
+
+  if (!patientCode || !patientName || !category || age === undefined || age === null || !number) {
+    return res.status(400).json({ success: false, message: 'Patient ID, patient name, category, age and number are required' });
+  }
+
+  const normalizedPatientCode = String(patientCode).trim().toUpperCase();
+  const existingCode = await Patient.findOne({ patientCode: normalizedPatientCode });
+  if (existingCode) {
+    return res.status(400).json({ success: false, message: 'Patient ID already exists' });
+  }
+
+  if (!ALL_CATEGORIES.includes(category)) {
+    return res.status(400).json({ success: false, message: 'Invalid patient category' });
+  }
+
+  if (category === 'autism_adhd' && !guardianName) {
+    return res.status(400).json({ success: false, message: 'Father/Mother name is required for Autism/ADHD patients' });
+  }
+
+  if (category === 'mental_health' && !relativeName) {
+    return res.status(400).json({ success: false, message: 'Relative name is required for Mental Health patients' });
+  }
+
+  const stageNum = Number(currentStage || 1);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: `Stage must be one of: ${STAGES.join(', ')}` });
+  }
+
+  const patient = await Patient.create({
+    patientCode: normalizedPatientCode,
+    patientName,
+    category,
+    age,
+    number,
+    guardianName: category === 'autism_adhd' ? guardianName : '',
+    alternateNumber: category === 'autism_adhd' ? alternateNumber : '',
+    relativeName: category === 'mental_health' ? relativeName : '',
+    currentStage: stageNum,
+    source: 'manual',
+    stages: normalizeStages(),
+    activityLog: [
+      {
+        action: 'Patient manually added',
+        details: `Created in All Patients by ${req.user?.name || 'Unknown'}`,
+        actorName: req.user?.name || 'System',
+        actorRole: req.user?.role || '',
+      },
+    ],
+  });
+
+  res.status(201).json({ success: true, patient: formatPatient(patient, req.user) });
+});
+
+// @desc    Update one or more fields on a patient (used by inline editing on the details page)
+// @route   PATCH /api/patients/:id
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const updatePatient = asyncHandler(async (req, res) => {
+  const {
+    patientName,
+    age,
+    number,
+    guardianName,
+    alternateNumber,
+    relativeName,
+    currentStage,
+    assignedDoctor,
+    assignedPsychologist,
+  } = req.body;
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  }
+
+  if (req.user.role === ROLES.PSYCHOLOGIST) {
+    return res.status(403).json({ success: false, message: 'Psychologist cannot edit patient details' });
+  }
+
+  const updateField = (fieldKey, nextValue, label) => {
+    if (nextValue === undefined || sameValue(patient[fieldKey], nextValue)) return;
+    const previousValue = patient[fieldKey] || 'Blank';
+    patient[fieldKey] = nextValue;
+    addActivity(patient, req.user, `${label} updated`, `From "${previousValue}" to "${nextValue || 'Blank'}"`);
+  };
+
+  updateField('patientName', patientName, 'Patient name');
+  updateField('age', age, 'Age');
+  updateField('number', number, 'Phone number');
+  updateField('guardianName', guardianName, 'Father/Mother name');
+  updateField('alternateNumber', alternateNumber, 'Alternate number');
+  updateField('relativeName', relativeName, 'Relative name');
+
+  if (currentStage !== undefined) {
+    const stageNum = Number(currentStage);
+    if (!STAGES.includes(stageNum)) {
+      return res.status(400).json({ success: false, message: `Stage must be one of: ${STAGES.join(', ')}` });
+    }
+    if (!sameValue(patient.currentStage, stageNum)) {
+      addActivity(patient, req.user, 'Current stage updated', `From ${STAGE_LABELS[patient.currentStage] || patient.currentStage} to ${STAGE_LABELS[stageNum]}`);
+    }
+    patient.currentStage = stageNum;
+  }
+
+  if (assignedDoctor !== undefined) {
+    if (!ASSIGN_DOCTOR_ROLES.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to assign patients' });
+    }
+    if (!assignedDoctor) {
+      if (patient.assignedDoctor) {
+        addActivity(patient, req.user, 'Assistant Doctor unassigned');
+      }
+      patient.assignedDoctor = null;
+    } else {
+      const doctor = await User.findOne({ _id: assignedDoctor, role: ROLES.ASSISTANT_DOCTOR, isActive: true });
+      if (!doctor) {
+        return res.status(400).json({ success: false, message: 'Select a valid, active Assistant Doctor' });
+      }
+      if (!sameValue(patient.assignedDoctor, doctor._id)) {
+        addActivity(patient, req.user, 'Assistant Doctor assigned', doctor.name);
+      }
+      patient.assignedDoctor = doctor._id;
+    }
+  }
+
+  if (assignedPsychologist !== undefined) {
+    if (!ASSIGN_DOCTOR_ROLES.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to assign patients' });
+    }
+    if (!assignedPsychologist) {
+      if (patient.assignedPsychologist) {
+        addActivity(patient, req.user, 'Psychologist unassigned');
+      }
+      patient.assignedPsychologist = null;
+    } else {
+      const psychologist = await User.findOne({ _id: assignedPsychologist, role: ROLES.PSYCHOLOGIST, isActive: true });
+      if (!psychologist) {
+        return res.status(400).json({ success: false, message: 'Select a valid, active Psychologist' });
+      }
+      if (!sameValue(patient.assignedPsychologist, psychologist._id)) {
+        addActivity(patient, req.user, 'Psychologist assigned', psychologist.name);
+      }
+      patient.assignedPsychologist = psychologist._id;
+    }
+  }
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Update one stage's status/date/notes (used by the stage detail modal)
+// @route   PATCH /api/patients/:id/stages/:number
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const updatePatientStage = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const { status, date, notes, packageName, totalAmount } = req.body;
+  if (status !== undefined && !ALL_STAGE_STATUSES.includes(status)) {
+    return res.status(400).json({ success: false, message: `Status must be one of: ${ALL_STAGE_STATUSES.join(', ')}` });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  }
+
+  if (req.user.role === ROLES.PSYCHOLOGIST) {
+    return res.status(403).json({ success: false, message: 'Psychologist cannot edit stages or package details' });
+  }
+
+  // Backfill the full 6-entry array if this patient predates the stages field
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  if (status !== undefined && !sameValue(stageEntry.status, status)) {
+    addActivity(patient, req.user, `Stage ${stageNum} status updated`, `From ${STAGE_STATUS_LABELS[stageEntry.status]} to ${STAGE_STATUS_LABELS[status]}`);
+    stageEntry.status = status;
+  }
+  if (date !== undefined && !sameValue(stageEntry.date ? stageEntry.date.toISOString().slice(0, 10) : '', date || '')) {
+    addActivity(patient, req.user, `Stage ${stageNum} date updated`, date || 'Cleared');
+    stageEntry.date = date || null;
+  }
+  if (notes !== undefined && !sameValue(stageEntry.notes, notes)) {
+    addActivity(patient, req.user, `Stage ${stageNum} notes updated`, notes || 'Cleared');
+    stageEntry.notes = notes;
+  }
+  if (packageName !== undefined && !sameValue(stageEntry.packageName, packageName)) {
+    addActivity(patient, req.user, `Stage ${stageNum} package updated`, packageName || 'Cleared');
+    stageEntry.packageName = packageName;
+  }
+  if (totalAmount !== undefined) {
+    const nextTotalAmount = Math.max(Number(totalAmount) || 0, 0);
+    if (!sameValue(stageEntry.totalAmount, nextTotalAmount)) {
+      addActivity(patient, req.user, `Stage ${stageNum} total amount updated`, `From ${stageEntry.totalAmount || 0} to ${nextTotalAmount}`);
+    }
+    stageEntry.totalAmount = nextTotalAmount;
+  }
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Log a payment made towards a stage's package (adds to, never overwrites, the running total)
+// @route   POST /api/patients/:id/stages/:number/payments
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const addStagePayment = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const amountNum = Number(req.body.amount);
+  if (!amountNum || amountNum <= 0) {
+    return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
+  }
+
+  const paymentMode = req.body.paymentMode || PAYMENT_MODES.ONLINE;
+  if (!ALL_PAYMENT_MODES.includes(paymentMode)) {
+    return res.status(400).json({ success: false, message: `Payment mode must be one of: ${ALL_PAYMENT_MODES.join(', ')}` });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  }
+
+  if (req.user.role === ROLES.PSYCHOLOGIST) {
+    return res.status(403).json({ success: false, message: 'Psychologist cannot add payments' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const screenshotFiles = toFileItems(filesFromRequest(req), 'payments');
+  stageEntry.payments.push({
+    amount: amountNum,
+    date: req.body.date || new Date(),
+    paymentMode,
+    utr: paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '',
+    transactionId: paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '',
+    receivedBy: paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '',
+    screenshotUrl: screenshotFiles[0]?.url || null,
+    screenshotFiles,
+    recordedByName: req.user.name,
+  });
+  addActivity(patient, req.user, `Payment added for Stage ${stageNum}`, `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}`);
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Edit a payment entry. Admin only; other members can add where allowed but cannot edit.
+// @route   PATCH /api/patients/:id/stages/:number/payments/:paymentId
+// @access  Private/Admin
+const updateStagePayment = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const payment = stageEntry.payments.id(req.params.paymentId);
+  if (!payment) {
+    return res.status(404).json({ success: false, message: 'Payment not found' });
+  }
+
+  const amountNum = Number(req.body.amount);
+  if (!amountNum || amountNum <= 0) {
+    return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
+  }
+
+  const paymentMode = req.body.paymentMode || PAYMENT_MODES.ONLINE;
+  if (!ALL_PAYMENT_MODES.includes(paymentMode)) {
+    return res.status(400).json({ success: false, message: `Payment mode must be one of: ${ALL_PAYMENT_MODES.join(', ')}` });
+  }
+
+  const previousSummary = `${payment.amount || 0} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode}`;
+  payment.amount = amountNum;
+  payment.date = req.body.date || payment.date || new Date();
+  payment.paymentMode = paymentMode;
+  payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '';
+  payment.transactionId = paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '';
+  payment.receivedBy = paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '';
+  payment.editedByName = req.user.name;
+  payment.editedAt = new Date();
+  const screenshotFiles = toFileItems(filesFromRequest(req), 'payments');
+  if (screenshotFiles.length) {
+    payment.screenshotUrl = screenshotFiles[0].url;
+    payment.screenshotFiles = mergeFileItems(payment.screenshotFiles || [], screenshotFiles);
+  }
+
+  addActivity(
+    patient,
+    req.user,
+    `Payment edited for Stage ${stageNum}`,
+    `From ${previousSummary} to ${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}`
+  );
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Upload (or replace) the patient-record file for a stage
+// @route   POST /api/patients/:id/stages/:number/record
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const uploadStageRecord = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const uploadedFiles = filesFromRequest(req);
+  if (!uploadedFiles.length) {
+    return res.status(400).json({ success: false, message: 'No file uploaded' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  }
+
+  if (req.user.role === ROLES.PSYCHOLOGIST) {
+    return res.status(403).json({ success: false, message: 'Psychologist cannot upload patient records' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const recordFiles = toFileItems(uploadedFiles, 'records');
+  stageEntry.recordFileUrl = recordFiles[0].url;
+  stageEntry.recordFileName = recordFiles[0].fileName;
+  stageEntry.recordFiles = recordFiles;
+  addActivity(patient, req.user, `Record replaced for Stage ${stageNum}`, recordFiles[0].fileName);
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Assistant Doctor/Doctor/Admin sends a stage medicine request with prescription
+// @route   POST /api/patients/:id/stages/:number/medicine-request
+// @access  Private/Admin, Doctor, Assistant Doctor (scoped)
+const requestStageMedicine = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Only Doctor, Assistant Doctor or Admin can request medicine' });
+  }
+
+  const { medicines, notes } = req.body;
+  if (!medicines) {
+    return res.status(400).json({ success: false, message: 'Medicine details are required' });
+  }
+  const uploadedFiles = filesFromRequest(req);
+  if (!uploadedFiles.length) {
+    return res.status(400).json({ success: false, message: 'Prescription image or document is required' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const prescriptionFiles = toFileItems(uploadedFiles, 'prescriptions');
+  stageEntry.medicineRequest = {
+    ...emptyMedicineRequest(),
+    ...(stageEntry.medicineRequest?.toObject?.() || stageEntry.medicineRequest || {}),
+    status: MEDICINE_STATUSES.REQUESTED,
+    medicines,
+    notes: notes || '',
+    prescriptionUrl: prescriptionFiles[0].url,
+    prescriptionFileName: prescriptionFiles[0].fileName,
+    prescriptionFiles: mergeFileItems(stageEntry.medicineRequest?.prescriptionFiles || [], prescriptionFiles),
+    requestedAt: new Date(),
+    requestedByName: req.user.name,
+  };
+
+  addActivity(patient, req.user, `Medicine requested for Stage ${stageNum}`, medicines);
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(201).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+const formatMedicineListItem = (patient, stage, request) => ({
+  patientId: patient._id,
+  patientName: patient.patientName,
+  patientNumber: patient.number,
+  categoryLabel: CATEGORY_LABELS[patient.category],
+  stage: stage.number,
+  stageLabel: STAGE_LABELS[stage.number],
+  medicineRequest: formatMedicineRequest(request),
+});
+
+// @desc    Medicine department/admin list medicine requests by status
+// @route   GET /api/medicine/requests
+// @access  Private/Admin, Medicine Department
+const listMedicineRequests = asyncHandler(async (req, res) => {
+  const statuses = String(req.query.status || `${MEDICINE_STATUSES.REQUESTED},${MEDICINE_STATUSES.IN_PROCESS}`)
+    .split(',')
+    .map((status) => status.trim())
+    .filter(Boolean);
+
+  if (statuses.some((status) => !ACTIVE_MEDICINE_STATUSES.includes(status))) {
+    return res.status(400).json({ success: false, message: 'Invalid medicine status filter' });
+  }
+
+  const patients = await Patient.find({}).select('patientName number category stages');
+  const rows = [];
+
+  patients.forEach((patient) => {
+    normalizeStages(patient.stages).forEach((stage) => {
+      const request = formatMedicineRequest(stage.medicineRequest);
+      if (!statuses.includes(request.status)) return;
+      rows.push(formatMedicineListItem(patient, stage, request));
+    });
+  });
+
+  rows.sort((a, b) => {
+    const left = a.medicineRequest.requestedAt || a.medicineRequest.madeAt || 0;
+    const right = b.medicineRequest.requestedAt || b.medicineRequest.madeAt || 0;
+    return new Date(right) - new Date(left);
+  });
+
+  res.status(200).json({ success: true, count: rows.length, rows });
+});
+
+// @desc    Medicine department/admin updates medicine preparation status
+// @route   PATCH /api/medicine/requests/:patientId/stages/:number
+// @access  Private/Admin, Medicine Department
+const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const { status } = req.body;
+  if (![MEDICINE_STATUSES.IN_PROCESS, MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid medicine status update' });
+  }
+
+  const patient = await Patient.findById(req.params.patientId);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const currentRequest = { ...emptyMedicineRequest(), ...(stageEntry.medicineRequest?.toObject?.() || stageEntry.medicineRequest || {}) };
+  const uploadedFiles = filesFromRequest(req);
+  const existingMedicineImages = withLegacyFile(currentRequest.medicineImages || [], currentRequest.medicineImageUrl, currentRequest.medicineImageFileName);
+  if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
+    return res.status(400).json({ success: false, message: 'Medicine has not been requested for this stage' });
+  }
+  if (status === MEDICINE_STATUSES.MADE && !uploadedFiles.length && !existingMedicineImages.length) {
+    return res.status(400).json({ success: false, message: 'Medicine image is required before marking medicine made' });
+  }
+  if (status === MEDICINE_STATUSES.SENT_TO_COURIER && !existingMedicineImages.length) {
+    return res.status(400).json({ success: false, message: 'Upload medicine image before sending to courier' });
+  }
+
+  const medicineImages = toFileItems(uploadedFiles, 'medicine');
+  stageEntry.medicineRequest = {
+    ...currentRequest,
+    status,
+    ...(status === MEDICINE_STATUSES.IN_PROCESS ? { inProcessAt: new Date(), inProcessByName: req.user.name } : {}),
+    ...(status === MEDICINE_STATUSES.MADE
+      ? {
+          madeAt: new Date(),
+          madeByName: req.user.name,
+          ...(medicineImages.length
+            ? {
+                medicineImageUrl: medicineImages[0].url,
+                medicineImageFileName: medicineImages[0].fileName,
+                medicineImages: mergeFileItems(currentRequest.medicineImages || [], medicineImages),
+              }
+            : {}),
+        }
+      : {}),
+    ...(status === MEDICINE_STATUSES.SENT_TO_COURIER ? { sentToCourierAt: new Date(), sentToCourierByName: req.user.name } : {}),
+  };
+
+  addActivity(patient, req.user, `Medicine status updated for Stage ${stageNum}`, MEDICINE_STATUS_LABELS[status]);
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({
+    success: true,
+    patient: formatPatient(patient, req.user, { includeActivity: true }),
+    item: formatMedicineListItem(patient, stageEntry, stageEntry.medicineRequest),
+  });
+});
+
+// @desc    Courier department/admin list courier records
+// @route   GET /api/courier/requests
+// @access  Private/Admin, Dispatch & Courier
+const listCourierRequests = asyncHandler(async (req, res) => {
+  const statusFilter = String(req.query.status || 'all')
+    .split(',')
+    .map((status) => status.trim())
+    .filter(Boolean);
+  const patients = await Patient.find({}).select('patientName number category stages');
+  const rows = [];
+
+  patients.forEach((patient) => {
+    normalizeStages(patient.stages).forEach((stage) => {
+      const request = formatMedicineRequest(stage.medicineRequest);
+      if (request.status !== MEDICINE_STATUSES.SENT_TO_COURIER) return;
+      if (!statusFilter.includes('all') && !statusFilter.includes(request.courier.status)) return;
+      rows.push(formatMedicineListItem(patient, stage, request));
+    });
+  });
+
+  rows.sort((a, b) => {
+    const aDate = a.medicineRequest.courier.deliveredAt || a.medicineRequest.courier.dispatchedAt || a.medicineRequest.sentToCourierAt || 0;
+    const bDate = b.medicineRequest.courier.deliveredAt || b.medicineRequest.courier.dispatchedAt || b.medicineRequest.sentToCourierAt || 0;
+    return new Date(bDate) - new Date(aDate);
+  });
+
+  res.status(200).json({ success: true, count: rows.length, rows });
+});
+
+// @desc    Courier department/admin updates courier dispatch or delivery details
+// @route   PATCH /api/courier/requests/:patientId/stages/:number
+// @access  Private/Admin, Dispatch & Courier
+const updateCourierRequest = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const { status } = req.body;
+  if (![COURIER_STATUSES.DISPATCHED, COURIER_STATUSES.DELIVERED].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid courier status update' });
+  }
+
+  const patient = await Patient.findById(req.params.patientId);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const currentRequest = { ...emptyMedicineRequest(), ...(stageEntry.medicineRequest?.toObject?.() || stageEntry.medicineRequest || {}) };
+  const currentCourier = { ...emptyCourier(), ...(currentRequest.courier?.toObject?.() || currentRequest.courier || {}) };
+  const uploadedFiles = filesFromRequest(req);
+  const existingPackageImages = withLegacyFile(currentCourier.packageImages || [], currentCourier.packageImageUrl, currentCourier.packageImageFileName);
+  if (currentRequest.status !== MEDICINE_STATUSES.SENT_TO_COURIER) {
+    return res.status(400).json({ success: false, message: 'Medicine has not been sent to courier yet' });
+  }
+
+  if (status === COURIER_STATUSES.DISPATCHED) {
+    const required = ['receiverName', 'receiverPhone', 'address', 'courierPartner', 'trackingNumber'];
+    const missing = required.find((field) => !req.body[field]);
+    if (missing) {
+      return res.status(400).json({ success: false, message: 'Receiver, address, courier partner and tracking number are required' });
+    }
+    if (!uploadedFiles.length && !existingPackageImages.length) {
+      return res.status(400).json({ success: false, message: 'Package image is required before dispatch' });
+    }
+  }
+
+  if (status === COURIER_STATUSES.DELIVERED) {
+    if (currentCourier.status !== COURIER_STATUSES.DISPATCHED) {
+      return res.status(400).json({ success: false, message: 'Dispatch courier before marking delivered' });
+    }
+    if (!req.body.receivedByName) {
+      return res.status(400).json({ success: false, message: 'Received by whom is required' });
+    }
+  }
+
+  const nextCourier = {
+    ...currentCourier,
+    status,
+    receiverName: req.body.receiverName || currentCourier.receiverName,
+    receiverPhone: req.body.receiverPhone || currentCourier.receiverPhone,
+    address: req.body.address || currentCourier.address,
+    courierPartner: req.body.courierPartner || currentCourier.courierPartner,
+    trackingNumber: req.body.trackingNumber || currentCourier.trackingNumber,
+    paymentPaidBy: req.body.paymentPaidBy || currentCourier.paymentPaidBy,
+    paymentAmount: req.body.paymentAmount !== undefined ? Math.max(Number(req.body.paymentAmount) || 0, 0) : currentCourier.paymentAmount,
+    paymentMode: req.body.paymentMode || currentCourier.paymentMode,
+    notes: req.body.notes || currentCourier.notes,
+    ...(status === COURIER_STATUSES.DISPATCHED ? { dispatchedAt: new Date(), dispatchedByName: req.user.name } : {}),
+    ...(status === COURIER_STATUSES.DELIVERED
+      ? {
+          deliveredAt: new Date(),
+          deliveredByName: req.user.name,
+          receivedByName: req.body.receivedByName,
+        }
+      : {}),
+  };
+
+  const courierImages = toFileItems(uploadedFiles, 'courier');
+  if (courierImages.length) {
+    if (status === COURIER_STATUSES.DELIVERED) {
+      nextCourier.deliveryProofUrl = courierImages[0].url;
+      nextCourier.deliveryProofFileName = courierImages[0].fileName;
+      nextCourier.deliveryProofImages = mergeFileItems(currentCourier.deliveryProofImages || [], courierImages);
+    } else {
+      nextCourier.packageImageUrl = courierImages[0].url;
+      nextCourier.packageImageFileName = courierImages[0].fileName;
+      nextCourier.packageImages = mergeFileItems(currentCourier.packageImages || [], courierImages);
+    }
+  }
+
+  stageEntry.medicineRequest = {
+    ...currentRequest,
+    courier: nextCourier,
+  };
+
+  addActivity(patient, req.user, `Courier ${status} for Stage ${stageNum}`, status === COURIER_STATUSES.DELIVERED ? `Received by ${nextCourier.receivedByName}` : nextCourier.trackingNumber);
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({
+    success: true,
+    patient: formatPatient(patient, req.user, { includeActivity: true }),
+    item: formatMedicineListItem(patient, stageEntry, stageEntry.medicineRequest),
+  });
+});
+
+// --- Follow-ups & Family Sessions -----------------------------------------
+// Both share the exact same shape (dateTime/status/notes) and live inside a
+// specific stage, so the logic is written once and reused via a factory.
+
+// @desc    Schedule a new Follow-up / Family Session for a specific stage
+// @route   POST /api/patients/:id/stages/:number/followups | .../family-sessions
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const addScheduleEntry = (fieldKey) =>
+  asyncHandler(async (req, res) => {
+    if (fieldKey === 'followUps' && req.user.role === ROLES.PSYCHOLOGIST) {
+      return res.status(403).json({ success: false, message: 'Follow-ups are only visible to the assigned Assistant Doctor' });
+    }
+
+    const stageNum = parseInt(req.params.number, 10);
+    if (!STAGES.includes(stageNum)) {
+      return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    }
+
+    const { dateTime, notes, followUpType } = req.body;
+    if (!dateTime) {
+      return res.status(400).json({ success: false, message: 'Date & time is required' });
+    }
+
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    if (!canAccessPatient(req.user, patient)) {
+      return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+    }
+
+    if (!patient.stages || patient.stages.length !== STAGES.length) {
+      patient.stages = normalizeStages(patient.stages);
+    }
+
+    const stageEntry = patient.stages.find((s) => s.number === stageNum);
+    const normalizedFollowUpType = fieldKey === 'followUps' && String(followUpType || '').toLowerCase() === 'sfs' ? 'sfs' : 'normal';
+    stageEntry[fieldKey].push({ dateTime, notes: notes || '', followUpType: normalizedFollowUpType, createdByName: req.user.name });
+    addActivity(
+      patient,
+      req.user,
+      `${fieldKey === 'followUps' ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : 'Follow-up'}` : 'Family session'} scheduled for Stage ${stageNum}`,
+      `${new Date(dateTime).toLocaleString('en-IN')}${notes ? ` - ${notes}` : ''}`
+    );
+    await patient.save();
+    await populateAssignments(patient);
+
+    res.status(201).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+  });
+
+// @desc    Update a Follow-up / Family Session entry (status, notes, or reschedule)
+// @route   PATCH /api/patients/:id/stages/:number/followups/:entryId | .../family-sessions/:entryId
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const updateScheduleEntry = (fieldKey) =>
+  asyncHandler(async (req, res) => {
+    if (cannotUpdateScheduleType(req.user, fieldKey)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to update this schedule' });
+    }
+
+    const stageNum = parseInt(req.params.number, 10);
+    if (!STAGES.includes(stageNum)) {
+      return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    }
+
+    const { dateTime, status, notes, completionName, completionDetails, meetRecordingUrl, completionFormType, completionFormData, completionHtml } = req.body;
+    if (status !== undefined && !ALL_SCHEDULE_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: `Status must be one of: ${ALL_SCHEDULE_STATUSES.join(', ')}` });
+    }
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    if (!canAccessPatient(req.user, patient)) {
+      return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+    }
+
+    if (!patient.stages || patient.stages.length !== STAGES.length) {
+      patient.stages = normalizeStages(patient.stages);
+    }
+
+    const stageEntry = patient.stages.find((s) => s.number === stageNum);
+    const entry = stageEntry[fieldKey].id(req.params.entryId);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Entry not found' });
+    }
+
+    const isShortFollowUp = fieldKey === 'followUps' && entry.followUpType === 'sfs';
+    if (status === 'completed') {
+      if (isShortFollowUp && !String(completionDetails || '').trim()) {
+        return res.status(400).json({ success: false, message: 'Note is required to mark SFS follow-up done' });
+      }
+      if (!isShortFollowUp && (!completionName || !completionDetails)) {
+        return res.status(400).json({ success: false, message: 'Name and details are required to mark this done' });
+      }
+    }
+
+    const scheduleLabel = fieldKey === 'followUps' ? (isShortFollowUp ? 'SFS follow-up' : 'Follow-up') : 'Family session';
+    if (dateTime !== undefined && !sameValue(new Date(entry.dateTime).toISOString(), new Date(dateTime).toISOString())) {
+      addActivity(patient, req.user, `${scheduleLabel} rescheduled for Stage ${stageNum}`, new Date(dateTime).toLocaleString('en-IN'));
+      entry.dateTime = dateTime;
+    }
+    if (notes !== undefined && !sameValue(entry.notes, notes)) {
+      addActivity(patient, req.user, `${scheduleLabel} notes updated for Stage ${stageNum}`, notes || 'Cleared');
+      entry.notes = notes;
+    }
+
+    if (status !== undefined) {
+      if (status === 'completed') {
+        entry.completionName = isShortFollowUp ? (completionName || 'SFS Call') : completionName;
+        entry.completionDetails = completionDetails;
+        entry.meetRecordingUrl = fieldKey === 'familySessions' ? meetRecordingUrl || '' : '';
+        entry.completedAt = new Date();
+        entry.completionFormType = isShortFollowUp ? 'sfs' : completionFormType || (fieldKey === 'followUps' ? 'followup_full' : 'family_section_a');
+        entry.completionFormData = isShortFollowUp ? null : completionFormData || null;
+        if (isShortFollowUp) {
+          entry.completionPdfUrl = null;
+          entry.completionPdfName = '';
+        } else {
+          const safePatientId = String(patient._id);
+          const safeEntryId = String(entry._id);
+          const pdfName = `${fieldKey === 'followUps' ? 'followup' : 'family-session'}-${safeEntryId}.pdf`;
+          const pdfPath = path.join(__dirname, '../../uploads/forms', safePatientId, pdfName);
+          const submittedMeta = completionFormData?.meta || {};
+          await writeTextPdf({
+            filePath: pdfPath,
+            html: completionHtml,
+            title: fieldKey === 'followUps'
+              ? 'MANOVAIDYA - AUTISM FOLLOW-UP ROUTINE & COMPLIANCE CHECK'
+              : 'MANOVAIDYA WELLNESS PVT. LTD. - FAMILY SESSION RECORD',
+            metaRows: [
+              `Patient: ${patient.patientName}`,
+              submittedMeta.patient ? `Patient details: ${submittedMeta.patient}` : '',
+              submittedMeta.dateRecord ? `Record details: ${submittedMeta.dateRecord}` : '',
+              `Stage: ${stageNum}`,
+              `Scheduled: ${new Date(entry.dateTime).toLocaleString('en-IN')}`,
+              `Completed: ${new Date().toLocaleString('en-IN')}`,
+              `Completed by/with: ${completionName}`,
+              fieldKey === 'familySessions' && meetRecordingUrl ? `Google Meet recording: ${meetRecordingUrl}` : '',
+              `Summary: ${completionDetails}`,
+            ].filter(Boolean),
+            formData: completionFormData?.sections || completionFormData || {},
+          });
+          entry.completionPdfUrl = `/uploads/forms/${safePatientId}/${pdfName}`;
+          entry.completionPdfName = pdfName;
+        }
+      }
+      if (!sameValue(entry.status, status)) {
+        addActivity(
+          patient,
+          req.user,
+          `${scheduleLabel} ${status === 'completed' ? 'marked done' : 'status updated'} for Stage ${stageNum}`,
+          status === 'completed' ? `${completionName}: ${completionDetails}` : status
+        );
+      }
+      entry.status = status;
+    }
+
+    await patient.save();
+    await populateAssignments(patient);
+
+    res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+  });
+
+// @desc    Follow-ups / Family Sessions grouped by assignee, with status counts
+// @route   GET /api/schedule/followups | /api/schedule/family-sessions
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+// Follow-ups group by the patient's assigned Assistant Doctor (only that doctor sees their own row).
+// Family Sessions group by whoever scheduled the entry — there's no "assigned Psychologist" concept yet.
+const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByAssignedPsychologist = false } = {}) =>
+  asyncHandler(async (req, res) => {
+    if (cannotSeeScheduleType(req.user, fieldKey)) {
+      return res.status(200).json({
+        success: true,
+        rows: [],
+        totals: { upcoming: 0, late: 0, done: 0, done_late: 0, cancelled: 0 },
+      });
+    }
+
+    const filter = {};
+    if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
+      filter.assignedDoctor = req.user._id;
+    } else if (req.user.role === ROLES.PSYCHOLOGIST) {
+      filter.assignedPsychologist = req.user._id;
+    }
+
+    let query = Patient.find(filter).select('patientName category stages assignedDoctor assignedPsychologist');
+    if (groupByAssignedDoctor) {
+      query = query.populate('assignedDoctor', 'name');
+    }
+    if (groupByAssignedPsychologist) {
+      query = query.populate('assignedPsychologist', 'name');
+    }
+    const patients = await query;
+
+    const grouped = new Map();
+    const emptyCounts = () => ({ upcoming: 0, late: 0, done: 0, done_late: 0, cancelled: 0 });
+
+    patients.forEach((p) => {
+      const patientAssignee = groupByAssignedDoctor
+        ? (p.assignedDoctor && p.assignedDoctor.name) || 'Unassigned'
+        : (p.assignedPsychologist && p.assignedPsychologist.name) || 'Unassigned';
+
+      (p.stages || []).forEach((s) => {
+        (s[fieldKey] || []).forEach((e) => {
+          const formatted = formatScheduleEntry(e);
+          const assignee = groupByAssignedDoctor || groupByAssignedPsychologist
+            ? patientAssignee
+            : formatted.createdByName || 'Unassigned';
+
+          if (!grouped.has(assignee)) {
+            grouped.set(assignee, { assignee, counts: emptyCounts(), entries: [] });
+          }
+          const bucket = grouped.get(assignee);
+          bucket.counts[formatted.displayStatus] += 1;
+          bucket.entries.push({
+            ...formatted,
+            patientId: p._id,
+            patientName: p.patientName,
+            category: p.category,
+            categoryLabel: CATEGORY_LABELS[p.category],
+            stageNumber: s.number,
+            stageLabel: STAGE_LABELS[s.number],
+          });
+        });
+      });
+    });
+
+    const rows = Array.from(grouped.values()).sort((a, b) => a.assignee.localeCompare(b.assignee));
+
+    const totals = rows.reduce((acc, row) => {
+      Object.keys(acc).forEach((key) => {
+        acc[key] += row.counts[key];
+      });
+      return acc;
+    }, emptyCounts());
+
+    res.status(200).json({ success: true, rows, totals });
+  });
+
+const getScheduleReminders = asyncHandler(async (req, res) => {
+  const reminderRoles = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+  if (!reminderRoles.includes(req.user.role)) {
+    return res.status(200).json({ success: true, count: 0, reminders: [] });
+  }
+
+  const filter = {};
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
+    filter.assignedDoctor = req.user._id;
+  } else if (req.user.role === ROLES.PSYCHOLOGIST) {
+    filter.assignedPsychologist = req.user._id;
+  }
+
+  const patients = await Patient.find(filter)
+    .select('patientName patientCode category stages assignedDoctor assignedPsychologist')
+    .populate('assignedDoctor', 'name')
+    .populate('assignedPsychologist', 'name');
+
+  const reminders = [];
+  patients.forEach((patient) => {
+    (patient.stages || []).forEach((stage) => {
+      const pushLate = (entry, type) => {
+        const formatted = formatScheduleEntry(entry);
+        if (formatted.displayStatus !== 'late') return;
+
+        if (req.user.role === ROLES.ASSISTANT_DOCTOR && type !== 'followup') return;
+        if (req.user.role === ROLES.PSYCHOLOGIST && type !== 'family_session') return;
+
+        reminders.push({
+          ...formatted,
+          type,
+          typeLabel: type === 'followup' ? 'Follow-up' : 'Family Session',
+          patientId: patient._id,
+          patientName: patient.patientName,
+          patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+          category: patient.category,
+          categoryLabel: CATEGORY_LABELS[patient.category],
+          stageNumber: stage.number,
+          stageLabel: STAGE_LABELS[stage.number],
+          assignee: type === 'followup'
+            ? patient.assignedDoctor?.name || 'Unassigned'
+            : patient.assignedPsychologist?.name || 'Unassigned',
+        });
+      };
+
+      (stage.followUps || []).forEach((entry) => pushLate(entry, 'followup'));
+      (stage.familySessions || []).forEach((entry) => pushLate(entry, 'family_session'));
+    });
+  });
+
+  reminders.sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+  res.status(200).json({ success: true, count: reminders.length, reminders });
+});
+
+const addFollowUp = addScheduleEntry('followUps');
+const updateFollowUp = updateScheduleEntry('followUps');
+const addFamilySession = addScheduleEntry('familySessions');
+const updateFamilySession = updateScheduleEntry('familySessions');
+const getFollowUps = listScheduleEntries('followUps', { groupByAssignedDoctor: true });
+const getFamilySessions = listScheduleEntries('familySessions', { groupByAssignedPsychologist: true });
+
+module.exports = {
+  getPatients,
+  getDashboardStats,
+  getPaymentsLedger,
+  getPatientById,
+  getPatientCallLogs,
+  createPatient,
+  updatePatient,
+  updatePatientStage,
+  addStagePayment,
+  updateStagePayment,
+  uploadStageRecord,
+  requestStageMedicine,
+  listMedicineRequests,
+  updateMedicineRequestStatus,
+  listCourierRequests,
+  updateCourierRequest,
+  addFollowUp,
+  updateFollowUp,
+  addFamilySession,
+  updateFamilySession,
+  getFollowUps,
+  getFamilySessions,
+  getScheduleReminders,
+};
+
+const formatActivityEntry = (entry) => ({
+  id: entry._id,
+  action: entry.action,
+  details: entry.details || '',
+  actorName: entry.actorName || 'System',
+  actorRole: entry.actorRole || '',
+  createdAt: entry.createdAt,
+});
