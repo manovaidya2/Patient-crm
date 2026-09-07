@@ -21,6 +21,7 @@ import CourierDelivered from './pages/admin/CourierDelivered.jsx';
 import RequestForAdvice from './pages/admin/RequestForAdvice.jsx';
 import AdviceGiven from './pages/admin/AdviceGiven.jsx';
 import Worksheet from './pages/admin/Worksheet.jsx';
+import CrmChatGPT from './pages/admin/CrmChatGPT.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -76,6 +77,14 @@ function App() {
           element={
             <ProtectedRoute roles={WORKSHEET_ACCESS_ROLES}>
               <Worksheet />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="chatgpt"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR]}>
+              <CrmChatGPT />
             </ProtectedRoute>
           }
         />

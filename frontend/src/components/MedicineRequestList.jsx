@@ -301,7 +301,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
           <form onSubmit={submitImageAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
             <h3 className="font-display text-lg font-bold text-charcoal">{imageAction.action.label}</h3>
-            <p className="mt-1 text-sm text-charcoal/60">Medicine banne ke baad uski image upload karein.</p>
+            <p className="mt-1 text-sm text-charcoal/60">Upload medicine images after the medicine is prepared.</p>
             {imageError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{imageError}</p>}
             <label className="mt-4 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-4 text-sm font-semibold text-sage hover:border-sage">
               Choose medicine images

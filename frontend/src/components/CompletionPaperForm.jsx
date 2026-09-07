@@ -466,7 +466,7 @@ const PaperCompletionForm = ({ formType, formData, onChange, patientMeta }) => {
                 <textarea
                   rows={6}
                   value={fields.Notes || ''}
-                  placeholder="Yahan detailed notes likhein..."
+                  placeholder="Enter detailed notes..."
                   onChange={(event) => setValue(section, 'Notes', event.target.value)}
                   className="pdf-notes w-full resize-y rounded-sm border border-charcoal/30 bg-transparent px-2 py-2 text-[12px] leading-relaxed text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-1 focus:ring-sage/20"
                 />

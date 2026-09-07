@@ -52,8 +52,12 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
 
   const { patientId } = req.params;
   const { query, stage, isUrgent } = req.body;
+  const stageNumber = Number(stage);
   if (!String(query || '').trim()) {
     return res.status(400).json({ success: false, message: 'Query is required' });
+  }
+  if (!Number.isInteger(stageNumber) || stageNumber < 1 || stageNumber > 6) {
+    return res.status(400).json({ success: false, message: 'Stage is required for doctor advice' });
   }
 
   const patient = await Patient.findById(patientId);
@@ -63,10 +67,13 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
   if (!canAccessPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
+  if (!(patient.stages || []).some((item) => Number(item.number) === stageNumber)) {
+    return res.status(400).json({ success: false, message: 'Selected stage was not found for this patient' });
+  }
 
   const adviceRequest = await AdviceRequest.create({
     patient: patient._id,
-    stage: stage ? Number(stage) : patient.currentStage || null,
+    stage: stageNumber,
     query: String(query).trim(),
     isUrgent: Boolean(isUrgent),
     requestedBy: req.user._id,
@@ -74,7 +81,12 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
     requestedByRole: req.user.role,
   });
 
-  addPatientActivity(patient, req.user, Boolean(isUrgent) ? 'Urgent advice requested from doctor' : 'Advice requested from doctor', String(query).trim());
+  addPatientActivity(
+    patient,
+    req.user,
+    Boolean(isUrgent) ? `Urgent advice requested from doctor for Stage ${stageNumber}` : `Advice requested from doctor for Stage ${stageNumber}`,
+    String(query).trim()
+  );
   await patient.save();
   await adviceRequest.populate('patient', 'patientName patientCode number');
 
@@ -91,6 +103,10 @@ const listPatientAdvice = asyncHandler(async (req, res) => {
   }
 
   const query = { patient: patient._id };
+  const stageNumber = Number(req.query.stage);
+  if (Number.isInteger(stageNumber) && stageNumber >= 1 && stageNumber <= 6) {
+    query.stage = stageNumber;
+  }
   if ([ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(req.user.role)) {
     query.requestedBy = req.user._id;
   }
@@ -177,7 +193,7 @@ const respondToAdviceRequest = asyncHandler(async (req, res) => {
 
   const patient = await Patient.findById(entry.patient);
   if (patient) {
-    addPatientActivity(patient, req.user, 'Doctor advice given', entry.advice);
+    addPatientActivity(patient, req.user, `Doctor advice given for Stage ${entry.stage || '-'}`, entry.advice);
     await patient.save();
   }
 
@@ -221,7 +237,7 @@ const updateAdviceRequest = asyncHandler(async (req, res) => {
   addPatientActivity(
     patient,
     req.user,
-    entry.isUrgent ? 'Urgent advice request edited' : 'Advice request edited',
+    entry.isUrgent ? `Urgent advice request edited for Stage ${entry.stage || '-'}` : `Advice request edited for Stage ${entry.stage || '-'}`,
     entry.query
   );
   await patient.save();
@@ -256,7 +272,7 @@ const updateAdviceAnswer = asyncHandler(async (req, res) => {
 
   const patient = await Patient.findById(entry.patient);
   if (patient) {
-    addPatientActivity(patient, req.user, 'Doctor advice edited', entry.advice);
+    addPatientActivity(patient, req.user, `Doctor advice edited for Stage ${entry.stage || '-'}`, entry.advice);
     await patient.save();
   }
 

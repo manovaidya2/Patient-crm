@@ -3,7 +3,7 @@ import CourierRequestList from '../../components/CourierRequestList.jsx';
 const CourierRequests = () => (
   <CourierRequestList
     title="Courier Requests"
-    subtitle="Medicine department se bheji gayi courier requests yahan dispatch hongi."
+    subtitle="Courier requests sent by the medicine department will be dispatched here."
     statuses={['pending', 'dispatched']}
     emptyText="No courier requests."
   />

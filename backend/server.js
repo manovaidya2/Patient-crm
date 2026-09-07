@@ -18,6 +18,7 @@ const courierRoutes = require('./src/routes/courierRoutes');
 const accountRoutes = require('./src/routes/accountRoutes');
 const adviceRoutes = require('./src/routes/adviceRoutes');
 const worksheetRoutes = require('./src/routes/worksheetRoutes');
+const crmChatRoutes = require('./src/routes/crmChatRoutes');
 
 connectDB();
 
@@ -53,6 +54,7 @@ app.use('/api/courier', courierRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/advice', adviceRoutes);
 app.use('/api/worksheet', worksheetRoutes);
+app.use('/api/crm-chat', crmChatRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res) => {

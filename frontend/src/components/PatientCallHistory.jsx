@@ -62,7 +62,7 @@ const PatientCallHistory = ({ patientId }) => {
       <div className="flex items-center justify-between gap-3 border-b border-cardline px-5 py-4">
         <div>
           <h2 className="font-display text-base font-bold text-charcoal">Call History</h2>
-          <p className="mt-0.5 text-xs text-charcoal/55">Calling webhook se received calls yahan time ke hisaab se listed rahengi.</p>
+          <p className="mt-0.5 text-xs text-charcoal/55">Calls received from the calling webhook will be listed here by time.</p>
         </div>
         <button
           type="button"

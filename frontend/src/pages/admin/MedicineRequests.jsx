@@ -3,7 +3,7 @@ import MedicineRequestList from '../../components/MedicineRequestList.jsx';
 const MedicineRequests = () => (
   <MedicineRequestList
     title="New Medicine Requests"
-    subtitle="Prescription ke saath aayi medicine requests yahan process hongi."
+    subtitle="Medicine requests received with prescriptions will be processed here."
     statuses={['requested', 'in_process']}
     emptyText="No new medicine requests."
     actions={[

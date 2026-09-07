@@ -16,6 +16,7 @@ import {
   PackageOpen,
   ClipboardCheck,
   Truck,
+  Bot,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -33,7 +34,6 @@ export const navItems = [
   { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
-  { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/medicine-requests', icon: PackageCheck, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
@@ -45,7 +45,10 @@ export const navItems = [
   { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/income', icon: TrendingUp, label: 'Income', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
+  { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
+  
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
+  { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   
 ];
 

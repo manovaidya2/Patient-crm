@@ -1179,7 +1179,7 @@ const ActivityTimeline = ({ entries = [], callLogs = [] }) => {
   );
 };
 
-const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest }) => {
+const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNumber }) => {
   const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -1248,7 +1248,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest }) => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="flex items-center gap-2 font-display text-base font-bold text-charcoal">
-            <MessageSquareText size={17} className="text-sage" /> Doctor Advice
+            <MessageSquareText size={17} className="text-sage" /> Doctor Advice {stageNumber ? `| Stage ${stageNumber}` : ''}
           </h2>
           <p className="mt-1 text-sm text-charcoal/55">Patient-related advice requests and doctor replies.</p>
         </div>
@@ -1625,6 +1625,7 @@ const PatientDetails = () => {
   };
 
   const handleRequestAdvice = async ({ query, isUrgent }) => {
+    if (!activeStageTab) return;
     await api.post(`/advice/patients/${id}`, { query, isUrgent, stage: activeStageTab });
     await loadPatientData({ silent: true });
   };
@@ -1636,6 +1637,7 @@ const PatientDetails = () => {
 
   // Live view of the open tab's stage (reflects payments as they're added)
   const activeStage = patient?.stages?.find((s) => s.number === activeStageTab);
+  const activeStageAdviceRows = adviceRows.filter((row) => Number(row.stage) === Number(activeStageTab));
   const canRequestAdvice = [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
   return (
@@ -1967,10 +1969,11 @@ const PatientDetails = () => {
                 stageNumber={activeStage.number}
               />
               <AdvicePanel
-                rows={adviceRows}
+                rows={activeStageAdviceRows}
                 canRequest={canRequestAdvice}
                 onRequest={handleRequestAdvice}
                 onEditRequest={handleEditAdviceRequest}
+                stageNumber={activeStage.number}
               />
             </div>
           )}
