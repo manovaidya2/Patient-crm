@@ -265,8 +265,8 @@ const Dashboard = () => {
           </Link>
         </>
       )}
-      <h1 className="font-display text-2xl font-bold text-charcoal">
-        Welcome, {user?.name?.split(' ')[0]}
+      <h1 className="font-display text-3xl font-bold text-charcoal">
+        Clinic Control Room
       </h1>
       <p className="mt-1 text-sm text-charcoal/60">Here's what your team looks like today.</p>
 
