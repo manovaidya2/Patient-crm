@@ -2,6 +2,7 @@ const express = require('express');
 const {
   getPatients,
   getDashboardStats,
+  getStaffDashboardStats,
   getPaymentsLedger,
   getPatientById,
   getPatientCallLogs,
@@ -31,6 +32,7 @@ router.use(protect, authorize(...PATIENT_ACCESS_ROLES));
 router.get('/', getPatients);
 router.post('/', authorize(...PATIENT_CREATE_ROLES), createPatient);
 router.get('/dashboard-stats', authorize(ROLES.ADMIN, ROLES.DOCTOR), getDashboardStats);
+router.get('/staff-dashboard-stats', authorize(ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST), getStaffDashboardStats);
 router.get('/payments-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getPaymentsLedger);
 router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id', getPatientById);

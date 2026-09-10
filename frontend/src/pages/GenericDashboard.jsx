@@ -1,8 +1,9 @@
-import { LogOut, LayoutGrid } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import Card from '../components/ui/Card.jsx';
 import Button from '../components/ui/Button.jsx';
 import ScheduleReminderAlert from '../components/ScheduleReminderAlert.jsx';
+import BrandLogo from '../components/BrandLogo.jsx';
 
 // Shown to roles whose dedicated workspace hasn't been built yet
 // (manager, post counselor, assistant doctor, psychologist, medicine department, dispatch & courier).
@@ -13,9 +14,7 @@ const GenericDashboard = () => {
     <div className="min-h-screen bg-cream flex flex-col">
       <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6 bg-teal-950 text-offwhite-100">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-teal-600 flex items-center justify-center">
-            <LayoutGrid size={16} strokeWidth={2.5} />
-          </div>
+          <BrandLogo size="sm" />
           <span className="truncate font-display text-sm font-bold tracking-tight">Manovaidya Operation System</span>
         </div>
         <Button variant="ghost" size="sm" onClick={logout} className="shrink-0 text-offwhite-100 hover:bg-teal-800">

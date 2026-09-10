@@ -10,7 +10,7 @@ const Toast = ({ toasts, onDismiss }) => {
   if (!toasts.length) return null;
 
   return (
-    <div className="fixed top-5 right-5 z-[100] flex flex-col gap-2 w-[calc(100%-2.5rem)] max-w-sm">
+    <div className="fixed right-4 top-24 z-[100] flex w-[calc(100%-2rem)] max-w-md flex-col gap-3 sm:right-6 md:top-20">
       {toasts.map((t) => {
         const { icon: Icon, classes } = styles[t.type] || styles.success;
         const handleAction = async () => {
@@ -20,18 +20,19 @@ const Toast = ({ toasts, onDismiss }) => {
         return (
           <div
             key={t.id}
-            className={`flex items-start gap-2.5 rounded-lg px-4 py-3 text-sm font-medium shadow-card ${classes}`}
+            className={`flex items-start gap-3 rounded-3xl px-5 py-4 text-sm font-medium shadow-card ring-1 ring-black/5 ${classes}`}
           >
             <Icon size={17} className="mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p>{t.message}</p>
+              {t.title && <p className="font-bold leading-5">{t.title}</p>}
+              <p className={`${t.title ? 'mt-1 text-charcoal/75' : ''} leading-5`}>{t.message}</p>
               {(t.actionLabel || t.cancelLabel) && (
-                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
                   {t.cancelLabel && (
                     <button
                       type="button"
                       onClick={() => onDismiss(t.id)}
-                      className="rounded-md px-3 py-1.5 text-xs font-bold text-charcoal/60 hover:bg-sage-muted/20 hover:text-charcoal"
+                      className="rounded-xl px-3 py-2 text-xs font-bold text-charcoal/55 hover:bg-sage-muted/20 hover:text-charcoal"
                     >
                       {t.cancelLabel}
                     </button>
@@ -40,7 +41,7 @@ const Toast = ({ toasts, onDismiss }) => {
                     <button
                       type="button"
                       onClick={handleAction}
-                      className="rounded-md bg-[#8C3B2E] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#763023]"
+                      className="rounded-xl bg-[#8C3B2E] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#763023]"
                     >
                       {t.actionLabel}
                     </button>

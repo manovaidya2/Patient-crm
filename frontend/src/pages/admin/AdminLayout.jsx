@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { LogOut, Menu } from 'lucide-react';
 import Sidebar from '../../components/Sidebar.jsx';
 import ScheduleReminderAlert from '../../components/ScheduleReminderAlert.jsx';
+import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const AdminLayout = () => {
@@ -25,7 +26,10 @@ const AdminLayout = () => {
           <button onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" className="-ml-2 p-2 text-teal-100/80 hover:text-offwhite-100">
             <Menu size={20} />
           </button>
-          <span className="max-w-[220px] truncate font-display text-sm font-bold">Manovaidya Operation System</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <BrandLogo size="sm" />
+            <span className="max-w-[190px] truncate font-display text-sm font-bold">Manovaidya Operation System</span>
+          </span>
           <button onClick={logout} aria-label="Log out" className="-mr-2 p-2 text-teal-100/80 hover:text-offwhite-100">
             <LogOut size={18} />
           </button>

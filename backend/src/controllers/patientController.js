@@ -160,6 +160,64 @@ const formatScheduleEntry = (e) => {
   };
 };
 
+const isSameUser = (left, right) => {
+  if (!left || !right) return false;
+  return String(left._id || left) === String(right._id || right);
+};
+
+const canSeeScheduleReminder = (user, patient, type) => {
+  if (user.role === ROLES.MANAGER) return true;
+  if (user.role === ROLES.ASSISTANT_DOCTOR) return type === 'followup' && isSameUser(patient.assignedDoctor, user._id);
+  if (user.role === ROLES.PSYCHOLOGIST) return type === 'family_session' && isSameUser(patient.assignedPsychologist, user._id);
+  return false;
+};
+
+const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } = {}) => {
+  const now = new Date();
+  const next24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const reminders = [];
+
+  patients.forEach((patient) => {
+    (patient.stages || []).forEach((stage) => {
+      const pushReminder = (entry, type) => {
+        if (!canSeeScheduleReminder(user, patient, type)) return;
+        const formatted = formatScheduleEntry(entry);
+        const entryDate = formatted.dateTime ? new Date(formatted.dateTime) : null;
+        const isLate = formatted.displayStatus === 'late';
+        const isUpcoming24 =
+          includeUpcoming24
+          && formatted.displayStatus === 'upcoming'
+          && entryDate
+          && entryDate >= now
+          && entryDate <= next24;
+        if (!isLate && !isUpcoming24) return;
+
+        reminders.push({
+          ...formatted,
+          type,
+          reminderKind: isLate ? 'late' : 'next_24_hours',
+          typeLabel: type === 'followup' ? 'Follow-up' : 'Family Session',
+          patientId: patient._id,
+          patientName: patient.patientName,
+          patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+          category: patient.category,
+          categoryLabel: CATEGORY_LABELS[patient.category],
+          stageNumber: stage.number,
+          stageLabel: STAGE_LABELS[stage.number],
+          assignee: type === 'followup'
+            ? patient.assignedDoctor?.name || 'Unassigned'
+            : patient.assignedPsychologist?.name || 'Unassigned',
+        });
+      };
+
+      (stage.followUps || []).forEach((entry) => pushReminder(entry, 'followup'));
+      (stage.familySessions || []).forEach((entry) => pushReminder(entry, 'family_session'));
+    });
+  });
+
+  return reminders.sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+};
+
 const formatMedicineRequest = (request = {}) => {
   const data = { ...emptyMedicineRequest(), ...(request?.toObject?.() || request || {}) };
   const courier = { ...emptyCourier(), ...(data.courier?.toObject?.() || data.courier || {}) };
@@ -475,6 +533,113 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     workflowSummary,
     followUpSummary,
     monthlyOnboarding,
+  });
+});
+
+const getStaffDashboardStats = asyncHandler(async (req, res) => {
+  const allowedRoles = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+  if (!allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'This dashboard is not available for your role' });
+  }
+
+  const filter = {};
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR) filter.assignedDoctor = req.user._id;
+  if (req.user.role === ROLES.PSYCHOLOGIST) filter.assignedPsychologist = req.user._id;
+
+  const patients = await Patient.find(filter)
+    .select('patientName patientCode category currentStage stages assignedDoctor assignedPsychologist activityLog updatedAt')
+    .populate('assignedDoctor', 'name')
+    .populate('assignedPsychologist', 'name')
+    .sort({ updatedAt: -1 });
+
+  const reminders = collectScheduleReminders(patients, req.user, { includeUpcoming24: true });
+  const lateReminders = reminders.filter((item) => item.reminderKind === 'late');
+  const next24Reminders = reminders.filter((item) => item.reminderKind === 'next_24_hours');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(today);
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const summary = {
+    assignedPatients: patients.length,
+    reminders: reminders.length,
+    lateReminders: lateReminders.length,
+    next24Reminders: next24Reminders.length,
+    todayFollowUps: 0,
+    todayFamilySessions: 0,
+    todayCompleted: 0,
+    recentActions: 0,
+  };
+
+  const assigneeRows = new Map();
+  const ensureAssignee = (name, role) => {
+    const key = `${role}:${name || 'Unassigned'}`;
+    if (!assigneeRows.has(key)) {
+      assigneeRows.set(key, {
+        name: name || 'Unassigned',
+        role,
+        late: 0,
+        next24: 0,
+        total: 0,
+      });
+    }
+    return assigneeRows.get(key);
+  };
+
+  reminders.forEach((item) => {
+    const row = ensureAssignee(item.assignee, item.type === 'followup' ? 'Assistant Doctor' : 'Psychologist');
+    row.total += 1;
+    if (item.reminderKind === 'late') row.late += 1;
+    if (item.reminderKind === 'next_24_hours') row.next24 += 1;
+  });
+
+  const recentActions = [];
+  patients.forEach((patient) => {
+    normalizeStages(patient.stages).forEach((stage) => {
+      (stage.followUps || []).forEach((entry) => {
+        const date = entry.dateTime ? new Date(entry.dateTime) : null;
+        if (date && date >= today && date <= todayEnd && entry.status !== 'cancelled') summary.todayFollowUps += 1;
+        if (entry.completedAt && new Date(entry.completedAt) >= today && new Date(entry.completedAt) <= todayEnd) summary.todayCompleted += 1;
+      });
+      (stage.familySessions || []).forEach((entry) => {
+        const date = entry.dateTime ? new Date(entry.dateTime) : null;
+        if (date && date >= today && date <= todayEnd && entry.status !== 'cancelled') summary.todayFamilySessions += 1;
+        if (entry.completedAt && new Date(entry.completedAt) >= today && new Date(entry.completedAt) <= todayEnd) summary.todayCompleted += 1;
+      });
+    });
+
+    (patient.activityLog || []).slice(-8).forEach((activity) => {
+      if (
+        req.user.role === ROLES.MANAGER
+        && [ROLES.ADMIN, ROLES.DOCTOR].includes(activity.actorRole)
+      ) {
+        return;
+      }
+      recentActions.push({
+        action: activity.action,
+        details: activity.details,
+        by: activity.actorName || 'System',
+        role: activity.actorRole || '',
+        patientId: patient._id,
+        patientName: patient.patientName,
+        patientCode: patient.patientCode || '',
+        at: activity.createdAt,
+      });
+    });
+  });
+
+  recentActions.sort((a, b) => new Date(b.at) - new Date(a.at));
+  summary.recentActions = recentActions.length;
+
+  res.status(200).json({
+    success: true,
+    summary,
+    assigneeRows: Array.from(assigneeRows.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+    reminders: reminders.slice(0, 30),
+    recentActions: recentActions.slice(0, 20).map((item) => ({
+      ...item,
+      at: item.at,
+    })),
   });
 });
 
@@ -1538,6 +1703,11 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
   });
 
 const getScheduleReminders = asyncHandler(async (req, res) => {
+  // Reminder visibility:
+  //  - Manager sees late/upcoming reminders across the working team.
+  //  - Assistant Doctor sees their assigned patients' follow-ups.
+  //  - Psychologist sees their assigned patients' family sessions.
+  //  - Admin and Doctor do not receive these operational reminders.
   const reminderRoles = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
   if (!reminderRoles.includes(req.user.role)) {
     return res.status(200).json({ success: true, count: 0, reminders: [] });
@@ -1550,44 +1720,13 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
     filter.assignedPsychologist = req.user._id;
   }
 
+  const includeUpcoming24 = req.query.window === '24h';
   const patients = await Patient.find(filter)
     .select('patientName patientCode category stages assignedDoctor assignedPsychologist')
     .populate('assignedDoctor', 'name')
     .populate('assignedPsychologist', 'name');
 
-  const reminders = [];
-  patients.forEach((patient) => {
-    (patient.stages || []).forEach((stage) => {
-      const pushLate = (entry, type) => {
-        const formatted = formatScheduleEntry(entry);
-        if (formatted.displayStatus !== 'late') return;
-
-        if (req.user.role === ROLES.ASSISTANT_DOCTOR && type !== 'followup') return;
-        if (req.user.role === ROLES.PSYCHOLOGIST && type !== 'family_session') return;
-
-        reminders.push({
-          ...formatted,
-          type,
-          typeLabel: type === 'followup' ? 'Follow-up' : 'Family Session',
-          patientId: patient._id,
-          patientName: patient.patientName,
-          patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
-          category: patient.category,
-          categoryLabel: CATEGORY_LABELS[patient.category],
-          stageNumber: stage.number,
-          stageLabel: STAGE_LABELS[stage.number],
-          assignee: type === 'followup'
-            ? patient.assignedDoctor?.name || 'Unassigned'
-            : patient.assignedPsychologist?.name || 'Unassigned',
-        });
-      };
-
-      (stage.followUps || []).forEach((entry) => pushLate(entry, 'followup'));
-      (stage.familySessions || []).forEach((entry) => pushLate(entry, 'family_session'));
-    });
-  });
-
-  reminders.sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+  const reminders = collectScheduleReminders(patients, req.user, { includeUpcoming24 });
   res.status(200).json({ success: true, count: reminders.length, reminders });
 });
 
@@ -1601,6 +1740,7 @@ const getFamilySessions = listScheduleEntries('familySessions', { groupByAssigne
 module.exports = {
   getPatients,
   getDashboardStats,
+  getStaffDashboardStats,
   getPaymentsLedger,
   getPatientById,
   getPatientCallLogs,

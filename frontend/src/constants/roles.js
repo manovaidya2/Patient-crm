@@ -45,6 +45,7 @@ export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNS
 export const getDefaultRoute = (role) => {
   if (role === ROLES.ADMIN) return '/admin';
   if (role === ROLES.DOCTOR) return '/admin';
+  if ([ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(role)) return '/admin';
   if (role === ROLES.MEDICINE_DEPARTMENT) return '/admin/medicine-requests';
   if (role === ROLES.DISPATCH_COURIER) return '/admin/courier';
   if (role === ROLES.ACCOUNTANT) return '/admin/accounts';

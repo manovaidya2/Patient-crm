@@ -27,9 +27,10 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
 import { ROLES } from '../constants/roles.js';
 import api from '../api/axios.js';
+import BrandLogo from './BrandLogo.jsx';
 
 export const navItems = [
-  { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR] },
+  { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
@@ -178,9 +179,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
           isCollapsed ? 'justify-center px-0' : 'px-6'
         }`}
       >
-        <div className="h-8 w-8 shrink-0 rounded-lg bg-teal-600 flex items-center justify-center">
-          <LayoutGrid size={16} strokeWidth={2.5} />
-        </div>
+        <BrandLogo size="sm" />
         {!isCollapsed && <span className="max-w-[160px] font-display text-xs font-bold leading-tight">Manovaidya Operation System</span>}
         {mobile && <button type="button" onClick={onClose} aria-label="Close navigation" className="ml-auto p-2 text-teal-100/70 hover:text-offwhite-100"><X size={18} /></button>}
       </div>

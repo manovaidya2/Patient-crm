@@ -3,6 +3,7 @@ import Login from './pages/Login.jsx';
 import GenericDashboard from './pages/GenericDashboard.jsx';
 import AdminLayout from './pages/admin/AdminLayout.jsx';
 import Dashboard from './pages/admin/Dashboard.jsx';
+import StaffDashboard from './pages/admin/StaffDashboard.jsx';
 import TeamMembers from './pages/admin/TeamMembers.jsx';
 import AllPatients from './pages/admin/AllPatients.jsx';
 import PatientDetails from './pages/admin/PatientDetails.jsx';
@@ -29,6 +30,7 @@ import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => role !== ROLES.PSYCHOLOGIST && role !== ROLES.ACCOUNTANT);
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => role !== ROLES.ACCOUNTANT);
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 
 function App() {
   const { user, loading } = useAuth();
@@ -59,8 +61,8 @@ function App() {
         <Route
           index
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR]}>
-              <Dashboard />
+            <ProtectedRoute roles={DASHBOARD_ACCESS_ROLES}>
+              {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) ? <Dashboard /> : <StaffDashboard />}
             </ProtectedRoute>
           }
         />
