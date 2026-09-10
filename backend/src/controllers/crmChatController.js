@@ -47,6 +47,15 @@ const buildTitle = (message = '') => {
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString('en-IN') : '-');
 
+// Same fallback the frontend uses so a webhook patient with no code is still identifiable.
+const formatPatientCode = (patient = {}) =>
+  patient.patientCode || (patient._id ? `PT-${String(patient._id).slice(-6).toUpperCase()}` : '');
+
+const toTime = (value) => {
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
 const startOfToday = () => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -67,6 +76,7 @@ const crmChatStopWords = new Set([
   'batao', 'bataye', 'bata', 'kya', 'kab', 'kis', 'kiski', 'kitni', 'kitna', 'chal', 'raha', 'rha', 'rhi',
   'patient', 'patients', 'followup', 'followups', 'follow-up', 'follow-ups', 'session', 'sessions', 'family',
   'payment', 'payments', 'medicine', 'courier', 'doctor', 'advice', 'problem', 'problems', 'issue', 'issues',
+  'sabse', 'zyada', 'jada', 'kaam', 'work', 'activity', 'activities',
   'the', 'and', 'for', 'this', 'that', 'with', 'from', 'about', 'tell', 'show', 'what', 'when', 'how', 'many',
 ]);
 
@@ -79,7 +89,298 @@ const extractSearchTerms = (message = '') =>
 
 const hasPatientIntent = (message = '') => /\b(patient|patients|pt-|follow[- ]?up|family session|medicine|courier|payment)\b/i.test(message);
 
-const hasBroadListIntent = (message = '') => /\b(all|total|today|kal|yesterday|month|monthly|week|weekly|recent|latest|pending|late|delivered|income|expense|inventory|stock|worksheet|staff|counselor|doctor|manager)\b/i.test(message);
+const hasBroadListIntent = (message = '') => /\b(all|total|today|kal|yesterday|month|monthly|week|weekly|recent|latest|pending|late|delivered|income|expense|inventory|stock|worksheet|staff|member|members|team|user|users|counselor|doctor|manager|sabse|zyada|jada|most|maximum|top|work|kaam|activity|activities)\b/i.test(message);
+
+const getScheduleDisplayStatus = (entry = {}) => {
+  if (entry.status === 'cancelled') return 'cancelled';
+  if (entry.status === 'completed') {
+    return entry.completedAt && entry.dateTime && new Date(entry.completedAt) > new Date(entry.dateTime)
+      ? 'done_late'
+      : 'done';
+  }
+  if (entry.status === 'scheduled' && entry.dateTime && new Date(entry.dateTime) < new Date()) return 'late';
+  return 'upcoming';
+};
+
+const createScheduleCounts = () => ({
+  total: 0,
+  upcoming: 0,
+  late: 0,
+  done: 0,
+  doneLate: 0,
+  cancelled: 0,
+});
+
+const addScheduleCount = (counts, entry = {}) => {
+  const status = getScheduleDisplayStatus(entry);
+  if (status === 'cancelled') {
+    counts.cancelled += 1;
+    return;
+  }
+  counts.total += 1;
+  if (status === 'done_late') counts.doneLate += 1;
+  else if (status === 'done') counts.done += 1;
+  else if (status === 'late') counts.late += 1;
+  else counts.upcoming += 1;
+};
+
+const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) => {
+  const patientId = String(patient._id);
+  const summary = {
+    patientCode: formatPatientCode(patient),
+    patientName: patient.patientName || '',
+    category: patient.category || '',
+    currentStage: patient.currentStage,
+    assignedDoctor: patient.assignedDoctor?.name || '',
+    assignedPsychologist: patient.assignedPsychologist?.name || '',
+    followUps: {
+      normal: createScheduleCounts(),
+      sfs: createScheduleCounts(),
+      total: createScheduleCounts(),
+    },
+    familySessions: createScheduleCounts(),
+    payments: {
+      count: 0,
+      amount: 0,
+    },
+    calls: callCounts[patientId] || { total: 0, withRecording: 0, totalDurationSeconds: 0 },
+    doctorAdvice: adviceCounts[patientId] || { pending: 0, urgent: 0, given: 0, total: 0 },
+    medicine: {
+      requested: 0,
+      inProcess: 0,
+      made: 0,
+      sentToCourier: 0,
+    },
+    courier: {
+      pending: 0,
+      dispatched: 0,
+      delivered: 0,
+    },
+    activityLogCount: (patient.activityLog || []).length,
+    latestActivity: (patient.activityLog || []).slice(-5).reverse().map((activity) => ({
+      action: activity.action,
+      details: activity.details,
+      by: activity.actorName || 'System',
+      at: formatDate(activity.createdAt),
+    })),
+  };
+
+  (patient.stages || []).forEach((stage) => {
+    (stage.followUps || []).forEach((entry) => {
+      const type = entry.followUpType === 'sfs' ? 'sfs' : 'normal';
+      addScheduleCount(summary.followUps[type], entry);
+      addScheduleCount(summary.followUps.total, entry);
+    });
+
+    (stage.familySessions || []).forEach((entry) => {
+      addScheduleCount(summary.familySessions, entry);
+    });
+
+    (stage.payments || []).forEach((payment) => {
+      summary.payments.count += 1;
+      summary.payments.amount += Number(payment.amount || 0);
+    });
+
+    const medicine = stage.medicineRequest || {};
+    if (medicine.status && medicine.status !== 'not_requested') {
+      summary.medicine.requested += 1;
+      if (medicine.status === 'in_process') summary.medicine.inProcess += 1;
+      if (['made', 'sent_to_courier'].includes(medicine.status)) summary.medicine.made += 1;
+      if (medicine.status === 'sent_to_courier') summary.medicine.sentToCourier += 1;
+    }
+
+    const courierStatus = medicine.courier?.status;
+    if (courierStatus === 'pending' && medicine.status === 'sent_to_courier') summary.courier.pending += 1;
+    if (courierStatus === 'dispatched') summary.courier.dispatched += 1;
+    if (courierStatus === 'delivered') summary.courier.delivered += 1;
+  });
+
+  summary.totalWorkScore =
+    summary.followUps.total.total
+    + summary.familySessions.total
+    + summary.payments.count
+    + summary.calls.total
+    + summary.doctorAdvice.total
+    + summary.medicine.requested
+    + summary.courier.pending
+    + summary.courier.dispatched
+    + summary.courier.delivered
+    + summary.activityLogCount;
+
+  return summary;
+};
+
+const normalizeMemberKey = (name = '') => String(name || '').trim().toLowerCase();
+
+const buildMemberWorkSummary = (users = [], patients = [], adviceRequests = [], worksheetRows = []) => {
+  const membersByName = new Map();
+  const activeMemberNames = new Set(users.map((user) => normalizeMemberKey(user.name)));
+
+  const ensureMember = (name, role = '', phone = '', { allowNew = false } = {}) => {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return null;
+    const key = normalizeMemberKey(cleanName);
+    if (!allowNew && !activeMemberNames.has(key)) return null;
+    if (!membersByName.has(key)) {
+      membersByName.set(key, {
+        name: cleanName,
+        role: role || '',
+        phone: phone || '',
+        totalRecords: 0,
+        patientTimelineActions: 0,
+        followUpsScheduled: 0,
+        familySessionsScheduled: 0,
+        paymentsRecorded: 0,
+        paymentEdits: 0,
+        medicineActions: 0,
+        courierActions: 0,
+        adviceRequested: 0,
+        adviceGiven: 0,
+        worksheetRecords: 0,
+        actionCounts: {},
+        latestRecords: [],
+      });
+    }
+    const member = membersByName.get(key);
+    if (!member.role && role) member.role = role;
+    if (!member.phone && phone) member.phone = phone;
+    return member;
+  };
+
+  const addRecord = (name, field, record = {}) => {
+    const member = ensureMember(name, record.role);
+    if (!member) return;
+    member[field] += 1;
+    member.totalRecords += 1;
+    if (record.action) {
+      member.actionCounts[record.action] = (member.actionCounts[record.action] || 0) + 1;
+    }
+    if (record.description || record.action) {
+      member.latestRecords.push({
+        action: record.action || field,
+        details: record.description || '',
+        patientName: record.patientName || '',
+        patientCode: record.patientCode || '',
+        at: formatDate(record.at),
+      });
+    }
+  };
+
+  users.forEach((user) => ensureMember(user.name, user.role, user.phone || '', { allowNew: true }));
+
+  patients.forEach((patient) => {
+    (patient.activityLog || []).forEach((activity) => {
+      addRecord(activity.actorName, 'patientTimelineActions', {
+        action: activity.action,
+        description: activity.details,
+        patientName: patient.patientName,
+        patientCode: formatPatientCode(patient),
+        role: activity.actorRole,
+        at: activity.createdAt,
+      });
+    });
+
+    (patient.stages || []).forEach((stage) => {
+      (stage.followUps || []).forEach((entry) => {
+        addRecord(entry.createdByName, 'followUpsScheduled', {
+          action: `${entry.followUpType === 'sfs' ? 'SFS' : 'Normal'} follow-up scheduled`,
+          patientName: patient.patientName,
+          patientCode: formatPatientCode(patient),
+          at: entry.createdAt || entry.dateTime,
+        });
+      });
+
+      (stage.familySessions || []).forEach((entry) => {
+        addRecord(entry.createdByName, 'familySessionsScheduled', {
+          action: 'Family session scheduled',
+          patientName: patient.patientName,
+          patientCode: formatPatientCode(patient),
+          at: entry.createdAt || entry.dateTime,
+        });
+      });
+
+      (stage.payments || []).forEach((payment) => {
+        addRecord(payment.recordedByName, 'paymentsRecorded', {
+          action: 'Payment recorded',
+          description: payment.amount ? `Amount ${payment.amount}` : '',
+          patientName: patient.patientName,
+          patientCode: formatPatientCode(patient),
+          at: payment.createdAt || payment.date,
+        });
+        addRecord(payment.editedByName, 'paymentEdits', {
+          action: 'Payment edited',
+          patientName: patient.patientName,
+          patientCode: formatPatientCode(patient),
+          at: payment.editedAt,
+        });
+      });
+
+      const medicine = stage.medicineRequest || {};
+      [
+        [medicine.requestedByName, 'Medicine requested', medicine.requestedAt],
+        [medicine.inProcessByName, 'Medicine marked in process', medicine.inProcessAt],
+        [medicine.madeByName, 'Medicine made', medicine.madeAt],
+        [medicine.sentToCourierByName, 'Medicine sent to courier', medicine.sentToCourierAt],
+      ].forEach(([name, action, at]) => {
+        addRecord(name, 'medicineActions', {
+          action,
+          patientName: patient.patientName,
+          patientCode: formatPatientCode(patient),
+          at,
+        });
+      });
+
+      [
+        [medicine.courier?.dispatchedByName, 'Courier dispatched', medicine.courier?.dispatchedAt],
+        [medicine.courier?.deliveredByName, 'Courier delivered', medicine.courier?.deliveredAt],
+      ].forEach(([name, action, at]) => {
+        addRecord(name, 'courierActions', {
+          action,
+          patientName: patient.patientName,
+          patientCode: formatPatientCode(patient),
+          at,
+        });
+      });
+    });
+  });
+
+  adviceRequests.forEach((entry) => {
+    addRecord(entry.requestedByName, 'adviceRequested', {
+      action: entry.isUrgent ? 'Urgent doctor advice requested' : 'Doctor advice requested',
+      patientName: entry.patient?.patientName || '',
+      patientCode: entry.patient ? formatPatientCode(entry.patient) : '',
+      role: entry.requestedByRole,
+      at: entry.createdAt,
+    });
+    addRecord(entry.adviceGivenByName, 'adviceGiven', {
+      action: 'Doctor advice given',
+      patientName: entry.patient?.patientName || '',
+      patientCode: entry.patient ? formatPatientCode(entry.patient) : '',
+      at: entry.adviceGivenAt,
+    });
+  });
+
+  worksheetRows.forEach((row) => {
+    addRecord(row.userName, 'worksheetRecords', {
+      action: row.workType,
+      description: row.details,
+      patientName: row.patientName,
+      patientCode: row.patientCode,
+      role: row.userRole,
+      at: row.createdAt || row.workDate,
+    });
+  });
+
+  return Array.from(membersByName.values())
+    .map((member) => ({
+      ...member,
+      latestRecords: member.latestRecords
+        .filter((record) => record.at && record.at !== '-')
+        .slice(-8)
+        .reverse(),
+    }))
+    .sort((a, b) => b.totalRecords - a.totalRecords || a.name.localeCompare(b.name));
+};
 
 const summarizeStage = (stage) => {
   const followUps = stage.followUps || [];
@@ -138,8 +439,7 @@ const summarizeStage = (stage) => {
 };
 
 const summarizePatient = (patient) => ({
-  id: patient._id,
-  patientCode: patient.patientCode || '',
+  patientCode: formatPatientCode(patient),
   patientName: patient.patientName,
   age: patient.age,
   category: patient.category,
@@ -206,9 +506,16 @@ const buildCrmContext = async (message) => {
     accountEntries,
     lowStockItems,
     worksheetRows,
+    patientsForWorkSummary,
+    patientCallLogs,
+    patientAdviceRequests,
+    worksheetRowsForMemberSummary,
+    inventoryItems,
+    accountTypeTotals,
   ] = await Promise.all([
     Patient.countDocuments(),
-    User.find({ isActive: true }).select('name role phone').sort({ name: 1 }).limit(80),
+    // Admin is the system owner, not a team member — keep it out of every staff view.
+    User.find({ isActive: true, role: { $ne: ROLES.ADMIN } }).select('name role phone').sort({ name: 1 }).limit(80),
     Patient.find(patientSearch)
       .select('patientName patientCode category age number alternateNumber guardianName relativeName currentStage assignedDoctor assignedPsychologist stages activityLog createdAt')
       .populate('assignedDoctor', 'name')
@@ -239,11 +546,167 @@ const buildCrmContext = async (message) => {
       .sort({ currentStock: 1 })
       .limit(20),
     WorksheetManualRow.find({ workDate: { $gte: today } }).sort({ createdAt: -1 }).limit(30),
+    Patient.find({})
+      .select('patientName patientCode category number alternateNumber currentStage assignedDoctor assignedPsychologist stages activityLog createdAt')
+      .populate('assignedDoctor', 'name')
+      .populate('assignedPsychologist', 'name')
+      .sort({ updatedAt: -1 })
+      .limit(1500),
+    CallLog.find({ patient: { $ne: null } })
+      .select('patient durationSeconds recordingFileUrl')
+      .limit(5000),
+    AdviceRequest.find({})
+      .select('patient status isUrgent query advice stage requestedByName requestedByRole adviceGivenByName createdAt adviceGivenAt')
+      .populate('patient', 'patientName patientCode')
+      .sort({ createdAt: -1 })
+      .limit(5000),
+    WorksheetManualRow.find({}).sort({ createdAt: -1 }).limit(1000),
+    MedicineInventory.find({})
+      .select('name unit currentStock lowStockAt lastUnitCost updatedAt')
+      .sort({ name: 1 })
+      .limit(300),
+    AccountEntry.aggregate([{ $group: { _id: '$type', total: { $sum: '$amount' }, count: { $sum: 1 } } }]),
   ]);
 
   const sourcePatients = matchingPatients.length ? matchingPatients : broadListIntent ? recentPatients : [];
   const monthIncome = accountEntries.filter((item) => item.type === 'income').reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const monthExpense = accountEntries.filter((item) => item.type === 'expense').reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const callCountsByPatientId = patientCallLogs.reduce((counts, call) => {
+    const patientId = String(call.patient || '');
+    if (!patientId) return counts;
+    counts[patientId] = counts[patientId] || { total: 0, withRecording: 0, totalDurationSeconds: 0 };
+    counts[patientId].total += 1;
+    counts[patientId].withRecording += call.recordingFileUrl ? 1 : 0;
+    counts[patientId].totalDurationSeconds += Number(call.durationSeconds || 0);
+    return counts;
+  }, {});
+  const adviceCountsByPatientId = patientAdviceRequests.reduce((counts, advice) => {
+    const patientId = String(advice.patient || '');
+    if (!patientId) return counts;
+    counts[patientId] = counts[patientId] || { pending: 0, urgent: 0, given: 0, total: 0 };
+    counts[patientId].total += 1;
+    if (advice.status === 'requested') counts[patientId].pending += 1;
+    if (advice.status === 'advice_given') counts[patientId].given += 1;
+    if (advice.isUrgent) counts[patientId].urgent += 1;
+    return counts;
+  }, {});
+  const overallPatientWorkSummary = patientsForWorkSummary
+    .map((patient) => buildPatientWorkSummary(patient, callCountsByPatientId, adviceCountsByPatientId))
+    .sort((a, b) => b.totalWorkScore - a.totalWorkScore)
+    .slice(0, 30);
+  const memberWorkSummary = buildMemberWorkSummary(
+    activeUsers,
+    patientsForWorkSummary,
+    patientAdviceRequests,
+    worksheetRowsForMemberSummary
+  );
+
+  // Ready-made cross-patient lists so the assistant can answer "list do / kitne hue /
+  // aaj ke / is mahine ke" questions without a specific patient being named.
+  const courierList = [];
+  const medicineRequestList = [];
+  const paymentsList = [];
+  const followUpList = [];
+  const familySessionList = [];
+
+  const scheduleRow = (patient, stage, entry, type) => ({
+    patient: patient.patientName || '',
+    patientCode: formatPatientCode(patient),
+    stage: stage.number,
+    type,
+    dateTime: formatDate(entry.dateTime),
+    status: getScheduleDisplayStatus(entry),
+    scheduledBy: entry.createdByName || '',
+    completedAt: formatDate(entry.completedAt),
+    talkedWith: entry.completionName || '',
+    notes: entry.notes || '',
+    completionDetails: entry.completionDetails || '',
+    _ts: toTime(entry.completedAt) || toTime(entry.dateTime),
+  });
+
+  patientsForWorkSummary.forEach((patient) => {
+    (patient.stages || []).forEach((stage) => {
+      const medicine = stage.medicineRequest || {};
+      if (medicine.status && medicine.status !== 'not_requested') {
+        medicineRequestList.push({
+          patient: patient.patientName || '',
+          patientCode: formatPatientCode(patient),
+          stage: stage.number,
+          status: medicine.status,
+          medicines: medicine.medicines || '',
+          requestedBy: medicine.requestedByName || '',
+          requestedAt: formatDate(medicine.requestedAt),
+          madeBy: medicine.madeByName || '',
+          madeAt: formatDate(medicine.madeAt),
+          sentToCourierAt: formatDate(medicine.sentToCourierAt),
+          _ts: toTime(medicine.requestedAt) || toTime(medicine.madeAt),
+        });
+      }
+
+      const courier = medicine.courier || {};
+      const courierStarted =
+        medicine.status === 'sent_to_courier' || ['dispatched', 'delivered'].includes(courier.status);
+      if (courierStarted) {
+        courierList.push({
+          patient: patient.patientName || '',
+          patientCode: formatPatientCode(patient),
+          stage: stage.number,
+          status: courier.status || 'pending',
+          courierPartner: courier.courierPartner || '',
+          trackingNumber: courier.trackingNumber || '',
+          receiverName: courier.receiverName || '',
+          receiverPhone: courier.receiverPhone || '',
+          address: courier.address || '',
+          dispatchedBy: courier.dispatchedByName || '',
+          dispatchedAt: formatDate(courier.dispatchedAt),
+          deliveredBy: courier.deliveredByName || '',
+          deliveredAt: formatDate(courier.deliveredAt),
+          receivedBy: courier.receivedByName || '',
+          paidBy: courier.paymentPaidBy || '',
+          paymentAmount: Number(courier.paymentAmount || 0),
+          _ts: toTime(courier.deliveredAt) || toTime(courier.dispatchedAt) || toTime(medicine.sentToCourierAt),
+        });
+      }
+
+      (stage.payments || []).forEach((payment) => {
+        paymentsList.push({
+          patient: patient.patientName || '',
+          patientCode: formatPatientCode(patient),
+          stage: stage.number,
+          amount: Number(payment.amount || 0),
+          paidOn: formatDate(payment.date),
+          recordedOn: formatDate(payment.createdAt),
+          paymentMode: payment.paymentMode || '',
+          receivedBy: payment.receivedBy || payment.recordedByName || '',
+          reference: payment.utr || payment.transactionId || '',
+          _ts: toTime(payment.createdAt) || toTime(payment.date),
+        });
+      });
+
+      (stage.followUps || []).forEach((entry) => {
+        followUpList.push(scheduleRow(patient, stage, entry, entry.followUpType === 'sfs' ? 'sfs' : 'normal'));
+      });
+      (stage.familySessions || []).forEach((entry) => {
+        familySessionList.push(scheduleRow(patient, stage, entry, 'family_session'));
+      });
+    });
+  });
+
+  const finalizeList = (rows, limit) =>
+    rows
+      .sort((a, b) => (b._ts || 0) - (a._ts || 0))
+      .slice(0, limit)
+      .map(({ _ts, ...rest }) => rest);
+
+  const countByField = (rows, field) =>
+    rows.reduce((acc, row) => {
+      const key = row[field] || 'unknown';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+
+  const lifetimeIncome = (accountTypeTotals.find((row) => row._id === 'income') || {}).total || 0;
+  const lifetimeExpense = (accountTypeTotals.find((row) => row._id === 'expense') || {}).total || 0;
 
   return {
     generatedAt: formatDate(new Date()),
@@ -256,7 +719,19 @@ const buildCrmContext = async (message) => {
       monthIncome,
       monthExpense,
       monthBalance: monthIncome - monthExpense,
+      lifetimeIncome,
+      lifetimeExpense,
+      lifetimeBalance: lifetimeIncome - lifetimeExpense,
       lowStockItems: lowStockItems.length,
+      courierTotal: courierList.length,
+      courierDelivered: courierList.filter((row) => row.status === 'delivered').length,
+      courierDispatched: courierList.filter((row) => row.status === 'dispatched').length,
+      courierPending: courierList.filter((row) => row.status === 'pending').length,
+      medicineRequestsTotal: medicineRequestList.length,
+      paymentsTotal: paymentsList.length,
+      paymentsAmount: paymentsList.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+      followUpsTotal: followUpList.length,
+      familySessionsTotal: familySessionList.length,
     },
     queryUnderstanding: {
       searchTermsUsed: terms,
@@ -265,6 +740,8 @@ const buildCrmContext = async (message) => {
       matchedPatients: matchingPatients.length,
       needsPatientIdentifier: patientIntent && !matchingPatients.length && !broadListIntent,
     },
+    overallPatientWorkSummary,
+    memberWorkSummary,
     staff: activeUsers.map((user) => ({ name: user.name, role: user.role, phone: user.phone || '' })),
     patients: sourcePatients.map(summarizePatient),
     recentCalls: recentCalls.map((call) => ({
@@ -278,7 +755,7 @@ const buildCrmContext = async (message) => {
     doctorAdvice: {
       pending: pendingAdvice.map((entry) => ({
         patient: entry.patient?.patientName || '',
-        patientCode: entry.patient?.patientCode || '',
+        patientCode: entry.patient ? formatPatientCode(entry.patient) : '',
         stage: entry.stage,
         urgent: Boolean(entry.isUrgent),
         query: entry.query,
@@ -287,7 +764,7 @@ const buildCrmContext = async (message) => {
       })),
       recentGiven: givenAdvice.map((entry) => ({
         patient: entry.patient?.patientName || '',
-        patientCode: entry.patient?.patientCode || '',
+        patientCode: entry.patient ? formatPatientCode(entry.patient) : '',
         stage: entry.stage,
         advice: entry.advice,
         doctor: entry.adviceGivenByName,
@@ -309,6 +786,57 @@ const buildCrmContext = async (message) => {
       unit: item.unit,
       lowStockAt: item.lowStockAt,
       lastUnitCost: item.lastUnitCost,
+    })),
+    inventory: inventoryItems.map((item) => ({
+      name: item.name,
+      stock: item.currentStock,
+      unit: item.unit,
+      lowStockAt: item.lowStockAt,
+      lastUnitCost: item.lastUnitCost,
+      isLow: Number(item.currentStock) <= Number(item.lowStockAt),
+    })),
+    accountsLifetime: {
+      income: lifetimeIncome,
+      expense: lifetimeExpense,
+      balance: lifetimeIncome - lifetimeExpense,
+    },
+    courierList: {
+      total: courierList.length,
+      byStatus: countByField(courierList, 'status'),
+      list: finalizeList(courierList, 150),
+    },
+    medicineRequestList: {
+      total: medicineRequestList.length,
+      byStatus: countByField(medicineRequestList, 'status'),
+      list: finalizeList(medicineRequestList, 150),
+    },
+    paymentsList: {
+      total: paymentsList.length,
+      totalAmount: paymentsList.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+      list: finalizeList(paymentsList, 200),
+    },
+    followUpList: {
+      total: followUpList.length,
+      byStatus: countByField(followUpList, 'status'),
+      list: finalizeList(followUpList, 220),
+    },
+    familySessionList: {
+      total: familySessionList.length,
+      byStatus: countByField(familySessionList, 'status'),
+      list: finalizeList(familySessionList, 180),
+    },
+    doctorAdviceAll: patientAdviceRequests.slice(0, 120).map((entry) => ({
+      patient: entry.patient?.patientName || '',
+      patientCode: entry.patient ? formatPatientCode(entry.patient) : '',
+      stage: entry.stage,
+      status: entry.status,
+      urgent: Boolean(entry.isUrgent),
+      query: entry.query || '',
+      advice: entry.advice || '',
+      requestedBy: entry.requestedByName || '',
+      requestedAt: formatDate(entry.createdAt),
+      answeredBy: entry.adviceGivenByName || '',
+      answeredAt: formatDate(entry.adviceGivenAt),
     })),
     worksheetToday: worksheetRows.map((row) => ({
       userName: row.userName,
@@ -340,6 +868,19 @@ const systemPrompt = [
 
   'Use earlier messages in this chat as conversational memory (to understand follow-up questions, pronouns like "uska", "wo patient", etc.), but always trust the current CRM context over memory for actual facts and numbers.',
 
+  // === Never leak the internal data shape ===
+  'The CRM context is raw JSON for your eyes only. NEVER expose its structure in your reply: no field names, no JSON keys, no object paths, no code-style tokens. Do not write things like "courier.delivered = 1", "patientCode: (blank)", "status: null", "stage[0].payments", or raw database ids. Translate every value into a plain sentence a clinic staff member would say out loud.',
+
+  'Never surface a missing or empty value as "(blank)", "null", "undefined", "N/A", "-", "0000", or empty quotes. If a detail is not recorded, either leave it out or say it in words — e.g. "delivery ki exact date CRM me note nahi hai" or "is patient ka code abhi tak assign nahi hua". ',
+
+  'Every patient in the context has a patientCode (sometimes an auto one like PT-AB12CD). Always identify a patient by their name, and use the code as the secondary identifier. If the name is missing, use the code alone — never say the patient is blank/unknown when a code exists.',
+
+  // === Admin is not a team member ===
+  'Admin is the system owner, not staff. The context already excludes admin from staff and member lists. Never add admin back, never include admin in "kaun kaun members hain", work totals, or "sabse zyada kaam kisne kiya" comparisons. If an action was done by admin, a webhook, or the system, describe it as an automatic/system action without attributing it to a named person.',
+
+  // === Ready-made lists for list / count questions ===
+  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a byStatus breakdown and a total count — if the shown items are fewer than the total, say there are older records not listed here.',
+
   // === NEW: Deep, granular data usage ===
   'Do not limit yourself to top-level summary fields (like totals or counts) if the CRM context has deeper/nested data available. Actively look into every relevant sub-field, nested record, timestamp, note, and status flag connected to the question — even small details like a single field value, a specific note text, a specific timestamp, or a one-line remark — and use them if they help answer the question more completely.',
 
@@ -358,8 +899,14 @@ const systemPrompt = [
   // Domain coverage
   'You can help with questions about patients, staff, payments, medicines, courier/delivery, inventory, doctor advice requests, worksheets, calls, follow-ups, family sessions, and activity timelines — summarizing relevant CRM data with dates, counts, and specific details when available.',
 
+  'For questions about overall CRM work, patient activity, "sabse zyada kaam", "most active patient", "kis patient par kya kya hua", or general progress, use overallPatientWorkSummary first. Do not answer from doctorAdvice alone. Compare the whole patient record: normal follow-ups, SFS follow-ups, family sessions, completed items, late items, done-late items, calls/recordings, payments, medicine/courier status, doctor advice, and timeline activity. Mention the main reason why one patient ranks higher, with counts from these categories.',
+
+  'When talking about one patient, cover their CRM activity broadly if relevant: follow-ups scheduled/done/late/done-late, SFS, family sessions scheduled/done/late/done-late, payments, calls, doctor advice, medicine/courier, and recent timeline actions. If a category has no record, say that briefly instead of ignoring other categories.',
+
+  'For questions about members, staff, team, users, counselor records, account list, "members ki records", or "kaun-kaun members hain", use memberWorkSummary and staff. First give the complete registered member list with name and role. If the user asks for records/accounts too, then add each member totalRecords and key record counts after the list. Do not skip members, do not stop after one or two names, and do not answer only with doctor records unless the user specifically asks for doctors.',
+
   // Patient identification
-  'If the question needs a specific patient but none is identified (queryUnderstanding.needsPatientIdentifier is true), don\'t guess or use a random/recent patient — ask the user for the patient\'s name, ID, or phone number first.',
+  'If the question needs a specific patient but none is identified (queryUnderstanding.needsPatientIdentifier is true), don\'t guess or use a random/recent patient — ask the user for the patient\'s name, ID, or phone number first. But if the question is a general or aggregate one ("kitne courier deliver hue", "aaj ke follow-ups", "is mahine ke payments", "pending medicine requests"), do NOT ask for a patient — answer straight from the ready-made lists.',
 
   'If exactly one patient matches, answer specifically about them. If multiple patients match, ask which one they mean and give brief identifying details (name + one more identifier) so they can pick.',
 
@@ -429,7 +976,7 @@ const getOpenAiReply = async ({ crmContext, conversation, userMessage }) => {
         content: `CRM_CONTEXT_JSON:\n${JSON.stringify(crmContext)}\n\nUSER_QUESTION:\n${userMessage}`,
       },
     ],
-    max_output_tokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1400),
+    max_output_tokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 3200),
   };
 
   const data = await callOpenAi(basePayload, apiKey);
@@ -447,7 +994,7 @@ const getOpenAiReply = async ({ crmContext, conversation, userMessage }) => {
             content: 'Your last answer stopped mid-sentence. Continue only the missing ending and finish cleanly. Do not repeat the full answer.',
           },
         ],
-        max_output_tokens: 350,
+        max_output_tokens: 900,
       },
       apiKey
     );
