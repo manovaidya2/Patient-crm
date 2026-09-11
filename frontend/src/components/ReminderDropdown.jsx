@@ -5,7 +5,7 @@ import api from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 
-const ACTIVE_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const ACTIVE_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
 
 const formatDateTime = (iso) =>
   new Date(iso).toLocaleString('en-IN', {
@@ -14,6 +14,16 @@ const formatDateTime = (iso) =>
     hour: '2-digit',
     minute: '2-digit',
   });
+
+const formatReminderDate = (item) => {
+  if (item?.type !== 'medicine_connect') return formatDateTime(item?.dateTime);
+  const [year, month, day] = String(item?.dateTime || '').slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return '';
+  return new Date(year, month - 1, day).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+  });
+};
 
 const ReminderDropdown = ({ className = '' }) => {
   const { user } = useAuth();
@@ -118,8 +128,13 @@ const ReminderDropdown = ({ className = '' }) => {
                         <ExternalLink size={13} className="mt-0.5 shrink-0 text-charcoal/35" />
                       </div>
                       <p className="mt-1 text-xs text-charcoal/55">
-                        {item.stageLabel} | {formatDateTime(item.dateTime)}
+                        {item.stageLabel} | {formatReminderDate(item)}
                       </p>
+                      {item.notes && (
+                        <p className="mt-1 rounded-xl bg-offwhite-100 px-2 py-1 text-xs font-semibold text-charcoal/70">
+                          Issue: {item.notes}
+                        </p>
+                      )}
                       <p className="mt-1 text-xs text-charcoal/55">Assigned to {item.assignee}</p>
                     </div>
                   </div>

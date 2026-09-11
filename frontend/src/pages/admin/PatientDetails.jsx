@@ -20,6 +20,24 @@ import { DISPLAY_STATUS_BADGE_TONE } from '../../constants/scheduleStatuses.js';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from '../../components/ui/Attachments.jsx';
 
 const STAGE_OPTIONS = STAGES.map((n) => ({ value: n, label: STAGE_LABELS[n] }));
+const YES_NO_OPTIONS = [
+  { value: 'false', label: 'No' },
+  { value: 'true', label: 'Yes' },
+];
+
+const toDateInputValue = (value) => (value ? String(value).slice(0, 10) : '');
+
+const isDateTodayOrPast = (value) => {
+  const dateValue = toDateInputValue(value);
+  if (!dateValue) return false;
+  const today = new Date();
+  const todayValue = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-');
+  return dateValue <= todayValue;
+};
 
 const statusStyles = {
   not_started: 'bg-offwhite-200 border-cardline text-charcoal/60',
@@ -1424,6 +1442,7 @@ const PatientDetails = () => {
   const [adviceRows, setAdviceRows] = useState([]);
   const [doctorOptions, setDoctorOptions] = useState([]);
   const [psychologistOptions, setPsychologistOptions] = useState([]);
+  const [postCounselorOptions, setPostCounselorOptions] = useState([]);
 
   // Which stage's tab is currently open (independent of the patient's actual "current stage")
   const [activeStageTab, setActiveStageTab] = useState(null);
@@ -1499,6 +1518,19 @@ const PatientDetails = () => {
     fetchAssignableStaff();
   }, [canAssignDoctor]);
 
+  useEffect(() => {
+    if (user?.role !== ROLES.ADMIN) return;
+    const fetchPostCounselors = async () => {
+      try {
+        const { data } = await api.get('/users/post-counselors');
+        setPostCounselorOptions(data.postCounselors || []);
+      } catch {
+        setPostCounselorOptions([]);
+      }
+    };
+    fetchPostCounselors();
+  }, [user?.role]);
+
   // Default the open tab to the patient's current stage, once, after the patient loads
   useEffect(() => {
     if (patient && activeStageTab === null) {
@@ -1516,6 +1548,7 @@ const PatientDetails = () => {
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
   const canEditPatientDetails = !isPsychologist && !isAccountant;
   const canEditStageDetails = !isPsychologist && !isAccountant;
+  const canEditPostCounselor = isAdmin;
 
   // Every field goes through the same PATCH endpoint; the response is the fresh patient record.
   const saveField = async (fieldKey, rawValue) => {
@@ -1527,7 +1560,18 @@ const PatientDetails = () => {
 
   // Package Name / Total Amount save individually and immediately, same as the fields above.
   const saveStageField = async (fieldKey, rawValue) => {
-    const payload = { [fieldKey]: fieldKey === 'totalAmount' ? Number(rawValue) || 0 : rawValue };
+    const numberFields = ['totalAmount', 'medicineMonthsGiven'];
+    const booleanFields = ['medicineFullyGiven', 'medicineConnectDone'];
+    const dateFields = ['medicineNextConnectDate', 'medicineTakenDate'];
+    const payload = {
+      [fieldKey]: numberFields.includes(fieldKey)
+        ? Number(rawValue) || 0
+        : booleanFields.includes(fieldKey)
+          ? rawValue === true || rawValue === 'true'
+          : dateFields.includes(fieldKey)
+            ? rawValue || null
+            : rawValue,
+    };
     const { data } = await api.patch(`/patients/${id}/stages/${activeStageTab}`, payload);
     setPatient(data.patient);
   };
@@ -1644,8 +1688,18 @@ const PatientDetails = () => {
 
   // Live view of the open tab's stage (reflects payments as they're added)
   const activeStage = patient?.stages?.find((s) => s.number === activeStageTab);
+  const activeMedicineConnectDue = activeStage
+    && !activeStage.medicineConnectDone
+    && isDateTodayOrPast(activeStage.medicineNextConnectDate);
   const activeStageAdviceRows = adviceRows.filter((row) => Number(row.stage) === Number(activeStageTab));
   const canRequestAdvice = [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const postCounselorSelectOptions = [
+    { value: '', label: 'Not selected' },
+    ...(activeStage?.postCounselor?.id && !postCounselorOptions.some((counselor) => String(counselor.id) === String(activeStage.postCounselor.id))
+      ? [{ value: activeStage.postCounselor.id, label: activeStage.postCounselor.name }]
+      : []),
+    ...postCounselorOptions.map((counselor) => ({ value: counselor.id, label: counselor.name })),
+  ];
 
   return (
     <div>
@@ -1804,6 +1858,9 @@ const PatientDetails = () => {
                     </p>
                   )}
                   {s.date && <p className="mt-1 text-[10px] opacity-70">{formatDate(s.date)}</p>}
+                  <p className="mt-1 truncate text-[10px] font-semibold opacity-75">
+                    PC: {s.postCounselor?.name || 'Not set'}
+                  </p>
 
                   {/* Toggle — always fixed in the bottom-right corner, regardless of card content */}
                   {canEditStageDetails && (
@@ -1894,13 +1951,21 @@ const PatientDetails = () => {
                     <History size={13} /> Timeline
                   </button>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-cardline border-t border-cardline">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
                   <EditableField
                     label="Package Name"
                     value={activeStage.packageName}
                     placeholder="Not added"
                     onSave={(val) => saveStageField('packageName', val)}
                     readOnly={!canEditStageDetails}
+                  />
+                  <EditableField
+                    label="Post Counselor"
+                    type="select"
+                    options={postCounselorSelectOptions}
+                    value={activeStage.postCounselor?.id || ''}
+                    onSave={(val) => saveStageField('postCounselor', val || null)}
+                    readOnly={!canEditPostCounselor}
                   />
                   <EditableField
                     label="Total Amount"
@@ -1943,6 +2008,88 @@ const PatientDetails = () => {
                     onUpload={handleUploadRecord}
                     canUpload={canEditStageDetails}
                   />
+                </div>
+              </div>
+
+              <div
+                className={`mt-4 rounded-lg border overflow-hidden ${
+                  activeMedicineConnectDue
+                    ? 'border-[#B42318]/35 bg-[#B42318]/5'
+                    : 'border-cardline bg-offwhite-100'
+                }`}
+              >
+                <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">
+                  <div>
+                    <h3 className="text-sm font-bold text-charcoal">Medicine Supply - Stage {activeStage.number}</h3>
+                    <p className={`mt-0.5 text-xs ${activeMedicineConnectDue ? 'font-semibold text-[#B42318]' : 'text-charcoal/50'}`}>
+                      {activeMedicineConnectDue
+                        ? 'Medicine connect is due. Mark connected to clear the reminder.'
+                        : 'Track partial medicine, next connect date, and full supply status.'}
+                    </p>
+                  </div>
+                  <PackageCheck size={18} className={activeMedicineConnectDue ? 'text-[#B42318]' : 'text-sage'} />
+                </div>
+                <div
+                  className={`grid grid-cols-2 sm:grid-cols-5 gap-px border-t ${
+                    activeMedicineConnectDue ? 'border-[#B42318]/25 bg-[#B42318]/20' : 'border-cardline bg-cardline'
+                  }`}
+                >
+                  <EditableField
+                    label="Medicine Months Given"
+                    type="number"
+                    value={activeStage.medicineMonthsGiven || ''}
+                    placeholder="0"
+                    onSave={(val) => saveStageField('medicineMonthsGiven', val)}
+                    readOnly={!canEditStageDetails}
+                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                  />
+                  <EditableField
+                    label="Next Connect Date"
+                    type="date"
+                    value={toDateInputValue(activeStage.medicineNextConnectDate)}
+                    placeholder="Not added"
+                    onSave={(val) => saveStageField('medicineNextConnectDate', val)}
+                    readOnly={!canEditStageDetails}
+                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                  />
+                  <EditableField
+                    label="Full Medicine Taken Date"
+                    type="date"
+                    value={toDateInputValue(activeStage.medicineTakenDate)}
+                    placeholder="Not added"
+                    onSave={(val) => saveStageField('medicineTakenDate', val)}
+                    readOnly={!canEditStageDetails}
+                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                  />
+                  <EditableField
+                    label="Full Medicine Given"
+                    type="select"
+                    options={YES_NO_OPTIONS}
+                    value={String(Boolean(activeStage.medicineFullyGiven))}
+                    onSave={(val) => saveStageField('medicineFullyGiven', val)}
+                    readOnly={!canEditStageDetails}
+                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                  />
+                  <EditableField
+                    label="Connected"
+                    type="select"
+                    options={YES_NO_OPTIONS}
+                    value={String(Boolean(activeStage.medicineConnectDone))}
+                    onSave={(val) => saveStageField('medicineConnectDone', val)}
+                    readOnly={!canEditStageDetails}
+                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                  />
+                  <div className="sm:col-span-5">
+                    <EditableField
+                      label="Reminder Note"
+                      type="textarea"
+                      value={activeStage.medicineNextConnectNote || ''}
+                      placeholder="Write the issue to remember"
+                      onSave={(val) => saveStageField('medicineNextConnectNote', val)}
+                      readOnly={!canEditStageDetails}
+                      tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -2044,5 +2191,3 @@ const PatientDetails = () => {
 };
 
 export default PatientDetails;
-
-

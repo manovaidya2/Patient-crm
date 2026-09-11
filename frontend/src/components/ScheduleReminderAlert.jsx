@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 import Toast from './ui/Toast.jsx';
 
-const REMINDER_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const REMINDER_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
 const POLL_MS = 15000;
 const MUTE_MS = 5 * 60 * 1000;
 const MAX_TOASTS = 3;
@@ -17,6 +17,15 @@ const formatDateTime = (iso) =>
     hour: '2-digit',
     minute: '2-digit',
   });
+
+const formatDateOnly = (iso) => {
+  const [year, month, day] = String(iso || '').slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return '';
+  return new Date(year, month - 1, day).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+  });
+};
 
 const ScheduleReminderAlert = () => {
   const { user } = useAuth();
@@ -32,7 +41,10 @@ const ScheduleReminderAlert = () => {
     }
 
     let cancelled = false;
-    const listPath = user?.role === ROLES.PSYCHOLOGIST ? '/admin/family-sessions' : '/admin/followups';
+    const getListPath = (item) => {
+      if (item?.type === 'medicine_connect' || user?.role === ROLES.POST_COUNSELOR) return '/admin/patients';
+      return user?.role === ROLES.PSYCHOLOGIST ? '/admin/family-sessions' : '/admin/followups';
+    };
 
     const syncToasts = (reminders) => {
       const now = Date.now();
@@ -48,10 +60,14 @@ const ScheduleReminderAlert = () => {
         id: String(item.id),
         type: 'confirm',
         persist: true,
-        title: `${item.typeLabel} pending`,
-        message: `${item.patientName} (${item.stageLabel}) was scheduled for ${formatDateTime(item.dateTime)}.${
-          user?.role === ROLES.MANAGER ? ` Assigned to ${item.assignee}.` : ''
-        }`,
+        title: item.type === 'medicine_connect' ? 'Medicine connect due' : `${item.typeLabel} pending`,
+        message: item.type === 'medicine_connect'
+          ? `${item.patientName} (${item.stageLabel}) needs medicine connect on ${formatDateOnly(item.dateTime)}.${
+              user?.role === ROLES.MANAGER ? ` Assigned to ${item.assignee}.` : ''
+            }${item.notes ? ` Issue: ${item.notes}` : ''}`
+          : `${item.patientName} (${item.stageLabel}) was scheduled for ${formatDateTime(item.dateTime)}.${
+              user?.role === ROLES.MANAGER ? ` Assigned to ${item.assignee}.` : ''
+            }`,
         actionLabel: 'Open Patient',
         cancelLabel: 'Remind later',
         onAction: () => navigate(`/admin/patients/${item.patientId}`),
@@ -66,7 +82,7 @@ const ScheduleReminderAlert = () => {
           title: 'More reminders pending',
           message: `${extra} more reminder${extra > 1 ? 's are' : ' is'} pending.`,
           actionLabel: 'View all',
-          onAction: () => navigate(listPath),
+          onAction: () => navigate(getListPath(shown[0])),
         });
       }
 

@@ -111,6 +111,7 @@ const formatAssignedUser = (assignedUser) => {
 const populateAssignments = async (patient) => {
   await patient.populate('assignedDoctor', 'name');
   await patient.populate('assignedPsychologist', 'name');
+  await patient.populate('stages.postCounselor', 'name');
 };
 
 const addActivity = (patient, user, action, details = '') => {
@@ -172,6 +173,26 @@ const canSeeScheduleReminder = (user, patient, type) => {
   return false;
 };
 
+const startOfToday = () => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const isMedicineConnectDue = (stage) => {
+  if (!stage?.medicineNextConnectDate || stage.medicineConnectDone) return false;
+  const connectDate = new Date(stage.medicineNextConnectDate);
+  connectDate.setHours(0, 0, 0, 0);
+  return connectDate <= startOfToday();
+};
+
+const canSeeMedicineConnectReminder = (user, patient, stage) => {
+  if (user.role === ROLES.MANAGER) return true;
+  if (user.role === ROLES.ASSISTANT_DOCTOR) return isSameUser(patient.assignedDoctor, user._id);
+  if (user.role === ROLES.POST_COUNSELOR) return isSameUser(stage.postCounselor, user._id);
+  return false;
+};
+
 const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } = {}) => {
   const now = new Date();
   const next24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -212,6 +233,25 @@ const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } 
 
       (stage.followUps || []).forEach((entry) => pushReminder(entry, 'followup'));
       (stage.familySessions || []).forEach((entry) => pushReminder(entry, 'family_session'));
+
+      if (isMedicineConnectDue(stage) && canSeeMedicineConnectReminder(user, patient, stage)) {
+        reminders.push({
+          id: `medicine-connect-${patient._id}-${stage.number}`,
+          type: 'medicine_connect',
+          reminderKind: 'late',
+          typeLabel: 'Medicine Connect',
+          dateTime: stage.medicineNextConnectDate,
+          notes: stage.medicineNextConnectNote || '',
+          patientId: patient._id,
+          patientName: patient.patientName,
+          patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+          category: patient.category,
+          categoryLabel: CATEGORY_LABELS[patient.category],
+          stageNumber: stage.number,
+          stageLabel: STAGE_LABELS[stage.number],
+          assignee: stage.postCounselor?.name || patient.assignedDoctor?.name || 'Unassigned',
+        });
+      }
     });
   });
 
@@ -265,6 +305,15 @@ const normalizeStages = (existing = []) => {
       notes: found?.notes || '',
       packageName: found?.packageName || '',
       totalAmount: found?.totalAmount || 0,
+      postCounselor: found?.postCounselor || null,
+      medicineMonthsGiven: found?.medicineMonthsGiven || 0,
+      medicineNextConnectDate: found?.medicineNextConnectDate ?? null,
+      medicineNextConnectNote: found?.medicineNextConnectNote || '',
+      medicineTakenDate: found?.medicineTakenDate ?? null,
+      medicineFullyGiven: Boolean(found?.medicineFullyGiven),
+      medicineConnectDone: Boolean(found?.medicineConnectDone),
+      medicineConnectedAt: found?.medicineConnectedAt ?? null,
+      medicineConnectedByName: found?.medicineConnectedByName || '',
       payments: found?.payments || [],
       recordFileUrl: found?.recordFileUrl || null,
       recordFileName: found?.recordFileName || '',
@@ -304,6 +353,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   currentStageLabel: STAGE_LABELS[p.currentStage || 1],
   assignedDoctor: formatAssignedUser(p.assignedDoctor),
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
+  hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
   stages: normalizeStages(p.stages).map((s) => {
     const amountPaid = (s.payments || []).reduce((sum, pay) => sum + (pay.amount || 0), 0);
     return {
@@ -314,6 +364,15 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       notes: s.notes,
       packageName: s.packageName,
       totalAmount: s.totalAmount,
+      postCounselor: formatAssignedUser(s.postCounselor),
+      medicineMonthsGiven: s.medicineMonthsGiven || 0,
+      medicineNextConnectDate: s.medicineNextConnectDate,
+      medicineNextConnectNote: s.medicineNextConnectNote || '',
+      medicineTakenDate: s.medicineTakenDate,
+      medicineFullyGiven: Boolean(s.medicineFullyGiven),
+      medicineConnectDone: Boolean(s.medicineConnectDone),
+      medicineConnectedAt: s.medicineConnectedAt,
+      medicineConnectedByName: s.medicineConnectedByName || '',
       amountPaid,
       remainingAmount: Math.max(s.totalAmount - amountPaid, 0),
       recordFileUrl: s.recordFileUrl || null,
@@ -393,6 +452,8 @@ const getPatients = asyncHandler(async (req, res) => {
     filter.assignedDoctor = req.user._id;
   } else if (req.user.role === ROLES.PSYCHOLOGIST) {
     filter.assignedPsychologist = req.user._id;
+  } else if (req.user.role === ROLES.POST_COUNSELOR) {
+    filter['stages.postCounselor'] = req.user._id;
   }
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -731,7 +792,8 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
 const getPatientById = asyncHandler(async (req, res) => {
   const patient = await Patient.findById(req.params.id)
     .populate('assignedDoctor', 'name')
-    .populate('assignedPsychologist', 'name');
+    .populate('assignedPsychologist', 'name')
+    .populate('stages.postCounselor', 'name');
 
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Patient not found' });
@@ -775,6 +837,7 @@ const createPatient = asyncHandler(async (req, res) => {
     alternateNumber,
     relativeName,
     currentStage,
+    postCounselor,
   } = req.body;
 
   if (!patientCode || !patientName || !category || age === undefined || age === null || !number) {
@@ -804,6 +867,20 @@ const createPatient = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: `Stage must be one of: ${STAGES.join(', ')}` });
   }
 
+  let selectedPostCounselor = null;
+  if (postCounselor) {
+    selectedPostCounselor = await User.findOne({ _id: postCounselor, role: ROLES.POST_COUNSELOR, isActive: true });
+    if (!selectedPostCounselor) {
+      return res.status(400).json({ success: false, message: 'Select a valid, active Post Counselor' });
+    }
+  }
+
+  const stages = normalizeStages();
+  const stageEntry = stages.find((stage) => stage.number === stageNum);
+  if (stageEntry && selectedPostCounselor) {
+    stageEntry.postCounselor = selectedPostCounselor._id;
+  }
+
   const patient = await Patient.create({
     patientCode: normalizedPatientCode,
     patientName,
@@ -815,7 +892,7 @@ const createPatient = asyncHandler(async (req, res) => {
     relativeName: category === 'mental_health' ? relativeName : '',
     currentStage: stageNum,
     source: 'manual',
-    stages: normalizeStages(),
+    stages,
     activityLog: [
       {
         action: 'Patient manually added',
@@ -826,6 +903,7 @@ const createPatient = asyncHandler(async (req, res) => {
     ],
   });
 
+  await populateAssignments(patient);
   res.status(201).json({ success: true, patient: formatPatient(patient, req.user) });
 });
 
@@ -940,7 +1018,20 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid stage number' });
   }
 
-  const { status, date, notes, packageName, totalAmount } = req.body;
+  const {
+    status,
+    date,
+    notes,
+    packageName,
+    totalAmount,
+    postCounselor,
+    medicineMonthsGiven,
+    medicineNextConnectDate,
+    medicineNextConnectNote,
+    medicineTakenDate,
+    medicineFullyGiven,
+    medicineConnectDone,
+  } = req.body;
   if (status !== undefined && !ALL_STAGE_STATUSES.includes(status)) {
     return res.status(400).json({ success: false, message: `Status must be one of: ${ALL_STAGE_STATUSES.join(', ')}` });
   }
@@ -986,6 +1077,80 @@ const updatePatientStage = asyncHandler(async (req, res) => {
       addActivity(patient, req.user, `Stage ${stageNum} total amount updated`, `From ${stageEntry.totalAmount || 0} to ${nextTotalAmount}`);
     }
     stageEntry.totalAmount = nextTotalAmount;
+  }
+  if (postCounselor !== undefined) {
+    if (req.user.role !== ROLES.ADMIN) {
+      return res.status(403).json({ success: false, message: 'Only Admin can update stage post counselor' });
+    }
+    if (!postCounselor) {
+      if (stageEntry.postCounselor) {
+        addActivity(patient, req.user, `Stage ${stageNum} post counselor cleared`);
+      }
+      stageEntry.postCounselor = null;
+    } else {
+      const counselor = await User.findOne({ _id: postCounselor, role: ROLES.POST_COUNSELOR, isActive: true });
+      if (!counselor) {
+        return res.status(400).json({ success: false, message: 'Select a valid, active Post Counselor' });
+      }
+      if (!sameValue(stageEntry.postCounselor, counselor._id)) {
+        addActivity(patient, req.user, `Stage ${stageNum} post counselor updated`, counselor.name);
+      }
+      stageEntry.postCounselor = counselor._id;
+    }
+  }
+  if (medicineMonthsGiven !== undefined) {
+    const nextMonths = Math.max(Number(medicineMonthsGiven) || 0, 0);
+    if (!sameValue(stageEntry.medicineMonthsGiven, nextMonths)) {
+      addActivity(patient, req.user, `Stage ${stageNum} medicine months updated`, `From ${stageEntry.medicineMonthsGiven || 0} to ${nextMonths}`);
+    }
+    stageEntry.medicineMonthsGiven = nextMonths;
+  }
+  if (medicineNextConnectDate !== undefined) {
+    const previousDate = stageEntry.medicineNextConnectDate ? stageEntry.medicineNextConnectDate.toISOString().slice(0, 10) : '';
+    const nextDate = medicineNextConnectDate || '';
+    if (!sameValue(previousDate, nextDate)) {
+      addActivity(patient, req.user, `Stage ${stageNum} medicine next connect date updated`, nextDate || 'Cleared');
+      if (stageEntry.medicineConnectDone) {
+        addActivity(patient, req.user, `Stage ${stageNum} medicine connect reopened`, 'Next connect date changed');
+      }
+      stageEntry.medicineConnectDone = false;
+      stageEntry.medicineConnectedAt = null;
+      stageEntry.medicineConnectedByName = '';
+    }
+    stageEntry.medicineNextConnectDate = medicineNextConnectDate || null;
+  }
+  if (medicineNextConnectNote !== undefined && !sameValue(stageEntry.medicineNextConnectNote, medicineNextConnectNote)) {
+    addActivity(patient, req.user, `Stage ${stageNum} medicine reminder note updated`, medicineNextConnectNote || 'Cleared');
+    stageEntry.medicineNextConnectNote = medicineNextConnectNote || '';
+  }
+  if (medicineTakenDate !== undefined) {
+    const previousDate = stageEntry.medicineTakenDate ? stageEntry.medicineTakenDate.toISOString().slice(0, 10) : '';
+    const nextDate = medicineTakenDate || '';
+    if (!sameValue(previousDate, nextDate)) {
+      addActivity(patient, req.user, `Stage ${stageNum} medicine taken date updated`, nextDate || 'Cleared');
+    }
+    stageEntry.medicineTakenDate = medicineTakenDate || null;
+  }
+  if (medicineFullyGiven !== undefined) {
+    const nextFullyGiven = medicineFullyGiven === true || medicineFullyGiven === 'true';
+    if (Boolean(stageEntry.medicineFullyGiven) !== nextFullyGiven) {
+      addActivity(patient, req.user, `Stage ${stageNum} medicine supply status updated`, nextFullyGiven ? 'Medicine fully given' : 'Medicine not fully given');
+    }
+    stageEntry.medicineFullyGiven = nextFullyGiven;
+  }
+  if (medicineConnectDone !== undefined) {
+    const nextConnectDone = medicineConnectDone === true || medicineConnectDone === 'true';
+    if (Boolean(stageEntry.medicineConnectDone) !== nextConnectDone) {
+      addActivity(
+        patient,
+        req.user,
+        `Stage ${stageNum} medicine connect ${nextConnectDone ? 'marked connected' : 'reopened'}`,
+        nextConnectDone ? `Connected by ${req.user.name}` : 'Marked not connected',
+      );
+    }
+    stageEntry.medicineConnectDone = nextConnectDone;
+    stageEntry.medicineConnectedAt = nextConnectDone ? new Date() : null;
+    stageEntry.medicineConnectedByName = nextConnectDone ? req.user.name : '';
   }
 
   await patient.save();
@@ -1707,8 +1872,9 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
   //  - Manager sees late/upcoming reminders across the working team.
   //  - Assistant Doctor sees their assigned patients' follow-ups.
   //  - Psychologist sees their assigned patients' family sessions.
+  //  - Post Counselor sees medicine connect reminders for stages assigned to them.
   //  - Admin and Doctor do not receive these operational reminders.
-  const reminderRoles = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+  const reminderRoles = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
   if (!reminderRoles.includes(req.user.role)) {
     return res.status(200).json({ success: true, count: 0, reminders: [] });
   }
@@ -1724,7 +1890,8 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
   const patients = await Patient.find(filter)
     .select('patientName patientCode category stages assignedDoctor assignedPsychologist')
     .populate('assignedDoctor', 'name')
-    .populate('assignedPsychologist', 'name');
+    .populate('assignedPsychologist', 'name')
+    .populate('stages.postCounselor', 'name');
 
   const reminders = collectScheduleReminders(patients, req.user, { includeUpcoming24 });
   res.status(200).json({ success: true, count: reminders.length, reminders });

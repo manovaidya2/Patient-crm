@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { Pencil, Check, X } from 'lucide-react';
 
-const EditableField = ({ label, value, placeholder = 'Not added', type = 'text', options, onSave, readOnly = false }) => {
+const EditableField = ({
+  label,
+  value,
+  placeholder = 'Not added',
+  type = 'text',
+  options,
+  onSave,
+  readOnly = false,
+  tone = 'default',
+}) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
   const [saving, setSaving] = useState(false);
@@ -34,14 +43,17 @@ const EditableField = ({ label, value, placeholder = 'Not added', type = 'text',
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && type !== 'select') confirmEdit();
+    if (e.key === 'Enter' && type !== 'select' && type !== 'textarea') confirmEdit();
     if (e.key === 'Escape') cancelEdit();
   };
 
+  const panelClass = tone === 'danger' ? 'bg-[#B42318]/5' : 'bg-offwhite-100';
+  const labelClass = tone === 'danger' ? 'text-[#B42318]/75' : 'text-charcoal/55';
+
   if (editing) {
     return (
-      <div className="bg-offwhite-100 p-4">
-        <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">{label}</p>
+      <div className={`${panelClass} p-4`}>
+        <p className={`text-[11px] uppercase tracking-wide font-semibold ${labelClass}`}>{label}</p>
         <div className="mt-1 flex items-center gap-1">
           {type === 'select' ? (
             <select
@@ -58,6 +70,17 @@ const EditableField = ({ label, value, placeholder = 'Not added', type = 'text',
                 </option>
               ))}
             </select>
+          ) : type === 'textarea' ? (
+            <textarea
+              autoFocus
+              value={draft}
+              placeholder={placeholder}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={saving}
+              rows={3}
+              className="w-full min-w-0 resize-y bg-transparent border-b border-sage text-sm font-bold text-charcoal placeholder:font-normal placeholder:text-charcoal/35 focus:outline-none pb-0.5"
+            />
           ) : (
             <input
               autoFocus
@@ -95,9 +118,9 @@ const EditableField = ({ label, value, placeholder = 'Not added', type = 'text',
   const displayValue = type === 'select' ? options.find((o) => String(o.value) === String(value))?.label : value;
 
   return (
-    <div className="bg-offwhite-100 p-4 group">
+    <div className={`${panelClass} p-4 group`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">{label}</p>
+        <p className={`text-[11px] uppercase tracking-wide font-semibold ${labelClass}`}>{label}</p>
         {!readOnly && (
           <button
             onClick={startEdit}

@@ -118,4 +118,15 @@ const getPsychologists = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createUser, getUsers, updateUser, deleteUser, getAssistantDoctors, getPsychologists };
+const getPostCounselors = asyncHandler(async (req, res) => {
+  const counselors = await User.find({ role: ROLES.POST_COUNSELOR, isActive: true })
+    .select('name')
+    .sort({ name: 1 });
+
+  res.status(200).json({
+    success: true,
+    postCounselors: counselors.map((c) => ({ id: c._id, name: c.name })),
+  });
+});
+
+module.exports = { createUser, getUsers, updateUser, deleteUser, getAssistantDoctors, getPsychologists, getPostCounselors };

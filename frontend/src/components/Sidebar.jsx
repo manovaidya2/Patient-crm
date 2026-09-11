@@ -32,8 +32,8 @@ import BrandLogo from './BrandLogo.jsx';
 export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
-  { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
+  { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
+  { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR] },

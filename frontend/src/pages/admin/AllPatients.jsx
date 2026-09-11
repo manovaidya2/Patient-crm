@@ -21,6 +21,7 @@ const emptyPatientForm = {
   alternateNumber: '',
   relativeName: '',
   currentStage: 1,
+  postCounselor: '',
 };
 
 const categoryTone = (category) => (category === PATIENT_CATEGORIES.AUTISM_ADHD ? 'teal' : 'amber');
@@ -44,6 +45,7 @@ const AllPatients = () => {
   const [addForm, setAddForm] = useState(emptyPatientForm);
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  const [postCounselorOptions, setPostCounselorOptions] = useState([]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -82,6 +84,18 @@ const AllPatients = () => {
     fetchPatients();
   }, [page, debouncedSearch, categoryFilter]);
 
+  useEffect(() => {
+    const fetchPostCounselors = async () => {
+      try {
+        const { data } = await api.get('/users/post-counselors');
+        setPostCounselorOptions(data.postCounselors || []);
+      } catch {
+        setPostCounselorOptions([]);
+      }
+    };
+    fetchPostCounselors();
+  }, []);
+
   const updateAddForm = (field, value) => {
     setAddForm((current) => ({ ...current, [field]: value }));
   };
@@ -101,6 +115,7 @@ const AllPatients = () => {
         ...addForm,
         age: Number(addForm.age),
         currentStage: Number(addForm.currentStage),
+        postCounselor: addForm.postCounselor || null,
       });
       setAddOpen(false);
       navigate(`/admin/patients/${data.patient.id}`);
@@ -191,7 +206,11 @@ const AllPatients = () => {
                     <tr
                       key={p.id}
                       onClick={() => navigate(`/admin/patients/${p.id}`)}
-                      className="border-b border-cardline-soft last:border-0 hover:bg-offwhite-300/25 cursor-pointer"
+                      className={`border-b border-cardline-soft last:border-0 cursor-pointer ${
+                        p.hasDueMedicineConnect
+                          ? 'bg-[#B42318]/10 hover:bg-[#B42318]/15'
+                          : 'hover:bg-offwhite-300/25'
+                      }`}
                     >
                       <td className="px-5 py-3.5 font-mono text-xs font-bold tracking-widest text-charcoal/45">{p.patientCode}</td>
                       <td className="px-5 py-3.5 font-medium text-charcoal">{p.patientName}</td>
@@ -332,6 +351,25 @@ const AllPatients = () => {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label htmlFor="postCounselor" className="block text-sm font-medium text-charcoal mb-1.5">
+                Post Counselor
+              </label>
+              <select
+                id="postCounselor"
+                value={addForm.postCounselor}
+                onChange={(e) => updateAddForm('postCounselor', e.target.value)}
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              >
+                <option value="">Not selected</option>
+                {postCounselorOptions.map((counselor) => (
+                  <option key={counselor.id} value={counselor.id}>
+                    {counselor.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-charcoal/45">Saved for the selected current stage.</p>
             </div>
           </div>
 

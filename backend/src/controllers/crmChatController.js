@@ -47,6 +47,13 @@ const buildTitle = (message = '') => {
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString('en-IN') : '-');
 
+const formatDateOnly = (value) => {
+  if (!value) return '-';
+  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return formatDate(value);
+  return new Date(year, month - 1, day).toLocaleDateString('en-IN');
+};
+
 // Same fallback the frontend uses so a webhook patient with no code is still identifiable.
 const formatPatientCode = (patient = {}) =>
   patient.patientCode || (patient._id ? `PT-${String(patient._id).slice(-6).toUpperCase()}` : '');
@@ -69,6 +76,19 @@ const startOfMonth = () => {
   return date;
 };
 
+const isDateTodayOrPast = (value) => {
+  if (!value) return false;
+  const dateValue = String(value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return new Date(value) <= new Date();
+  const today = new Date();
+  const todayValue = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-');
+  return dateValue <= todayValue;
+};
+
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const crmChatStopWords = new Set([
@@ -89,7 +109,7 @@ const extractSearchTerms = (message = '') =>
 
 const hasPatientIntent = (message = '') => /\b(patient|patients|pt-|follow[- ]?up|family session|medicine|courier|payment)\b/i.test(message);
 
-const hasBroadListIntent = (message = '') => /\b(all|total|today|kal|yesterday|month|monthly|week|weekly|recent|latest|pending|late|delivered|income|expense|inventory|stock|worksheet|staff|member|members|team|user|users|counselor|doctor|manager|sabse|zyada|jada|most|maximum|top|work|kaam|activity|activities)\b/i.test(message);
+const hasBroadListIntent = (message = '') => /\b(all|total|today|kal|yesterday|month|monthly|week|weekly|recent|latest|pending|late|due|connect|connected|reminder|supply|delivered|income|expense|inventory|stock|worksheet|staff|member|members|team|user|users|counselor|doctor|manager|sabse|zyada|jada|most|maximum|top|work|kaam|activity|activities)\b/i.test(message);
 
 const getScheduleDisplayStatus = (entry = {}) => {
   if (entry.status === 'cancelled') return 'cancelled';
@@ -150,6 +170,9 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
       inProcess: 0,
       made: 0,
       sentToCourier: 0,
+      supplyTracked: 0,
+      connectDue: 0,
+      connected: 0,
     },
     courier: {
       pending: 0,
@@ -188,6 +211,20 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
       if (['made', 'sent_to_courier'].includes(medicine.status)) summary.medicine.made += 1;
       if (medicine.status === 'sent_to_courier') summary.medicine.sentToCourier += 1;
     }
+    if (
+      stage.medicineMonthsGiven
+      || stage.medicineNextConnectDate
+      || stage.medicineTakenDate
+      || stage.medicineFullyGiven
+      || stage.medicineConnectDone
+      || stage.medicineNextConnectNote
+    ) {
+      summary.medicine.supplyTracked += 1;
+    }
+    if (stage.medicineConnectDone) summary.medicine.connected += 1;
+    if (stage.medicineNextConnectDate && !stage.medicineConnectDone && isDateTodayOrPast(stage.medicineNextConnectDate)) {
+      summary.medicine.connectDue += 1;
+    }
 
     const courierStatus = medicine.courier?.status;
     if (courierStatus === 'pending' && medicine.status === 'sent_to_courier') summary.courier.pending += 1;
@@ -202,6 +239,8 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
     + summary.calls.total
     + summary.doctorAdvice.total
     + summary.medicine.requested
+    + summary.medicine.supplyTracked
+    + summary.medicine.connectDue
     + summary.courier.pending
     + summary.courier.dispatched
     + summary.courier.delivered
@@ -434,6 +473,17 @@ const summarizeStage = (stage) => {
       trackingNumber: medicine.courier?.trackingNumber || '',
       courierPartner: medicine.courier?.courierPartner || '',
       deliveredAt: formatDate(medicine.courier?.deliveredAt),
+      supply: {
+        monthsGiven: Number(stage.medicineMonthsGiven || 0),
+        nextConnectDate: formatDateOnly(stage.medicineNextConnectDate),
+        reminderNote: stage.medicineNextConnectNote || '',
+        connected: Boolean(stage.medicineConnectDone),
+        connectedAt: formatDate(stage.medicineConnectedAt),
+        connectedBy: stage.medicineConnectedByName || '',
+        connectDue: Boolean(stage.medicineNextConnectDate && !stage.medicineConnectDone && isDateTodayOrPast(stage.medicineNextConnectDate)),
+        fullMedicineTakenDate: formatDateOnly(stage.medicineTakenDate),
+        fullMedicineGiven: Boolean(stage.medicineFullyGiven),
+      },
     },
   };
 };
@@ -466,6 +516,7 @@ const buildCrmFeatureSummary = () => [
   'Patient timeline with CRM actions, call logs and call recordings',
   'Doctor advice workflow with urgent requests, stage-wise requests, replies and edit history',
   'Medicine request workflow with prescription uploads, in-process, made images and courier handoff',
+  'Stage-wise medicine supply tracking with months given, next connect date, reminder note, connected status and due reminders',
   'Courier workflow with dispatch, delivery, receiver details, proof images, payment and records',
   'Medicine inventory with stock, low-stock alerts, add/use/adjust history and value',
   'Payments ledger, income, expenses and accountant workflow',
@@ -520,6 +571,7 @@ const buildCrmContext = async (message) => {
       .select('patientName patientCode category age number alternateNumber guardianName relativeName currentStage assignedDoctor assignedPsychologist stages activityLog createdAt')
       .populate('assignedDoctor', 'name')
       .populate('assignedPsychologist', 'name')
+      .populate('stages.postCounselor', 'name')
       .sort({ updatedAt: -1 })
       .limit(8),
     Patient.find({})
@@ -550,6 +602,7 @@ const buildCrmContext = async (message) => {
       .select('patientName patientCode category number alternateNumber currentStage assignedDoctor assignedPsychologist stages activityLog createdAt')
       .populate('assignedDoctor', 'name')
       .populate('assignedPsychologist', 'name')
+      .populate('stages.postCounselor', 'name')
       .sort({ updatedAt: -1 })
       .limit(1500),
     CallLog.find({ patient: { $ne: null } })
@@ -605,6 +658,7 @@ const buildCrmContext = async (message) => {
   // aaj ke / is mahine ke" questions without a specific patient being named.
   const courierList = [];
   const medicineRequestList = [];
+  const medicineSupplyList = [];
   const paymentsList = [];
   const followUpList = [];
   const familySessionList = [];
@@ -627,6 +681,33 @@ const buildCrmContext = async (message) => {
   patientsForWorkSummary.forEach((patient) => {
     (patient.stages || []).forEach((stage) => {
       const medicine = stage.medicineRequest || {};
+      const hasMedicineSupplyRecord =
+        stage.medicineMonthsGiven
+        || stage.medicineNextConnectDate
+        || stage.medicineTakenDate
+        || stage.medicineFullyGiven
+        || stage.medicineConnectDone
+        || stage.medicineNextConnectNote;
+      if (hasMedicineSupplyRecord) {
+        medicineSupplyList.push({
+          patient: patient.patientName || '',
+          patientCode: formatPatientCode(patient),
+          stage: stage.number,
+          monthsGiven: Number(stage.medicineMonthsGiven || 0),
+          nextConnectDate: formatDateOnly(stage.medicineNextConnectDate),
+          reminderNote: stage.medicineNextConnectNote || '',
+          connected: Boolean(stage.medicineConnectDone),
+          connectedAt: formatDate(stage.medicineConnectedAt),
+          connectedBy: stage.medicineConnectedByName || '',
+          connectDue: Boolean(stage.medicineNextConnectDate && !stage.medicineConnectDone && isDateTodayOrPast(stage.medicineNextConnectDate)),
+          fullMedicineTakenDate: formatDateOnly(stage.medicineTakenDate),
+          fullMedicineGiven: Boolean(stage.medicineFullyGiven),
+          postCounselor: stage.postCounselor?.name || '',
+          assignedDoctor: patient.assignedDoctor?.name || '',
+          _ts: toTime(stage.medicineConnectedAt) || toTime(stage.medicineNextConnectDate) || toTime(stage.medicineTakenDate),
+        });
+      }
+
       if (medicine.status && medicine.status !== 'not_requested') {
         medicineRequestList.push({
           patient: patient.patientName || '',
@@ -728,6 +809,9 @@ const buildCrmContext = async (message) => {
       courierDispatched: courierList.filter((row) => row.status === 'dispatched').length,
       courierPending: courierList.filter((row) => row.status === 'pending').length,
       medicineRequestsTotal: medicineRequestList.length,
+      medicineSupplyTracked: medicineSupplyList.length,
+      medicineConnectDue: medicineSupplyList.filter((row) => row.connectDue).length,
+      medicineConnectDone: medicineSupplyList.filter((row) => row.connected).length,
       paymentsTotal: paymentsList.length,
       paymentsAmount: paymentsList.reduce((sum, row) => sum + Number(row.amount || 0), 0),
       followUpsTotal: followUpList.length,
@@ -810,6 +894,13 @@ const buildCrmContext = async (message) => {
       byStatus: countByField(medicineRequestList, 'status'),
       list: finalizeList(medicineRequestList, 150),
     },
+    medicineSupplyList: {
+      total: medicineSupplyList.length,
+      due: medicineSupplyList.filter((row) => row.connectDue).length,
+      connected: medicineSupplyList.filter((row) => row.connected).length,
+      pendingConnect: medicineSupplyList.filter((row) => row.nextConnectDate !== '-' && !row.connected).length,
+      list: finalizeList(medicineSupplyList, 200),
+    },
     paymentsList: {
       total: paymentsList.length,
       totalAmount: paymentsList.reduce((sum, row) => sum + Number(row.amount || 0), 0),
@@ -879,7 +970,7 @@ const systemPrompt = [
   'Admin is the system owner, not staff. The context already excludes admin from staff and member lists. Never add admin back, never include admin in "kaun kaun members hain", work totals, or "sabse zyada kaam kisne kiya" comparisons. If an action was done by admin, a webhook, or the system, describe it as an automatic/system action without attributing it to a named person.',
 
   // === Ready-made lists for list / count questions ===
-  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a byStatus breakdown and a total count — if the shown items are fewer than the total, say there are older records not listed here.',
+  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, medicineSupplyList (months of medicine given, next connect date, reminder note/issue, connected status, due status, post counselor, assistant doctor, full medicine given/taken date), paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a breakdown/total count when available — if the shown items are fewer than the total, say there are older records not listed here.',
 
   // === NEW: Deep, granular data usage ===
   'Do not limit yourself to top-level summary fields (like totals or counts) if the CRM context has deeper/nested data available. Actively look into every relevant sub-field, nested record, timestamp, note, and status flag connected to the question — even small details like a single field value, a specific note text, a specific timestamp, or a one-line remark — and use them if they help answer the question more completely.',
@@ -897,11 +988,11 @@ const systemPrompt = [
   'You are strictly read-only for CRM data. Never create, update, delete, mark complete, reschedule, assign, upload, or edit any CRM record through this chat — even if asked. If the user wants to make a change, tell them warmly where to go in the CRM UI to do it themselves.',
 
   // Domain coverage
-  'You can help with questions about patients, staff, payments, medicines, courier/delivery, inventory, doctor advice requests, worksheets, calls, follow-ups, family sessions, and activity timelines — summarizing relevant CRM data with dates, counts, and specific details when available.',
+  'You can help with questions about patients, staff, payments, medicines, medicine supply/connect reminders, courier/delivery, inventory, doctor advice requests, worksheets, calls, follow-ups, family sessions, and activity timelines — summarizing relevant CRM data with dates, counts, and specific details when available.',
 
-  'For questions about overall CRM work, patient activity, "sabse zyada kaam", "most active patient", "kis patient par kya kya hua", or general progress, use overallPatientWorkSummary first. Do not answer from doctorAdvice alone. Compare the whole patient record: normal follow-ups, SFS follow-ups, family sessions, completed items, late items, done-late items, calls/recordings, payments, medicine/courier status, doctor advice, and timeline activity. Mention the main reason why one patient ranks higher, with counts from these categories.',
+  'For questions about overall CRM work, patient activity, "sabse zyada kaam", "most active patient", "kis patient par kya kya hua", or general progress, use overallPatientWorkSummary first. Do not answer from doctorAdvice alone. Compare the whole patient record: normal follow-ups, SFS follow-ups, family sessions, completed items, late items, done-late items, calls/recordings, payments, medicine request, medicine supply/connect due status, courier status, doctor advice, and timeline activity. Mention the main reason why one patient ranks higher, with counts from these categories.',
 
-  'When talking about one patient, cover their CRM activity broadly if relevant: follow-ups scheduled/done/late/done-late, SFS, family sessions scheduled/done/late/done-late, payments, calls, doctor advice, medicine/courier, and recent timeline actions. If a category has no record, say that briefly instead of ignoring other categories.',
+  'When talking about one patient, cover their CRM activity broadly if relevant: follow-ups scheduled/done/late/done-late, SFS, family sessions scheduled/done/late/done-late, payments, calls, doctor advice, medicine request, medicine supply details (months given, next connect date, reminder note/issue, connected or due), courier, and recent timeline actions. If a category has no record, say that briefly instead of ignoring other categories.',
 
   'For questions about members, staff, team, users, counselor records, account list, "members ki records", or "kaun-kaun members hain", use memberWorkSummary and staff. First give the complete registered member list with name and role. If the user asks for records/accounts too, then add each member totalRecords and key record counts after the list. Do not skip members, do not stop after one or two names, and do not answer only with doctor records unless the user specifically asks for doctors.',
 
