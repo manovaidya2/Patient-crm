@@ -14,6 +14,7 @@ const chartColors = ['#657B6C', '#A9B5A3', '#E8D5B5', '#C6B28E', '#8B9A84', '#DE
 const pad2 = (value) => String(value).padStart(2, '0');
 const toDateInputValue = (date) =>
   `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+const toMonthInputValue = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 
 const getEmptyMonthlyRows = () =>
   Array.from({ length: 6 }, (_, index) => {
@@ -151,7 +152,9 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [emergencyAdvice, setEmergencyAdvice] = useState({ count: 0, latest: null });
   const [activeStageIndex, setActiveStageIndex] = useState(0);
+  const [followUpFilterMode, setFollowUpFilterMode] = useState('date');
   const [followUpDate, setFollowUpDate] = useState(() => toDateInputValue(new Date()));
+  const [followUpMonth, setFollowUpMonth] = useState(() => toMonthInputValue(new Date()));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -161,7 +164,9 @@ const Dashboard = () => {
         const usersPromise = isAdmin ? api.get('/users') : Promise.resolve({ data: { users: [] } });
         const [usersRes, statsRes] = await Promise.all([
           usersPromise,
-          api.get('/patients/dashboard-stats', { params: { followUpDate } }),
+          api.get('/patients/dashboard-stats', {
+            params: followUpFilterMode === 'month' ? { followUpMonth } : { followUpDate },
+          }),
         ]);
         setUsers(usersRes.data.users || []);
         setStats(statsRes.data);
@@ -172,7 +177,7 @@ const Dashboard = () => {
       }
     };
     fetchDashboardData();
-  }, [isAdmin, followUpDate]);
+  }, [isAdmin, followUpDate, followUpMonth, followUpFilterMode]);
 
   useEffect(() => {
     if (![ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)) return undefined;
@@ -359,15 +364,29 @@ const Dashboard = () => {
             <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Follow-up Summary</p>
             <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Normal, SFS & Tracker follow-ups</h2>
           </div>
-          <label className="relative w-full sm:w-48">
-            <CalendarDays size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
-            <input
-              type="date"
-              value={followUpDate}
-              onChange={(e) => setFollowUpDate(e.target.value)}
-              className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
-            />
-          </label>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <select
+              value={followUpFilterMode}
+              onChange={(e) => setFollowUpFilterMode(e.target.value)}
+              className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              aria-label="Follow-up summary filter"
+            >
+              <option value="date">Daily</option>
+              <option value="month">Monthly</option>
+            </select>
+            <label className="relative w-full sm:w-48">
+              <CalendarDays size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+              <input
+                type={followUpFilterMode === 'month' ? 'month' : 'date'}
+                value={followUpFilterMode === 'month' ? followUpMonth : followUpDate}
+                onChange={(e) => {
+                  if (followUpFilterMode === 'month') setFollowUpMonth(e.target.value);
+                  else setFollowUpDate(e.target.value);
+                }}
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              />
+            </label>
+          </div>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">

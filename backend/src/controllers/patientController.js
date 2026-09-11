@@ -497,11 +497,23 @@ const getPatients = asyncHandler(async (req, res) => {
 const getDashboardStats = asyncHandler(async (req, res) => {
   const patients = await Patient.find({}).select('patientName patientCode currentStage stages createdAt');
   const dateText = String(req.query.followUpDate || '').trim();
+  const monthText = String(req.query.followUpMonth || '').trim();
   const selectedFollowUpDate = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
-  const followUpDayStart = new Date(selectedFollowUpDate);
-  followUpDayStart.setHours(0, 0, 0, 0);
-  const followUpDayEnd = new Date(selectedFollowUpDate);
-  followUpDayEnd.setHours(23, 59, 59, 999);
+  let followUpRangeStart;
+  let followUpRangeEnd;
+  let followUpRangeLabel;
+  if (/^\d{4}-\d{2}$/.test(monthText)) {
+    const [year, monthIndex] = monthText.split('-').map(Number);
+    followUpRangeStart = new Date(year, monthIndex - 1, 1, 0, 0, 0, 0);
+    followUpRangeEnd = new Date(year, monthIndex, 0, 23, 59, 59, 999);
+    followUpRangeLabel = monthText;
+  } else {
+    followUpRangeStart = new Date(selectedFollowUpDate);
+    followUpRangeStart.setHours(0, 0, 0, 0);
+    followUpRangeEnd = new Date(selectedFollowUpDate);
+    followUpRangeEnd.setHours(23, 59, 59, 999);
+    followUpRangeLabel = `${followUpRangeStart.getFullYear()}-${String(followUpRangeStart.getMonth() + 1).padStart(2, '0')}-${String(followUpRangeStart.getDate()).padStart(2, '0')}`;
+  }
 
   const stageCounts = STAGES.map((stage) => ({
     stage,
@@ -520,7 +532,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   };
 
   const followUpSummary = {
-    date: `${followUpDayStart.getFullYear()}-${String(followUpDayStart.getMonth() + 1).padStart(2, '0')}-${String(followUpDayStart.getDate()).padStart(2, '0')}`,
+    date: followUpRangeLabel,
+    range: monthText ? 'month' : 'date',
     total: 0,
     done: 0,
     pending: 0,
@@ -551,7 +564,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
         (stage.followUps || []).forEach((entry) => {
           const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
-          if (!entryDate || entryDate < followUpDayStart || entryDate > followUpDayEnd) return;
+          if (!entryDate || entryDate < followUpRangeStart || entryDate > followUpRangeEnd) return;
           const type = entry.followUpType === 'sfs' ? 'sfs' : entry.followUpType === 'tracker' ? 'tracker' : 'normal';
           const isDone = ['completed', 'sent', 'done', 'done_late'].includes(entry.status);
           const isCancelled = entry.status === 'cancelled';
