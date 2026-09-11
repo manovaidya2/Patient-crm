@@ -20,7 +20,7 @@ const {
 } = require('../controllers/patientController');
 const { protect, authorize } = require('../middleware/auth');
 const { uploadPaymentScreenshot } = require('../middleware/upload');
-const { uploadStageRecord: uploadRecordMiddleware, uploadPrescription } = require('../middleware/fileUploads');
+const { uploadStageRecord: uploadRecordMiddleware, uploadPrescription, uploadScheduleCompletion } = require('../middleware/fileUploads');
 const { PATIENT_ACCESS_ROLES, PATIENT_FULL_ACCESS_ROLES, ROLES } = require('../constants/roles');
 
 const router = express.Router();
@@ -43,8 +43,8 @@ router.patch('/:id/stages/:number/payments/:paymentId', authorize('admin'), uplo
 router.post('/:id/stages/:number/record', authorize(...PATIENT_WRITE_ROLES), uploadRecordMiddleware.single('record'), uploadStageRecord);
 router.post('/:id/stages/:number/medicine-request', authorize(...PATIENT_WRITE_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
 router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), addFollowUp);
-router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), updateFollowUp);
+router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFollowUp);
 router.post('/:id/stages/:number/family-sessions', authorize(...PATIENT_WRITE_ROLES), addFamilySession);
-router.patch('/:id/stages/:number/family-sessions/:entryId', authorize(...PATIENT_WRITE_ROLES), updateFamilySession);
+router.patch('/:id/stages/:number/family-sessions/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFamilySession);
 
 module.exports = router;

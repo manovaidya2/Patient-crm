@@ -1,6 +1,7 @@
 // Stored statuses — the only values ever saved on a Follow-up/Family Session entry.
 const SCHEDULE_STATUSES = {
   SCHEDULED: 'scheduled',
+  SENT: 'sent',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
 };
@@ -29,6 +30,7 @@ const DISPLAY_STATUS_LABELS = {
 // Computes the display bucket for one entry. Pass `now` for testability; defaults to the current time.
 const getDisplayStatus = (entry, now = new Date()) => {
   if (entry.status === SCHEDULE_STATUSES.CANCELLED) return DISPLAY_STATUSES.CANCELLED;
+  if (entry.status === SCHEDULE_STATUSES.SENT) return DISPLAY_STATUSES.DONE;
   if (entry.status === SCHEDULE_STATUSES.COMPLETED) {
     const wasLate = entry.completedAt && new Date(entry.completedAt) > new Date(entry.dateTime);
     return wasLate ? DISPLAY_STATUSES.DONE_LATE : DISPLAY_STATUSES.DONE;

@@ -214,6 +214,7 @@ const Dashboard = () => {
     pending: 0,
     normal: { total: 0, done: 0, pending: 0 },
     sfs: { total: 0, done: 0, pending: 0 },
+    tracker: { total: 0, done: 0, pending: 0 },
   };
   const workflowSummary = stats?.workflowSummary || {
     medicineRequested: 0,
@@ -356,7 +357,7 @@ const Dashboard = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Follow-up Summary</p>
-            <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Normal & SFS follow-ups</h2>
+            <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Normal, SFS & Tracker follow-ups</h2>
           </div>
           <label className="relative w-full sm:w-48">
             <CalendarDays size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
@@ -369,7 +370,7 @@ const Dashboard = () => {
           </label>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
             <p className="text-xs font-semibold text-charcoal/55">Total Follow-ups</p>
             <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.total}</p>
@@ -391,6 +392,11 @@ const Dashboard = () => {
             <p className="text-xs font-semibold text-charcoal/55">SFS</p>
             <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.sfs.total}</p>
             <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : followUpSummary.sfs.done} | Pending {loading ? '...' : followUpSummary.sfs.pending}</p>
+          </div>
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">Tracker</p>
+            <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.tracker.total}</p>
+            <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : followUpSummary.tracker.done} | Pending {loading ? '...' : followUpSummary.tracker.pending}</p>
           </div>
         </div>
       </Card>

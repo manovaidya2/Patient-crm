@@ -227,6 +227,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                   <option value="all">All Types</option>
                   <option value="normal">Normal</option>
                   <option value="sfs">SFS</option>
+                  <option value="tracker">Tracker</option>
                 </select>
               )}
               <select
@@ -348,8 +349,19 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
               </p>
               {showFollowUpTypeFilter && (
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-charcoal/45">
-                  {(e.followUpType || 'normal') === 'sfs' ? 'SFS' : 'Normal'}
+                  {(e.followUpType || 'normal') === 'sfs' ? 'SFS' : (e.followUpType || 'normal') === 'tracker' ? 'Tracker' : 'Normal'}
                 </p>
+              )}
+              {e.trackerSubmissionUrl && (
+                <a
+                  href={e.trackerSubmissionUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                  className="mt-1 inline-flex text-xs font-semibold text-sage hover:text-charcoal"
+                >
+                  Tracker Link
+                </a>
               )}
               {e.notes && <p className="mt-1 text-xs text-charcoal/55">{e.notes}</p>}
             </li>

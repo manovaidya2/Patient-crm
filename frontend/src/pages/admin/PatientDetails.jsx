@@ -65,6 +65,15 @@ const toDateTimeLocalValue = (value) => {
   return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}T${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
 };
 
+const dateTimeLocalToIso = (value) => {
+  if (!value) return '';
+  const [datePart, timePart = '00:00'] = String(value).split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = timePart.split(':').map(Number);
+  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return value;
+  return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
+};
+
 const formatCompactDateTime = (iso) =>
   new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -703,7 +712,19 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest }) => {
 
 // Card used for both Follow-ups and Family Sessions on a patient's details page —
 // lists scheduled entries with a status dropdown, and a Modal to schedule a new one.
-const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAdd = true, canUpdate = true, formType = 'followup_full', patient, stageNumber }) => {
+const ScheduleCard = ({
+  icon: Icon,
+  title,
+  entries,
+  onAdd,
+  onUpdateStatus,
+  canAdd = true,
+  canUpdate = true,
+  canEditEntries = false,
+  formType = 'followup_full',
+  patient,
+  stageNumber,
+}) => {
   const completionPaperRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -718,6 +739,8 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
   const [doneEntry, setDoneEntry] = useState(null);
   const [doneName, setDoneName] = useState('');
   const [doneDetails, setDoneDetails] = useState('');
+  const [trackerSubmissionUrl, setTrackerSubmissionUrl] = useState('');
+  const [doneFiles, setDoneFiles] = useState([]);
   const [meetRecordingUrl, setMeetRecordingUrl] = useState('');
   const [doneForm, setDoneForm] = useState(() => createEmptyCompletionForm(formType));
   const [doneSaving, setDoneSaving] = useState(false);
@@ -727,6 +750,13 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
   const [rescheduleDateTime, setRescheduleDateTime] = useState('');
   const [rescheduleSaving, setRescheduleSaving] = useState(false);
   const [rescheduleError, setRescheduleError] = useState('');
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editEntry, setEditEntry] = useState(null);
+  const [editDateTime, setEditDateTime] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editFollowUpType, setEditFollowUpType] = useState('normal');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   const openModal = () => {
     setDateTime('');
@@ -745,7 +775,7 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
     setSaving(true);
     setError('');
     try {
-      await onAdd({ dateTime, notes, followUpType: formType === 'followup_full' ? followUpType : undefined });
+      await onAdd({ dateTime: dateTimeLocalToIso(dateTime), notes, followUpType: formType === 'followup_full' ? followUpType : undefined });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not save');
@@ -773,6 +803,8 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
     setDoneEntry({ ...entry, patientLine, dateLine });
     setDoneName('');
     setDoneDetails('');
+    setTrackerSubmissionUrl('');
+    setDoneFiles([]);
     setMeetRecordingUrl('');
     setDoneForm(createEmptyCompletionForm(formType));
     setDoneError('');
@@ -782,24 +814,37 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
   const handleDoneSubmit = async (e) => {
     e.preventDefault();
     const isShortFollowUp = doneEntry?.followUpType === 'sfs';
-    if (!isShortFollowUp && !doneName.trim()) {
+    const isTrackerFollowUp = doneEntry?.followUpType === 'tracker';
+    if (!isShortFollowUp && !isTrackerFollowUp && !doneName.trim()) {
       setDoneError('Talked with person name is required');
       return;
     }
     if (isShortFollowUp && !doneDetails.trim()) {
-      setDoneError('Note is required');
+      if (!doneFiles.length) {
+        setDoneError('Add a note or upload a photo/file');
+        return;
+      }
+    }
+    if (isTrackerFollowUp && !trackerSubmissionUrl.trim()) {
+      setDoneError('Tracker submission link is required');
       return;
     }
     setDoneSaving(true);
     setDoneError('');
     try {
-      const completionDetails = isShortFollowUp ? doneDetails.trim() : flattenCompletionSummary(doneForm);
+      const completionDetails = isShortFollowUp
+        ? doneDetails.trim()
+        : isTrackerFollowUp
+          ? 'Tracker submitted'
+          : flattenCompletionSummary(doneForm);
       await onUpdateStatus(doneEntryId, 'completed', {
-        completionName: isShortFollowUp ? 'SFS Call' : doneName,
+        completionName: isShortFollowUp ? 'SFS Call' : isTrackerFollowUp ? 'Tracker Submission' : doneName,
         completionDetails,
+        files: doneFiles,
+        ...(isTrackerFollowUp ? { trackerSubmissionUrl: trackerSubmissionUrl.trim() } : {}),
         ...(formType === 'family_section_a' ? { meetRecordingUrl } : {}),
-        completionFormType: isShortFollowUp ? 'sfs' : formType,
-        completionFormData: isShortFollowUp
+        completionFormType: isShortFollowUp ? 'sfs' : isTrackerFollowUp ? 'tracker' : formType,
+        completionFormData: (isShortFollowUp || isTrackerFollowUp)
           ? null
           : {
               meta: {
@@ -809,7 +854,7 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
               },
               sections: doneForm,
             },
-        completionHtml: isShortFollowUp ? '' : getCompletionPdfHtml(completionPaperRef.current),
+        completionHtml: (isShortFollowUp || isTrackerFollowUp) ? '' : getCompletionPdfHtml(completionPaperRef.current),
       });
       setDoneModalOpen(false);
     } catch (err) {
@@ -821,6 +866,45 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
 
   const handleCancelEntry = (entryId) => {
     onUpdateStatus(entryId, 'cancelled');
+  };
+
+  const handleTrackerSent = (entryId) => {
+    onUpdateStatus(entryId, 'sent');
+  };
+
+  const openEditModal = (entry) => {
+    setEditEntry(entry);
+    setEditDateTime(toDateTimeLocalValue(entry.dateTime));
+    setEditNotes(entry.notes || '');
+    setEditFollowUpType(entry.followUpType || 'normal');
+    setEditError('');
+    setEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editEntry?.id) {
+      setEditError('Schedule entry not found');
+      return;
+    }
+    if (!editDateTime) {
+      setEditError('Pick a date & time');
+      return;
+    }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await onUpdateStatus(editEntry.id, undefined, {
+        dateTime: dateTimeLocalToIso(editDateTime),
+        notes: editNotes,
+        ...(formType === 'followup_full' ? { followUpType: editFollowUpType } : {}),
+      });
+      setEditModalOpen(false);
+    } catch (err) {
+      setEditError(err.response?.data?.message || 'Could not update');
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const openRescheduleModal = (entry) => {
@@ -844,7 +928,7 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
     setRescheduleError('');
     try {
       await onUpdateStatus(rescheduleEntry.id, rescheduleEntry.status || 'scheduled', {
-        dateTime: rescheduleDateTime,
+        dateTime: dateTimeLocalToIso(rescheduleDateTime),
       });
       setRescheduleModalOpen(false);
     } catch (err) {
@@ -886,14 +970,16 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
         <ul className="space-y-2">
           {sortedEntries.map((e) => {
             const canAct = canUpdate && (e.displayStatus === 'upcoming' || e.displayStatus === 'late');
+            const isTracker = formType === 'followup_full' && e.followUpType === 'tracker';
+            const canMarkSentTrackerDone = canUpdate && isTracker && e.status === 'sent';
             return (
               <li key={e.id} className="rounded-lg border border-cardline bg-offwhite-200 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-charcoal">{formatDateTime(e.dateTime)}</p>
-                    {formType === 'followup_full' && e.followUpType === 'sfs' && (
+                    {formType === 'followup_full' && e.followUpType !== 'normal' && (
                       <span className="mt-1 inline-flex rounded-full bg-sage-muted/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sage">
-                        SFS
+                        {e.followUpType === 'tracker' ? 'Tracker' : 'SFS'}
                       </span>
                     )}
                     {e.notes && <p className="mt-0.5 text-xs text-charcoal/60 truncate">{e.notes}</p>}
@@ -901,22 +987,36 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
                   </div>
                   <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5">
                     <Badge tone={DISPLAY_STATUS_BADGE_TONE[e.displayStatus]}>{e.displayStatusLabel}</Badge>
-                    {canAct && (
+                    {canEditEntries && (
+                      <Button size="sm" variant="outline" onClick={() => openEditModal(e)}>
+                        <Pencil size={14} /> Edit
+                      </Button>
+                    )}
+                    {(canAct || canMarkSentTrackerDone) && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => openRescheduleModal(e)}>
-                          <CalendarClock size={14} /> Reschedule
-                        </Button>
+                        {canAct && (
+                          <Button size="sm" variant="outline" onClick={() => openRescheduleModal(e)}>
+                            <CalendarClock size={14} /> Reschedule
+                          </Button>
+                        )}
+                        {canAct && isTracker && (
+                          <Button size="sm" variant="outline" onClick={() => handleTrackerSent(e.id)}>
+                            Tracker Sent
+                          </Button>
+                        )}
                         <Button size="sm" variant="outline" onClick={() => openDoneModal(e)}>
                           Mark Done
                         </Button>
-                        <button
-                          type="button"
-                          onClick={() => handleCancelEntry(e.id)}
-                          aria-label="Cancel"
-                          className="p-1.5 rounded-md text-charcoal/40 hover:bg-sage-muted/20 hover:text-[#8C3B2E]"
-                        >
-                          <X size={14} />
-                        </button>
+                        {canAct && (
+                          <button
+                            type="button"
+                            onClick={() => handleCancelEntry(e.id)}
+                            aria-label="Cancel"
+                            className="p-1.5 rounded-md text-charcoal/40 hover:bg-sage-muted/20 hover:text-[#8C3B2E]"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -947,7 +1047,26 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
                         <Paperclip size={13} /> Meet Recording
                       </a>
                     )}
+                    {e.trackerSubmissionUrl && (
+                      <a
+                        href={e.trackerSubmissionUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-3 mt-1 inline-flex items-center gap-1 font-semibold text-sage hover:text-charcoal"
+                      >
+                        <Paperclip size={13} /> Tracker Link
+                      </a>
+                    )}
+                    <CompactAttachments files={e.completionFiles || []} label="Uploads" />
                     <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-charcoal/60">{e.completionDetails}</p>
+                  </div>
+                )}
+                {isTracker && e.status === 'sent' && e.trackerSentAt && (
+                  <div className="mt-2.5 pt-2.5 border-t border-cardline-soft text-xs text-charcoal/70">
+                    <p>
+                      <span className="font-semibold text-charcoal">Tracker sent</span> · {formatDateTime(e.trackerSentAt)}
+                      {e.trackerSentByName ? ` by ${e.trackerSentByName}` : ''}
+                    </p>
                   </div>
                 )}
               </li>
@@ -978,6 +1097,7 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
               >
                 <option value="normal">Normal follow-up</option>
                 <option value="sfs">SFS short follow-up</option>
+                <option value="tracker">Tracker</option>
               </select>
             </div>
           )}
@@ -1027,6 +1147,52 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
         </form>
       </Modal>
 
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title={`Edit ${title.replace(/s$/, '')}`}>
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          {editError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{editError}</div>}
+          <div className="w-full">
+            <label className="block text-sm font-medium text-charcoal mb-1.5">Date & Time</label>
+            <input
+              type="datetime-local"
+              value={editDateTime}
+              onChange={(e) => setEditDateTime(e.target.value)}
+              className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+            />
+          </div>
+          {formType === 'followup_full' && (
+            <div className="w-full">
+              <label className="block text-sm font-medium text-charcoal mb-1.5">Follow-up Type</label>
+              <select
+                value={editFollowUpType}
+                onChange={(e) => setEditFollowUpType(e.target.value)}
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              >
+                <option value="normal">Normal follow-up</option>
+                <option value="sfs">SFS short follow-up</option>
+                <option value="tracker">Tracker</option>
+              </select>
+            </div>
+          )}
+          <div className="w-full">
+            <label className="block text-sm font-medium text-charcoal mb-1.5">Notes</label>
+            <textarea
+              rows={3}
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition resize-none"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setEditModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={editSaving}>
+              {editSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       <Modal open={doneModalOpen} onClose={() => setDoneModalOpen(false)} title={`Mark ${title.replace(/s$/, '')} Done`} className="max-w-5xl">
         <form onSubmit={handleDoneSubmit} className="space-y-4">
           {doneError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{doneError}</div>}
@@ -1041,6 +1207,14 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
                 className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition resize-y"
               />
             </div>
+          ) : doneEntry?.followUpType === 'tracker' ? (
+            <Input
+              id="trackerSubmissionUrl"
+              label="Tracker Submission Link"
+              placeholder="Paste parent tracker submission link"
+              value={trackerSubmissionUrl}
+              onChange={(e) => setTrackerSubmissionUrl(e.target.value)}
+            />
           ) : (
             <>
               <Input
@@ -1072,6 +1246,34 @@ const ScheduleCard = ({ icon: Icon, title, entries, onAdd, onUpdateStatus, canAd
               )}
             </>
           )}
+          {!doneEntry || doneEntry?.followUpType !== 'tracker' ? (
+            <div>
+              <label className="block text-sm font-medium text-charcoal mb-1.5">Upload Photo / File</label>
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
+                <Paperclip size={14} />
+                Attach files
+                <input
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx"
+                  multiple
+                  onChange={(e) => appendSelectedFiles(setDoneFiles, e.target.files)}
+                  className="hidden"
+                />
+              </label>
+              <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
+                <Paperclip size={14} />
+                Camera
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => appendSelectedFiles(setDoneFiles, e.target.files)}
+                  className="hidden"
+                />
+              </label>
+              <SelectedAttachments files={doneFiles} onRemove={(index) => removeSelectedFile(setDoneFiles, index)} />
+            </div>
+          ) : null}
           <div className="hidden">
             <label className="block text-sm font-medium text-charcoal mb-1.5">Details</label>
             <textarea
@@ -1562,7 +1764,7 @@ const PatientDetails = () => {
   const saveStageField = async (fieldKey, rawValue) => {
     const numberFields = ['totalAmount', 'medicineMonthsGiven'];
     const booleanFields = ['medicineFullyGiven', 'medicineConnectDone'];
-    const dateFields = ['medicineNextConnectDate', 'medicineTakenDate'];
+    const dateFields = ['medicineNextConnectDate', 'medicineTakenDate', 'medicineExplainDate'];
     const payload = {
       [fieldKey]: numberFields.includes(fieldKey)
         ? Number(rawValue) || 0
@@ -1655,13 +1857,29 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
+  const patchScheduleEntry = async (url, payload) => {
+    const files = payload.files || [];
+    if (!files.length) {
+      const { files: _files, ...jsonPayload } = payload;
+      return api.patch(url, jsonPayload);
+    }
+
+    const formData = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (key === 'files' || value === undefined) return;
+      formData.append(key, typeof value === 'object' && value !== null ? JSON.stringify(value) : value);
+    });
+    files.forEach((file) => formData.append('completionFiles', file));
+    return api.patch(url, formData);
+  };
+
    const handleAddFollowUp = async ({ dateTime, notes, followUpType }) => {
     const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/followups`, { dateTime, notes, followUpType });
     setPatient(data.patient);
   };
 
   const handleUpdateFollowUpStatus = async (entryId, status, extra = {}) => {
-    const { data } = await api.patch(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}`, { status, ...extra });
+    const { data } = await patchScheduleEntry(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}`, { status, ...extra });
     setPatient(data.patient);
   };
 
@@ -1671,7 +1889,7 @@ const PatientDetails = () => {
   };
 
   const handleUpdateFamilySessionStatus = async (entryId, status, extra = {}) => {
-    const { data } = await api.patch(`/patients/${id}/stages/${activeStageTab}/family-sessions/${entryId}`, { status, ...extra });
+    const { data } = await patchScheduleEntry(`/patients/${id}/stages/${activeStageTab}/family-sessions/${entryId}`, { status, ...extra });
     setPatient(data.patient);
   };
 
@@ -2030,7 +2248,7 @@ const PatientDetails = () => {
                   <PackageCheck size={18} className={activeMedicineConnectDue ? 'text-[#B42318]' : 'text-sage'} />
                 </div>
                 <div
-                  className={`grid grid-cols-2 sm:grid-cols-5 gap-px border-t ${
+                  className={`grid grid-cols-2 sm:grid-cols-6 gap-px border-t ${
                     activeMedicineConnectDue ? 'border-[#B42318]/25 bg-[#B42318]/20' : 'border-cardline bg-cardline'
                   }`}
                 >
@@ -2040,6 +2258,15 @@ const PatientDetails = () => {
                     value={activeStage.medicineMonthsGiven || ''}
                     placeholder="0"
                     onSave={(val) => saveStageField('medicineMonthsGiven', val)}
+                    readOnly={!canEditStageDetails}
+                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                  />
+                  <EditableField
+                    label="Medicine Explained Date"
+                    type="date"
+                    value={toDateInputValue(activeStage.medicineExplainDate)}
+                    placeholder="Not added"
+                    onSave={(val) => saveStageField('medicineExplainDate', val)}
                     readOnly={!canEditStageDetails}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
@@ -2079,7 +2306,18 @@ const PatientDetails = () => {
                     readOnly={!canEditStageDetails}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
-                  <div className="sm:col-span-5">
+                  <div className="sm:col-span-3">
+                    <EditableField
+                      label="Medicine Supply Note"
+                      type="textarea"
+                      value={activeStage.medicineSupplyNote || ''}
+                      placeholder="Write medicine given/not given details"
+                      onSave={(val) => saveStageField('medicineSupplyNote', val)}
+                      readOnly={!canEditStageDetails}
+                      tone={activeMedicineConnectDue ? 'danger' : 'default'}
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
                     <EditableField
                       label="Reminder Note"
                       type="textarea"
@@ -2106,6 +2344,7 @@ const PatientDetails = () => {
                   entries={activeStage.followUps}
                   onAdd={handleAddFollowUp}
                   onUpdateStatus={handleUpdateFollowUpStatus}
+                  canEditEntries={isAdmin}
                   formType="followup_full"
                   patient={patient}
                   stageNumber={activeStage.number}
@@ -2118,6 +2357,7 @@ const PatientDetails = () => {
                 onAdd={handleAddFamilySession}
                 onUpdateStatus={handleUpdateFamilySessionStatus}
                 canUpdate={canUpdateFamilySessions}
+                canEditEntries={isAdmin}
                 formType="family_section_a"
                 patient={patient}
                 stageNumber={activeStage.number}

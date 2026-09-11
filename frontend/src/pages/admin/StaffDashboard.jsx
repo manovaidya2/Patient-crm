@@ -16,6 +16,16 @@ const formatDateTime = (iso) =>
       })
     : '-';
 
+const formatReminderDate = (item) => {
+  if (item?.type !== 'medicine_connect') return formatDateTime(item?.dateTime);
+  const [year, month, day] = String(item?.dateTime || '').slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return '-';
+  return new Date(year, month - 1, day).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+  });
+};
+
 const RECENT_ACTIONS_PER_PAGE = 10;
 
 const StatCard = ({ icon: Icon, label, value, tone = 'sage' }) => {
@@ -124,7 +134,10 @@ const StaffDashboard = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-charcoal">{item.typeLabel} - {item.patientName}</p>
-                      <p className="mt-1 text-xs text-charcoal/55">{item.stageLabel} | {formatDateTime(item.dateTime)}</p>
+                      <p className="mt-1 text-xs text-charcoal/55">{item.stageLabel} | {formatReminderDate(item)}</p>
+                      {item.notes && (
+                        <p className="mt-1 text-xs font-semibold text-charcoal/65">Issue: {item.notes}</p>
+                      )}
                       <p className="mt-1 text-xs text-charcoal/55">Assigned to {item.assignee}</p>
                     </div>
                     <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${

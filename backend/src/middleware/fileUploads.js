@@ -72,6 +72,7 @@ module.exports = {
   uploadPrescription: createUpload('prescriptions'),
   uploadMedicineImage: createUpload('medicine', { imagesOnly: true }),
   uploadCourierImage: createUpload('courier', { imagesOnly: true }),
+  uploadScheduleCompletion: createUpload('schedule'),
   uploadCallRecording: createUpload('recording', {
     allowedTypes: callRecordingMimeTypes,
     maxFileSize: 100 * 1024 * 1024,

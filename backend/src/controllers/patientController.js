@@ -152,12 +152,19 @@ const formatScheduleEntry = (e) => {
     notes: e.notes,
     createdByName: e.createdByName,
     completedAt: e.completedAt || null,
+    trackerSentAt: e.trackerSentAt || null,
+    trackerSentByName: e.trackerSentByName || '',
     completionName: e.completionName || '',
     completionDetails: e.completionDetails || '',
+    completionFiles: e.completionFiles || [],
+    trackerSubmissionUrl: e.trackerSubmissionUrl || '',
     meetRecordingUrl: e.meetRecordingUrl || '',
     completionFormType: e.completionFormType || '',
     completionPdfUrl: e.completionPdfUrl || null,
     completionPdfName: e.completionPdfName || '',
+    ...(e.followUpType === 'tracker' && e.status === 'sent'
+      ? { displayStatusLabel: 'Tracker Sent' }
+      : {}),
   };
 };
 
@@ -307,6 +314,8 @@ const normalizeStages = (existing = []) => {
       totalAmount: found?.totalAmount || 0,
       postCounselor: found?.postCounselor || null,
       medicineMonthsGiven: found?.medicineMonthsGiven || 0,
+      medicineExplainDate: found?.medicineExplainDate ?? null,
+      medicineSupplyNote: found?.medicineSupplyNote || '',
       medicineNextConnectDate: found?.medicineNextConnectDate ?? null,
       medicineNextConnectNote: found?.medicineNextConnectNote || '',
       medicineTakenDate: found?.medicineTakenDate ?? null,
@@ -366,6 +375,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       totalAmount: s.totalAmount,
       postCounselor: formatAssignedUser(s.postCounselor),
       medicineMonthsGiven: s.medicineMonthsGiven || 0,
+      medicineExplainDate: s.medicineExplainDate,
+      medicineSupplyNote: s.medicineSupplyNote || '',
       medicineNextConnectDate: s.medicineNextConnectDate,
       medicineNextConnectNote: s.medicineNextConnectNote || '',
       medicineTakenDate: s.medicineTakenDate,
@@ -515,6 +526,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     pending: 0,
     normal: { total: 0, done: 0, pending: 0 },
     sfs: { total: 0, done: 0, pending: 0 },
+    tracker: { total: 0, done: 0, pending: 0 },
   };
 
   const paymentSummary = patients.reduce(
@@ -540,8 +552,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         (stage.followUps || []).forEach((entry) => {
           const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
           if (!entryDate || entryDate < followUpDayStart || entryDate > followUpDayEnd) return;
-          const type = entry.followUpType === 'sfs' ? 'sfs' : 'normal';
-          const isDone = ['completed', 'done', 'done_late'].includes(entry.status);
+          const type = entry.followUpType === 'sfs' ? 'sfs' : entry.followUpType === 'tracker' ? 'tracker' : 'normal';
+          const isDone = ['completed', 'sent', 'done', 'done_late'].includes(entry.status);
           const isCancelled = entry.status === 'cancelled';
           if (isCancelled) return;
 
@@ -1026,6 +1038,8 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     totalAmount,
     postCounselor,
     medicineMonthsGiven,
+    medicineExplainDate,
+    medicineSupplyNote,
     medicineNextConnectDate,
     medicineNextConnectNote,
     medicineTakenDate,
@@ -1104,6 +1118,18 @@ const updatePatientStage = asyncHandler(async (req, res) => {
       addActivity(patient, req.user, `Stage ${stageNum} medicine months updated`, `From ${stageEntry.medicineMonthsGiven || 0} to ${nextMonths}`);
     }
     stageEntry.medicineMonthsGiven = nextMonths;
+  }
+  if (medicineExplainDate !== undefined) {
+    const previousDate = stageEntry.medicineExplainDate ? stageEntry.medicineExplainDate.toISOString().slice(0, 10) : '';
+    const nextDate = medicineExplainDate || '';
+    if (!sameValue(previousDate, nextDate)) {
+      addActivity(patient, req.user, `Stage ${stageNum} medicine explain date updated`, nextDate || 'Cleared');
+    }
+    stageEntry.medicineExplainDate = medicineExplainDate || null;
+  }
+  if (medicineSupplyNote !== undefined && !sameValue(stageEntry.medicineSupplyNote, medicineSupplyNote)) {
+    addActivity(patient, req.user, `Stage ${stageNum} medicine supply note updated`, medicineSupplyNote || 'Cleared');
+    stageEntry.medicineSupplyNote = medicineSupplyNote || '';
   }
   if (medicineNextConnectDate !== undefined) {
     const previousDate = stageEntry.medicineNextConnectDate ? stageEntry.medicineNextConnectDate.toISOString().slice(0, 10) : '';
@@ -1663,12 +1689,15 @@ const addScheduleEntry = (fieldKey) =>
     }
 
     const stageEntry = patient.stages.find((s) => s.number === stageNum);
-    const normalizedFollowUpType = fieldKey === 'followUps' && String(followUpType || '').toLowerCase() === 'sfs' ? 'sfs' : 'normal';
+    const requestedFollowUpType = String(followUpType || '').toLowerCase();
+    const normalizedFollowUpType = fieldKey === 'followUps' && ['sfs', 'tracker'].includes(requestedFollowUpType)
+      ? requestedFollowUpType
+      : 'normal';
     stageEntry[fieldKey].push({ dateTime, notes: notes || '', followUpType: normalizedFollowUpType, createdByName: req.user.name });
     addActivity(
       patient,
       req.user,
-      `${fieldKey === 'followUps' ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : 'Follow-up'}` : 'Family session'} scheduled for Stage ${stageNum}`,
+      `${fieldKey === 'followUps' ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : 'Follow-up'}` : 'Family session'} scheduled for Stage ${stageNum}`,
       `${new Date(dateTime).toLocaleString('en-IN')}${notes ? ` - ${notes}` : ''}`
     );
     await patient.save();
@@ -1691,7 +1720,16 @@ const updateScheduleEntry = (fieldKey) =>
       return res.status(400).json({ success: false, message: 'Invalid stage number' });
     }
 
-    const { dateTime, status, notes, completionName, completionDetails, meetRecordingUrl, completionFormType, completionFormData, completionHtml } = req.body;
+    const { dateTime, status, notes, followUpType, completionName, completionDetails, trackerSubmissionUrl, meetRecordingUrl, completionFormType, completionHtml } = req.body;
+    const uploadedCompletionFiles = filesFromRequest(req);
+    let completionFormData = req.body.completionFormData;
+    if (typeof completionFormData === 'string') {
+      try {
+        completionFormData = JSON.parse(completionFormData || 'null');
+      } catch {
+        completionFormData = null;
+      }
+    }
     if (status !== undefined && !ALL_SCHEDULE_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, message: `Status must be one of: ${ALL_SCHEDULE_STATUSES.join(', ')}` });
     }
@@ -1715,16 +1753,26 @@ const updateScheduleEntry = (fieldKey) =>
     }
 
     const isShortFollowUp = fieldKey === 'followUps' && entry.followUpType === 'sfs';
+    const isTrackerFollowUp = fieldKey === 'followUps' && entry.followUpType === 'tracker';
+    if (status === 'sent' && !isTrackerFollowUp) {
+      return res.status(400).json({ success: false, message: 'Only tracker follow-ups can be marked sent' });
+    }
     if (status === 'completed') {
-      if (isShortFollowUp && !String(completionDetails || '').trim()) {
-        return res.status(400).json({ success: false, message: 'Note is required to mark SFS follow-up done' });
+      const hasCompletionAttachment = uploadedCompletionFiles.length > 0 || (entry.completionFiles || []).length > 0;
+      if (isShortFollowUp && !String(completionDetails || '').trim() && !hasCompletionAttachment) {
+        return res.status(400).json({ success: false, message: 'Add an SFS note or upload a photo/file' });
       }
-      if (!isShortFollowUp && (!completionName || !completionDetails)) {
-        return res.status(400).json({ success: false, message: 'Name and details are required to mark this done' });
+      if (isTrackerFollowUp && !String(trackerSubmissionUrl || '').trim()) {
+        return res.status(400).json({ success: false, message: 'Tracker submission link is required to mark tracker done' });
+      }
+      if (!isShortFollowUp && !isTrackerFollowUp && (!completionName || (!completionDetails && !hasCompletionAttachment))) {
+        return res.status(400).json({ success: false, message: 'Name and details or an uploaded file are required to mark this done' });
       }
     }
 
-    const scheduleLabel = fieldKey === 'followUps' ? (isShortFollowUp ? 'SFS follow-up' : 'Follow-up') : 'Family session';
+    const scheduleLabel = fieldKey === 'followUps'
+      ? (isShortFollowUp ? 'SFS follow-up' : isTrackerFollowUp ? 'Tracker follow-up' : 'Follow-up')
+      : 'Family session';
     if (dateTime !== undefined && !sameValue(new Date(entry.dateTime).toISOString(), new Date(dateTime).toISOString())) {
       addActivity(patient, req.user, `${scheduleLabel} rescheduled for Stage ${stageNum}`, new Date(dateTime).toLocaleString('en-IN'));
       entry.dateTime = dateTime;
@@ -1733,16 +1781,40 @@ const updateScheduleEntry = (fieldKey) =>
       addActivity(patient, req.user, `${scheduleLabel} notes updated for Stage ${stageNum}`, notes || 'Cleared');
       entry.notes = notes;
     }
+    if (fieldKey === 'followUps' && followUpType !== undefined) {
+      if (req.user.role !== ROLES.ADMIN) {
+        return res.status(403).json({ success: false, message: 'Only Admin can edit follow-up type' });
+      }
+      const nextFollowUpType = String(followUpType || 'normal').toLowerCase();
+      if (!['normal', 'sfs', 'tracker'].includes(nextFollowUpType)) {
+        return res.status(400).json({ success: false, message: 'Follow-up type must be normal, sfs, or tracker' });
+      }
+      if (!sameValue(entry.followUpType || 'normal', nextFollowUpType)) {
+        addActivity(patient, req.user, `${scheduleLabel} type updated for Stage ${stageNum}`, `From ${entry.followUpType || 'normal'} to ${nextFollowUpType}`);
+        entry.followUpType = nextFollowUpType;
+      }
+    }
 
     if (status !== undefined) {
+      if (status === 'sent') {
+        entry.trackerSentAt = new Date();
+        entry.trackerSentByName = req.user.name;
+      }
       if (status === 'completed') {
-        entry.completionName = isShortFollowUp ? (completionName || 'SFS Call') : completionName;
-        entry.completionDetails = completionDetails;
+        entry.completionName = isShortFollowUp
+          ? (completionName || 'SFS Call')
+          : isTrackerFollowUp
+            ? 'Tracker Submission'
+            : completionName;
+        entry.completionDetails = isTrackerFollowUp ? (completionDetails || 'Tracker submitted') : completionDetails;
+        const completionFiles = toFileItems(uploadedCompletionFiles, 'schedule');
+        entry.completionFiles = mergeFileItems(entry.completionFiles || [], completionFiles);
+        entry.trackerSubmissionUrl = isTrackerFollowUp ? String(trackerSubmissionUrl || '').trim() : '';
         entry.meetRecordingUrl = fieldKey === 'familySessions' ? meetRecordingUrl || '' : '';
         entry.completedAt = new Date();
-        entry.completionFormType = isShortFollowUp ? 'sfs' : completionFormType || (fieldKey === 'followUps' ? 'followup_full' : 'family_section_a');
-        entry.completionFormData = isShortFollowUp ? null : completionFormData || null;
-        if (isShortFollowUp) {
+        entry.completionFormType = isShortFollowUp ? 'sfs' : isTrackerFollowUp ? 'tracker' : completionFormType || (fieldKey === 'followUps' ? 'followup_full' : 'family_section_a');
+        entry.completionFormData = (isShortFollowUp || isTrackerFollowUp) ? null : completionFormData || null;
+        if (isShortFollowUp || isTrackerFollowUp) {
           entry.completionPdfUrl = null;
           entry.completionPdfName = '';
         } else {
@@ -1778,8 +1850,14 @@ const updateScheduleEntry = (fieldKey) =>
         addActivity(
           patient,
           req.user,
-          `${scheduleLabel} ${status === 'completed' ? 'marked done' : 'status updated'} for Stage ${stageNum}`,
-          status === 'completed' ? `${completionName}: ${completionDetails}` : status
+          `${scheduleLabel} ${status === 'completed' ? 'marked done' : status === 'sent' ? 'marked sent' : 'status updated'} for Stage ${stageNum}`,
+          status === 'completed'
+            ? (isTrackerFollowUp
+                ? `Tracker link: ${trackerSubmissionUrl}`
+                : `${entry.completionName}: ${entry.completionDetails || `${(entry.completionFiles || []).length} attachment(s)`}`)
+            : status === 'sent'
+              ? 'Tracker sent to parents'
+              : status
         );
       }
       entry.status = status;

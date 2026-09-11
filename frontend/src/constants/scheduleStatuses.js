@@ -1,6 +1,7 @@
 // Stored statuses — the only values ever sent when updating an entry.
 export const SCHEDULE_STATUSES = {
   SCHEDULED: 'scheduled',
+  SENT: 'sent',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
 };

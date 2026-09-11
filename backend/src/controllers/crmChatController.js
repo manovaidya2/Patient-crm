@@ -113,6 +113,7 @@ const hasBroadListIntent = (message = '') => /\b(all|total|today|kal|yesterday|m
 
 const getScheduleDisplayStatus = (entry = {}) => {
   if (entry.status === 'cancelled') return 'cancelled';
+  if (entry.status === 'sent') return 'done';
   if (entry.status === 'completed') {
     return entry.completedAt && entry.dateTime && new Date(entry.completedAt) > new Date(entry.dateTime)
       ? 'done_late'
@@ -154,6 +155,7 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
     assignedDoctor: patient.assignedDoctor?.name || '',
     assignedPsychologist: patient.assignedPsychologist?.name || '',
     followUps: {
+      tracker: createScheduleCounts(),
       normal: createScheduleCounts(),
       sfs: createScheduleCounts(),
       total: createScheduleCounts(),
@@ -190,7 +192,7 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
 
   (patient.stages || []).forEach((stage) => {
     (stage.followUps || []).forEach((entry) => {
-      const type = entry.followUpType === 'sfs' ? 'sfs' : 'normal';
+      const type = entry.followUpType === 'sfs' ? 'sfs' : entry.followUpType === 'tracker' ? 'tracker' : 'normal';
       addScheduleCount(summary.followUps[type], entry);
       addScheduleCount(summary.followUps.total, entry);
     });
@@ -213,6 +215,8 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
     }
     if (
       stage.medicineMonthsGiven
+      || stage.medicineExplainDate
+      || stage.medicineSupplyNote
       || stage.medicineNextConnectDate
       || stage.medicineTakenDate
       || stage.medicineFullyGiven
@@ -322,7 +326,7 @@ const buildMemberWorkSummary = (users = [], patients = [], adviceRequests = [], 
     (patient.stages || []).forEach((stage) => {
       (stage.followUps || []).forEach((entry) => {
         addRecord(entry.createdByName, 'followUpsScheduled', {
-          action: `${entry.followUpType === 'sfs' ? 'SFS' : 'Normal'} follow-up scheduled`,
+          action: `${entry.followUpType === 'sfs' ? 'SFS' : entry.followUpType === 'tracker' ? 'Tracker' : 'Normal'} follow-up scheduled`,
           patientName: patient.patientName,
           patientCode: formatPatientCode(patient),
           at: entry.createdAt || entry.dateTime,
@@ -447,6 +451,7 @@ const summarizeStage = (stage) => {
         completedAt: formatDate(item.completedAt),
         talkedWith: item.completionName || '',
         completionDetails: item.completionDetails || '',
+        trackerSubmissionUrl: item.trackerSubmissionUrl || '',
       })),
     },
     familySessions: {
@@ -475,6 +480,8 @@ const summarizeStage = (stage) => {
       deliveredAt: formatDate(medicine.courier?.deliveredAt),
       supply: {
         monthsGiven: Number(stage.medicineMonthsGiven || 0),
+        medicineExplainDate: formatDateOnly(stage.medicineExplainDate),
+        medicineSupplyNote: stage.medicineSupplyNote || '',
         nextConnectDate: formatDateOnly(stage.medicineNextConnectDate),
         reminderNote: stage.medicineNextConnectNote || '',
         connected: Boolean(stage.medicineConnectDone),
@@ -512,7 +519,7 @@ const summarizePatient = (patient) => ({
 const buildCrmFeatureSummary = () => [
   'Patient management with category, stage, assignment, phone, alternate phone and record uploads',
   'Stage-wise package amount, payments, payment screenshots, paid/due calculation and edit tracking',
-  'Stage-wise follow-ups, SFS short follow-ups, family sessions, mark done, reschedule, late reminders and PDFs',
+  'Stage-wise follow-ups, SFS short follow-ups, tracker follow-ups with parent submission links, family sessions, mark done, reschedule, late reminders and PDFs',
   'Patient timeline with CRM actions, call logs and call recordings',
   'Doctor advice workflow with urgent requests, stage-wise requests, replies and edit history',
   'Medicine request workflow with prescription uploads, in-process, made images and courier handoff',
@@ -675,6 +682,7 @@ const buildCrmContext = async (message) => {
     talkedWith: entry.completionName || '',
     notes: entry.notes || '',
     completionDetails: entry.completionDetails || '',
+    trackerSubmissionUrl: entry.trackerSubmissionUrl || '',
     _ts: toTime(entry.completedAt) || toTime(entry.dateTime),
   });
 
@@ -683,6 +691,8 @@ const buildCrmContext = async (message) => {
       const medicine = stage.medicineRequest || {};
       const hasMedicineSupplyRecord =
         stage.medicineMonthsGiven
+        || stage.medicineExplainDate
+        || stage.medicineSupplyNote
         || stage.medicineNextConnectDate
         || stage.medicineTakenDate
         || stage.medicineFullyGiven
@@ -694,6 +704,8 @@ const buildCrmContext = async (message) => {
           patientCode: formatPatientCode(patient),
           stage: stage.number,
           monthsGiven: Number(stage.medicineMonthsGiven || 0),
+          medicineExplainDate: formatDateOnly(stage.medicineExplainDate),
+          medicineSupplyNote: stage.medicineSupplyNote || '',
           nextConnectDate: formatDateOnly(stage.medicineNextConnectDate),
           reminderNote: stage.medicineNextConnectNote || '',
           connected: Boolean(stage.medicineConnectDone),
@@ -704,7 +716,7 @@ const buildCrmContext = async (message) => {
           fullMedicineGiven: Boolean(stage.medicineFullyGiven),
           postCounselor: stage.postCounselor?.name || '',
           assignedDoctor: patient.assignedDoctor?.name || '',
-          _ts: toTime(stage.medicineConnectedAt) || toTime(stage.medicineNextConnectDate) || toTime(stage.medicineTakenDate),
+          _ts: toTime(stage.medicineConnectedAt) || toTime(stage.medicineNextConnectDate) || toTime(stage.medicineTakenDate) || toTime(stage.medicineExplainDate),
         });
       }
 
@@ -765,7 +777,7 @@ const buildCrmContext = async (message) => {
       });
 
       (stage.followUps || []).forEach((entry) => {
-        followUpList.push(scheduleRow(patient, stage, entry, entry.followUpType === 'sfs' ? 'sfs' : 'normal'));
+        followUpList.push(scheduleRow(patient, stage, entry, entry.followUpType === 'sfs' ? 'sfs' : entry.followUpType === 'tracker' ? 'tracker' : 'normal'));
       });
       (stage.familySessions || []).forEach((entry) => {
         familySessionList.push(scheduleRow(patient, stage, entry, 'family_session'));
@@ -970,7 +982,7 @@ const systemPrompt = [
   'Admin is the system owner, not staff. The context already excludes admin from staff and member lists. Never add admin back, never include admin in "kaun kaun members hain", work totals, or "sabse zyada kaam kisne kiya" comparisons. If an action was done by admin, a webhook, or the system, describe it as an automatic/system action without attributing it to a named person.',
 
   // === Ready-made lists for list / count questions ===
-  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, medicineSupplyList (months of medicine given, next connect date, reminder note/issue, connected status, due status, post counselor, assistant doctor, full medicine given/taken date), paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a breakdown/total count when available — if the shown items are fewer than the total, say there are older records not listed here.',
+  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, medicineSupplyList (months of medicine given, medicine explain date, medicine supply note, next connect date, reminder note/issue, connected status, due status, post counselor, assistant doctor, full medicine given/taken date), paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a breakdown/total count when available — if the shown items are fewer than the total, say there are older records not listed here.',
 
   // === NEW: Deep, granular data usage ===
   'Do not limit yourself to top-level summary fields (like totals or counts) if the CRM context has deeper/nested data available. Actively look into every relevant sub-field, nested record, timestamp, note, and status flag connected to the question — even small details like a single field value, a specific note text, a specific timestamp, or a one-line remark — and use them if they help answer the question more completely.',
@@ -990,9 +1002,9 @@ const systemPrompt = [
   // Domain coverage
   'You can help with questions about patients, staff, payments, medicines, medicine supply/connect reminders, courier/delivery, inventory, doctor advice requests, worksheets, calls, follow-ups, family sessions, and activity timelines — summarizing relevant CRM data with dates, counts, and specific details when available.',
 
-  'For questions about overall CRM work, patient activity, "sabse zyada kaam", "most active patient", "kis patient par kya kya hua", or general progress, use overallPatientWorkSummary first. Do not answer from doctorAdvice alone. Compare the whole patient record: normal follow-ups, SFS follow-ups, family sessions, completed items, late items, done-late items, calls/recordings, payments, medicine request, medicine supply/connect due status, courier status, doctor advice, and timeline activity. Mention the main reason why one patient ranks higher, with counts from these categories.',
+  'For questions about overall CRM work, patient activity, "sabse zyada kaam", "most active patient", "kis patient par kya kya hua", or general progress, use overallPatientWorkSummary first. Do not answer from doctorAdvice alone. Compare the whole patient record: normal follow-ups, SFS follow-ups, tracker follow-ups/submission links, family sessions, completed items, late items, done-late items, calls/recordings, payments, medicine request, medicine supply/connect due status, courier status, doctor advice, and timeline activity. Mention the main reason why one patient ranks higher, with counts from these categories.',
 
-  'When talking about one patient, cover their CRM activity broadly if relevant: follow-ups scheduled/done/late/done-late, SFS, family sessions scheduled/done/late/done-late, payments, calls, doctor advice, medicine request, medicine supply details (months given, next connect date, reminder note/issue, connected or due), courier, and recent timeline actions. If a category has no record, say that briefly instead of ignoring other categories.',
+  'When talking about one patient, cover their CRM activity broadly if relevant: follow-ups scheduled/done/late/done-late, SFS, tracker follow-ups and submitted tracker links, family sessions scheduled/done/late/done-late, payments, calls, doctor advice, medicine request, medicine supply details (months given, medicine explain date, medicine supply note, next connect date, reminder note/issue, connected or due), courier, and recent timeline actions. If a category has no record, say that briefly instead of ignoring other categories.',
 
   'For questions about members, staff, team, users, counselor records, account list, "members ki records", or "kaun-kaun members hain", use memberWorkSummary and staff. First give the complete registered member list with name and role. If the user asks for records/accounts too, then add each member totalRecords and key record counts after the list. Do not skip members, do not stop after one or two names, and do not answer only with doctor records unless the user specifically asks for doctors.',
 
