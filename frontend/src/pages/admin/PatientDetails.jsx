@@ -1745,11 +1745,11 @@ const PatientDetails = () => {
   const isPsychologist = user?.role === ROLES.PSYCHOLOGIST;
   const isAccountant = user?.role === ROLES.ACCOUNTANT;
   const isAdmin = user?.role === ROLES.ADMIN;
+  const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
   const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
   const showFollowUps = user?.role !== ROLES.PSYCHOLOGIST;
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
   const canEditPatientDetails = !isPsychologist && !isAccountant;
-  const canEditStageDetails = !isPsychologist && !isAccountant;
   const canEditPostCounselor = isAdmin;
 
   // Every field goes through the same PATCH endpoint; the response is the fresh patient record.

@@ -200,6 +200,9 @@ const canSeeMedicineConnectReminder = (user, patient, stage) => {
   return false;
 };
 
+const canEditPackageStage = (user) =>
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
+
 const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } = {}) => {
   const now = new Date();
   const next24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -429,7 +432,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
 
 // @desc    List patients received via webhook (search, filter by category, paginated)
 // @route   GET /api/patients
-// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+// @access  Private/Admin, Doctor, Accountant, Post Counselor
 const getPatients = asyncHandler(async (req, res) => {
   const { search = '', category, stage, receivedDate, page = 1, limit = 10 } = req.query;
 
@@ -469,12 +472,11 @@ const getPatients = asyncHandler(async (req, res) => {
   }
 
   // Assistant Doctor and Psychologist only ever see patients assigned to them.
+  // Post Counselor has full All Patients access, same as Admin/Doctor/Manager.
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     filter.assignedDoctor = req.user._id;
   } else if (req.user.role === ROLES.PSYCHOLOGIST) {
     filter.assignedPsychologist = req.user._id;
-  } else if (req.user.role === ROLES.POST_COUNSELOR) {
-    filter['stages.postCounselor'] = req.user._id;
   }
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -823,7 +825,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
 
 // @desc    Get a single patient by id
 // @route   GET /api/patients/:id
-// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+// @access  Private/Admin, Doctor, Accountant, Post Counselor
 const getPatientById = asyncHandler(async (req, res) => {
   const patient = await Patient.findById(req.params.id)
     .populate('assignedDoctor', 'name')
@@ -1082,8 +1084,8 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 
-  if (req.user.role === ROLES.PSYCHOLOGIST) {
-    return res.status(403).json({ success: false, message: 'Psychologist cannot edit stages or package details' });
+  if (!canEditPackageStage(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package stage details' });
   }
 
   // Backfill the full 6-entry array if this patient predates the stages field
@@ -1232,6 +1234,10 @@ const addStagePayment = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
 
+  if (!canEditPackageStage(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package stage details' });
+  }
+
   if (!canAccessPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
@@ -1350,8 +1356,8 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 
-  if (req.user.role === ROLES.PSYCHOLOGIST) {
-    return res.status(403).json({ success: false, message: 'Psychologist cannot upload patient records' });
+  if (!canEditPackageStage(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package stage details' });
   }
 
   if (!patient.stages || patient.stages.length !== STAGES.length) {
