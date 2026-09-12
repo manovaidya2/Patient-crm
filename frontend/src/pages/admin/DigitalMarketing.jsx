@@ -226,12 +226,12 @@ const DigitalMarketing = () => {
             <thead>
               <tr>
                 {columns.map((col) => (
-                  <th key={col.key} className={`${col.width} border-r border-teal-800 bg-teal-950 px-3 py-3 text-sm font-bold text-offwhite-100`}>
+                  <th key={col.key} className={`${col.width} border-r border-teal-800 bg-[#56695D] px-3 py-3 text-sm font-bold text-offwhite-100`}>
                     {col.label}
                   </th>
                 ))}
                 {canDeleteReview && (
-                  <th className="min-w-24 bg-teal-950 px-3 py-3 text-right text-sm font-bold text-offwhite-100">
+                  <th className="min-w-24 bg-[#56695D] px-3 py-3 text-right text-sm font-bold text-offwhite-100">
                     Actions
                   </th>
                 )}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus, Calendar, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -38,6 +38,7 @@ const AllPatients = () => {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -57,7 +58,7 @@ const AllPatients = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [categoryFilter]);
+  }, [categoryFilter, dateFilter]);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -70,6 +71,7 @@ const AllPatients = () => {
             limit: PAGE_SIZE,
             search: debouncedSearch || undefined,
             category: categoryFilter || undefined,
+            receivedDate: dateFilter || undefined,
           },
         });
         setPatients(data.patients);
@@ -82,7 +84,7 @@ const AllPatients = () => {
       }
     };
     fetchPatients();
-  }, [page, debouncedSearch, categoryFilter]);
+  }, [page, debouncedSearch, categoryFilter, dateFilter]);
 
   useEffect(() => {
     const fetchPostCounselors = async () => {
@@ -141,7 +143,7 @@ const AllPatients = () => {
       </div>
 
       <Card className="mt-6" padded={false}>
-        <div className="p-4 flex flex-col sm:flex-row gap-3 border-b border-cardline-soft">
+        <div className="p-4 flex flex-col lg:flex-row gap-3 border-b border-cardline-soft">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
             <input
@@ -150,6 +152,26 @@ const AllPatients = () => {
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
             />
+          </div>
+          <div className="relative sm:w-56">
+            <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              aria-label="Filter by received date"
+            />
+            {dateFilter && (
+              <button
+                type="button"
+                onClick={() => setDateFilter('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-charcoal/45 hover:bg-sage-muted/25 hover:text-charcoal"
+                aria-label="Clear date filter"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
           <select
             value={categoryFilter}

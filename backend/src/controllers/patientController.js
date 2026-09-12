@@ -431,7 +431,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
 // @route   GET /api/patients
 // @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
 const getPatients = asyncHandler(async (req, res) => {
-  const { search = '', category, stage, page = 1, limit = 10 } = req.query;
+  const { search = '', category, stage, receivedDate, page = 1, limit = 10 } = req.query;
 
   const filter = {};
 
@@ -448,6 +448,16 @@ const getPatients = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid stage filter' });
     }
     filter.currentStage = stageNum;
+  }
+
+  if (receivedDate) {
+    const dateText = String(receivedDate).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
+      return res.status(400).json({ success: false, message: 'Invalid received date filter' });
+    }
+    const start = new Date(`${dateText}T00:00:00.000+05:30`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    filter.createdAt = { $gte: start, $lt: end };
   }
 
   if (search) {
