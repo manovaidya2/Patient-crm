@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Plus, Search } from 'lucide-react';
+import { Megaphone, Plus, Search, Trash2 } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -47,7 +47,11 @@ const DigitalMarketing = () => {
   const [form, setForm] = useState(emptyForm);
   const [patientSearch, setPatientSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const canAddReview = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
+  const canDeleteReview = user?.role === ROLES.ADMIN;
+  const tableColSpan = columns.length + (canDeleteReview ? 1 : 0);
 
   const loadRows = async () => {
     setLoading(true);
@@ -137,6 +141,21 @@ const DigitalMarketing = () => {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/digital-marketing/reviews/${deleteTarget.id}`);
+      setRows((current) => current.filter((item) => item.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      showToast('Review row deleted');
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Could not delete row', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const renderCell = (row, col) => {
     const value = row[col.key] || '';
     if (col.locked) {
@@ -211,13 +230,18 @@ const DigitalMarketing = () => {
                     {col.label}
                   </th>
                 ))}
+                {canDeleteReview && (
+                  <th className="min-w-24 bg-teal-950 px-3 py-3 text-right text-sm font-bold text-offwhite-100">
+                    Actions
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={columns.length} className="p-8 text-center text-sm text-charcoal/55">Loading sheet...</td></tr>
+                <tr><td colSpan={tableColSpan} className="p-8 text-center text-sm text-charcoal/55">Loading sheet...</td></tr>
               ) : filteredRows.length === 0 ? (
-                <tr><td colSpan={columns.length} className="p-8 text-center text-sm text-charcoal/55">No review rows yet.</td></tr>
+                <tr><td colSpan={tableColSpan} className="p-8 text-center text-sm text-charcoal/55">No review rows yet.</td></tr>
               ) : (
                 filteredRows.map((row) => (
                   <tr key={row.id} className="border-b border-cardline-soft bg-offwhite-100 hover:bg-offwhite-200/55">
@@ -226,6 +250,19 @@ const DigitalMarketing = () => {
                         {renderCell(row, col)}
                       </td>
                     ))}
+                    {canDeleteReview && (
+                      <td className="bg-offwhite-100 px-3 py-2 text-right align-top">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(row)}
+                          className="inline-flex rounded-md p-2 text-[#8C3B2E] transition hover:bg-[#8C3B2E]/10"
+                          aria-label={`Delete review row for ${row.patientName}`}
+                          title="Delete row"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -293,6 +330,20 @@ const DigitalMarketing = () => {
             <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Add Row'}</Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Review Row" className="max-w-md">
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-charcoal/75">
+            Delete {deleteTarget?.patientCode} - {deleteTarget?.patientName} review row?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="danger" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

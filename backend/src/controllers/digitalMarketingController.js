@@ -164,9 +164,24 @@ const updateReview = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, review: formatReview(review) });
 });
 
+const deleteReview = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN) {
+    return res.status(403).json({ success: false, message: 'Only admin can delete review rows' });
+  }
+
+  const review = await DigitalMarketingReview.findById(req.params.id);
+  if (!review) {
+    return res.status(404).json({ success: false, message: 'Review row not found' });
+  }
+
+  await review.deleteOne();
+  res.status(200).json({ success: true, message: 'Review row deleted' });
+});
+
 module.exports = {
   REVIEW_ACCESS_ROLES,
   getReviews,
   createReview,
   updateReview,
+  deleteReview,
 };
