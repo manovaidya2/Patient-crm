@@ -9,6 +9,7 @@ const ROLES = {
   PSYCHOLOGIST: 'psychologist',
   MEDICINE_DEPARTMENT: 'medicine_department',
   DISPATCH_COURIER: 'dispatch_courier',
+  DIGITAL_MARKETING: 'digital_marketing',
   ACCOUNTANT: 'accountant',
 };
 
@@ -21,6 +22,7 @@ const CREATABLE_ROLES = [
   ROLES.PSYCHOLOGIST,
   ROLES.MEDICINE_DEPARTMENT,
   ROLES.DISPATCH_COURIER,
+  ROLES.DIGITAL_MARKETING,
   ROLES.ACCOUNTANT,
 ];
 
@@ -44,6 +46,7 @@ const ROLE_LABELS = {
   [ROLES.PSYCHOLOGIST]: 'Psychologist',
   [ROLES.MEDICINE_DEPARTMENT]: 'Medicine Department',
   [ROLES.DISPATCH_COURIER]: 'Dispatch & Courier',
+  [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
   [ROLES.ACCOUNTANT]: 'Accountant',
 };
 

@@ -23,6 +23,7 @@ import RequestForAdvice from './pages/admin/RequestForAdvice.jsx';
 import AdviceGiven from './pages/admin/AdviceGiven.jsx';
 import Worksheet from './pages/admin/Worksheet.jsx';
 import CrmChatGPT from './pages/admin/CrmChatGPT.jsx';
+import DigitalMarketing from './pages/admin/DigitalMarketing.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -31,6 +32,7 @@ const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYC
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING];
 
 function App() {
   const { user, loading } = useAuth();
@@ -79,6 +81,14 @@ function App() {
           element={
             <ProtectedRoute roles={WORKSHEET_ACCESS_ROLES}>
               <Worksheet />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="digital-marketing"
+          element={
+            <ProtectedRoute roles={DIGITAL_MARKETING_ACCESS_ROLES}>
+              <DigitalMarketing />
             </ProtectedRoute>
           }
         />

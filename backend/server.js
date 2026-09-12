@@ -20,6 +20,7 @@ const adviceRoutes = require('./src/routes/adviceRoutes');
 const worksheetRoutes = require('./src/routes/worksheetRoutes');
 const crmChatRoutes = require('./src/routes/crmChatRoutes');
 const speechRoutes = require('./src/routes/speechRoutes');
+const digitalMarketingRoutes = require('./src/routes/digitalMarketingRoutes');
 
 connectDB();
 
@@ -57,6 +58,7 @@ app.use('/api/advice', adviceRoutes);
 app.use('/api/worksheet', worksheetRoutes);
 app.use('/api/crm-chat', crmChatRoutes);
 app.use('/api/speech', speechRoutes);
+app.use('/api/digital-marketing', digitalMarketingRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res) => {
