@@ -103,6 +103,7 @@ const canAccessPatient = (user, patient) => {
 };
 
 const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
+const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
 
 const formatAssignedUser = (assignedUser) => {
   if (!assignedUser) return null;
@@ -375,7 +376,9 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
   hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
   stages: normalizeStages(p.stages).map((s) => {
-    const amountPaid = (s.payments || []).reduce((sum, pay) => sum + (pay.amount || 0), 0);
+    const amountPaid = (s.payments || [])
+      .filter(isApprovedPayment)
+      .reduce((sum, pay) => sum + (pay.amount || 0), 0);
     return {
       number: s.number,
       status: s.status,
@@ -576,7 +579,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
       normalizeStages(patient.stages).forEach((stage) => {
         const totalAmount = Number(stage.totalAmount || 0);
-        const amountPaid = (stage.payments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+        const amountPaid = (stage.payments || [])
+          .filter(isApprovedPayment)
+          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
         acc.totalAmount += totalAmount;
         acc.amountPaid += amountPaid;
         const request = formatMedicineRequest(stage.medicineRequest);
@@ -804,6 +809,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
   patients.forEach((patient) => {
     (patient.stages || []).forEach((stage) => {
       (stage.payments || []).forEach((payment) => {
+        if (!isApprovedPayment(payment)) return;
         const paidAt = payment.date ? new Date(payment.date) : null;
         const addedAt = payment.createdAt ? new Date(payment.createdAt) : null;
         const updatedAt = payment.updatedAt ? new Date(payment.updatedAt) : addedAt;

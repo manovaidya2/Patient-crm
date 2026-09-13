@@ -63,6 +63,8 @@ const toTime = (value) => {
   return Number.isNaN(time) ? 0 : time;
 };
 
+const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
+
 const startOfToday = () => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -202,6 +204,7 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
     });
 
     (stage.payments || []).forEach((payment) => {
+      if (!isApprovedPayment(payment)) return;
       summary.payments.count += 1;
       summary.payments.amount += Number(payment.amount || 0);
     });
@@ -428,7 +431,7 @@ const buildMemberWorkSummary = (users = [], patients = [], adviceRequests = [], 
 const summarizeStage = (stage) => {
   const followUps = stage.followUps || [];
   const familySessions = stage.familySessions || [];
-  const payments = stage.payments || [];
+  const payments = (stage.payments || []).filter(isApprovedPayment);
   const medicine = stage.medicineRequest || {};
   return {
     stage: stage.number,
@@ -762,6 +765,7 @@ const buildCrmContext = async (message) => {
       }
 
       (stage.payments || []).forEach((payment) => {
+        if (!isApprovedPayment(payment)) return;
         paymentsList.push({
           patient: patient.patientName || '',
           patientCode: formatPatientCode(patient),
