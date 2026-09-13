@@ -59,7 +59,7 @@ export const navItems = [
 
 const STORAGE_KEY = 'crm_sidebar_collapsed';
 
-// "Patients by Stage" nav item — expands into the 6 stage links instead of linking directly.
+// "Patients by Phase" nav item expands into the 6 phase links instead of linking directly.
 export const StageMenu = ({ collapsed, onNavigate }) => {
   const location = useLocation();
   const isOnStages = location.pathname.startsWith('/admin/stages');
@@ -70,7 +70,7 @@ export const StageMenu = ({ collapsed, onNavigate }) => {
       <NavLink
         to="/admin/stages/1"
         onClick={onNavigate}
-        title="Patients by Stage"
+        title="Patients by Phase"
         className={`flex items-center justify-center rounded-lg px-0 py-2.5 text-sm font-medium transition-colors duration-150 ${
           isOnStages
             ? 'bg-teal-700 text-offwhite-100 shadow-sm'
@@ -92,7 +92,7 @@ export const StageMenu = ({ collapsed, onNavigate }) => {
         }`}
       >
         <Layers size={17} strokeWidth={2} className="shrink-0" />
-        <span className="flex-1 text-left">Patients by Stage</span>
+        <span className="flex-1 text-left">Patients by Phase</span>
         <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 

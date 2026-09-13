@@ -58,7 +58,7 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Query is required' });
   }
   if (!Number.isInteger(stageNumber) || stageNumber < 1 || stageNumber > 6) {
-    return res.status(400).json({ success: false, message: 'Stage is required for doctor advice' });
+    return res.status(400).json({ success: false, message: 'Phase is required for doctor advice' });
   }
 
   const patient = await Patient.findById(patientId);
@@ -69,7 +69,7 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
   if (!(patient.stages || []).some((item) => Number(item.number) === stageNumber)) {
-    return res.status(400).json({ success: false, message: 'Selected stage was not found for this patient' });
+    return res.status(400).json({ success: false, message: 'Selected phase was not found for this patient' });
   }
 
   const adviceRequest = await AdviceRequest.create({
@@ -85,7 +85,7 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
   addPatientActivity(
     patient,
     req.user,
-    Boolean(isUrgent) ? `Urgent advice requested from doctor for Stage ${stageNumber}` : `Advice requested from doctor for Stage ${stageNumber}`,
+    Boolean(isUrgent) ? `Urgent advice requested from doctor for Phase ${stageNumber}` : `Advice requested from doctor for Phase ${stageNumber}`,
     String(query).trim()
   );
   await patient.save();
@@ -198,7 +198,7 @@ const respondToAdviceRequest = asyncHandler(async (req, res) => {
 
   const patient = await Patient.findById(entry.patient);
   if (patient) {
-    addPatientActivity(patient, req.user, `Doctor advice given for Stage ${entry.stage || '-'}`, entry.advice);
+    addPatientActivity(patient, req.user, `Doctor advice given for Phase ${entry.stage || '-'}`, entry.advice);
     await patient.save();
   }
 
@@ -242,7 +242,7 @@ const updateAdviceRequest = asyncHandler(async (req, res) => {
   addPatientActivity(
     patient,
     req.user,
-    entry.isUrgent ? `Urgent advice request edited for Stage ${entry.stage || '-'}` : `Advice request edited for Stage ${entry.stage || '-'}`,
+    entry.isUrgent ? `Urgent advice request edited for Phase ${entry.stage || '-'}` : `Advice request edited for Phase ${entry.stage || '-'}`,
     entry.query
   );
   await patient.save();
@@ -277,7 +277,7 @@ const updateAdviceAnswer = asyncHandler(async (req, res) => {
 
   const patient = await Patient.findById(entry.patient);
   if (patient) {
-    addPatientActivity(patient, req.user, `Doctor advice edited for Stage ${entry.stage || '-'}`, entry.advice);
+    addPatientActivity(patient, req.user, `Doctor advice edited for Phase ${entry.stage || '-'}`, entry.advice);
     await patient.save();
   }
 

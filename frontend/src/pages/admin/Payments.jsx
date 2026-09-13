@@ -116,7 +116,7 @@ const Payments = () => {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-charcoal">Payments</h1>
-          <p className="mt-1 text-sm text-charcoal/60">Admin ledger for all patient stage transactions.</p>
+          <p className="mt-1 text-sm text-charcoal/60">Admin ledger for all patient phase transactions.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -220,7 +220,7 @@ const Payments = () => {
                 <thead>
                   <tr className="border-b border-cardline-soft text-left text-xs uppercase tracking-wide text-charcoal/55">
                     <th className="px-5 py-3 font-semibold">Patient</th>
-                    <th className="px-5 py-3 font-semibold">Stage</th>
+                    <th className="px-5 py-3 font-semibold">Phase</th>
                     <th className="px-5 py-3 font-semibold">Amount</th>
                     <th className="px-5 py-3 font-semibold">Paid Date</th>
                     <th className="px-5 py-3 font-semibold">Added Date</th>
@@ -241,7 +241,7 @@ const Payments = () => {
                         <p className="mt-0.5 text-xs text-charcoal/50">{payment.patientNumber || '-'}</p>
                       </td>
                       <td className="px-5 py-3.5">
-                        <Badge tone="teal">Stage {payment.stage}</Badge>
+                        <Badge tone="teal">Phase {payment.stage}</Badge>
                       </td>
                       <td className="px-5 py-3.5 font-bold text-charcoal">{formatMoney(payment.amount)}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{formatDate(payment.paidAt)}</td>

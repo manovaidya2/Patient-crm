@@ -468,7 +468,7 @@ const getPatients = asyncHandler(async (req, res) => {
   if (stage) {
     const stageNum = parseInt(stage, 10);
     if (!STAGES.includes(stageNum)) {
-      return res.status(400).json({ success: false, message: 'Invalid stage filter' });
+      return res.status(400).json({ success: false, message: 'Invalid phase filter' });
     }
     filter.currentStage = stageNum;
   }
@@ -1025,7 +1025,7 @@ const createPatient = asyncHandler(async (req, res) => {
 
   const stageNum = Number(currentStage || 1);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: `Stage must be one of: ${STAGES.join(', ')}` });
+    return res.status(400).json({ success: false, message: `Phase must be one of: ${STAGES.join(', ')}` });
   }
 
   let selectedPostCounselor = null;
@@ -1202,10 +1202,10 @@ const updatePatient = asyncHandler(async (req, res) => {
   if (currentStage !== undefined) {
     const stageNum = Number(currentStage);
     if (!STAGES.includes(stageNum)) {
-      return res.status(400).json({ success: false, message: `Stage must be one of: ${STAGES.join(', ')}` });
+      return res.status(400).json({ success: false, message: `Phase must be one of: ${STAGES.join(', ')}` });
     }
     if (!sameValue(patient.currentStage, stageNum)) {
-      addActivity(patient, req.user, 'Current stage updated', `From ${STAGE_LABELS[patient.currentStage] || patient.currentStage} to ${STAGE_LABELS[stageNum]}`);
+      addActivity(patient, req.user, 'Current phase updated', `From ${STAGE_LABELS[patient.currentStage] || patient.currentStage} to ${STAGE_LABELS[stageNum]}`);
     }
     patient.currentStage = stageNum;
   }
@@ -1264,7 +1264,7 @@ const updatePatient = asyncHandler(async (req, res) => {
 const updatePatientStage = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const {
@@ -1297,7 +1297,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   }
 
   if (!canEditPackageStage(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package stage details' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package phase details' });
   }
 
   // Backfill the full 6-entry array if this patient predates the stages field
@@ -1307,35 +1307,35 @@ const updatePatientStage = asyncHandler(async (req, res) => {
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
   if (status !== undefined && !sameValue(stageEntry.status, status)) {
-    addActivity(patient, req.user, `Stage ${stageNum} status updated`, `From ${STAGE_STATUS_LABELS[stageEntry.status]} to ${STAGE_STATUS_LABELS[status]}`);
+    addActivity(patient, req.user, `Phase ${stageNum} status updated`, `From ${STAGE_STATUS_LABELS[stageEntry.status]} to ${STAGE_STATUS_LABELS[status]}`);
     stageEntry.status = status;
   }
   if (date !== undefined && !sameValue(stageEntry.date ? stageEntry.date.toISOString().slice(0, 10) : '', date || '')) {
-    addActivity(patient, req.user, `Stage ${stageNum} date updated`, date || 'Cleared');
+    addActivity(patient, req.user, `Phase ${stageNum} date updated`, date || 'Cleared');
     stageEntry.date = date || null;
   }
   if (notes !== undefined && !sameValue(stageEntry.notes, notes)) {
-    addActivity(patient, req.user, `Stage ${stageNum} notes updated`, notes || 'Cleared');
+    addActivity(patient, req.user, `Phase ${stageNum} notes updated`, notes || 'Cleared');
     stageEntry.notes = notes;
   }
   if (packageName !== undefined && !sameValue(stageEntry.packageName, packageName)) {
-    addActivity(patient, req.user, `Stage ${stageNum} package updated`, packageName || 'Cleared');
+    addActivity(patient, req.user, `Phase ${stageNum} package updated`, packageName || 'Cleared');
     stageEntry.packageName = packageName;
   }
   if (totalAmount !== undefined) {
     const nextTotalAmount = Math.max(Number(totalAmount) || 0, 0);
     if (!sameValue(stageEntry.totalAmount, nextTotalAmount)) {
-      addActivity(patient, req.user, `Stage ${stageNum} total amount updated`, `From ${stageEntry.totalAmount || 0} to ${nextTotalAmount}`);
+      addActivity(patient, req.user, `Phase ${stageNum} total amount updated`, `From ${stageEntry.totalAmount || 0} to ${nextTotalAmount}`);
     }
     stageEntry.totalAmount = nextTotalAmount;
   }
   if (postCounselor !== undefined) {
     if (req.user.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only Admin can update stage post counselor' });
+      return res.status(403).json({ success: false, message: 'Only Admin can update phase post counselor' });
     }
     if (!postCounselor) {
       if (stageEntry.postCounselor) {
-        addActivity(patient, req.user, `Stage ${stageNum} post counselor cleared`);
+        addActivity(patient, req.user, `Phase ${stageNum} post counselor cleared`);
       }
       stageEntry.postCounselor = null;
     } else {
@@ -1344,7 +1344,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
         return res.status(400).json({ success: false, message: 'Select a valid, active Post Counselor' });
       }
       if (!sameValue(stageEntry.postCounselor, counselor._id)) {
-        addActivity(patient, req.user, `Stage ${stageNum} post counselor updated`, counselor.name);
+        addActivity(patient, req.user, `Phase ${stageNum} post counselor updated`, counselor.name);
       }
       stageEntry.postCounselor = counselor._id;
     }
@@ -1352,7 +1352,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   if (medicineMonthsGiven !== undefined) {
     const nextMonths = Math.max(Number(medicineMonthsGiven) || 0, 0);
     if (!sameValue(stageEntry.medicineMonthsGiven, nextMonths)) {
-      addActivity(patient, req.user, `Stage ${stageNum} medicine months updated`, `From ${stageEntry.medicineMonthsGiven || 0} to ${nextMonths}`);
+      addActivity(patient, req.user, `Phase ${stageNum} medicine months updated`, `From ${stageEntry.medicineMonthsGiven || 0} to ${nextMonths}`);
     }
     stageEntry.medicineMonthsGiven = nextMonths;
   }
@@ -1360,21 +1360,21 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     const previousDate = stageEntry.medicineExplainDate ? stageEntry.medicineExplainDate.toISOString().slice(0, 10) : '';
     const nextDate = medicineExplainDate || '';
     if (!sameValue(previousDate, nextDate)) {
-      addActivity(patient, req.user, `Stage ${stageNum} medicine explain date updated`, nextDate || 'Cleared');
+      addActivity(patient, req.user, `Phase ${stageNum} medicine explain date updated`, nextDate || 'Cleared');
     }
     stageEntry.medicineExplainDate = medicineExplainDate || null;
   }
   if (medicineSupplyNote !== undefined && !sameValue(stageEntry.medicineSupplyNote, medicineSupplyNote)) {
-    addActivity(patient, req.user, `Stage ${stageNum} medicine supply note updated`, medicineSupplyNote || 'Cleared');
+    addActivity(patient, req.user, `Phase ${stageNum} medicine supply note updated`, medicineSupplyNote || 'Cleared');
     stageEntry.medicineSupplyNote = medicineSupplyNote || '';
   }
   if (medicineNextConnectDate !== undefined) {
     const previousDate = stageEntry.medicineNextConnectDate ? stageEntry.medicineNextConnectDate.toISOString().slice(0, 10) : '';
     const nextDate = medicineNextConnectDate || '';
     if (!sameValue(previousDate, nextDate)) {
-      addActivity(patient, req.user, `Stage ${stageNum} medicine next connect date updated`, nextDate || 'Cleared');
+      addActivity(patient, req.user, `Phase ${stageNum} medicine next connect date updated`, nextDate || 'Cleared');
       if (stageEntry.medicineConnectDone) {
-        addActivity(patient, req.user, `Stage ${stageNum} medicine connect reopened`, 'Next connect date changed');
+        addActivity(patient, req.user, `Phase ${stageNum} medicine connect reopened`, 'Next connect date changed');
       }
       stageEntry.medicineConnectDone = false;
       stageEntry.medicineConnectedAt = null;
@@ -1383,21 +1383,21 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     stageEntry.medicineNextConnectDate = medicineNextConnectDate || null;
   }
   if (medicineNextConnectNote !== undefined && !sameValue(stageEntry.medicineNextConnectNote, medicineNextConnectNote)) {
-    addActivity(patient, req.user, `Stage ${stageNum} medicine reminder note updated`, medicineNextConnectNote || 'Cleared');
+    addActivity(patient, req.user, `Phase ${stageNum} medicine reminder note updated`, medicineNextConnectNote || 'Cleared');
     stageEntry.medicineNextConnectNote = medicineNextConnectNote || '';
   }
   if (medicineTakenDate !== undefined) {
     const previousDate = stageEntry.medicineTakenDate ? stageEntry.medicineTakenDate.toISOString().slice(0, 10) : '';
     const nextDate = medicineTakenDate || '';
     if (!sameValue(previousDate, nextDate)) {
-      addActivity(patient, req.user, `Stage ${stageNum} medicine taken date updated`, nextDate || 'Cleared');
+      addActivity(patient, req.user, `Phase ${stageNum} medicine taken date updated`, nextDate || 'Cleared');
     }
     stageEntry.medicineTakenDate = medicineTakenDate || null;
   }
   if (medicineFullyGiven !== undefined) {
     const nextFullyGiven = medicineFullyGiven === true || medicineFullyGiven === 'true';
     if (Boolean(stageEntry.medicineFullyGiven) !== nextFullyGiven) {
-      addActivity(patient, req.user, `Stage ${stageNum} medicine supply status updated`, nextFullyGiven ? 'Medicine fully given' : 'Medicine not fully given');
+      addActivity(patient, req.user, `Phase ${stageNum} medicine supply status updated`, nextFullyGiven ? 'Medicine fully given' : 'Medicine not fully given');
     }
     stageEntry.medicineFullyGiven = nextFullyGiven;
   }
@@ -1407,7 +1407,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
       addActivity(
         patient,
         req.user,
-        `Stage ${stageNum} medicine connect ${nextConnectDone ? 'marked connected' : 'reopened'}`,
+        `Phase ${stageNum} medicine connect ${nextConnectDone ? 'marked connected' : 'reopened'}`,
         nextConnectDone ? `Connected by ${req.user.name}` : 'Marked not connected',
       );
     }
@@ -1428,7 +1428,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
 const addStagePayment = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const amountNum = Number(req.body.amount);
@@ -1447,7 +1447,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
   }
 
   if (!canEditPackageStage(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package stage details' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package phase details' });
   }
 
   if (!canAccessPatient(req.user, patient)) {
@@ -1479,7 +1479,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
   addActivity(
     patient,
     req.user,
-    `Payment added for Stage ${stageNum}`,
+    `Payment added for Phase ${stageNum}`,
     `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]} — pending accounts approval`
   );
 
@@ -1495,7 +1495,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
 const updateStagePayment = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const patient = await Patient.findById(req.params.id);
@@ -1541,7 +1541,7 @@ const updateStagePayment = asyncHandler(async (req, res) => {
   addActivity(
     patient,
     req.user,
-    `Payment edited for Stage ${stageNum}`,
+    `Payment edited for Phase ${stageNum}`,
     `From ${previousSummary} to ${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}`
   );
 
@@ -1563,7 +1563,7 @@ const approveStagePayment = asyncHandler(async (req, res) => {
 
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const patient = await Patient.findById(req.params.id);
@@ -1591,7 +1591,7 @@ const approveStagePayment = asyncHandler(async (req, res) => {
   addActivity(
     patient,
     req.user,
-    `Payment approved for Stage ${stageNum}`,
+    `Payment approved for Phase ${stageNum}`,
     `${payment.amount} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode}`
   );
 
@@ -1608,7 +1608,7 @@ const approveStagePayment = asyncHandler(async (req, res) => {
 const uploadStageRecord = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const uploadedFiles = filesFromRequest(req);
@@ -1626,7 +1626,7 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
   }
 
   if (!canEditPackageStage(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package stage details' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package phase details' });
   }
 
   if (!patient.stages || patient.stages.length !== STAGES.length) {
@@ -1638,7 +1638,7 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
   stageEntry.recordFileUrl = recordFiles[0].url;
   stageEntry.recordFileName = recordFiles[0].fileName;
   stageEntry.recordFiles = recordFiles;
-  addActivity(patient, req.user, `Record replaced for Stage ${stageNum}`, recordFiles[0].fileName);
+  addActivity(patient, req.user, `Record replaced for Phase ${stageNum}`, recordFiles[0].fileName);
 
   await patient.save();
   await populateAssignments(patient);
@@ -1652,7 +1652,7 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
 const requestStageMedicine = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(req.user.role)) {
@@ -1696,7 +1696,7 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
     requestedByName: req.user.name,
   };
 
-  addActivity(patient, req.user, `Medicine requested for Stage ${stageNum}`, medicines);
+  addActivity(patient, req.user, `Medicine requested for Phase ${stageNum}`, medicines);
 
   await patient.save();
   await populateAssignments(patient);
@@ -1753,7 +1753,7 @@ const listMedicineRequests = asyncHandler(async (req, res) => {
 const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const { status } = req.body;
@@ -1775,7 +1775,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   const uploadedFiles = filesFromRequest(req);
   const existingMedicineImages = withLegacyFile(currentRequest.medicineImages || [], currentRequest.medicineImageUrl, currentRequest.medicineImageFileName);
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
-    return res.status(400).json({ success: false, message: 'Medicine has not been requested for this stage' });
+    return res.status(400).json({ success: false, message: 'Medicine has not been requested for this phase' });
   }
   if (status === MEDICINE_STATUSES.MADE && !uploadedFiles.length && !existingMedicineImages.length) {
     return res.status(400).json({ success: false, message: 'Medicine image is required before marking medicine made' });
@@ -1805,7 +1805,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     ...(status === MEDICINE_STATUSES.SENT_TO_COURIER ? { sentToCourierAt: new Date(), sentToCourierByName: req.user.name } : {}),
   };
 
-  addActivity(patient, req.user, `Medicine status updated for Stage ${stageNum}`, MEDICINE_STATUS_LABELS[status]);
+  addActivity(patient, req.user, `Medicine status updated for Phase ${stageNum}`, MEDICINE_STATUS_LABELS[status]);
 
   await patient.save();
   await populateAssignments(patient);
@@ -1852,7 +1852,7 @@ const listCourierRequests = asyncHandler(async (req, res) => {
 const updateCourierRequest = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
   const { status } = req.body;
@@ -1938,7 +1938,7 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     courier: nextCourier,
   };
 
-  addActivity(patient, req.user, `Courier ${status} for Stage ${stageNum}`, status === COURIER_STATUSES.DELIVERED ? `Received by ${nextCourier.receivedByName}` : nextCourier.trackingNumber);
+  addActivity(patient, req.user, `Courier ${status} for Phase ${stageNum}`, status === COURIER_STATUSES.DELIVERED ? `Received by ${nextCourier.receivedByName}` : nextCourier.trackingNumber);
 
   await patient.save();
   await populateAssignments(patient);
@@ -1965,7 +1965,7 @@ const addScheduleEntry = (fieldKey) =>
 
     const stageNum = parseInt(req.params.number, 10);
     if (!STAGES.includes(stageNum)) {
-      return res.status(400).json({ success: false, message: 'Invalid stage number' });
+      return res.status(400).json({ success: false, message: 'Invalid phase number' });
     }
 
     const { dateTime, notes, followUpType } = req.body;
@@ -1995,7 +1995,7 @@ const addScheduleEntry = (fieldKey) =>
     addActivity(
       patient,
       req.user,
-      `${fieldKey === 'followUps' ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : 'Follow-up'}` : 'Family session'} scheduled for Stage ${stageNum}`,
+      `${fieldKey === 'followUps' ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : 'Follow-up'}` : 'Family session'} scheduled for Phase ${stageNum}`,
       `${new Date(dateTime).toLocaleString('en-IN')}${notes ? ` - ${notes}` : ''}`
     );
     await patient.save();
@@ -2015,7 +2015,7 @@ const updateScheduleEntry = (fieldKey) =>
 
     const stageNum = parseInt(req.params.number, 10);
     if (!STAGES.includes(stageNum)) {
-      return res.status(400).json({ success: false, message: 'Invalid stage number' });
+      return res.status(400).json({ success: false, message: 'Invalid phase number' });
     }
 
     const { dateTime, status, notes, followUpType, completionName, completionDetails, trackerSubmissionUrl, meetRecordingUrl, completionFormType, completionHtml } = req.body;
@@ -2072,11 +2072,11 @@ const updateScheduleEntry = (fieldKey) =>
       ? (isShortFollowUp ? 'SFS follow-up' : isTrackerFollowUp ? 'Tracker follow-up' : 'Follow-up')
       : 'Family session';
     if (dateTime !== undefined && !sameValue(new Date(entry.dateTime).toISOString(), new Date(dateTime).toISOString())) {
-      addActivity(patient, req.user, `${scheduleLabel} rescheduled for Stage ${stageNum}`, new Date(dateTime).toLocaleString('en-IN'));
+      addActivity(patient, req.user, `${scheduleLabel} rescheduled for Phase ${stageNum}`, new Date(dateTime).toLocaleString('en-IN'));
       entry.dateTime = dateTime;
     }
     if (notes !== undefined && !sameValue(entry.notes, notes)) {
-      addActivity(patient, req.user, `${scheduleLabel} notes updated for Stage ${stageNum}`, notes || 'Cleared');
+      addActivity(patient, req.user, `${scheduleLabel} notes updated for Phase ${stageNum}`, notes || 'Cleared');
       entry.notes = notes;
     }
     if (fieldKey === 'followUps' && followUpType !== undefined) {
@@ -2088,7 +2088,7 @@ const updateScheduleEntry = (fieldKey) =>
         return res.status(400).json({ success: false, message: 'Follow-up type must be normal, sfs, or tracker' });
       }
       if (!sameValue(entry.followUpType || 'normal', nextFollowUpType)) {
-        addActivity(patient, req.user, `${scheduleLabel} type updated for Stage ${stageNum}`, `From ${entry.followUpType || 'normal'} to ${nextFollowUpType}`);
+        addActivity(patient, req.user, `${scheduleLabel} type updated for Phase ${stageNum}`, `From ${entry.followUpType || 'normal'} to ${nextFollowUpType}`);
         entry.followUpType = nextFollowUpType;
       }
     }
@@ -2131,7 +2131,7 @@ const updateScheduleEntry = (fieldKey) =>
               `Patient: ${patient.patientName}`,
               submittedMeta.patient ? `Patient details: ${submittedMeta.patient}` : '',
               submittedMeta.dateRecord ? `Record details: ${submittedMeta.dateRecord}` : '',
-              `Stage: ${stageNum}`,
+              `Phase: ${stageNum}`,
               `Scheduled: ${new Date(entry.dateTime).toLocaleString('en-IN')}`,
               `Completed: ${new Date().toLocaleString('en-IN')}`,
               `Completed by/with: ${completionName}`,
@@ -2148,7 +2148,7 @@ const updateScheduleEntry = (fieldKey) =>
         addActivity(
           patient,
           req.user,
-          `${scheduleLabel} ${status === 'completed' ? 'marked done' : status === 'sent' ? 'marked sent' : 'status updated'} for Stage ${stageNum}`,
+          `${scheduleLabel} ${status === 'completed' ? 'marked done' : status === 'sent' ? 'marked sent' : 'status updated'} for Phase ${stageNum}`,
           status === 'completed'
             ? (isTrackerFollowUp
                 ? `Tracker link: ${trackerSubmissionUrl}`

@@ -287,7 +287,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       {isAdmin ? <Link to={`/admin/patients/${row.patientId}`} className="font-display text-lg font-bold text-charcoal hover:text-sage">{row.patientName}</Link> : <span className="font-display text-lg font-bold text-charcoal">{row.patientName}</span>}
-                      <Badge tone="teal">Stage {row.stage}</Badge>
+                      <Badge tone="teal">Phase {row.stage}</Badge>
                       <Badge tone={statusTone[courier.status] || 'default'}>{courier.statusLabel}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-charcoal/55">{row.patientNumber || '-'} · Sent: {formatDateTime(request.sentToCourierAt)}</p>
@@ -375,5 +375,4 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
 };
 
 export default CourierRequestList;
-
 

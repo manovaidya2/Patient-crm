@@ -366,7 +366,7 @@ const AllPatients = () => {
             )}
             <div>
               <label htmlFor="currentStage" className="block text-sm font-medium text-charcoal mb-1.5">
-                Current Stage
+                Current Phase
               </label>
               <select
                 id="currentStage"
@@ -376,7 +376,7 @@ const AllPatients = () => {
               >
                 {[1, 2, 3, 4, 5, 6].map((stage) => (
                   <option key={stage} value={stage}>
-                    Stage {stage}
+                    Phase {stage}
                   </option>
                 ))}
               </select>
@@ -398,7 +398,7 @@ const AllPatients = () => {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-charcoal/45">Saved for the selected current stage.</p>
+              <p className="mt-1 text-xs text-charcoal/45">Saved for the selected current phase.</p>
             </div>
           </div>
 

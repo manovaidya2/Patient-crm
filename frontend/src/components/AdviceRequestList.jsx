@@ -125,7 +125,7 @@ const AdviceRequestList = ({ mode }) => {
                       {row.patientName || 'Patient'}
                     </Link>
                     {row.patientCode && <Badge tone="default">{row.patientCode}</Badge>}
-                    {row.stage && <Badge tone="teal">Stage {row.stage}</Badge>}
+                    {row.stage && <Badge tone="teal">Phase {row.stage}</Badge>}
                     {row.isUrgent && <Badge tone="danger">Emergency</Badge>}
                   </div>
                   <p className="mt-1 text-xs text-charcoal/50">

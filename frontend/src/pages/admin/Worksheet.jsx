@@ -254,7 +254,7 @@ const Worksheet = () => {
                 <th className="border-b border-r border-cardline px-3 py-2">Role</th>
                 <th className="border-b border-r border-cardline px-3 py-2">Patient ID</th>
                 <th className="border-b border-r border-cardline px-3 py-2">Patient</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Stage</th>
+                <th className="border-b border-r border-cardline px-3 py-2">Phase</th>
                 <th className="border-b border-r border-cardline px-3 py-2">Work</th>
                 <th className="border-b border-r border-cardline px-3 py-2">Details</th>
                 {customColumns.map((column) => (
@@ -296,7 +296,7 @@ const Worksheet = () => {
                         {row.patientName}
                       </Link>
                     </td>
-                    <td className="border-b border-r border-cardline px-3 py-2 whitespace-nowrap">{row.currentStage ? `Stage ${row.currentStage}` : '-'}</td>
+                    <td className="border-b border-r border-cardline px-3 py-2 whitespace-nowrap">{row.currentStage ? `Phase ${row.currentStage}` : '-'}</td>
                     <td className="border-b border-r border-cardline px-3 py-2 font-medium text-charcoal">{row.workType}</td>
                     <td className="border-b border-r border-cardline px-3 py-2 text-charcoal/65">
                       <span className="line-clamp-2 whitespace-pre-line">{row.details || '-'}</span>
@@ -354,7 +354,7 @@ const Worksheet = () => {
               onChange={(e) => setManualRow({ ...manualRow, patientName: e.target.value })}
             />
             <Input
-              label="Stage"
+              label="Phase"
               placeholder="Example: 1"
               value={manualRow.currentStage}
               onChange={(e) => setManualRow({ ...manualRow, currentStage: e.target.value })}

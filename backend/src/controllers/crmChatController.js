@@ -521,12 +521,12 @@ const summarizePatient = (patient) => ({
 
 const buildCrmFeatureSummary = () => [
   'Patient management with category, stage, assignment, phone, alternate phone and record uploads',
-  'Stage-wise package amount, payments, payment screenshots, paid/due calculation and edit tracking',
-  'Stage-wise follow-ups, SFS short follow-ups, tracker follow-ups with parent submission links, family sessions, mark done, reschedule, late reminders and PDFs',
+  'Phase-wise package amount, payments, payment screenshots, paid/due calculation and edit tracking',
+  'Phase-wise follow-ups, SFS short follow-ups, tracker follow-ups with parent submission links, family sessions, mark done, reschedule, late reminders and PDFs',
   'Patient timeline with CRM actions, call logs and call recordings',
   'Doctor advice workflow with urgent requests, stage-wise requests, replies and edit history',
   'Medicine request workflow with prescription uploads, in-process, made images and courier handoff',
-  'Stage-wise medicine supply tracking with months given, next connect date, reminder note, connected status and due reminders',
+  'Phase-wise medicine supply tracking with months given, next connect date, reminder note, connected status and due reminders',
   'Courier workflow with dispatch, delivery, receiver details, proof images, payment and records',
   'Medicine inventory with stock, low-stock alerts, add/use/adjust history and value',
   'Payments ledger, income, expenses and accountant workflow',

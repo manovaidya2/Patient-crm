@@ -1,12 +1,12 @@
 export const STAGES = [1, 2, 3, 4, 5, 6];
 
 export const STAGE_LABELS = {
-  1: 'Stage 1',
-  2: 'Stage 2',
-  3: 'Stage 3',
-  4: 'Stage 4',
-  5: 'Stage 5',
-  6: 'Stage 6',
+  1: 'Phase 1',
+  2: 'Phase 2',
+  3: 'Phase 3',
+  4: 'Phase 4',
+  5: 'Phase 5',
+  6: 'Phase 6',
 };
 
 export const STAGE_STATUSES = {

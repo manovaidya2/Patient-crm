@@ -88,7 +88,7 @@ const StageDonutChart = ({ rows = [], loading }) => {
   return (
     <Card className="lg:col-span-5">
       <div>
-        <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Stage Distribution</p>
+        <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Phase Distribution</p>
         <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Active patients</h2>
       </div>
 
@@ -288,14 +288,14 @@ const Dashboard = () => {
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Active Patients</p>
-                <h2 className="mt-1 font-display text-xl font-bold text-charcoal">{activeStage?.label || 'Stage 1'}</h2>
+                <h2 className="mt-1 font-display text-xl font-bold text-charcoal">{activeStage?.label || 'Phase 1'}</h2>
               </div>
             </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={goToPreviousStage}
-                aria-label="Previous stage"
+                aria-label="Previous phase"
                 className="p-1.5 rounded-md text-sage hover:bg-sage-muted/25"
               >
                 <ChevronLeft size={17} />
@@ -303,7 +303,7 @@ const Dashboard = () => {
               <button
                 type="button"
                 onClick={goToNextStage}
-                aria-label="Next stage"
+                aria-label="Next phase"
                 className="p-1.5 rounded-md text-sage hover:bg-sage-muted/25"
               >
                 <ChevronRight size={17} />
@@ -316,7 +316,7 @@ const Dashboard = () => {
               <p className="font-display text-4xl font-bold text-charcoal">
                 {loading ? '...' : activeStage?.activePatients || 0}
               </p>
-              <p className="mt-1 text-sm text-charcoal/60">Patients currently in this stage</p>
+              <p className="mt-1 text-sm text-charcoal/60">Patients currently in this phase</p>
             </div>
             <Link
               to={`/admin/stages/${activeStage?.stage || 1}`}
@@ -469,7 +469,7 @@ const Dashboard = () => {
                   <div className="space-y-1">
                     {(row.latest || []).map((item, index) => (
                       <p key={`${row.key}-${index}`} className="truncate text-xs text-charcoal/60">
-                        <span className="font-semibold text-charcoal">{item.type}</span> - {item.patientName} ({item.patientCode}), Stage {item.stage}, {formatShortDateTime(item.at)}
+                        <span className="font-semibold text-charcoal">{item.type}</span> - {item.patientName} ({item.patientCode}), Phase {item.stage}, {formatShortDateTime(item.at)}
                       </p>
                     ))}
                   </div>

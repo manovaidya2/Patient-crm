@@ -225,7 +225,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                       ) : (
                         <span className="font-display text-lg font-bold text-charcoal">{row.patientName}</span>
                       )}
-                      <Badge tone="teal">Stage {row.stage}</Badge>
+                      <Badge tone="teal">Phase {row.stage}</Badge>
                       <Badge tone={statusTone[request.status] || 'default'}>{request.statusLabel}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-charcoal/55">

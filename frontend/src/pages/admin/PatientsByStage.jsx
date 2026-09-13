@@ -63,7 +63,7 @@ const PatientsByStage = () => {
     fetchPatients();
   }, [page, debouncedSearch, stage]);
 
-  // Invalid or missing stage in the URL — send back to Stage 1
+  // Invalid or missing phase in the URL sends back to Phase 1.
   if (!STAGES.includes(stage)) {
     return <Navigate to="/admin/stages/1" replace />;
   }
@@ -72,9 +72,9 @@ const PatientsByStage = () => {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Patients by Stage</h1>
+          <h1 className="font-display text-2xl font-bold text-charcoal">Patients by Phase</h1>
           <p className="mt-1 text-sm text-charcoal/60">
-            Pick a stage from the sidebar to see who's on it.
+            Pick a phase from the sidebar to see who's on it.
           </p>
         </div>
         <Badge tone="teal">{STAGE_LABELS[stage]}</Badge>
@@ -107,7 +107,7 @@ const PatientsByStage = () => {
           <div className="p-10 flex flex-col items-center text-center gap-2">
             <Inbox size={22} className="text-charcoal/35" />
             <p className="text-sm text-charcoal font-medium">No patients on {STAGE_LABELS[stage]}</p>
-            <p className="text-xs text-charcoal/55">Try a different stage from the sidebar, or a different search.</p>
+            <p className="text-xs text-charcoal/55">Try a different phase from the sidebar, or a different search.</p>
           </div>
         ) : (
           <>
@@ -119,7 +119,7 @@ const PatientsByStage = () => {
                     <th className="px-5 py-3 font-semibold">Category</th>
                     <th className="px-5 py-3 font-semibold">Age</th>
                     <th className="px-5 py-3 font-semibold">Number</th>
-                    <th className="px-5 py-3 font-semibold">Stage</th>
+                    <th className="px-5 py-3 font-semibold">Phase</th>
                     <th className="px-5 py-3 font-semibold">Received</th>
                   </tr>
                 </thead>

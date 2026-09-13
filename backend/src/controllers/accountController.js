@@ -89,7 +89,7 @@ const listCourierClinicExpenses = async ({ from, to } = {}) => {
         partyName: patient.patientName,
         paymentMode: courier.paymentMode || '',
         referenceNumber: courier.trackingNumber || '',
-        notes: `Stage ${stage.number} courier via ${courier.courierPartner || '-'}`,
+        notes: `Phase ${stage.number} courier via ${courier.courierPartner || '-'}`,
         recordedByName: courier.dispatchedByName || request.sentToCourierByName || '',
         editedByName: '',
         editedAt: null,

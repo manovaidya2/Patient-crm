@@ -796,7 +796,7 @@ const ScheduleCard = ({
     ].filter(Boolean).join(' | ');
     const dateLine = [
       `Date: ${filledOn}`,
-      `Stage: ${stageNumber || '-'}`,
+      `Phase: ${stageNumber || '-'}`,
     ].filter(Boolean).join(' | ');
 
     setDoneEntryId(entry.id);
@@ -1469,7 +1469,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="flex items-center gap-2 font-display text-base font-bold text-charcoal">
-            <MessageSquareText size={17} className="text-sage" /> Doctor Advice {stageNumber ? `| Stage ${stageNumber}` : ''}
+            <MessageSquareText size={17} className="text-sage" /> Doctor Advice {stageNumber ? `| Phase ${stageNumber}` : ''}
           </h2>
           <p className="mt-1 text-sm text-charcoal/55">Patient-related advice requests and doctor replies.</p>
         </div>
@@ -1505,7 +1505,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-bold text-charcoal">Stage {row.stage || '-'}</p>
+                      <p className="text-sm font-bold text-charcoal">Phase {row.stage || '-'}</p>
                       {row.isUrgent && <Badge tone="danger">Emergency</Badge>}
                       <Badge tone={row.status === 'advice_given' ? 'teal' : 'amber'}>
                         {row.status === 'advice_given' ? 'Advice Given' : 'Pending'}
@@ -1807,7 +1807,7 @@ const PatientDetails = () => {
       setPatient(data.patient);
       setOpenInfoStage(null);
     } catch (err) {
-      setStageFormError(err.response?.data?.message || 'Could not save stage');
+      setStageFormError(err.response?.data?.message || 'Could not save phase');
     } finally {
       setStageSaving(false);
     }
@@ -2040,7 +2040,7 @@ const PatientDetails = () => {
               readOnly={!canEditPatientDetails}
             />
             <EditableField
-              label="Current Stage"
+              label="Current Phase"
               type="select"
               options={STAGE_OPTIONS}
               value={patient.currentStage}
@@ -2089,14 +2089,14 @@ const PatientDetails = () => {
         <Card className="mt-5" padded={false}>
           <div className="p-6 pb-0 flex items-center justify-between">
             <div>
-              <h2 className="font-display text-base font-bold text-charcoal">Treatment Stage</h2>
-              <p className="mt-0.5 text-xs text-charcoal/55">Select a stage to view or edit its details.</p>
+              <h2 className="font-display text-base font-bold text-charcoal">Treatment Phase</h2>
+              <p className="mt-0.5 text-xs text-charcoal/55">Select a phase to view or edit its details.</p>
             </div>
             <Badge tone="teal">Current: {STAGE_LABELS[patient.currentStage]}</Badge>
 
           </div>
 
-          {/* Stage tabs */}
+          {/* Phase tabs */}
           <div className="p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             {patient.stages.map((s) => {
               const isCurrent = patient.currentStage === s.number;
@@ -2121,7 +2121,7 @@ const PatientDetails = () => {
                     }`}
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <p className="text-[10px] uppercase tracking-wide font-semibold opacity-70">Stage {s.number}</p>
+                    <p className="text-[10px] uppercase tracking-wide font-semibold opacity-70">Phase {s.number}</p>
                     {isCurrent && <Check size={12} className="shrink-0 opacity-80" />}
                   </div>
                   <p className="mt-1 text-xs font-bold">{s.statusLabel}</p>
@@ -2143,7 +2143,7 @@ const PatientDetails = () => {
                         e.stopPropagation();
                         openStageInfo(s);
                       }}
-                      aria-label={`Toggle stage info for Stage ${s.number}`}
+                      aria-label={`Toggle phase info for Phase ${s.number}`}
                       className="absolute bottom-1.5 right-1.5 rounded p-0.5 hover:bg-sage-muted/20"
                     >
                       <ChevronDown size={13} className={`opacity-60 transition-transform ${infoOpen ? 'rotate-180' : ''}`} />
@@ -2209,13 +2209,13 @@ const PatientDetails = () => {
             })}
           </div>
 
-          {/* Tab content — details for the selected stage, shown inline below the tabs */}
+          {/* Tab content — details for the selected phase, shown inline below the tabs */}
           {activeStage && (
             <div className="px-6 pb-6">
               {/* Package card — compact, same small-field style as Age/Phone/etc above */}
               <div className="rounded-lg border border-cardline bg-offwhite-100 overflow-hidden">
                 <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">
-                  <h3 className="text-sm font-bold text-charcoal">Package — Stage {activeStage.number}</h3>
+                  <h3 className="text-sm font-bold text-charcoal">Package - Phase {activeStage.number}</h3>
                   <button
                     type="button"
                     onClick={() => setTimelineOpen(true)}
@@ -2298,7 +2298,7 @@ const PatientDetails = () => {
               >
                 <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">
                   <div>
-                    <h3 className="text-sm font-bold text-charcoal">Medicine Supply - Stage {activeStage.number}</h3>
+                    <h3 className="text-sm font-bold text-charcoal">Medicine Supply - Phase {activeStage.number}</h3>
                     <p className={`mt-0.5 text-xs ${activeMedicineConnectDue ? 'font-semibold text-[#B42318]' : 'text-charcoal/50'}`}>
                       {activeMedicineConnectDue
                         ? 'Medicine connect is due. Mark connected to clear the reminder.'
@@ -2439,7 +2439,7 @@ const PatientDetails = () => {
       <Drawer
         open={timelineOpen}
         onClose={() => setTimelineOpen(false)}
-        title={activeStage ? `Payment Timeline — Stage ${activeStage.number}` : 'Payment Timeline'}
+        title={activeStage ? `Payment Timeline - Phase ${activeStage.number}` : 'Payment Timeline'}
       >
         {paymentApproveError && (
           <div className="mb-3 rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{paymentApproveError}</div>
@@ -2448,7 +2448,7 @@ const PatientDetails = () => {
           <div className="flex flex-col items-center text-center gap-2 py-10">
             <Inbox size={22} className="text-charcoal/35" />
             <p className="text-sm text-charcoal font-medium">No payments yet</p>
-            <p className="text-xs text-charcoal/55">Payments added for this stage will show up here.</p>
+            <p className="text-xs text-charcoal/55">Payments added for this phase will show up here.</p>
           </div>
         ) : (
           <ul className="space-y-3">
