@@ -54,6 +54,18 @@ const paymentEntrySchema = new mongoose.Schema(
     recordedByName: { type: String, trim: true, default: '' },
     editedByName: { type: String, trim: true, default: '' },
     editedAt: { type: Date, default: null },
+    // Every new payment (on a brand-new patient or one already approved) needs an
+    // Admin/Doctor/Accountant to verify it before it counts as confirmed — mirrors the
+    // patient-level approvalStatus gate but per payment, so an existing, already-live
+    // patient doesn't get hidden just because a later payment came in.
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved'],
+      default: 'approved',
+      index: true,
+    },
+    approvedByName: { type: String, trim: true, default: '' },
+    approvedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -235,17 +247,31 @@ const patientSchema = new mongoose.Schema(
       enum: STAGES,
       default: 1,
     },
+    // Financial/intake approval gate. Every manually-created patient (source: 'manual')
+    // starts "pending" until an Admin/Doctor/Accountant reviews payments/screenshots and
+    // approves it — until then it stays hidden from Assistant Doctor/Psychologist.
+    // Webhook-received patients default straight to "approved" (unaffected by this gate).
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved'],
+      default: 'approved',
+      index: true,
+    },
+    approvedByName: { type: String, trim: true, default: '' },
+    approvedAt: { type: Date, default: null },
     // Which Assistant Doctor this patient is currently assigned to (set by Admin/Manager/Post Counselor)
     assignedDoctor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
+      index: true,
     },
     // Which Psychologist this patient is currently assigned to (set by Admin/Manager/Post Counselor)
     assignedPsychologist: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
+      index: true,
     },
     // Per-stage detail (status, date, notes, package fee, payments, follow-ups, family sessions) for all 6 stages
     stages: {

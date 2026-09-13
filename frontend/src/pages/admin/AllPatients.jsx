@@ -237,7 +237,14 @@ const AllPatients = () => {
                       <td className="px-5 py-3.5 font-mono text-xs font-bold tracking-widest text-charcoal/45">{p.patientCode}</td>
                       <td className="px-5 py-3.5 font-medium text-charcoal">{p.patientName}</td>
                       <td className="px-5 py-3.5">
-                        <Badge tone={categoryTone(p.category)}>{p.categoryLabel}</Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge tone={categoryTone(p.category)}>{p.categoryLabel}</Badge>
+                          {p.approvalStatus === 'pending' && (
+                            <span className="inline-flex items-center rounded-full bg-[#9C6B2E]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#9C6B2E]">
+                              Pending Approval
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-3.5 text-charcoal/70">{p.age}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{p.number}</td>

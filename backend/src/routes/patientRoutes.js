@@ -7,10 +7,13 @@ const {
   getPatientById,
   getPatientCallLogs,
   createPatient,
+  getPendingApprovals,
+  approvePatient,
   updatePatient,
   updatePatientStage,
   addStagePayment,
   updateStagePayment,
+  approveStagePayment,
   uploadStageRecord,
   requestStageMedicine,
   addFollowUp,
@@ -35,12 +38,15 @@ router.post('/', authorize(...PATIENT_CREATE_ROLES), createPatient);
 router.get('/dashboard-stats', authorize(ROLES.ADMIN, ROLES.DOCTOR), getDashboardStats);
 router.get('/staff-dashboard-stats', authorize(ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST), getStaffDashboardStats);
 router.get('/payments-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getPaymentsLedger);
+router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getPendingApprovals);
 router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id', getPatientById);
+router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approvePatient);
 router.patch('/:id', authorize(...PATIENT_WRITE_ROLES), updatePatient);
 router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES), updatePatientStage);
 router.post('/:id/stages/:number/payments', authorize(...PACKAGE_STAGE_EDIT_ROLES), uploadPaymentScreenshot.array('screenshot', 10), addStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId', authorize('admin'), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
+router.patch('/:id/stages/:number/payments/:paymentId/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approveStagePayment);
 router.post('/:id/stages/:number/record', authorize(...PACKAGE_STAGE_EDIT_ROLES), uploadRecordMiddleware.single('record'), uploadStageRecord);
 router.post('/:id/stages/:number/medicine-request', authorize(...PATIENT_WRITE_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
 router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), addFollowUp);

@@ -1655,6 +1655,10 @@ const PatientDetails = () => {
   const [stageForm, setStageForm] = useState({ number: null, status: 'not_started', date: '' });
   const [stageSaving, setStageSaving] = useState(false);
   const [stageFormError, setStageFormError] = useState('');
+  const [approveSaving, setApproveSaving] = useState(false);
+  const [approveError, setApproveError] = useState('');
+  const [approvingPaymentId, setApprovingPaymentId] = useState(null);
+  const [paymentApproveError, setPaymentApproveError] = useState('');
 
   const loadPatientData = useCallback(
     async ({ silent = false } = {}) => {
@@ -1841,6 +1845,19 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
+  const handleApprovePayment = async (stageNumber, paymentId) => {
+    setApprovingPaymentId(paymentId);
+    setPaymentApproveError('');
+    try {
+      const { data } = await api.patch(`/patients/${id}/stages/${stageNumber}/payments/${paymentId}/approve`);
+      setPatient(data.patient);
+    } catch (err) {
+      setPaymentApproveError(err.response?.data?.message || 'Could not approve payment');
+    } finally {
+      setApprovingPaymentId(null);
+    }
+  };
+
   const handleUploadRecord = async (file) => {
     const formData = new FormData();
     formData.append('record', file);
@@ -1904,6 +1921,19 @@ const PatientDetails = () => {
     await loadPatientData({ silent: true });
   };
 
+  const handleApprovePatient = async () => {
+    setApproveSaving(true);
+    setApproveError('');
+    try {
+      const { data } = await api.patch(`/patients/${id}/approve`);
+      setPatient(data.patient);
+    } catch (err) {
+      setApproveError(err.response?.data?.message || 'Could not approve patient');
+    } finally {
+      setApproveSaving(false);
+    }
+  };
+
   // Live view of the open tab's stage (reflects payments as they're added)
   const activeStage = patient?.stages?.find((s) => s.number === activeStageTab);
   const activeMedicineConnectDue = activeStage
@@ -1952,7 +1982,32 @@ const PatientDetails = () => {
             <p className="mt-1.5 text-sm text-charcoal/60">
               {patient.categoryLabel} · Added {formatDate(patient.createdAt)}
             </p>
+            {patient.approvalStatus === 'approved' && patient.approvedByName && (
+              <p className="mt-0.5 text-xs text-charcoal/40">
+                Approved by {patient.approvedByName}{patient.approvedAt ? ` on ${formatDate(patient.approvedAt)}` : ''}
+              </p>
+            )}
           </div>
+
+          {patient.approvalStatus === 'pending' && (
+            <div className="mx-6 mb-2 flex flex-col gap-3 rounded-lg border border-[#9C6B2E]/35 bg-[#9C6B2E]/8 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2.5">
+                <Clock size={18} className="mt-0.5 shrink-0 text-[#9C6B2E]" />
+                <div>
+                  <p className="text-sm font-bold text-[#9C6B2E]">Pending accounts approval</p>
+                  <p className="mt-0.5 text-xs text-charcoal/60">
+                    This patient was just added and stays hidden from the assigned Assistant Doctor / Psychologist until approved. Check the package and payments below, then approve.
+                  </p>
+                  {approveError && <p className="mt-1 text-xs font-semibold text-[#8C3B2E]">{approveError}</p>}
+                </div>
+              </div>
+              {patient.canApprove && (
+                <Button size="sm" onClick={handleApprovePatient} disabled={approveSaving} className="shrink-0">
+                  <Check size={14} /> {approveSaving ? 'Approving...' : 'Approve Patient'}
+                </Button>
+              )}
+            </div>
+          )}
 
                     {/* Always 6 equal-width boxes spanning the full card, regardless of which values are filled in */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
@@ -2196,6 +2251,11 @@ const PatientDetails = () => {
                   <div className="bg-offwhite-100 p-4">
                     <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Amount Paid</p>
                     <p className="mt-1 text-sm font-bold text-charcoal">{formatMoney(activeStage.amountPaid)}</p>
+                    {activeStage.payments.some((pay) => pay.approvalStatus === 'pending') && (
+                      <p className="mt-1 text-[11px] font-semibold text-[#9C6B2E]">
+                        {activeStage.payments.filter((pay) => pay.approvalStatus === 'pending').length} payment(s) pending accounts approval
+                      </p>
+                    )}
                     {activeStage.totalAmount > 0 && (
                       <div className="mt-1.5 h-1 rounded-full bg-cardline overflow-hidden">
                         <div
@@ -2381,6 +2441,9 @@ const PatientDetails = () => {
         onClose={() => setTimelineOpen(false)}
         title={activeStage ? `Payment Timeline — Stage ${activeStage.number}` : 'Payment Timeline'}
       >
+        {paymentApproveError && (
+          <div className="mb-3 rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{paymentApproveError}</div>
+        )}
         {!activeStage || activeStage.payments.length === 0 ? (
           <div className="flex flex-col items-center text-center gap-2 py-10">
             <Inbox size={22} className="text-charcoal/35" />
@@ -2398,6 +2461,7 @@ const PatientDetails = () => {
                   <div className="flex items-center gap-1.5">
                     {isAdmin && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
                     <Badge tone={pay.paymentMode === 'cash' ? 'amber' : 'teal'}>{pay.paymentModeLabel}</Badge>
+                    {pay.approvalStatus === 'pending' && <Badge tone="amber">Pending Approval</Badge>}
                   </div>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-charcoal/55">
@@ -2420,7 +2484,24 @@ const PatientDetails = () => {
                     Edited by {pay.editedByName}{pay.editedAt ? ` · ${formatDateTime(pay.editedAt)}` : ''}
                   </p>
                 )}
+                {pay.approvalStatus === 'approved' && pay.approvedByName && (
+                  <p className="mt-1 text-xs text-charcoal/40">
+                    Approved by {pay.approvedByName}{pay.approvedAt ? ` · ${formatDateTime(pay.approvedAt)}` : ''}
+                  </p>
+                )}
                 <FileLinks files={pay.screenshotFiles} fallbackUrl={pay.screenshotUrl} fallbackName="Payment screenshot" label="Screenshots" />
+                {pay.approvalStatus === 'pending' && patient.canApprove && (
+                  <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-cardline-soft pt-2.5">
+                    <p className="text-[11px] font-semibold text-[#9C6B2E]">Verify and approve this payment</p>
+                    <Button
+                      size="sm"
+                      onClick={() => handleApprovePayment(activeStage.number, pay.id)}
+                      disabled={approvingPaymentId === pay.id}
+                    >
+                      <Check size={13} /> {approvingPaymentId === pay.id ? 'Approving...' : 'Approve'}
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

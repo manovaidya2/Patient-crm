@@ -90,15 +90,19 @@ const emptyMedicineRequest = () => ({
   sentToCourierByName: '',
   courier: emptyCourier(),
 });
-// Assistant Doctor and Psychologist can only see/edit patients assigned to them.
+// Assistant Doctor and Psychologist can only see/edit patients assigned to them,
+// and only once the patient has cleared accounts approval (see approvalStatus on the model).
 // Works whether assignment fields are raw ObjectIds or populated into {_id, name}.
 const canAccessPatient = (user, patient) => {
   if (user.role !== ROLES.ASSISTANT_DOCTOR && user.role !== ROLES.PSYCHOLOGIST) return true;
+  if ((patient.approvalStatus || 'approved') !== 'approved') return false;
   const assignment = user.role === ROLES.ASSISTANT_DOCTOR ? patient.assignedDoctor : patient.assignedPsychologist;
   if (!assignment) return false;
   const assignedId = assignment._id || assignment;
   return String(assignedId) === String(user._id);
 };
+
+const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
 
 const formatAssignedUser = (assignedUser) => {
   if (!assignedUser) return null;
@@ -363,6 +367,10 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   relativeName: p.relativeName || null,
   currentStage: p.currentStage || 1,
   currentStageLabel: STAGE_LABELS[p.currentStage || 1],
+  approvalStatus: p.approvalStatus || 'approved',
+  approvedByName: p.approvedByName || '',
+  approvedAt: p.approvedAt || null,
+  canApprove: canReviewPatientApproval(user),
   assignedDoctor: formatAssignedUser(p.assignedDoctor),
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
   hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
@@ -416,6 +424,9 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
           recordedByName: pay.recordedByName || '',
           editedByName: pay.editedByName || '',
           editedAt: pay.editedAt || null,
+          approvalStatus: pay.approvalStatus || 'approved',
+          approvedByName: pay.approvedByName || '',
+          approvedAt: pay.approvedAt || null,
         }))
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     };
@@ -471,12 +482,15 @@ const getPatients = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Assistant Doctor and Psychologist only ever see patients assigned to them.
+  // Assistant Doctor and Psychologist only ever see patients assigned to them,
+  // and only once accounts has approved the patient (see approvalStatus on the model).
   // Post Counselor has full All Patients access, same as Admin/Doctor/Manager.
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     filter.assignedDoctor = req.user._id;
+    filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
   } else if (req.user.role === ROLES.PSYCHOLOGIST) {
     filter.assignedPsychologist = req.user._id;
+    filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
   }
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -641,14 +655,28 @@ const getStaffDashboardStats = asyncHandler(async (req, res) => {
   }
 
   const filter = {};
-  if (req.user.role === ROLES.ASSISTANT_DOCTOR) filter.assignedDoctor = req.user._id;
-  if (req.user.role === ROLES.PSYCHOLOGIST) filter.assignedPsychologist = req.user._id;
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
+    filter.assignedDoctor = req.user._id;
+    filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
+  }
+  if (req.user.role === ROLES.PSYCHOLOGIST) {
+    filter.assignedPsychologist = req.user._id;
+    filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
+  }
 
+  // Trimmed to the schedule/medicine-connect fields collectScheduleReminders actually reads —
+  // the full "stages" tree also carries payments, medicine/courier data and record files.
   const patients = await Patient.find(filter)
-    .select('patientName patientCode category currentStage stages assignedDoctor assignedPsychologist activityLog updatedAt')
+    .select(
+      'patientName patientCode category currentStage stages.number stages.followUps stages.familySessions '
+      + 'stages.medicineNextConnectDate stages.medicineConnectDone stages.medicineNextConnectNote stages.postCounselor '
+      + 'assignedDoctor assignedPsychologist activityLog updatedAt'
+    )
     .populate('assignedDoctor', 'name')
     .populate('assignedPsychologist', 'name')
-    .sort({ updatedAt: -1 });
+    .populate('stages.postCounselor', 'name')
+    .sort({ updatedAt: -1 })
+    .lean();
 
   const reminders = collectScheduleReminders(patients, req.user, { includeUpcoming24: true });
   const lateReminders = reminders.filter((item) => item.reminderKind === 'late');
@@ -765,11 +793,16 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
     }
   }
 
-  const patients = await Patient.find({}).select('patientName number category stages createdAt');
+  // Project only what a payment row needs — the full "stages" tree also carries
+  // follow-ups, family sessions, medicine/courier data and record files per stage,
+  // which made this scan very slow as the patient collection grew.
+  const patients = await Patient.find({})
+    .select('patientName number category stages.number stages.payments')
+    .lean();
   const payments = [];
 
   patients.forEach((patient) => {
-    normalizeStages(patient.stages).forEach((stage) => {
+    (patient.stages || []).forEach((stage) => {
       (stage.payments || []).forEach((payment) => {
         const paidAt = payment.date ? new Date(payment.date) : null;
         const addedAt = payment.createdAt ? new Date(payment.createdAt) : null;
@@ -827,10 +860,14 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
 // @route   GET /api/patients/:id
 // @access  Private/Admin, Doctor, Accountant, Post Counselor
 const getPatientById = asyncHandler(async (req, res) => {
+  // .lean() skips building a full Mongoose document (with getters/subdocument wrappers
+  // for every payment/follow-up/activity entry) — this is the single heaviest read on
+  // the details page, so it's the one place that benefits most from it.
   const patient = await Patient.findById(req.params.id)
     .populate('assignedDoctor', 'name')
     .populate('assignedPsychologist', 'name')
-    .populate('stages.postCounselor', 'name');
+    .populate('stages.postCounselor', 'name')
+    .lean();
 
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Patient not found' });
@@ -847,7 +884,10 @@ const getPatientById = asyncHandler(async (req, res) => {
 // @route   GET /api/patients/:id/calls
 // @access  Private, scoped like patient details
 const getPatientCallLogs = asyncHandler(async (req, res) => {
-  const patient = await Patient.findById(req.params.id);
+  // Only the access-check fields are needed here — not the patient's whole record.
+  const patient = await Patient.findById(req.params.id)
+    .select('assignedDoctor assignedPsychologist approvalStatus')
+    .lean();
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
@@ -856,7 +896,10 @@ const getPatientCallLogs = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'You can only view calls for assigned patients' });
   }
 
-  const callLogs = await CallLog.find({ patient: patient._id }).sort({ actionCreationTime: -1, createdAt: -1 }).limit(100);
+  const callLogs = await CallLog.find({ patient: patient._id })
+    .sort({ actionCreationTime: -1, createdAt: -1 })
+    .limit(100)
+    .lean();
   res.status(200).json({ success: true, callLogs: callLogs.map(formatCallLog) });
 });
 
@@ -929,11 +972,12 @@ const createPatient = asyncHandler(async (req, res) => {
     relativeName: category === 'mental_health' ? relativeName : '',
     currentStage: stageNum,
     source: 'manual',
+    approvalStatus: 'pending',
     stages,
     activityLog: [
       {
         action: 'Patient manually added',
-        details: `Created in All Patients by ${req.user?.name || 'Unknown'}`,
+        details: `Created in All Patients by ${req.user?.name || 'Unknown'} — pending accounts approval`,
         actorName: req.user?.name || 'System',
         actorRole: req.user?.role || '',
       },
@@ -942,6 +986,93 @@ const createPatient = asyncHandler(async (req, res) => {
 
   await populateAssignments(patient);
   res.status(201).json({ success: true, patient: formatPatient(patient, req.user) });
+});
+
+// @desc    List patients awaiting accounts approval — newly added patients whose payments/
+//          screenshots haven't been verified yet. Hidden from Assistant Doctor/Psychologist
+//          until approved from here (or from the patient's own details page).
+// @route   GET /api/patients/pending-approvals
+// @access  Private/Admin, Doctor, Accountant
+// Every payment on this patient that still needs Admin/Doctor/Accountant sign-off,
+// with the stage it belongs to — this is the "which phase's payment" detail Accounts needs.
+const pendingPaymentsOf = (patient) => {
+  const rows = [];
+  (patient.stages || []).forEach((stage) => {
+    (stage.payments || []).forEach((payment) => {
+      if ((payment.approvalStatus || 'approved') === 'approved') return;
+      rows.push({
+        paymentId: payment._id,
+        stage: stage.number,
+        stageLabel: STAGE_LABELS[stage.number],
+        amount: payment.amount,
+        date: payment.date,
+        paymentMode: payment.paymentMode,
+        paymentModeLabel: PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode,
+        recordedByName: payment.recordedByName || '',
+        screenshotCount: (payment.screenshotFiles || []).length,
+      });
+    });
+  });
+  return rows;
+};
+
+const getPendingApprovals = asyncHandler(async (req, res) => {
+  if (!canReviewPatientApproval(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Accountant can review patient approvals' });
+  }
+
+  // A patient shows up here either because the patient itself is brand-new and unapproved,
+  // or because it's already live but a later payment (on any stage) is awaiting sign-off.
+  // Both fields are indexed (see Patient.js) so this $or stays a fast index lookup instead
+  // of a full collection scan, and .lean() skips building a full Mongoose document for
+  // every payment/follow-up/activity entry on each match.
+  const patients = await Patient.find({
+    $or: [{ approvalStatus: 'pending' }, { 'stages.payments.approvalStatus': 'pending' }],
+  })
+    .populate('assignedDoctor', 'name')
+    .populate('assignedPsychologist', 'name')
+    .populate('stages.postCounselor', 'name')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  res.status(200).json({
+    success: true,
+    count: patients.length,
+    patients: patients.map((patient) => ({
+      ...formatPatient(patient, req.user),
+      pendingPayments: pendingPaymentsOf(patient),
+    })),
+  });
+});
+
+// @desc    Approve a pending patient — clears the accounts gate so it behaves like every
+//          other patient (visible to its assigned Assistant Doctor/Psychologist, counted
+//          in dashboards, etc.)
+// @route   PATCH /api/patients/:id/approve
+// @access  Private/Admin, Doctor, Accountant
+const approvePatient = asyncHandler(async (req, res) => {
+  if (!canReviewPatientApproval(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Accountant can approve a patient' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (patient.approvalStatus === 'approved') {
+    return res.status(400).json({ success: false, message: 'This patient is already approved' });
+  }
+
+  patient.approvalStatus = 'approved';
+  patient.approvedByName = req.user.name;
+  patient.approvedAt = new Date();
+  addActivity(patient, req.user, 'Patient approved', 'Cleared accounts approval — now visible to assigned staff');
+  await patient.save();
+
+  await populateAssignments(patient);
+  await patient.populate('stages.postCounselor', 'name');
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
 // @desc    Update one or more fields on a patient (used by inline editing on the details page)
@@ -1262,8 +1393,14 @@ const addStagePayment = asyncHandler(async (req, res) => {
     screenshotUrl: screenshotFiles[0]?.url || null,
     screenshotFiles,
     recordedByName: req.user.name,
+    approvalStatus: 'pending',
   });
-  addActivity(patient, req.user, `Payment added for Stage ${stageNum}`, `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}`);
+  addActivity(
+    patient,
+    req.user,
+    `Payment added for Stage ${stageNum}`,
+    `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]} — pending accounts approval`
+  );
 
   await patient.save();
   await populateAssignments(patient);
@@ -1329,6 +1466,57 @@ const updateStagePayment = asyncHandler(async (req, res) => {
 
   await patient.save();
   await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Approve one payment entry so it counts as accounts-verified — this is the
+//          per-payment approval that keeps firing for an existing, already-approved
+//          patient every time a new payment comes in on any stage.
+// @route   PATCH /api/patients/:id/stages/:number/payments/:paymentId/approve
+// @access  Private/Admin, Doctor, Accountant
+const approveStagePayment = asyncHandler(async (req, res) => {
+  if (!canReviewPatientApproval(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Accountant can approve a payment' });
+  }
+
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid stage number' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const payment = stageEntry?.payments.id(req.params.paymentId);
+  if (!payment) {
+    return res.status(404).json({ success: false, message: 'Payment not found' });
+  }
+
+  if (payment.approvalStatus === 'approved') {
+    return res.status(400).json({ success: false, message: 'This payment is already approved' });
+  }
+
+  payment.approvalStatus = 'approved';
+  payment.approvedByName = req.user.name;
+  payment.approvedAt = new Date();
+  addActivity(
+    patient,
+    req.user,
+    `Payment approved for Stage ${stageNum}`,
+    `${payment.amount} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode}`
+  );
+
+  await patient.save();
+  await populateAssignments(patient);
+  await patient.populate('stages.postCounselor', 'name');
 
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
@@ -1916,11 +2104,17 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
     const filter = {};
     if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
       filter.assignedDoctor = req.user._id;
+      filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
     } else if (req.user.role === ROLES.PSYCHOLOGIST) {
       filter.assignedPsychologist = req.user._id;
+      filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
     }
 
-    let query = Patient.find(filter).select('patientName category stages assignedDoctor assignedPsychologist');
+    // Only this one schedule field is ever read here — selecting the whole "stages" tree
+    // (payments, medicine/courier data, record files) made this scan very slow at scale.
+    let query = Patient.find(filter)
+      .select(`patientName category stages.number stages.${fieldKey} assignedDoctor assignedPsychologist`)
+      .lean();
     if (groupByAssignedDoctor) {
       query = query.populate('assignedDoctor', 'name');
     }
@@ -1989,16 +2183,26 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
   const filter = {};
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     filter.assignedDoctor = req.user._id;
+    filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
   } else if (req.user.role === ROLES.PSYCHOLOGIST) {
     filter.assignedPsychologist = req.user._id;
+    filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
   }
 
   const includeUpcoming24 = req.query.window === '24h';
+  // This runs on every 15s poll from the reminder bell/toasts, and for Manager/Post
+  // Counselor it scans the whole collection — keep the projection to just the schedule/
+  // medicine-connect fields collectScheduleReminders reads, not the full "stages" tree.
   const patients = await Patient.find(filter)
-    .select('patientName patientCode category stages assignedDoctor assignedPsychologist')
+    .select(
+      'patientName patientCode category stages.number stages.followUps stages.familySessions '
+      + 'stages.medicineNextConnectDate stages.medicineConnectDone stages.medicineNextConnectNote stages.postCounselor '
+      + 'assignedDoctor assignedPsychologist'
+    )
     .populate('assignedDoctor', 'name')
     .populate('assignedPsychologist', 'name')
-    .populate('stages.postCounselor', 'name');
+    .populate('stages.postCounselor', 'name')
+    .lean();
 
   const reminders = collectScheduleReminders(patients, req.user, { includeUpcoming24 });
   res.status(200).json({ success: true, count: reminders.length, reminders });
@@ -2019,10 +2223,13 @@ module.exports = {
   getPatientById,
   getPatientCallLogs,
   createPatient,
+  getPendingApprovals,
+  approvePatient,
   updatePatient,
   updatePatientStage,
   addStagePayment,
   updateStagePayment,
+  approveStagePayment,
   uploadStageRecord,
   requestStageMedicine,
   listMedicineRequests,

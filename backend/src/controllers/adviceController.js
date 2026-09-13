@@ -5,6 +5,7 @@ const { ROLES } = require('../constants/roles');
 
 const canAccessPatient = (user, patient) => {
   if (![ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user.role)) return true;
+  if ((patient.approvalStatus || 'approved') !== 'approved') return false;
   const assignment = user.role === ROLES.ASSISTANT_DOCTOR ? patient.assignedDoctor : patient.assignedPsychologist;
   if (!assignment) return false;
   const assignedId = assignment._id || assignment;
@@ -94,7 +95,10 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
 });
 
 const listPatientAdvice = asyncHandler(async (req, res) => {
-  const patient = await Patient.findById(req.params.patientId);
+  // Only the access-check fields are needed here — not the patient's whole record.
+  const patient = await Patient.findById(req.params.patientId)
+    .select('assignedDoctor assignedPsychologist approvalStatus')
+    .lean();
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
@@ -114,7 +118,8 @@ const listPatientAdvice = asyncHandler(async (req, res) => {
   const rows = await AdviceRequest.find(query)
     .populate('patient', 'patientName patientCode number')
     .sort({ createdAt: -1 })
-    .limit(50);
+    .limit(50)
+    .lean();
 
   res.status(200).json({ success: true, rows: rows.map(formatAdvice) });
 });

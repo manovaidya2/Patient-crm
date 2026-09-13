@@ -6,6 +6,7 @@ import Dashboard from './pages/admin/Dashboard.jsx';
 import StaffDashboard from './pages/admin/StaffDashboard.jsx';
 import TeamMembers from './pages/admin/TeamMembers.jsx';
 import AllPatients from './pages/admin/AllPatients.jsx';
+import PatientApprovals from './pages/admin/PatientApprovals.jsx';
 import PatientDetails from './pages/admin/PatientDetails.jsx';
 import PatientsByStage from './pages/admin/PatientsByStage.jsx';
 import Accounts from './pages/admin/Accounts.jsx';
@@ -33,6 +34,7 @@ const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLE
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING];
+const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT];
 
 function App() {
   const { user, loading } = useAuth();
@@ -193,6 +195,14 @@ function App() {
           element={
             <ProtectedRoute roles={PATIENT_ACCESS_ROLES}>
               <AllPatients />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="patient-approvals"
+          element={
+            <ProtectedRoute roles={PATIENT_APPROVAL_ROLES}>
+              <PatientApprovals />
             </ProtectedRoute>
           }
         />
