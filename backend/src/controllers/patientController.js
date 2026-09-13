@@ -208,6 +208,12 @@ const canSeeMedicineConnectReminder = (user, patient, stage) => {
 const canEditPackageStage = (user) =>
   [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
 
+const assigneeKey = (assignedUser, fallbackName = 'Unassigned') =>
+  assignedUser?._id ? String(assignedUser._id) : assignedUser ? String(assignedUser) : fallbackName;
+
+const assigneeName = (assignedUser, fallbackName = 'Unassigned') =>
+  assignedUser?.name || fallbackName;
+
 const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } = {}) => {
   const now = new Date();
   const next24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -524,7 +530,12 @@ const getPatients = asyncHandler(async (req, res) => {
 // @route   GET /api/patients/dashboard-stats
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
-  const patients = await Patient.find({}).select('patientName patientCode currentStage stages createdAt');
+  const patients = await Patient.find({})
+    .select('patientName patientCode currentStage stages assignedDoctor assignedPsychologist createdAt')
+    .populate('assignedDoctor', 'name')
+    .populate('assignedPsychologist', 'name')
+    .populate('stages.postCounselor', 'name')
+    .lean();
   const dateText = String(req.query.followUpDate || '').trim();
   const monthText = String(req.query.followUpMonth || '').trim();
   const selectedFollowUpDate = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
@@ -571,6 +582,27 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     tracker: { total: 0, done: 0, pending: 0 },
   };
 
+  const now = new Date();
+  const lossRows = new Map();
+  const addLossPoint = (assignedUser, fallbackName, type, item) => {
+    const key = assigneeKey(assignedUser, fallbackName);
+    if (!lossRows.has(key)) {
+      lossRows.set(key, {
+        key,
+        name: assigneeName(assignedUser, fallbackName),
+        total: 0,
+        followUps: 0,
+        familySessions: 0,
+        medicine: 0,
+        latest: [],
+      });
+    }
+    const row = lossRows.get(key);
+    row.total += 1;
+    row[type] += 1;
+    row.latest.push(item);
+  };
+
   const paymentSummary = patients.reduce(
     (acc, patient) => {
       const currentStage = patient.currentStage || 1;
@@ -595,6 +627,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
         (stage.followUps || []).forEach((entry) => {
           const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
+          if (entryDate && entryDate < now && entry.status === 'scheduled') {
+            addLossPoint(patient.assignedDoctor, 'Unassigned Assistant Doctor', 'followUps', {
+              type: 'Follow-up late',
+              patientName: patient.patientName,
+              patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+              stage: stage.number,
+              at: entry.dateTime,
+            });
+          }
           if (!entryDate || entryDate < followUpRangeStart || entryDate > followUpRangeEnd) return;
           const type = entry.followUpType === 'sfs' ? 'sfs' : entry.followUpType === 'tracker' ? 'tracker' : 'normal';
           const isDone = ['completed', 'sent', 'done', 'done_late'].includes(entry.status);
@@ -611,6 +652,29 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             followUpSummary[type].pending += 1;
           }
         });
+
+        (stage.familySessions || []).forEach((entry) => {
+          const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
+          if (entryDate && entryDate < now && entry.status === 'scheduled') {
+            addLossPoint(patient.assignedPsychologist, 'Unassigned Psychologist', 'familySessions', {
+              type: 'Family session late',
+              patientName: patient.patientName,
+              patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+              stage: stage.number,
+              at: entry.dateTime,
+            });
+          }
+        });
+
+        if (isMedicineConnectDue(stage)) {
+          addLossPoint(stage.postCounselor || patient.assignedDoctor, 'Unassigned Medicine Follow-up', 'medicine', {
+            type: 'Medicine connect due',
+            patientName: patient.patientName,
+            patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+            stage: stage.number,
+            at: stage.medicineNextConnectDate,
+          });
+        }
       });
       return acc;
     },
@@ -618,9 +682,19 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   );
 
   paymentSummary.dueAmount = Math.max(paymentSummary.totalAmount - paymentSummary.amountPaid, 0);
+  const lossPoints = {
+    total: Array.from(lossRows.values()).reduce((sum, row) => sum + row.total, 0),
+    rows: Array.from(lossRows.values())
+      .map((row) => ({
+        ...row,
+        latest: row.latest
+          .sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0))
+          .slice(0, 3),
+      }))
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+  };
 
   const monthFormatter = new Intl.DateTimeFormat('en-IN', { month: 'short' });
-  const now = new Date();
   const monthlyOnboarding = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
     return {
@@ -649,6 +723,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     paymentSummary,
     workflowSummary,
     followUpSummary,
+    lossPoints,
     monthlyOnboarding,
   });
 });

@@ -8,6 +8,8 @@ import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
+const formatShortDateTime = (value) =>
+  value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
 
 const chartColors = ['#657B6C', '#A9B5A3', '#E8D5B5', '#C6B28E', '#8B9A84', '#DED2BD'];
 
@@ -230,6 +232,7 @@ const Dashboard = () => {
     courierDispatched: 0,
     courierDelivered: 0,
   };
+  const lossPoints = stats?.lossPoints || { total: 0, rows: [] };
   const courierPending = Math.max(
     Number(workflowSummary.courierPending ?? (workflowSummary.sentToCourier - workflowSummary.courierDispatched - workflowSummary.courierDelivered)) || 0,
     0
@@ -417,6 +420,63 @@ const Dashboard = () => {
             <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.tracker.total}</p>
             <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : followUpSummary.tracker.done} | Pending {loading ? '...' : followUpSummary.tracker.pending}</p>
           </div>
+        </div>
+      </Card>
+
+      <Card className="mt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#8C3B2E]/10 text-[#8C3B2E]">
+              <AlertTriangle size={20} />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Loss Points</p>
+              <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Late work by person</h2>
+              <p className="mt-1 text-xs text-charcoal/55">Late follow-ups, family sessions, and due medicine connects.</p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-[#8C3B2E]/20 bg-[#8C3B2E]/5 px-4 py-2 text-right">
+            <p className="text-xs font-semibold text-[#8C3B2E]">Total Points</p>
+            <p className="font-display text-2xl font-bold text-[#8C3B2E]">{loading ? '...' : lossPoints.total}</p>
+          </div>
+        </div>
+
+        <div className="mt-5 overflow-x-auto">
+          {loading ? (
+            <div className="rounded-lg border border-cardline bg-offwhite-200 p-5 text-sm text-charcoal/55">Loading loss points...</div>
+          ) : lossPoints.rows.length === 0 ? (
+            <div className="rounded-lg border border-cardline bg-offwhite-200 p-5 text-sm font-semibold text-sage">No late work right now.</div>
+          ) : (
+            <div className="min-w-[720px] divide-y divide-cardline-soft rounded-lg border border-cardline bg-offwhite-100">
+              {lossPoints.rows.map((row) => (
+                <div key={row.key} className="grid grid-cols-[1.2fr_90px_90px_110px_1.8fr] gap-3 px-4 py-3 text-sm">
+                  <div>
+                    <p className="font-bold text-charcoal">{row.name}</p>
+                    <p className="mt-0.5 text-xs text-charcoal/45">Total mistakes: {row.total}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Follow-up</p>
+                    <p className="font-display text-lg font-bold text-charcoal">{row.followUps}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Family</p>
+                    <p className="font-display text-lg font-bold text-charcoal">{row.familySessions}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Medicine</p>
+                    <p className="font-display text-lg font-bold text-charcoal">{row.medicine}</p>
+                  </div>
+                  <div className="space-y-1">
+                    {(row.latest || []).map((item, index) => (
+                      <p key={`${row.key}-${index}`} className="truncate text-xs text-charcoal/60">
+                        <span className="font-semibold text-charcoal">{item.type}</span> - {item.patientName} ({item.patientCode}), Stage {item.stage}, {formatShortDateTime(item.at)}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Card>
 
