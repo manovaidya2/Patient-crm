@@ -792,7 +792,7 @@ const ScheduleCard = ({
       `ID: ${patient?.patientCode || `PT-${String(patient?.id || '').slice(-6).toUpperCase()}`}`,
       patient?.age ? `Age: ${patient.age}` : '',
       defaultName ? `Parent/Relative: ${defaultName}` : '',
-      patient?.number ? `Phone: ${patient.number}` : '',
+      patient?.number ? `Father's Number: ${patient.number}` : '',
     ].filter(Boolean).join(' | ');
     const dateLine = [
       `Date: ${filledOn}`,
@@ -2019,7 +2019,7 @@ const PatientDetails = () => {
               readOnly={!canEditPatientDetails}
             />
             <EditableField
-              label="Phone Number"
+              label="Father's Number"
               value={patient.number}
               placeholder="Not added"
               onSave={(val) => saveField('number', val)}
@@ -2033,7 +2033,7 @@ const PatientDetails = () => {
               readOnly={!canEditPatientDetails}
             />
             <EditableField
-              label="Alternate Number"
+              label="Mother's Number"
               value={patient.alternateNumber}
               placeholder="Not added"
               onSave={(val) => saveField('alternateNumber', val)}

@@ -147,7 +147,7 @@ const AllPatients = () => {
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
             <input
-              placeholder="Search by patient ID, name or number"
+              placeholder="Search by patient ID, name, father or mother number"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
@@ -217,9 +217,9 @@ const AllPatients = () => {
                     <th className="px-5 py-3 font-semibold">Patient Name</th>
                     <th className="px-5 py-3 font-semibold">Category</th>
                     <th className="px-5 py-3 font-semibold">Age</th>
-                    <th className="px-5 py-3 font-semibold">Number</th>
+                    <th className="px-5 py-3 font-semibold">Father's Number</th>
                     <th className="px-5 py-3 font-semibold">Guardian / Relative</th>
-                    <th className="px-5 py-3 font-semibold">Alternate Number</th>
+                    <th className="px-5 py-3 font-semibold">Mother's Number</th>
                     <th className="px-5 py-3 font-semibold">Received</th>
                   </tr>
                 </thead>
@@ -334,7 +334,7 @@ const AllPatients = () => {
             />
             <Input
               id="number"
-              label="Phone Number"
+              label="Father's Number"
               value={addForm.number}
               onChange={(e) => updateAddForm('number', e.target.value)}
               required
@@ -350,7 +350,7 @@ const AllPatients = () => {
                 />
                 <Input
                   id="alternateNumber"
-                  label="Alternate Number"
+                  label="Mother's Number"
                   value={addForm.alternateNumber}
                   onChange={(e) => updateAddForm('alternateNumber', e.target.value)}
                 />

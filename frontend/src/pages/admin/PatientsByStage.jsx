@@ -85,7 +85,7 @@ const PatientsByStage = () => {
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
             <input
-              placeholder="Search by patient name or number"
+              placeholder="Search by patient name, father or mother number"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
@@ -118,7 +118,7 @@ const PatientsByStage = () => {
                     <th className="px-5 py-3 font-semibold">Patient Name</th>
                     <th className="px-5 py-3 font-semibold">Category</th>
                     <th className="px-5 py-3 font-semibold">Age</th>
-                    <th className="px-5 py-3 font-semibold">Number</th>
+                    <th className="px-5 py-3 font-semibold">Father's Number</th>
                     <th className="px-5 py-3 font-semibold">Phase</th>
                     <th className="px-5 py-3 font-semibold">Received</th>
                   </tr>

@@ -488,6 +488,7 @@ const getPatients = asyncHandler(async (req, res) => {
       { patientName: { $regex: search, $options: 'i' } },
       { patientCode: { $regex: search, $options: 'i' } },
       { number: { $regex: search, $options: 'i' } },
+      { alternateNumber: { $regex: search, $options: 'i' } },
     ];
   }
 
@@ -1002,7 +1003,7 @@ const createPatient = asyncHandler(async (req, res) => {
   } = req.body;
 
   if (!patientCode || !patientName || !category || age === undefined || age === null || !number) {
-    return res.status(400).json({ success: false, message: 'Patient ID, patient name, category, age and number are required' });
+    return res.status(400).json({ success: false, message: "Patient ID, patient name, category, age and father's number are required" });
   }
 
   const normalizedPatientCode = String(patientCode).trim().toUpperCase();
@@ -1194,9 +1195,9 @@ const updatePatient = asyncHandler(async (req, res) => {
 
   updateField('patientName', patientName, 'Patient name');
   updateField('age', age, 'Age');
-  updateField('number', number, 'Phone number');
+  updateField('number', number, "Father's number");
   updateField('guardianName', guardianName, 'Father/Mother name');
-  updateField('alternateNumber', alternateNumber, 'Alternate number');
+  updateField('alternateNumber', alternateNumber, "Mother's number");
   updateField('relativeName', relativeName, 'Relative name');
 
   if (currentStage !== undefined) {

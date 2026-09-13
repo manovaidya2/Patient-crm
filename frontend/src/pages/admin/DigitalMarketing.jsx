@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 const columns = [
   { key: 'patientCode', label: 'Patient ID', locked: true, width: 'min-w-36' },
   { key: 'parentName', label: 'Parent Name', locked: true, width: 'min-w-44' },
-  { key: 'mobileNumber', label: 'Mobile Number', locked: true, width: 'min-w-40' },
+  { key: 'mobileNumber', label: "Father's Number", locked: true, width: 'min-w-40' },
   { key: 'patientName', label: 'Patient Name', locked: true, width: 'min-w-48' },
   { key: 'program', label: 'Program', locked: true, width: 'min-w-40' },
   { key: 'programStartDate', label: 'Program Start Date', locked: true, width: 'min-w-40' },
@@ -101,7 +101,7 @@ const DigitalMarketing = () => {
     if (!term) return patients.slice(0, 12);
     return patients
       .filter((patient) =>
-        [patient.patientCode, patient.patientName, patient.number, patient.guardianName, patient.relativeName]
+        [patient.patientCode, patient.patientName, patient.number, patient.alternateNumber, patient.guardianName, patient.relativeName]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(term))
       )
@@ -281,7 +281,7 @@ const DigitalMarketing = () => {
                 setPatientSearch(e.target.value);
                 setForm({ ...form, patientId: '' });
               }}
-              placeholder={selectedPatient ? `${selectedPatient.patientCode} - ${selectedPatient.patientName}` : 'Search patient by ID, name, phone'}
+              placeholder={selectedPatient ? `${selectedPatient.patientCode} - ${selectedPatient.patientName}` : 'Search patient by ID, name, father number'}
               className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal outline-none placeholder:text-charcoal/45 focus:border-sage focus:ring-2 focus:ring-sage/20"
             />
             <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-cardline bg-offwhite-100">
