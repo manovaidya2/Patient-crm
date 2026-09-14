@@ -585,6 +585,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
   const now = new Date();
   const lossRows = new Map();
+  const paymentDueRows = [];
   const addLossPoint = (assignedUser, fallbackName, type, item) => {
     const key = assigneeKey(assignedUser, fallbackName);
     if (!lossRows.has(key)) {
@@ -617,6 +618,26 @@ const getDashboardStats = asyncHandler(async (req, res) => {
           .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
         acc.totalAmount += totalAmount;
         acc.amountPaid += amountPaid;
+        const dueAmount = Math.max(totalAmount - amountPaid, 0);
+        if (totalAmount > 0 && dueAmount > 0) {
+          const pendingAmount = (stage.payments || [])
+            .filter((payment) => !isApprovedPayment(payment))
+            .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+          paymentDueRows.push({
+            patientId: patient._id,
+            patientName: patient.patientName,
+            patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+            phase: stage.number,
+            phaseLabel: STAGE_LABELS[stage.number],
+            packageName: stage.packageName || '',
+            totalAmount,
+            paidAmount: amountPaid,
+            dueAmount,
+            pendingApprovalAmount: pendingAmount,
+            assignedDoctor: patient.assignedDoctor?.name || '',
+            postCounselor: stage.postCounselor?.name || '',
+          });
+        }
         const request = formatMedicineRequest(stage.medicineRequest);
         if (request.status === MEDICINE_STATUSES.REQUESTED) workflowSummary.medicineRequested += 1;
         if (request.status === MEDICINE_STATUSES.IN_PROCESS) workflowSummary.medicineInProcess += 1;
@@ -683,6 +704,14 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   );
 
   paymentSummary.dueAmount = Math.max(paymentSummary.totalAmount - paymentSummary.amountPaid, 0);
+  const paymentDueLedger = {
+    count: paymentDueRows.length,
+    totalDue: paymentDueRows.reduce((sum, row) => sum + row.dueAmount, 0),
+    totalPendingApproval: paymentDueRows.reduce((sum, row) => sum + row.pendingApprovalAmount, 0),
+    rows: paymentDueRows
+      .sort((a, b) => b.dueAmount - a.dueAmount || a.patientName.localeCompare(b.patientName))
+      .slice(0, 20),
+  };
   const lossPoints = {
     total: Array.from(lossRows.values()).reduce((sum, row) => sum + row.total, 0),
     rows: Array.from(lossRows.values())
@@ -722,6 +751,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     totalPatients: patients.length,
     stageCounts,
     paymentSummary,
+    paymentDueLedger,
     workflowSummary,
     followUpSummary,
     lossPoints,

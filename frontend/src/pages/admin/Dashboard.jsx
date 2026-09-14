@@ -215,6 +215,7 @@ const Dashboard = () => {
     STAGES.map((stage) => ({ stage, label: STAGE_LABELS[stage], activePatients: 0 }));
   const activeStage = stageCounts[activeStageIndex] || stageCounts[0];
   const paymentSummary = stats?.paymentSummary || { totalAmount: 0, amountPaid: 0, dueAmount: 0 };
+  const paymentDueLedger = stats?.paymentDueLedger || { count: 0, totalDue: 0, totalPendingApproval: 0, rows: [] };
   const followUpSummary = stats?.followUpSummary || {
     total: 0,
     done: 0,
@@ -360,6 +361,69 @@ const Dashboard = () => {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#9C6B2E]/10 text-[#9C6B2E]">
+              <WalletCards size={20} />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Payment Due Ledger</p>
+              <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Patients with unpaid packages</h2>
+              <p className="mt-1 text-xs text-charcoal/55">Only approved payments are counted as paid. Fully paid phases are removed automatically.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:min-w-72">
+            <div className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2">
+              <p className="text-xs font-semibold text-charcoal/55">Rows</p>
+              <p className="font-display text-xl font-bold text-charcoal">{loading ? '...' : paymentDueLedger.count}</p>
+            </div>
+            <div className="rounded-lg border border-[#8C3B2E]/20 bg-[#8C3B2E]/5 px-3 py-2">
+              <p className="text-xs font-semibold text-[#8C3B2E]">Total Due</p>
+              <p className="font-display text-xl font-bold text-[#8C3B2E]">{loading ? '...' : formatMoney(paymentDueLedger.totalDue)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          {loading ? (
+            <div className="rounded-lg border border-cardline bg-offwhite-200 p-5 text-sm text-charcoal/55">Loading payment due ledger...</div>
+          ) : paymentDueLedger.rows.length === 0 ? (
+            <div className="rounded-lg border border-cardline bg-offwhite-200 p-5 text-sm font-semibold text-sage">All package amounts are fully paid.</div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-cardline bg-offwhite-100">
+              <div className="grid grid-cols-[1.15fr_0.72fr_1.35fr_0.76fr_0.76fr_0.86fr_1.28fr] gap-x-6 border-b border-cardline-soft bg-offwhite-200 px-4 py-2 text-center text-[11px] font-bold uppercase tracking-wide text-charcoal/55">
+                <span className="min-w-0">Patient</span>
+                <span className="min-w-0">Phase</span>
+                <span className="min-w-0">Package</span>
+                <span className="min-w-0">Total</span>
+                <span className="min-w-0">Paid</span>
+                <span className="min-w-0">Due</span>
+                <span className="min-w-0">Team</span>
+              </div>
+              {paymentDueLedger.rows.map((row) => (
+                <div key={`${row.patientId}-${row.phase}`} className="grid grid-cols-[1.15fr_0.72fr_1.35fr_0.76fr_0.76fr_0.86fr_1.28fr] gap-x-6 border-b border-cardline-soft px-4 py-3 text-center text-sm last:border-0">
+                  <Link to={`/admin/patients/${row.patientId}`} className="min-w-0 font-bold text-charcoal hover:text-sage">
+                    <span className="block truncate">{row.patientName}</span>
+                    <span className="mt-0.5 block font-mono text-[11px] tracking-widest text-charcoal/45">{row.patientCode}</span>
+                  </Link>
+                  <span className="min-w-0 truncate font-semibold text-charcoal">{row.phaseLabel || `Phase ${row.phase}`}</span>
+                  <span className="truncate text-charcoal/70">{row.packageName || '-'}</span>
+                  <span className="min-w-0 truncate font-semibold tabular-nums text-charcoal">{formatMoney(row.totalAmount)}</span>
+                  <span className="min-w-0 truncate font-semibold tabular-nums text-sage">{formatMoney(row.paidAmount)}</span>
+                  <span className="min-w-0 truncate font-bold tabular-nums text-[#8C3B2E]">{formatMoney(row.dueAmount)}</span>
+                  <span className="min-w-0 text-xs text-charcoal/55">
+                    {row.assignedDoctor ? `Doctor: ${row.assignedDoctor}` : 'Doctor: -'}
+                    {row.postCounselor ? <span className="block truncate">PC: {row.postCounselor}</span> : null}
+                    {row.pendingApprovalAmount > 0 ? <span className="block font-semibold text-[#9C6B2E]">Pending approval: {formatMoney(row.pendingApprovalAmount)}</span> : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
 
       <Card className="mt-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
