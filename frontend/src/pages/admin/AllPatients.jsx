@@ -115,7 +115,7 @@ const AllPatients = () => {
     try {
       const { data } = await api.post('/patients', {
         ...addForm,
-        age: Number(addForm.age),
+        age: addForm.age.trim(),
         currentStage: Number(addForm.currentStage),
         postCounselor: addForm.postCounselor || null,
       });
@@ -326,8 +326,7 @@ const AllPatients = () => {
             <Input
               id="age"
               label="Age"
-              type="number"
-              min="0"
+              placeholder="e.g. 4.5 years"
               value={addForm.age}
               onChange={(e) => updateAddForm('age', e.target.value)}
               required

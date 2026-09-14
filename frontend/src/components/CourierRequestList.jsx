@@ -68,6 +68,8 @@ const emptyDispatchForm = {
   receiverPhone: '',
   address: '',
   courierPartner: '',
+  deliveryMode: 'courier',
+  selfPickupByName: '',
   trackingNumber: '',
   paymentPaidBy: 'clinic',
   paymentAmount: '',
@@ -155,6 +157,8 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       receiverPhone: courier.receiverPhone || row.patientNumber || '',
       address: courier.address || '',
       courierPartner: courier.courierPartner || '',
+      deliveryMode: courier.deliveryMode || 'courier',
+      selfPickupByName: courier.selfPickupByName || '',
       trackingNumber: courier.trackingNumber || '',
       paymentPaidBy: courier.paymentPaidBy || 'clinic',
       paymentAmount: courier.paymentAmount || '',
@@ -168,8 +172,12 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
 
   const submitDispatch = async (e) => {
     e.preventDefault();
-    if (!files.length && !dispatchRow.medicineRequest.courier?.packageImageUrl && !dispatchRow.medicineRequest.courier?.packageImages?.length) {
+    if (form.deliveryMode !== 'self' && !files.length && !dispatchRow.medicineRequest.courier?.packageImageUrl && !dispatchRow.medicineRequest.courier?.packageImages?.length) {
       setModalError('Package image is required');
+      return;
+    }
+    if (form.deliveryMode === 'self' && !form.selfPickupByName.trim()) {
+      setModalError('Picked up by name is required');
       return;
     }
     setSaving(true);
@@ -295,10 +303,17 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                   </div>
                   <div className="text-sm text-charcoal/70">
                     <p className="font-semibold text-charcoal">Dispatch</p>
-                    <p className="mt-1">Via: {courier.courierPartner || '-'}</p>
-                    <p className="mt-1">Tracking: {courier.trackingNumber || '-'}</p>
+                    <p className="mt-1">Mode: {courier.deliveryMode === 'self' ? 'Self pickup' : 'Courier'}</p>
+                    {courier.deliveryMode === 'self' ? (
+                      <p className="mt-1">Picked up by: {courier.selfPickupByName || '-'}</p>
+                    ) : (
+                      <>
+                        <p className="mt-1">Via: {courier.courierPartner || '-'}</p>
+                        <p className="mt-1">Tracking: {courier.trackingNumber || '-'}</p>
+                        <p className="mt-1 whitespace-pre-line">Address: {courier.address || '-'}</p>
+                      </>
+                    )}
                     <p className="mt-1">To: {courier.receiverName || '-'} {courier.receiverPhone ? `(${courier.receiverPhone})` : ''}</p>
-                    <p className="mt-1 whitespace-pre-line">Address: {courier.address || '-'}</p>
                   </div>
                   <div className="text-sm text-charcoal/70">
                     <p className="font-semibold text-charcoal">Payment / Delivery</p>
@@ -325,11 +340,24 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       <Modal open={!!dispatchRow} onClose={() => setDispatchRow(null)} title="Dispatch Courier" className="max-w-2xl">
         <form onSubmit={submitDispatch} className="space-y-4">
           {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
+          <div>
+            <label className="block text-sm font-medium text-charcoal mb-1.5">Delivery Type</label>
+            <select value={form.deliveryMode} onChange={(e) => setForm({ ...form, deliveryMode: e.target.value })} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
+              <option value="courier">Courier</option>
+              <option value="self">Self pickup</option>
+            </select>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="Receiver Name" value={form.receiverName} onChange={(e) => setForm({ ...form, receiverName: e.target.value })} required />
-            <Input label="Receiver Phone" value={form.receiverPhone} onChange={(e) => setForm({ ...form, receiverPhone: e.target.value })} required />
-            <Input label="Courier Partner" value={form.courierPartner} onChange={(e) => setForm({ ...form, courierPartner: e.target.value })} required />
-            <Input label="Tracking Number" value={form.trackingNumber} onChange={(e) => setForm({ ...form, trackingNumber: e.target.value })} required />
+            <Input label="Receiver Phone" value={form.receiverPhone} onChange={(e) => setForm({ ...form, receiverPhone: e.target.value })} required={form.deliveryMode !== 'self'} />
+            {form.deliveryMode === 'self' ? (
+              <Input label="Picked Up By" value={form.selfPickupByName} onChange={(e) => setForm({ ...form, selfPickupByName: e.target.value })} required />
+            ) : (
+              <>
+                <Input label="Courier Partner" value={form.courierPartner} onChange={(e) => setForm({ ...form, courierPartner: e.target.value })} required />
+                <Input label="Tracking Number" value={form.trackingNumber} onChange={(e) => setForm({ ...form, trackingNumber: e.target.value })} required />
+              </>
+            )}
             <Input label="Courier Payment Amount" type="number" min="0" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} />
             <div>
               <label className="block text-sm font-medium text-charcoal mb-1.5">Paid By</label>
@@ -339,7 +367,9 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
               </select>
             </div>
           </div>
-          <textarea rows={3} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" required />
+          {form.deliveryMode !== 'self' && (
+            <textarea rows={3} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" required />
+          )}
           <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
           <label className="block rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-4 text-center text-sm font-semibold text-sage cursor-pointer">
             Upload package images
@@ -375,4 +405,3 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
 };
 
 export default CourierRequestList;
-

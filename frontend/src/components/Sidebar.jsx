@@ -50,7 +50,7 @@ export const navItems = [
   { to: '/admin/accounts/income', icon: TrendingUp, label: 'Income', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
-  { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING] },
+  { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING] },
   
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
   { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },

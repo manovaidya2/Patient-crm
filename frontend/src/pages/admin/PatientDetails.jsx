@@ -1758,7 +1758,7 @@ const PatientDetails = () => {
 
   // Every field goes through the same PATCH endpoint; the response is the fresh patient record.
   const saveField = async (fieldKey, rawValue) => {
-    const numericFields = ['age', 'currentStage'];
+    const numericFields = ['currentStage'];
     const payload = { [fieldKey]: numericFields.includes(fieldKey) ? Number(rawValue) : rawValue };
     const { data } = await api.patch(`/patients/${id}`, payload);
     setPatient(data.patient);
@@ -2009,12 +2009,25 @@ const PatientDetails = () => {
             </div>
           )}
 
-                    {/* Always 6 equal-width boxes spanning the full card, regardless of which values are filled in */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
+                    {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-px bg-cardline border-t border-cardline">
+            <EditableField
+              label="Patient ID"
+              value={patient.patientCode || ''}
+              placeholder="Not added"
+              onSave={(val) => saveField('patientCode', val)}
+              readOnly={!isAdmin}
+            />
+            <EditableField
+              label="Patient Name"
+              value={patient.patientName || ''}
+              placeholder="Not added"
+              onSave={(val) => saveField('patientName', val)}
+              readOnly={!isAdmin}
+            />
             <EditableField
               label="Age"
               value={patient.age ?? ''}
-              type="number"
               onSave={(val) => saveField('age', val)}
               readOnly={!canEditPatientDetails}
             />

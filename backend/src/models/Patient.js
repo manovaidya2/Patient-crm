@@ -109,6 +109,8 @@ const medicineRequestSchema = new mongoose.Schema(
       receiverPhone: { type: String, trim: true, default: '' },
       address: { type: String, trim: true, default: '' },
       courierPartner: { type: String, trim: true, default: '' },
+      deliveryMode: { type: String, enum: ['courier', 'self'], default: 'courier' },
+      selfPickupByName: { type: String, trim: true, default: '' },
       trackingNumber: { type: String, trim: true, default: '' },
       packageImageUrl: { type: String, default: null },
       packageImageFileName: { type: String, trim: true, default: '' },
@@ -206,8 +208,9 @@ const patientSchema = new mongoose.Schema(
       required: [true, 'Category is required'],
     },
     age: {
-      type: Number,
+      type: String,
       required: [true, 'Age is required'],
+      trim: true,
     },
     number: {
       type: String,

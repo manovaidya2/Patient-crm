@@ -4,7 +4,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { CATEGORY_LABELS } = require('./webhookController');
 
-const REVIEW_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING];
+const REVIEW_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
 
 const isSameUser = (left, right) => {
   if (!left || !right) return false;
@@ -12,6 +12,7 @@ const isSameUser = (left, right) => {
 };
 
 const canAccessPatientForReview = (user, patient) => {
+  if (user.role === ROLES.PSYCHOLOGIST) return isSameUser(patient.assignedPsychologist, user._id);
   if (user.role !== ROLES.ASSISTANT_DOCTOR) return true;
   return isSameUser(patient.assignedDoctor, user._id);
 };
@@ -81,6 +82,9 @@ const getReviews = asyncHandler(async (req, res) => {
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     const patients = await Patient.find({ assignedDoctor: req.user._id }).select('_id');
     filter.patient = { $in: patients.map((patient) => patient._id) };
+  } else if (req.user.role === ROLES.PSYCHOLOGIST) {
+    const patients = await Patient.find({ assignedPsychologist: req.user._id }).select('_id');
+    filter.patient = { $in: patients.map((patient) => patient._id) };
   }
 
   const reviews = await DigitalMarketingReview.find(filter).sort({ updatedAt: -1 });
@@ -146,8 +150,8 @@ const updateReview = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Review row not found' });
   }
 
-  if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
-    const patient = await Patient.findById(review.patient).select('assignedDoctor');
+  if ([ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(req.user.role)) {
+    const patient = await Patient.findById(review.patient).select('assignedDoctor assignedPsychologist');
     if (!patient || !canAccessPatientForReview(req.user, patient)) {
       return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
     }

@@ -52,6 +52,8 @@ const emptyCourier = () => ({
   receiverPhone: '',
   address: '',
   courierPartner: '',
+  deliveryMode: 'courier',
+  selfPickupByName: '',
   trackingNumber: '',
   packageImageUrl: null,
   packageImageFileName: '',
@@ -296,6 +298,69 @@ const formatMedicineRequest = (request = {}) => {
   };
 };
 
+const parseMaybeJsonValue = (value, fallback) => {
+  if (typeof value !== 'string') return value || fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const pickWebhookValue = (source, keys, fallback) => {
+  if (!source || typeof source !== 'object') return fallback;
+  const normalizedSource = Object.entries(source).reduce((acc, [key, value]) => {
+    acc[String(key).toLowerCase().replace(/[^a-z0-9]/g, '')] = value;
+    return acc;
+  }, {});
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') return source[key];
+    const normalizedValue = normalizedSource[String(key).toLowerCase().replace(/[^a-z0-9]/g, '')];
+    if (normalizedValue !== undefined && normalizedValue !== null && normalizedValue !== '') return normalizedValue;
+  }
+  return fallback;
+};
+
+const parseCallTimeText = (value) => {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  const monthMap = {
+    jan: 0,
+    feb: 1,
+    mar: 2,
+    apr: 3,
+    may: 4,
+    jun: 5,
+    jul: 6,
+    aug: 7,
+    sep: 8,
+    sept: 8,
+    oct: 9,
+    nov: 10,
+    dec: 11,
+  };
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)\s*,?\s*(?:[a-z]{3,9},?\s+)?(\d{1,2})\s+([a-z]{3,9})\s+(\d{2,4})$/i);
+  if (!match) return null;
+  const [, rawHour, minute, second = '0', meridiem, day, monthName, rawYear] = match;
+  let hour = Number(rawHour) % 12;
+  if (meridiem.toLowerCase() === 'pm') hour += 12;
+  const month = monthMap[monthName.toLowerCase()];
+  if (month === undefined) return null;
+  const yearNumber = Number(rawYear);
+  const year = yearNumber < 100 ? 2000 + yearNumber : yearNumber;
+  return new Date(year, month, Number(day), hour, Number(minute), Number(second));
+};
+
+const getRawCallCreationTime = (callLog) => {
+  const payload = parseMaybeJsonValue(callLog.rawPayload, callLog.rawPayload) || {};
+  const parsedActions = parseMaybeJsonValue(payload.actions, payload.actions);
+  const action = Array.isArray(parsedActions) && parsedActions.length ? parsedActions[0] : { fields: payload };
+  const fields = parseMaybeJsonValue(action.fields, action.fields) || action;
+  return pickWebhookValue(fields, ['creationTimestamp', 'creation timestamp', 'actionCreationTime', 'action_creation_time', 'createdTime', 'created_time'], null);
+};
+
+const getDisplayCallTime = (callLog) => parseCallTimeText(getRawCallCreationTime(callLog)) || callLog.actionCreationTime;
+
 const formatCallLog = (callLog) => ({
   id: callLog._id,
   patientId: callLog.patient,
@@ -305,7 +370,8 @@ const formatCallLog = (callLog) => ({
   durationSeconds: callLog.durationSeconds || 0,
   durationText: callLog.durationText || '',
   callAction: callLog.callAction || '',
-  actionCreationTime: callLog.actionCreationTime,
+  actionCreationTime: getDisplayCallTime(callLog),
+  savedActionCreationTime: callLog.actionCreationTime,
   recordingUrl: callLog.recordingUrl || '',
   recordingFileUrl: callLog.recordingFileUrl || '',
   recordingFileName: callLog.recordingFileName || '',
@@ -1031,8 +1097,9 @@ const createPatient = asyncHandler(async (req, res) => {
     currentStage,
     postCounselor,
   } = req.body;
+  const ageText = String(age ?? '').trim();
 
-  if (!patientCode || !patientName || !category || age === undefined || age === null || !number) {
+  if (!patientCode || !patientName || !category || !ageText || !number) {
     return res.status(400).json({ success: false, message: "Patient ID, patient name, category, age and father's number are required" });
   }
 
@@ -1077,7 +1144,7 @@ const createPatient = asyncHandler(async (req, res) => {
     patientCode: normalizedPatientCode,
     patientName,
     category,
-    age,
+    age: ageText,
     number,
     guardianName: category === 'autism_adhd' ? guardianName : '',
     alternateNumber: category === 'autism_adhd' ? alternateNumber : '',
@@ -1192,6 +1259,7 @@ const approvePatient = asyncHandler(async (req, res) => {
 // @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
 const updatePatient = asyncHandler(async (req, res) => {
   const {
+    patientCode,
     patientName,
     age,
     number,
@@ -1222,6 +1290,23 @@ const updatePatient = asyncHandler(async (req, res) => {
     patient[fieldKey] = nextValue;
     addActivity(patient, req.user, `${label} updated`, `From "${previousValue}" to "${nextValue || 'Blank'}"`);
   };
+
+  if (patientCode !== undefined) {
+    if (req.user.role !== ROLES.ADMIN) {
+      return res.status(403).json({ success: false, message: 'Only Admin can edit Patient ID' });
+    }
+    const normalizedPatientCode = String(patientCode || '').trim().toUpperCase();
+    if (!normalizedPatientCode) {
+      return res.status(400).json({ success: false, message: 'Patient ID is required' });
+    }
+    if (!sameValue(patient.patientCode, normalizedPatientCode)) {
+      const existingCode = await Patient.findOne({ patientCode: normalizedPatientCode, _id: { $ne: patient._id } });
+      if (existingCode) {
+        return res.status(400).json({ success: false, message: 'Patient ID already exists' });
+      }
+      updateField('patientCode', normalizedPatientCode, 'Patient ID');
+    }
+  }
 
   updateField('patientName', patientName, 'Patient name');
   updateField('age', age, 'Age');
@@ -1910,12 +1995,20 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   }
 
   if (status === COURIER_STATUSES.DISPATCHED) {
-    const required = ['receiverName', 'receiverPhone', 'address', 'courierPartner', 'trackingNumber'];
+    const deliveryMode = req.body.deliveryMode === 'self' ? 'self' : 'courier';
+    const required = deliveryMode === 'self'
+      ? ['receiverName', 'selfPickupByName']
+      : ['receiverName', 'receiverPhone', 'address', 'courierPartner', 'trackingNumber'];
     const missing = required.find((field) => !req.body[field]);
     if (missing) {
-      return res.status(400).json({ success: false, message: 'Receiver, address, courier partner and tracking number are required' });
+      return res.status(400).json({
+        success: false,
+        message: deliveryMode === 'self'
+          ? 'Receiver name and picked up by name are required'
+          : 'Receiver, address, courier partner and tracking number are required',
+      });
     }
-    if (!uploadedFiles.length && !existingPackageImages.length) {
+    if (deliveryMode === 'courier' && !uploadedFiles.length && !existingPackageImages.length) {
       return res.status(400).json({ success: false, message: 'Package image is required before dispatch' });
     }
   }
@@ -1936,6 +2029,8 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     receiverPhone: req.body.receiverPhone || currentCourier.receiverPhone,
     address: req.body.address || currentCourier.address,
     courierPartner: req.body.courierPartner || currentCourier.courierPartner,
+    deliveryMode: req.body.deliveryMode === 'self' ? 'self' : (currentCourier.deliveryMode || 'courier'),
+    selfPickupByName: req.body.selfPickupByName || currentCourier.selfPickupByName,
     trackingNumber: req.body.trackingNumber || currentCourier.trackingNumber,
     paymentPaidBy: req.body.paymentPaidBy || currentCourier.paymentPaidBy,
     paymentAmount: req.body.paymentAmount !== undefined ? Math.max(Number(req.body.paymentAmount) || 0, 0) : currentCourier.paymentAmount,
@@ -1969,7 +2064,16 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     courier: nextCourier,
   };
 
-  addActivity(patient, req.user, `Courier ${status} for Phase ${stageNum}`, status === COURIER_STATUSES.DELIVERED ? `Received by ${nextCourier.receivedByName}` : nextCourier.trackingNumber);
+  addActivity(
+    patient,
+    req.user,
+    `Courier ${status} for Phase ${stageNum}`,
+    status === COURIER_STATUSES.DELIVERED
+      ? `Received by ${nextCourier.receivedByName}`
+      : nextCourier.deliveryMode === 'self'
+        ? `Self pickup by ${nextCourier.selfPickupByName}`
+        : nextCourier.trackingNumber
+  );
 
   await patient.save();
   await populateAssignments(patient);

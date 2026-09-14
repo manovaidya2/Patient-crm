@@ -14,8 +14,9 @@ const RECORDING_UPLOAD_FOLDER = 'recording';
 // @access  Public (protected by x-webhook-secret header)
 const receivePatientWebhook = asyncHandler(async (req, res) => {
   const { patientName, category, age, number, guardianName, alternateNumber, relativeName, externalId } = req.body;
+  const ageText = String(age ?? '').trim();
 
-  if (!patientName || !category || age === undefined || age === null || !number) {
+  if (!patientName || !category || !ageText || !number) {
     return res.status(400).json({
       success: false,
       message: 'patientName, category, age and number are required',
@@ -49,7 +50,7 @@ const receivePatientWebhook = asyncHandler(async (req, res) => {
     if (existing) {
       existing.patientName = patientName;
       existing.category = category;
-      existing.age = age;
+      existing.age = ageText;
       existing.number = number;
       existing.guardianName = category === CATEGORIES.AUTISM_ADHD ? guardianName : undefined;
       existing.alternateNumber = category === CATEGORIES.AUTISM_ADHD ? alternateNumber : undefined;
@@ -68,7 +69,7 @@ const receivePatientWebhook = asyncHandler(async (req, res) => {
   const patient = await Patient.create({
     patientName,
     category,
-    age,
+    age: ageText,
     number,
     guardianName: category === CATEGORIES.AUTISM_ADHD ? guardianName : undefined,
     alternateNumber: category === CATEGORIES.AUTISM_ADHD ? alternateNumber : undefined,
@@ -105,10 +106,38 @@ const toDurationSeconds = (duration) => {
 
 const toDateOrNow = (value) => {
   if (typeof value === 'string') {
-    const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-    if (match) {
-      const [, day, month, year, hour, minute, second = '0'] = match;
+    const text = value.trim();
+    const numericMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (numericMatch) {
+      const [, day, month, year, hour, minute, second = '0'] = numericMatch;
       return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+    }
+    const monthMap = {
+      jan: 0,
+      feb: 1,
+      mar: 2,
+      apr: 3,
+      may: 4,
+      jun: 5,
+      jul: 6,
+      aug: 7,
+      sep: 8,
+      sept: 8,
+      oct: 9,
+      nov: 10,
+      dec: 11,
+    };
+    const callTimeMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)\s*,?\s*(?:[a-z]{3,9},?\s+)?(\d{1,2})\s+([a-z]{3,9})\s+(\d{2,4})$/i);
+    if (callTimeMatch) {
+      const [, rawHour, minute, second = '0', meridiem, day, monthName, rawYear] = callTimeMatch;
+      let hour = Number(rawHour) % 12;
+      if (meridiem.toLowerCase() === 'pm') hour += 12;
+      const month = monthMap[monthName.toLowerCase()];
+      const yearNumber = Number(rawYear);
+      const year = yearNumber < 100 ? 2000 + yearNumber : yearNumber;
+      if (month !== undefined) {
+        return new Date(year, month, Number(day), hour, Number(minute), Number(second));
+      }
     }
   }
   const date = new Date(value || Date.now());
