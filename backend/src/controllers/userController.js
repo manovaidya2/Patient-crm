@@ -49,11 +49,11 @@ const getUsers = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, count: users.length, users: users.map(formatUser) });
 });
 
-// @desc    Update a team member (name, role, phone, active status)
+// @desc    Update a team member (name, role, phone, active status, password)
 // @route   PATCH /api/users/:id
 // @access  Private/Admin
 const updateUser = asyncHandler(async (req, res) => {
-  const { name, role, phone, isActive } = req.body;
+  const { name, role, phone, isActive, password } = req.body;
 
   const user = await User.findById(req.params.id);
   if (!user) {
@@ -74,6 +74,12 @@ const updateUser = asyncHandler(async (req, res) => {
   if (name !== undefined) user.name = name;
   if (phone !== undefined) user.phone = phone;
   if (isActive !== undefined) user.isActive = isActive;
+  if (password !== undefined && password !== '') {
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+    user.password = password;
+  }
 
   await user.save();
   res.status(200).json({ success: true, user: formatUser(user) });

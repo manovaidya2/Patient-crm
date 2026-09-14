@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Pencil, Trash2, UserX2, Inbox, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, UserX2, Inbox, AlertTriangle, ShieldCheck } from 'lucide-react';
 import api from '../../api/axios.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
@@ -15,6 +16,7 @@ const emptyForm = { name: '', email: '', password: '', role: '', phone: '' };
 
 const TeamMembers = () => {
   const { toasts, showToast, dismissToast } = useToast();
+  const { user } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +30,9 @@ const TeamMembers = () => {
   const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [adminPasswordForm, setAdminPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [adminPasswordErrors, setAdminPasswordErrors] = useState({});
+  const [changingAdminPassword, setChangingAdminPassword] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -78,7 +83,7 @@ const TeamMembers = () => {
     if (!form.name.trim()) errors.name = 'Name is required';
     if (!form.email.trim()) errors.email = 'Email is required';
     if (!editingUser && !form.password.trim()) errors.password = 'Password is required';
-    if (!editingUser && form.password && form.password.length < 6)
+    if (form.password && form.password.length < 6)
       errors.password = 'Password must be at least 6 characters';
     if (!form.role) errors.role = 'Select a role';
     setFormErrors(errors);
@@ -92,12 +97,14 @@ const TeamMembers = () => {
     setSaving(true);
     try {
       if (editingUser) {
-        await api.patch(`/users/${editingUser.id}`, {
+        const payload = {
           name: form.name,
           role: form.role,
           phone: form.phone,
-        });
-        showToast('Team member updated');
+        };
+        if (form.password.trim()) payload.password = form.password;
+        await api.patch(`/users/${editingUser.id}`, payload);
+        showToast(form.password.trim() ? 'Team member and password updated' : 'Team member updated');
       } else {
         await api.post('/users', form);
         showToast('Login created successfully');
@@ -136,6 +143,36 @@ const TeamMembers = () => {
     }
   };
 
+  const handleAdminPasswordChange = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!adminPasswordForm.currentPassword) errors.currentPassword = 'Current password is required';
+    if (!adminPasswordForm.newPassword) errors.newPassword = 'New password is required';
+    if (adminPasswordForm.newPassword && adminPasswordForm.newPassword.length < 6) {
+      errors.newPassword = 'Password must be at least 6 characters';
+    }
+    if (adminPasswordForm.newPassword !== adminPasswordForm.confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
+    setAdminPasswordErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setChangingAdminPassword(true);
+    try {
+      await api.patch('/auth/password', {
+        currentPassword: adminPasswordForm.currentPassword,
+        newPassword: adminPasswordForm.newPassword,
+      });
+      setAdminPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setAdminPasswordErrors({});
+      showToast('Admin password changed');
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Could not change password', 'error');
+    } finally {
+      setChangingAdminPassword(false);
+    }
+  };
+
   return (
     <div>
       <Toast toasts={toasts} onDismiss={dismissToast} />
@@ -149,6 +186,55 @@ const TeamMembers = () => {
           <Plus size={16} /> Add Team Member
         </Button>
       </div>
+
+      <Card className="mt-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-sage-muted/35 text-sage">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Admin Security</p>
+              <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Change your admin password</h2>
+              <p className="mt-1 text-sm text-charcoal/55">{user?.email}</p>
+            </div>
+          </div>
+          <form onSubmit={handleAdminPasswordChange} className="grid w-full gap-3 lg:max-w-3xl lg:grid-cols-3">
+            <Input
+              id="admin-current-password"
+              type="password"
+              label="Current password"
+              value={adminPasswordForm.currentPassword}
+              onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, currentPassword: e.target.value })}
+              error={adminPasswordErrors.currentPassword}
+              autoComplete="current-password"
+            />
+            <Input
+              id="admin-new-password"
+              type="password"
+              label="New password"
+              value={adminPasswordForm.newPassword}
+              onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })}
+              error={adminPasswordErrors.newPassword}
+              autoComplete="new-password"
+            />
+            <div className="space-y-3">
+              <Input
+                id="admin-confirm-password"
+                type="password"
+                label="Confirm password"
+                value={adminPasswordForm.confirmPassword}
+                onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, confirmPassword: e.target.value })}
+                error={adminPasswordErrors.confirmPassword}
+                autoComplete="new-password"
+              />
+              <Button type="submit" className="w-full" disabled={changingAdminPassword}>
+                {changingAdminPassword ? 'Changing...' : 'Change password'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </Card>
 
       <Card className="mt-6" padded={false}>
         <div className="p-4 flex flex-col sm:flex-row gap-3 border-b border-cardline-soft">
@@ -272,17 +358,16 @@ const TeamMembers = () => {
             error={formErrors.email}
             disabled={!!editingUser}
           />
-          {!editingUser && (
-            <Input
-              id="password"
-              type="password"
-              label="Password"
-              placeholder="Minimum 6 characters"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              error={formErrors.password}
-            />
-          )}
+          <Input
+            id="password"
+            type="password"
+            label={editingUser ? 'New password (optional)' : 'Password'}
+            placeholder={editingUser ? 'Leave blank to keep current password' : 'Minimum 6 characters'}
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            error={formErrors.password}
+            autoComplete={editingUser ? 'new-password' : 'new-password'}
+          />
           <Select
             id="role"
             label="Role"
