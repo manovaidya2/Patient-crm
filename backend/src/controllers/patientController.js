@@ -1,6 +1,7 @@
 const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
+const BankAccount = require('../models/BankAccount');
 const path = require('path');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { writeTextPdf } = require('../utils/simplePdf');
@@ -151,6 +152,27 @@ const withLegacyFile = (files = [], url, fileName) => {
 };
 
 const sameValue = (left, right) => String(left ?? '') === String(right ?? '');
+
+const resolvePayToBank = async (paymentMode, bankId) => {
+  if (paymentMode !== PAYMENT_MODES.ONLINE) return { payToBank: null, payToBankName: '' };
+  const normalizedBankId = String(bankId || '').trim();
+  const activeBanks = await BankAccount.countDocuments({ isActive: true });
+  if (!normalizedBankId) {
+    if (activeBanks > 0) {
+      const error = new Error('Pay to Bank is required for online payment');
+      error.statusCode = 400;
+      throw error;
+    }
+    return { payToBank: null, payToBankName: '' };
+  }
+  const bank = await BankAccount.findOne({ _id: normalizedBankId, isActive: true }).lean();
+  if (!bank) {
+    const error = new Error('Select a valid active bank');
+    error.statusCode = 400;
+    throw error;
+  }
+  return { payToBank: bank._id, payToBankName: bank.displayName || bank.name };
+};
 
 const formatScheduleEntry = (e) => {
   const displayStatus = getDisplayStatus(e);
@@ -497,6 +519,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
           updatedAt: pay.updatedAt || pay.createdAt || pay.date,
           paymentMode: pay.paymentMode || PAYMENT_MODES.ONLINE,
           paymentModeLabel: PAYMENT_MODE_LABELS[pay.paymentMode || PAYMENT_MODES.ONLINE],
+          payToBank: pay.payToBank || null,
+          payToBankName: pay.payToBankName || '',
           utr: pay.utr || '',
           transactionId: pay.transactionId || '',
           receivedBy: pay.receivedBy || '',
@@ -658,6 +682,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   const now = new Date();
   const lossRows = new Map();
   const paymentDueRows = [];
+  const bankSummaryRows = new Map();
   const addLossPoint = (assignedUser, fallbackName, type, item) => {
     const key = assigneeKey(assignedUser, fallbackName);
     if (!lossRows.has(key)) {
@@ -688,6 +713,23 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const amountPaid = (stage.payments || [])
           .filter(isApprovedPayment)
           .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+        (stage.payments || [])
+          .filter(isApprovedPayment)
+          .filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE)
+          .forEach((payment) => {
+            const paidDate = payment.date ? new Date(payment.date) : null;
+            if (!paidDate || paidDate < followUpRangeStart || paidDate > followUpRangeEnd) return;
+            const key = payment.payToBank ? String(payment.payToBank) : 'unassigned';
+            const row = bankSummaryRows.get(key) || {
+              bankId: key,
+              bankName: payment.payToBankName || 'Unassigned Bank',
+              amount: 0,
+              count: 0,
+            };
+            row.amount += Number(payment.amount || 0);
+            row.count += 1;
+            bankSummaryRows.set(key, row);
+          });
         acc.totalAmount += totalAmount;
         acc.amountPaid += amountPaid;
         const dueAmount = Math.max(totalAmount - amountPaid, 0);
@@ -824,6 +866,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     stageCounts,
     paymentSummary,
     paymentDueLedger,
+    bankPaymentSummary: {
+      range: followUpSummary.range,
+      date: followUpSummary.date,
+      rows: Array.from(bankSummaryRows.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName)),
+    },
     workflowSummary,
     followUpSummary,
     lossPoints,
@@ -956,12 +1003,21 @@ const getStaffDashboardStats = asyncHandler(async (req, res) => {
 // @route   GET /api/patients/payments-ledger
 // @access  Private/Admin
 const getPaymentsLedger = asyncHandler(async (req, res) => {
-  const { filter = 'all', date, month, dateType = 'paid', page = 1, limit = 10 } = req.query;
+  const { filter = 'all', date, month, dateType = 'paid', page = 1, limit = 10, bankId, from: fromParam, to: toParam } = req.query;
   const now = new Date();
   let from = null;
   let to = null;
 
-  if (filter === 'today') {
+  if (fromParam || toParam) {
+    if (fromParam) {
+      const selected = new Date(`${fromParam}T00:00:00`);
+      from = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    }
+    if (toParam) {
+      const selected = new Date(`${toParam}T00:00:00`);
+      to = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() + 1);
+    }
+  } else if (filter === 'today') {
     from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   } else if (filter === 'date' && date) {
@@ -992,7 +1048,8 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
         const addedAt = payment.createdAt ? new Date(payment.createdAt) : null;
         const updatedAt = payment.updatedAt ? new Date(payment.updatedAt) : addedAt;
         const compareDate = dateType === 'added' ? addedAt : paidAt;
-        if (from && to && (!compareDate || compareDate < from || compareDate >= to)) return;
+        if (from && (!compareDate || compareDate < from)) return;
+        if (to && (!compareDate || compareDate >= to)) return;
 
         payments.push({
           id: payment._id,
@@ -1008,12 +1065,16 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
           updatedAt,
           paymentMode: payment.paymentMode,
           paymentModeLabel: PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode,
+          payToBank: payment.payToBank || null,
+          payToBankName: payment.payToBankName || '',
           utr: payment.utr || '',
           transactionId: payment.transactionId || '',
           receivedBy: payment.receivedBy || '',
           recordedByName: payment.recordedByName || '',
           editedByName: payment.editedByName || '',
           editedAt: payment.editedAt || null,
+          approvedByName: payment.approvedByName || '',
+          approvedAt: payment.approvedAt || null,
           screenshotUrl: payment.screenshotUrl || null,
           screenshotFiles: withLegacyFile(payment.screenshotFiles || [], payment.screenshotUrl, 'Payment screenshot'),
         });
@@ -1023,11 +1084,33 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
 
   payments.sort((a, b) => new Date(b.addedAt || 0) - new Date(a.addedAt || 0));
 
+  // Built from the full (date-filtered, not bank-filtered) set so the bank overview
+  // list always sees every bank's totals for the selected range, regardless of bankId.
+  const bankSummaryMap = new Map();
+  payments
+    .filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE)
+    .forEach((payment) => {
+      const key = payment.payToBank ? String(payment.payToBank) : 'unassigned';
+      const current = bankSummaryMap.get(key) || {
+        bankId: key,
+        bankName: payment.payToBankName || 'Unassigned Bank',
+        amount: 0,
+        count: 0,
+      };
+      current.amount += Number(payment.amount || 0);
+      current.count += 1;
+      bankSummaryMap.set(key, current);
+    });
+
+  const scopedPayments = bankId
+    ? payments.filter((payment) => (payment.payToBank ? String(payment.payToBank) : 'unassigned') === bankId)
+    : payments;
+
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
-  const total = payments.length;
-  const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const paginatedPayments = payments.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 2000);
+  const total = scopedPayments.length;
+  const totalAmount = scopedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const paginatedPayments = scopedPayments.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
   res.status(200).json({
     success: true,
@@ -1036,6 +1119,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
     page: pageNum,
     pages: Math.max(Math.ceil(total / limitNum), 1),
     totalAmount,
+    bankSummary: Array.from(bankSummaryMap.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName)),
     payments: paginatedPayments,
   });
 });
@@ -1195,8 +1279,13 @@ const pendingPaymentsOf = (patient) => {
         date: payment.date,
         paymentMode: payment.paymentMode,
         paymentModeLabel: PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode,
+        payToBankName: payment.payToBankName || '',
+        utr: payment.utr || '',
+        transactionId: payment.transactionId || '',
+        receivedBy: payment.receivedBy || '',
         recordedByName: payment.recordedByName || '',
         screenshotCount: (payment.screenshotFiles || []).length,
+        screenshotFiles: withLegacyFile(payment.screenshotFiles || [], payment.screenshotUrl, 'Payment screenshot'),
       });
     });
   });
@@ -1590,10 +1679,13 @@ const addStagePayment = asyncHandler(async (req, res) => {
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
   const screenshotFiles = toFileItems(filesFromRequest(req), 'payments');
+  const bank = await resolvePayToBank(paymentMode, req.body.payToBank);
   stageEntry.payments.push({
     amount: amountNum,
     date: req.body.date || new Date(),
     paymentMode,
+    payToBank: bank.payToBank,
+    payToBankName: bank.payToBankName,
     utr: paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '',
     transactionId: paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '',
     receivedBy: paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '',
@@ -1653,6 +1745,9 @@ const updateStagePayment = asyncHandler(async (req, res) => {
   payment.amount = amountNum;
   payment.date = req.body.date || payment.date || new Date();
   payment.paymentMode = paymentMode;
+  const bank = await resolvePayToBank(paymentMode, req.body.payToBank);
+  payment.payToBank = bank.payToBank;
+  payment.payToBankName = bank.payToBankName;
   payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '';
   payment.transactionId = paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '';
   payment.receivedBy = paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '';

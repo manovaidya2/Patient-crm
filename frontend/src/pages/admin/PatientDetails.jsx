@@ -138,6 +138,7 @@ const emptyPaymentForm = {
   amount: '',
   date: new Date().toISOString().slice(0, 10),
   paymentMode: PAYMENT_MODES.ONLINE,
+  payToBank: '',
   utr: '',
   transactionId: '',
   receivedBy: '',
@@ -150,6 +151,19 @@ const AddPaymentField = ({ onAdd }) => {
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [banks, setBanks] = useState([]);
+
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        const { data } = await api.get('/banks', { params: { active: 'true' } });
+        setBanks(data.banks || []);
+      } catch {
+        setBanks([]);
+      }
+    };
+    fetchBanks();
+  }, []);
 
   const openModal = () => {
     setForm(emptyPaymentForm);
@@ -232,22 +246,36 @@ const AddPaymentField = ({ onAdd }) => {
           </div>
 
           {form.paymentMode === PAYMENT_MODES.ONLINE ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                id="utr"
-                label="UTR"
-                placeholder="Optional"
-                value={form.utr}
-                onChange={(e) => setForm({ ...form, utr: e.target.value })}
-              />
-              <Input
-                id="transactionId"
-                label="Transaction ID"
-                placeholder="Optional"
-                value={form.transactionId}
-                onChange={(e) => setForm({ ...form, transactionId: e.target.value })}
-              />
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank</label>
+                <select
+                  value={form.payToBank}
+                  onChange={(e) => setForm({ ...form, payToBank: e.target.value })}
+                  className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                  required={banks.length > 0}
+                >
+                  <option value="">{banks.length ? 'Select bank' : 'No active bank added'}</option>
+                  {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  id="utr"
+                  label="UTR"
+                  placeholder="Optional"
+                  value={form.utr}
+                  onChange={(e) => setForm({ ...form, utr: e.target.value })}
+                />
+                <Input
+                  id="transactionId"
+                  label="Transaction ID"
+                  placeholder="Optional"
+                  value={form.transactionId}
+                  onChange={(e) => setForm({ ...form, transactionId: e.target.value })}
+                />
+              </div>
+            </>
           ) : (
             <Input
               id="receivedBy"
@@ -315,12 +343,26 @@ const EditPaymentButton = ({ payment, onSave }) => {
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [banks, setBanks] = useState([]);
+
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        const { data } = await api.get('/banks', { params: { active: 'true' } });
+        setBanks(data.banks || []);
+      } catch {
+        setBanks([]);
+      }
+    };
+    fetchBanks();
+  }, []);
 
   const openModal = () => {
     setForm({
       amount: payment.amount || '',
       date: payment.date ? String(payment.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
       paymentMode: payment.paymentMode || PAYMENT_MODES.ONLINE,
+      payToBank: payment.payToBank || '',
       utr: payment.utr || '',
       transactionId: payment.transactionId || '',
       receivedBy: payment.receivedBy || '',
@@ -402,22 +444,36 @@ const EditPaymentButton = ({ payment, onSave }) => {
           </div>
 
           {form.paymentMode === PAYMENT_MODES.ONLINE ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                id={`editUtr-${payment.id}`}
-                label="UTR"
-                placeholder="Optional"
-                value={form.utr}
-                onChange={(e) => setForm({ ...form, utr: e.target.value })}
-              />
-              <Input
-                id={`editTransactionId-${payment.id}`}
-                label="Transaction ID"
-                placeholder="Optional"
-                value={form.transactionId}
-                onChange={(e) => setForm({ ...form, transactionId: e.target.value })}
-              />
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank</label>
+                <select
+                  value={form.payToBank}
+                  onChange={(e) => setForm({ ...form, payToBank: e.target.value })}
+                  className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                  required={banks.length > 0}
+                >
+                  <option value="">{banks.length ? 'Select bank' : 'No active bank added'}</option>
+                  {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  id={`editUtr-${payment.id}`}
+                  label="UTR"
+                  placeholder="Optional"
+                  value={form.utr}
+                  onChange={(e) => setForm({ ...form, utr: e.target.value })}
+                />
+                <Input
+                  id={`editTransactionId-${payment.id}`}
+                  label="Transaction ID"
+                  placeholder="Optional"
+                  value={form.transactionId}
+                  onChange={(e) => setForm({ ...form, transactionId: e.target.value })}
+                />
+              </div>
+            </>
           ) : (
             <Input
               id={`editReceivedBy-${payment.id}`}
@@ -1827,6 +1883,7 @@ const PatientDetails = () => {
     formData.append('date', payload.date);
     formData.append('paymentMode', payload.paymentMode);
     if (payload.paymentMode === PAYMENT_MODES.ONLINE) {
+      formData.append('payToBank', payload.payToBank || '');
       formData.append('utr', payload.utr || '');
       formData.append('transactionId', payload.transactionId || '');
     } else {
@@ -1843,6 +1900,7 @@ const PatientDetails = () => {
     formData.append('date', payload.date);
     formData.append('paymentMode', payload.paymentMode);
     if (payload.paymentMode === PAYMENT_MODES.ONLINE) {
+      formData.append('payToBank', payload.payToBank || '');
       formData.append('utr', payload.utr || '');
       formData.append('transactionId', payload.transactionId || '');
     } else {
@@ -2496,8 +2554,10 @@ const PatientDetails = () => {
                   <span>Paid: {formatDate(pay.date)}</span>
                   <span>Recorded: {formatDateTime(pay.createdAt)}</span>
                 </div>
-                {pay.paymentMode === 'online' && (pay.utr || pay.transactionId) && (
+                {pay.paymentMode === 'online' && (pay.payToBankName || pay.utr || pay.transactionId) && (
                   <p className="mt-1.5 text-[11px] text-charcoal/60">
+                    {pay.payToBankName && <>Bank: {pay.payToBankName}</>}
+                    {pay.payToBankName && (pay.utr || pay.transactionId) && ' · '}
                     {pay.utr && <>UTR: {pay.utr}</>}
                     {pay.utr && pay.transactionId && ' · '}
                     {pay.transactionId && <>Txn ID: {pay.transactionId}</>}

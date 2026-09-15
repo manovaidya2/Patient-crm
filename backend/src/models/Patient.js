@@ -43,6 +43,8 @@ const paymentEntrySchema = new mongoose.Schema(
     amount: { type: Number, required: true, min: 0 },
     date: { type: Date, default: Date.now },
     paymentMode: { type: String, enum: ALL_PAYMENT_MODES, default: PAYMENT_MODES.ONLINE },
+    payToBank: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount', default: null },
+    payToBankName: { type: String, trim: true, default: '' },
     utr: { type: String, trim: true, default: '' },
     transactionId: { type: String, trim: true, default: '' },
     receivedBy: { type: String, trim: true, default: '' },

@@ -3,6 +3,7 @@ import { Users, UserCheck, UserX, ArrowRight, ChevronLeft, ChevronRight, Layers,
 import { Link } from 'react-router-dom';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
+import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
 import { CREATABLE_ROLES, ROLE_LABELS, ROLES } from '../../constants/roles.js';
 import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -215,6 +216,7 @@ const Dashboard = () => {
     STAGES.map((stage) => ({ stage, label: STAGE_LABELS[stage], activePatients: 0 }));
   const activeStage = stageCounts[activeStageIndex] || stageCounts[0];
   const paymentSummary = stats?.paymentSummary || { totalAmount: 0, amountPaid: 0, dueAmount: 0 };
+  const bankPaymentSummary = stats?.bankPaymentSummary || { rows: [] };
   const paymentDueLedger = stats?.paymentDueLedger || { count: 0, totalDue: 0, totalPendingApproval: 0, rows: [] };
   const followUpSummary = stats?.followUpSummary || {
     total: 0,
@@ -361,6 +363,15 @@ const Dashboard = () => {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <BankCollectionsSection
+          rows={bankPaymentSummary.rows}
+          loading={loading}
+          caption="Uses selected follow-up date/month filter above for payment paid date."
+          icon={WalletCards}
+        />
+      </Card>
 
       <Card className="mt-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

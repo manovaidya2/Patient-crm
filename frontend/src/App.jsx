@@ -15,6 +15,7 @@ import Expenses from './pages/admin/Expenses.jsx';
 import FollowUps from './pages/admin/FollowUps.jsx';
 import FamilySessions from './pages/admin/FamilySessions.jsx';
 import Payments from './pages/admin/Payments.jsx';
+import ApprovedPayments from './pages/admin/ApprovedPayments.jsx';
 import MedicineRequests from './pages/admin/MedicineRequests.jsx';
 import MedicineMade from './pages/admin/MedicineMade.jsx';
 import MedicineInventory from './pages/admin/MedicineInventory.jsx';
@@ -27,6 +28,7 @@ import CrmChatGPT from './pages/admin/CrmChatGPT.jsx';
 import DigitalMarketing from './pages/admin/DigitalMarketing.jsx';
 import PackageNotBought from './pages/admin/PackageNotBought.jsx';
 import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
+import PaymentSettings from './pages/admin/PaymentSettings.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -82,6 +84,14 @@ function App() {
           }
         />
         <Route
+          path="payment-settings"
+          element={
+            <ProtectedRoute role="admin">
+              <PaymentSettings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="worksheet"
           element={
             <ProtectedRoute roles={WORKSHEET_ACCESS_ROLES}>
@@ -110,6 +120,14 @@ function App() {
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
               <Payments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="approved-payments"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
+              <ApprovedPayments />
             </ProtectedRoute>
           }
         />

@@ -65,6 +65,7 @@ const FileLinks = ({ files = [], fallbackUrl }) => {
 const Payments = () => {
   const [payments, setPayments] = useState([]);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [bankSummary, setBankSummary] = useState([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [page, setPage] = useState(1);
@@ -100,6 +101,7 @@ const Payments = () => {
         const { data } = await api.get('/patients/payments-ledger', { params });
         setPayments(data.payments || []);
         setTotalAmount(data.totalAmount || 0);
+        setBankSummary(data.bankSummary || []);
         setTotal(data.total || 0);
         setPages(data.pages || 1);
       } catch (err) {
@@ -193,6 +195,20 @@ const Payments = () => {
       </div>
 
       <Card className="mt-6" padded={false}>
+        {bankSummary.length > 0 && (
+          <div className="border-b border-cardline-soft px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Bank-wise Online Payments</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {bankSummary.map((bank) => (
+                <div key={bank.bankId} className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3">
+                  <p className="truncate text-sm font-bold text-charcoal">{bank.bankName}</p>
+                  <p className="mt-1 font-display text-xl font-bold text-sage">{formatMoney(bank.amount)}</p>
+                  <p className="mt-0.5 text-xs text-charcoal/55">{bank.count} transaction{bank.count === 1 ? '' : 's'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between border-b border-cardline-soft px-5 py-4">
           <h2 className="font-display text-base font-bold text-charcoal">Payment Transactions</h2>
           <Button variant="outline" size="sm" onClick={() => setReloadKey((value) => value + 1)}>
@@ -225,6 +241,7 @@ const Payments = () => {
                     <th className="px-5 py-3 font-semibold">Paid Date</th>
                     <th className="px-5 py-3 font-semibold">Added Date</th>
                     <th className="px-5 py-3 font-semibold">Mode</th>
+                    <th className="px-5 py-3 font-semibold">Bank</th>
                     <th className="px-5 py-3 font-semibold">UTR</th>
                     <th className="px-5 py-3 font-semibold">Transaction No.</th>
                     <th className="px-5 py-3 font-semibold">Edited By</th>
@@ -247,6 +264,7 @@ const Payments = () => {
                       <td className="px-5 py-3.5 text-charcoal/70">{formatDate(payment.paidAt)}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{formatDateTime(payment.addedAt)}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{payment.paymentModeLabel || '-'}</td>
+                      <td className="px-5 py-3.5 text-charcoal/70">{payment.payToBankName || '-'}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{payment.utr || '-'}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{payment.transactionId || '-'}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">

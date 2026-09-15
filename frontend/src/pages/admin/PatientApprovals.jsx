@@ -5,6 +5,7 @@ import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
+import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 
 const categoryTone = (category) => (category === PATIENT_CATEGORIES.AUTISM_ADHD ? 'teal' : 'amber');
@@ -19,6 +20,13 @@ const currentStageOf = (patient) =>
 
 const screenshotCount = (stage) =>
   (stage.payments || []).reduce((sum, payment) => sum + (payment.screenshotFiles?.length || 0), 0);
+
+const DetailItem = ({ label, value }) => (
+  <div className="min-w-0">
+    <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/45">{label}</p>
+    <p className="mt-0.5 truncate text-sm font-semibold text-charcoal" title={value}>{value}</p>
+  </div>
+);
 
 // Accounts approval queue. A patient lands here for one of two reasons:
 //  - it's brand new (approvalStatus "pending") and stays hidden from its assigned
@@ -178,6 +186,10 @@ const PatientApprovals = () => {
                           <p className="font-display font-bold text-sage">{formatMoney(stage.amountPaid)}</p>
                         </div>
                         <div className="text-right">
+                          <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Due</p>
+                          <p className="font-display font-bold text-[#8C3B2E]">{formatMoney(stage.remainingAmount)}</p>
+                        </div>
+                        <div className="text-right">
                           <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Screenshots</p>
                           <p className="flex items-center justify-end gap-1 font-display font-bold text-charcoal">
                             <Paperclip size={13} /> {screenshots}
@@ -200,27 +212,39 @@ const PatientApprovals = () => {
                   </div>
 
                   {pendingPayments.length > 0 && (
-                    <div className="mt-3 space-y-2 rounded-lg border border-[#8C3B2E]/20 bg-[#8C3B2E]/5 p-3">
+                    <div className="mt-4 space-y-3 rounded-xl border border-[#8C3B2E]/20 bg-[#8C3B2E]/5 p-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-[#8C3B2E]">Payments awaiting approval</p>
                       {pendingPayments.map((payment) => (
-                        <div
-                          key={payment.paymentId}
-                          className="flex flex-col gap-2 rounded-lg bg-offwhite-100 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div className="min-w-0 text-xs text-charcoal/70">
-                            <span className="font-display text-sm font-bold text-charcoal">{formatMoney(payment.amount)}</span>
-                            {' '}· {payment.stageLabel} · {payment.paymentModeLabel} · Paid {formatDate(payment.date)}
-                            {payment.recordedByName ? ` · By ${payment.recordedByName}` : ''}
-                            {payment.screenshotCount > 0 ? ` · ${payment.screenshotCount} screenshot(s)` : ''}
+                        <div key={payment.paymentId} className="rounded-lg border border-cardline-soft bg-offwhite-100 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <p className="font-display text-xl font-bold text-charcoal">{formatMoney(payment.amount)}</p>
+                              <Badge tone="amber">{payment.stageLabel}</Badge>
+                              <Badge tone={payment.paymentMode === 'online' ? 'teal' : 'inactive'}>{payment.paymentModeLabel}</Badge>
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => handleApprovePayment(patient.id, payment.stage, payment.paymentId)}
+                              disabled={approvingPaymentId === payment.paymentId}
+                            >
+                              <Check size={13} /> {approvingPaymentId === payment.paymentId ? 'Approving...' : 'Approve Payment'}
+                            </Button>
                           </div>
-                          <Button
-                            size="sm"
-                            onClick={() => handleApprovePayment(patient.id, payment.stage, payment.paymentId)}
-                            disabled={approvingPaymentId === payment.paymentId}
-                            className="shrink-0 self-start sm:self-auto"
-                          >
-                            <Check size={13} /> {approvingPaymentId === payment.paymentId ? 'Approving...' : 'Approve Payment'}
-                          </Button>
+
+                          <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-cardline-soft pt-3.5 sm:grid-cols-3">
+                            <DetailItem label="Paid On" value={formatDate(payment.date)} />
+                            {payment.payToBankName && <DetailItem label="Pay To Bank" value={payment.payToBankName} />}
+                            {payment.utr && <DetailItem label="UTR" value={payment.utr} />}
+                            {payment.transactionId && <DetailItem label="Transaction ID" value={payment.transactionId} />}
+                            {payment.receivedBy && <DetailItem label="Received By" value={payment.receivedBy} />}
+                            {payment.recordedByName && <DetailItem label="Recorded By" value={payment.recordedByName} />}
+                          </div>
+
+                          {payment.screenshotFiles?.length > 0 && (
+                            <div className="mt-3.5 border-t border-cardline-soft pt-3.5">
+                              <CompactAttachments files={payment.screenshotFiles} label="Screenshots" />
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

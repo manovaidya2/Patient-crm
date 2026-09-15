@@ -102,13 +102,42 @@ const listCourierClinicExpenses = async ({ from, to } = {}) => {
   return expenses;
 };
 
+const listBankPaymentSummary = async ({ from, to } = {}) => {
+  const patients = await Patient.find({}).select('stages.payments').lean();
+  const rows = new Map();
+
+  patients.forEach((patient) => {
+    (patient.stages || []).forEach((stage) => {
+      (stage.payments || []).forEach((payment) => {
+        if ((payment.approvalStatus || 'approved') !== 'approved') return;
+        if (payment.paymentMode !== 'online') return;
+        const date = payment.date ? new Date(payment.date) : null;
+        if (from && to && (!date || date < from || date >= to)) return;
+        const key = payment.payToBank ? String(payment.payToBank) : 'unassigned';
+        const row = rows.get(key) || {
+          bankId: key,
+          bankName: payment.payToBankName || 'Unassigned Bank',
+          amount: 0,
+          count: 0,
+        };
+        row.amount += Number(payment.amount || 0);
+        row.count += 1;
+        rows.set(key, row);
+      });
+    });
+  });
+
+  return Array.from(rows.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName));
+};
+
 const getAccountsOverview = asyncHandler(async (req, res) => {
   const range = buildDateRange(req.query);
   const dateFilter = range.from && range.to ? { date: { $gte: range.from, $lt: range.to } } : {};
   const typeFilter = TYPES.includes(req.query.type) ? { type: req.query.type } : {};
-  const [manualEntries, courierExpenses] = await Promise.all([
+  const [manualEntries, courierExpenses, bankSummary] = await Promise.all([
     AccountEntry.find({ ...dateFilter, ...typeFilter }).sort({ date: -1, createdAt: -1 }),
     req.query.type === 'income' ? [] : listCourierClinicExpenses(range),
+    listBankPaymentSummary(range),
   ]);
 
   const manualRows = manualEntries.map((entry) => ({ ...formatEntry(entry), source: 'manual' }));
@@ -128,6 +157,7 @@ const getAccountsOverview = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     totals,
+    bankSummary,
     count: rows.length,
     entries: rows,
     categories: CATEGORIES.map((value) => ({ value, label: CATEGORY_LABELS[value] })),

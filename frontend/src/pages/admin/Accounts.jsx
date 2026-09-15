@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, Calendar, CreditCard, IndianRupee, RefreshCw
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Card from '../../components/ui/Card.jsx';
+import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
 
 const todayValue = () => {
   const date = new Date();
@@ -19,6 +20,7 @@ const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}
 
 const Accounts = () => {
   const [totals, setTotals] = useState({ income: 0, expense: 0, balance: 0, courierExpense: 0, byCategory: {} });
+  const [bankSummary, setBankSummary] = useState([]);
   const [count, setCount] = useState(0);
   const [filter, setFilter] = useState('month');
   const [date, setDate] = useState(todayValue());
@@ -43,6 +45,7 @@ const Accounts = () => {
       try {
         const { data } = await api.get('/accounts/overview', { params });
         setTotals(data.totals || { income: 0, expense: 0, balance: 0, courierExpense: 0, byCategory: {} });
+        setBankSummary(data.bankSummary || []);
         setCount(data.count || 0);
       } catch (err) {
         setError(err.response?.data?.message || 'Could not load accounts dashboard.');
@@ -142,6 +145,16 @@ const Accounts = () => {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <BankCollectionsSection
+            rows={bankSummary}
+            loading={loading}
+            caption="Uses the date/month filter selected above."
+            icon={CreditCard}
+            emptyText="No online bank payments in selected period."
+          />
+        </Card>
+
         <Card className="bg-[#E8D5B5]">
           <div className="flex items-start justify-between gap-4">
             <div>
