@@ -30,6 +30,10 @@ const scheduleEntrySchema = new mongoose.Schema(
     completionFormData: { type: mongoose.Schema.Types.Mixed, default: null },
     completionPdfUrl: { type: String, default: null },
     completionPdfName: { type: String, trim: true, default: '' },
+    // Filled in only when cancelled, via the cancel-with-reason prompt.
+    cancelReason: { type: String, trim: true, default: '' },
+    cancelledAt: { type: Date, default: null },
+    cancelledByName: { type: String, trim: true, default: '' },
   },
   { timestamps: true }
 );

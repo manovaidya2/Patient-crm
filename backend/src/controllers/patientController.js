@@ -196,6 +196,9 @@ const formatScheduleEntry = (e) => {
     completionFormType: e.completionFormType || '',
     completionPdfUrl: e.completionPdfUrl || null,
     completionPdfName: e.completionPdfName || '',
+    cancelReason: e.cancelReason || '',
+    cancelledAt: e.cancelledAt || null,
+    cancelledByName: e.cancelledByName || '',
     ...(e.followUpType === 'tracker' && e.status === 'sent'
       ? { displayStatusLabel: 'Tracker Sent' }
       : {}),
@@ -2292,7 +2295,7 @@ const updateScheduleEntry = (fieldKey) =>
       return res.status(400).json({ success: false, message: 'Invalid phase number' });
     }
 
-    const { dateTime, status, notes, followUpType, completionName, completionDetails, trackerSubmissionUrl, meetRecordingUrl, completionFormType, completionHtml } = req.body;
+    const { dateTime, status, notes, followUpType, completionName, completionDetails, trackerSubmissionUrl, meetRecordingUrl, completionFormType, completionHtml, cancelReason } = req.body;
     const uploadedCompletionFiles = filesFromRequest(req);
     let completionFormData = req.body.completionFormData;
     if (typeof completionFormData === 'string') {
@@ -2341,6 +2344,9 @@ const updateScheduleEntry = (fieldKey) =>
         return res.status(400).json({ success: false, message: 'Name and details or an uploaded file are required to mark this done' });
       }
     }
+    if (status === 'cancelled' && !String(cancelReason || '').trim()) {
+      return res.status(400).json({ success: false, message: 'Cancellation reason is required' });
+    }
 
     const scheduleLabel = fieldKey === 'followUps'
       ? (isShortFollowUp ? 'SFS follow-up' : isTrackerFollowUp ? 'Tracker follow-up' : 'Follow-up')
@@ -2371,6 +2377,11 @@ const updateScheduleEntry = (fieldKey) =>
       if (status === 'sent') {
         entry.trackerSentAt = new Date();
         entry.trackerSentByName = req.user.name;
+      }
+      if (status === 'cancelled') {
+        entry.cancelReason = String(cancelReason || '').trim();
+        entry.cancelledAt = new Date();
+        entry.cancelledByName = req.user.name;
       }
       if (status === 'completed') {
         entry.completionName = isShortFollowUp
@@ -2422,14 +2433,16 @@ const updateScheduleEntry = (fieldKey) =>
         addActivity(
           patient,
           req.user,
-          `${scheduleLabel} ${status === 'completed' ? 'marked done' : status === 'sent' ? 'marked sent' : 'status updated'} for Phase ${stageNum}`,
+          `${scheduleLabel} ${status === 'completed' ? 'marked done' : status === 'sent' ? 'marked sent' : status === 'cancelled' ? 'cancelled' : 'status updated'} for Phase ${stageNum}`,
           status === 'completed'
             ? (isTrackerFollowUp
                 ? `Tracker link: ${trackerSubmissionUrl}`
                 : `${entry.completionName}: ${entry.completionDetails || `${(entry.completionFiles || []).length} attachment(s)`}`)
             : status === 'sent'
               ? 'Tracker sent to parents'
-              : status
+              : status === 'cancelled'
+                ? `Reason: ${entry.cancelReason}`
+                : status
         );
       }
       entry.status = status;

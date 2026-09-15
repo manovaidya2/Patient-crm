@@ -364,6 +364,15 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                 </a>
               )}
               {e.notes && <p className="mt-1 text-xs text-charcoal/55">{e.notes}</p>}
+              {e.status === 'cancelled' && e.cancelReason && (
+                <div className="mt-2 pt-2 border-t border-cardline-soft">
+                  <p className="text-xs font-semibold text-[#8C3B2E]">
+                    Cancelled{e.cancelledAt ? ` · ${formatDateTime(e.cancelledAt)}` : ''}
+                    {e.cancelledByName ? ` by ${e.cancelledByName}` : ''}
+                  </p>
+                  <p className="mt-0.5 text-xs text-charcoal/60">Reason: {e.cancelReason}</p>
+                </div>
+              )}
             </li>
           ))}
         </ul>

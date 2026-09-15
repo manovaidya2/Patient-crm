@@ -821,6 +821,11 @@ const ScheduleCard = ({
   const [editFollowUpType, setEditFollowUpType] = useState('normal');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelEntry, setCancelEntry] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelSaving, setCancelSaving] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   const openModal = () => {
     setDateTime('');
@@ -928,8 +933,29 @@ const ScheduleCard = ({
     }
   };
 
-  const handleCancelEntry = (entryId) => {
-    onUpdateStatus(entryId, 'cancelled');
+  const openCancelModal = (entry) => {
+    setCancelEntry(entry);
+    setCancelReason('');
+    setCancelError('');
+    setCancelModalOpen(true);
+  };
+
+  const handleCancelSubmit = async (e) => {
+    e.preventDefault();
+    if (!cancelReason.trim()) {
+      setCancelError('Cancellation reason is required');
+      return;
+    }
+    setCancelSaving(true);
+    setCancelError('');
+    try {
+      await onUpdateStatus(cancelEntry.id, 'cancelled', { cancelReason: cancelReason.trim() });
+      setCancelModalOpen(false);
+    } catch (err) {
+      setCancelError(err.response?.data?.message || 'Could not cancel');
+    } finally {
+      setCancelSaving(false);
+    }
   };
 
   const handleTrackerSent = (entryId) => {
@@ -1074,7 +1100,7 @@ const ScheduleCard = ({
                         {canAct && (
                           <button
                             type="button"
-                            onClick={() => handleCancelEntry(e.id)}
+                            onClick={() => openCancelModal(e)}
                             aria-label="Cancel"
                             className="p-1.5 rounded-md text-charcoal/40 hover:bg-sage-muted/20 hover:text-[#8C3B2E]"
                           >
@@ -1131,6 +1157,15 @@ const ScheduleCard = ({
                       <span className="font-semibold text-charcoal">Tracker sent</span> · {formatDateTime(e.trackerSentAt)}
                       {e.trackerSentByName ? ` by ${e.trackerSentByName}` : ''}
                     </p>
+                  </div>
+                )}
+                {e.status === 'cancelled' && e.cancelReason && (
+                  <div className="mt-2.5 pt-2.5 border-t border-cardline-soft text-xs">
+                    <p className="font-semibold text-[#8C3B2E]">
+                      Cancelled{e.cancelledAt ? ` · ${formatDateTime(e.cancelledAt)}` : ''}
+                      {e.cancelledByName ? ` by ${e.cancelledByName}` : ''}
+                    </p>
+                    <p className="mt-0.5 whitespace-pre-line text-charcoal/60">Reason: {e.cancelReason}</p>
                   </div>
                 )}
               </li>
@@ -1206,6 +1241,34 @@ const ScheduleCard = ({
             </Button>
             <Button type="submit" disabled={rescheduleSaving}>
               {rescheduleSaving ? 'Saving...' : 'Reschedule'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={cancelModalOpen} onClose={() => setCancelModalOpen(false)} title={`Cancel ${title.replace(/s$/, '')}`}>
+        <form onSubmit={handleCancelSubmit} className="space-y-4">
+          {cancelError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{cancelError}</div>}
+          <div className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-sm text-charcoal/70">
+            Scheduled: <span className="font-semibold text-charcoal">{cancelEntry?.dateTime ? formatDateTime(cancelEntry.dateTime) : '-'}</span>
+          </div>
+          <div className="w-full">
+            <label className="block text-sm font-medium text-charcoal mb-1.5">Reason for cancellation</label>
+            <textarea
+              rows={3}
+              autoFocus
+              placeholder="Why is this being cancelled?"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition resize-none"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setCancelModalOpen(false)}>
+              Back
+            </Button>
+            <Button type="submit" disabled={cancelSaving}>
+              {cancelSaving ? 'Cancelling...' : 'Confirm Cancel'}
             </Button>
           </div>
         </form>
