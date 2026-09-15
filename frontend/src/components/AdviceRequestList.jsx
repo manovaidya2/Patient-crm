@@ -7,6 +7,7 @@ import Button from './ui/Button.jsx';
 import Modal from './ui/Modal.jsx';
 import Badge from './ui/Badge.jsx';
 import DictationButton from './ui/DictationButton.jsx';
+import { CompactAttachments } from './ui/Attachments.jsx';
 
 const formatDateTime = (iso) =>
   iso
@@ -121,9 +122,13 @@ const AdviceRequestList = ({ mode }) => {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link to={`/admin/patients/${row.patientId}`} className="font-display text-lg font-bold text-charcoal hover:text-sage">
-                      {row.patientName || 'Patient'}
-                    </Link>
+                    {row.patientId ? (
+                      <Link to={`/admin/patients/${row.patientId}`} className="font-display text-lg font-bold text-charcoal hover:text-sage">
+                        {row.patientName || 'Patient'}
+                      </Link>
+                    ) : (
+                      <span className="font-display text-lg font-bold text-charcoal">{row.patientName || 'Patient'}</span>
+                    )}
                     {row.patientCode && <Badge tone="default">{row.patientCode}</Badge>}
                     {row.stage && <Badge tone="teal">Phase {row.stage}</Badge>}
                     {row.isUrgent && <Badge tone="danger">Emergency</Badge>}
@@ -170,6 +175,13 @@ const AdviceRequestList = ({ mode }) => {
                   )}
                 </div>
               </div>
+
+              {!!row.patientRecordFiles?.length && (
+                <div className={`mt-3 rounded-lg border p-3.5 ${row.isUrgent && !isGiven ? 'border-[#B42318]/35 bg-white/70' : 'border-cardline bg-offwhite-200'}`}>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Patient Records</p>
+                  <CompactAttachments files={row.patientRecordFiles} label={`Phase ${row.stage || ''} records`.trim()} />
+                </div>
+              )}
             </Card>
           ))
         )}

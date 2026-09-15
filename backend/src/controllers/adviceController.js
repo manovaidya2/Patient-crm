@@ -15,12 +15,35 @@ const canAccessPatient = (user, patient) => {
 const canRequestAdvice = (user) => [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user.role);
 const canAnswerAdvice = (user) => [ROLES.ADMIN, ROLES.DOCTOR].includes(user.role);
 
+const ADVICE_PATIENT_SELECT = 'patientName patientCode number stages.number stages.recordFileUrl stages.recordFileName stages.recordFiles';
+
+const getStageRecordAttachments = (entry) => {
+  const stages = Array.isArray(entry.patient?.stages) ? entry.patient.stages : [];
+  const matchingStage = stages.find((stage) => Number(stage.number) === Number(entry.stage));
+  const sourceStages = matchingStage ? [matchingStage] : stages;
+  const files = [];
+
+  sourceStages.forEach((stage) => {
+    if (Array.isArray(stage.recordFiles)) {
+      stage.recordFiles.forEach((file) => {
+        if (file?.url) files.push({ url: file.url, fileName: file.fileName || `Phase ${stage.number} record` });
+      });
+    }
+    if (stage.recordFileUrl && !files.some((file) => file.url === stage.recordFileUrl)) {
+      files.push({ url: stage.recordFileUrl, fileName: stage.recordFileName || `Phase ${stage.number} record` });
+    }
+  });
+
+  return files;
+};
+
 const formatAdvice = (entry) => ({
   id: entry._id,
   patientId: entry.patient?._id || entry.patient,
   patientName: entry.patient?.patientName || '',
   patientCode: entry.patient?.patientCode || '',
   phoneNumber: entry.patient?.number || '',
+  patientRecordFiles: getStageRecordAttachments(entry),
   stage: entry.stage,
   query: entry.query,
   status: entry.status,
@@ -89,7 +112,7 @@ const createAdviceRequest = asyncHandler(async (req, res) => {
     String(query).trim()
   );
   await patient.save();
-  await adviceRequest.populate('patient', 'patientName patientCode number');
+  await adviceRequest.populate('patient', ADVICE_PATIENT_SELECT);
 
   res.status(201).json({ success: true, advice: formatAdvice(adviceRequest) });
 });
@@ -116,7 +139,7 @@ const listPatientAdvice = asyncHandler(async (req, res) => {
   }
 
   const rows = await AdviceRequest.find(query)
-    .populate('patient', 'patientName patientCode number')
+    .populate('patient', ADVICE_PATIENT_SELECT)
     .sort({ createdAt: -1 })
     .limit(50)
     .lean();
@@ -130,7 +153,7 @@ const listAdviceRequests = asyncHandler(async (req, res) => {
   }
 
   const rows = await AdviceRequest.find({ status: 'requested' })
-    .populate('patient', 'patientName patientCode number')
+    .populate('patient', ADVICE_PATIENT_SELECT)
     .sort({ isUrgent: -1, createdAt: -1 })
     .limit(200);
 
@@ -148,7 +171,7 @@ const listAdviceGiven = asyncHandler(async (req, res) => {
   }
 
   const rows = await AdviceRequest.find({ status: 'advice_given' })
-    .populate('patient', 'patientName patientCode number')
+    .populate('patient', ADVICE_PATIENT_SELECT)
     .sort({ adviceGivenAt: -1, updatedAt: -1 })
     .limit(200);
 
@@ -163,7 +186,7 @@ const getUnreadAdviceCount = asyncHandler(async (req, res) => {
   const count = await AdviceRequest.countDocuments({ status: 'requested', doctorReadAt: null });
   const urgentCount = await AdviceRequest.countDocuments({ status: 'requested', isUrgent: true });
   const latestUrgent = await AdviceRequest.findOne({ status: 'requested', isUrgent: true })
-    .populate('patient', 'patientName patientCode number')
+    .populate('patient', ADVICE_PATIENT_SELECT)
     .sort({ createdAt: -1 });
   res.status(200).json({
     success: true,
@@ -202,7 +225,7 @@ const respondToAdviceRequest = asyncHandler(async (req, res) => {
     await patient.save();
   }
 
-  await entry.populate('patient', 'patientName patientCode number');
+  await entry.populate('patient', ADVICE_PATIENT_SELECT);
   res.status(200).json({ success: true, advice: formatAdvice(entry) });
 });
 
@@ -247,7 +270,7 @@ const updateAdviceRequest = asyncHandler(async (req, res) => {
   );
   await patient.save();
 
-  await entry.populate('patient', 'patientName patientCode number');
+  await entry.populate('patient', ADVICE_PATIENT_SELECT);
   res.status(200).json({ success: true, advice: formatAdvice(entry) });
 });
 
@@ -281,7 +304,7 @@ const updateAdviceAnswer = asyncHandler(async (req, res) => {
     await patient.save();
   }
 
-  await entry.populate('patient', 'patientName patientCode number');
+  await entry.populate('patient', ADVICE_PATIENT_SELECT);
   res.status(200).json({ success: true, advice: formatAdvice(entry) });
 });
 
