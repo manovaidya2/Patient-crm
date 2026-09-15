@@ -88,6 +88,11 @@ const emptyMedicineRequest = () => ({
   medicineImageUrl: null,
   medicineImageFileName: '',
   medicineImages: [],
+  packagedByName: '',
+  chitsWrittenByName: '',
+  lastMedicineCheckedByName: '',
+  packagingDetailsFilledByName: '',
+  packagingDetailsFilledAt: null,
   sentToCourierAt: null,
   sentToCourierByName: '',
   courier: emptyCourier(),
@@ -1899,6 +1904,11 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   if (status === MEDICINE_STATUSES.SENT_TO_COURIER && !existingMedicineImages.length) {
     return res.status(400).json({ success: false, message: 'Upload medicine image before sending to courier' });
   }
+  if (status === MEDICINE_STATUSES.SENT_TO_COURIER) {
+    if (!req.body.packagedByName || !req.body.chitsWrittenByName || !req.body.lastMedicineCheckedByName) {
+      return res.status(400).json({ success: false, message: 'Packaging by, chits written by and last medicine checking by are required before sending to courier' });
+    }
+  }
 
   const medicineImages = toFileItems(uploadedFiles, 'medicine');
   stageEntry.medicineRequest = {
@@ -1918,10 +1928,27 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
             : {}),
         }
       : {}),
-    ...(status === MEDICINE_STATUSES.SENT_TO_COURIER ? { sentToCourierAt: new Date(), sentToCourierByName: req.user.name } : {}),
+    ...(status === MEDICINE_STATUSES.SENT_TO_COURIER
+      ? {
+          packagedByName: req.body.packagedByName,
+          chitsWrittenByName: req.body.chitsWrittenByName,
+          lastMedicineCheckedByName: req.body.lastMedicineCheckedByName,
+          packagingDetailsFilledByName: req.user.name,
+          packagingDetailsFilledAt: new Date(),
+          sentToCourierAt: new Date(),
+          sentToCourierByName: req.user.name,
+        }
+      : {}),
   };
 
-  addActivity(patient, req.user, `Medicine status updated for Phase ${stageNum}`, MEDICINE_STATUS_LABELS[status]);
+  addActivity(
+    patient,
+    req.user,
+    `Medicine status updated for Phase ${stageNum}`,
+    status === MEDICINE_STATUSES.SENT_TO_COURIER
+      ? `${MEDICINE_STATUS_LABELS[status]} | Packaging: ${req.body.packagedByName} | Chits: ${req.body.chitsWrittenByName} | Last checking: ${req.body.lastMedicineCheckedByName}`
+      : MEDICINE_STATUS_LABELS[status]
+  );
 
   await patient.save();
   await populateAssignments(patient);
@@ -1997,14 +2024,14 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   if (status === COURIER_STATUSES.DISPATCHED) {
     const deliveryMode = req.body.deliveryMode === 'self' ? 'self' : 'courier';
     const required = deliveryMode === 'self'
-      ? ['receiverName', 'selfPickupByName']
+      ? ['receiverName', 'receiverPhone']
       : ['receiverName', 'receiverPhone', 'address', 'courierPartner', 'trackingNumber'];
     const missing = required.find((field) => !req.body[field]);
     if (missing) {
       return res.status(400).json({
         success: false,
         message: deliveryMode === 'self'
-          ? 'Receiver name and picked up by name are required'
+          ? 'Receiver name and receiver phone are required'
           : 'Receiver, address, courier partner and tracking number are required',
       });
     }
@@ -2014,13 +2041,21 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   }
 
   if (status === COURIER_STATUSES.DELIVERED) {
-    if (currentCourier.status !== COURIER_STATUSES.DISPATCHED) {
+    const isSelfPickupDelivery = req.body.deliveryMode === 'self' || currentCourier.deliveryMode === 'self';
+    if (!isSelfPickupDelivery && currentCourier.status !== COURIER_STATUSES.DISPATCHED) {
       return res.status(400).json({ success: false, message: 'Dispatch courier before marking delivered' });
     }
-    if (!req.body.receivedByName) {
+    if (isSelfPickupDelivery) {
+      const missing = ['receiverName', 'receiverPhone'].find((field) => !req.body[field] && !currentCourier[field]);
+      if (missing) {
+        return res.status(400).json({ success: false, message: 'Receiver name and receiver phone are required' });
+      }
+    } else if (!req.body.receivedByName) {
       return res.status(400).json({ success: false, message: 'Received by whom is required' });
     }
   }
+
+  const deliveryMode = req.body.deliveryMode === 'self' ? 'self' : (currentCourier.deliveryMode || 'courier');
 
   const nextCourier = {
     ...currentCourier,
@@ -2029,8 +2064,8 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     receiverPhone: req.body.receiverPhone || currentCourier.receiverPhone,
     address: req.body.address || currentCourier.address,
     courierPartner: req.body.courierPartner || currentCourier.courierPartner,
-    deliveryMode: req.body.deliveryMode === 'self' ? 'self' : (currentCourier.deliveryMode || 'courier'),
-    selfPickupByName: req.body.selfPickupByName || currentCourier.selfPickupByName,
+    deliveryMode,
+    selfPickupByName: req.body.deliveryMode === 'self' ? '' : (req.body.selfPickupByName || currentCourier.selfPickupByName),
     trackingNumber: req.body.trackingNumber || currentCourier.trackingNumber,
     paymentPaidBy: req.body.paymentPaidBy || currentCourier.paymentPaidBy,
     paymentAmount: req.body.paymentAmount !== undefined ? Math.max(Number(req.body.paymentAmount) || 0, 0) : currentCourier.paymentAmount,
@@ -2041,7 +2076,9 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
       ? {
           deliveredAt: new Date(),
           deliveredByName: req.user.name,
-          receivedByName: req.body.receivedByName,
+          receivedByName: deliveryMode === 'self'
+            ? (req.body.receivedByName || req.body.receiverName || currentCourier.receiverName)
+            : req.body.receivedByName,
         }
       : {}),
   };
@@ -2069,9 +2106,11 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     req.user,
     `Courier ${status} for Phase ${stageNum}`,
     status === COURIER_STATUSES.DELIVERED
-      ? `Received by ${nextCourier.receivedByName}`
+      ? nextCourier.deliveryMode === 'self'
+        ? `Self pickup delivered to ${nextCourier.receivedByName}`
+        : `Received by ${nextCourier.receivedByName}`
       : nextCourier.deliveryMode === 'self'
-        ? `Self pickup by ${nextCourier.selfPickupByName}`
+        ? `Self pickup by ${nextCourier.receiverName}`
         : nextCourier.trackingNumber
   );
 

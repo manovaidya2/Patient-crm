@@ -88,6 +88,9 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   const [imageAction, setImageAction] = useState(null);
   const [imageFiles, setImageFiles] = useState([]);
   const [imageError, setImageError] = useState('');
+  const [courierAction, setCourierAction] = useState(null);
+  const [courierForm, setCourierForm] = useState({ packagedByName: '', chitsWrittenByName: '', lastMedicineCheckedByName: '' });
+  const [courierError, setCourierError] = useState('');
 
   useEffect(() => {
     const fetchRows = async () => {
@@ -125,6 +128,26 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     }
   };
 
+  const sendToCourier = async (row, values) => {
+    const key = `${row.patientId}-${row.stage}-sent_to_courier`;
+    setBusyKey(key);
+    try {
+      await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, {
+        status: 'sent_to_courier',
+        packagedByName: values.packagedByName,
+        chitsWrittenByName: values.chitsWrittenByName,
+        lastMedicineCheckedByName: values.lastMedicineCheckedByName,
+      });
+      setReloadKey((value) => value + 1);
+      return true;
+    } catch (err) {
+      setCourierError(err.response?.data?.message || 'Could not send to courier.');
+      return false;
+    } finally {
+      setBusyKey('');
+    }
+  };
+
   const openImageAction = (row, action) => {
     setImageAction({ row, action });
     setImageFiles([]);
@@ -139,6 +162,27 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     }
     await updateStatus(imageAction.row, imageAction.action.status, imageFiles);
     setImageAction(null);
+  };
+
+  const openCourierAction = (row) => {
+    const request = row.medicineRequest || {};
+    setCourierAction(row);
+    setCourierForm({
+      packagedByName: request.packagedByName || '',
+      chitsWrittenByName: request.chitsWrittenByName || '',
+      lastMedicineCheckedByName: request.lastMedicineCheckedByName || '',
+    });
+    setCourierError('');
+  };
+
+  const submitCourierAction = async (e) => {
+    e.preventDefault();
+    if (!courierForm.packagedByName.trim() || !courierForm.chitsWrittenByName.trim() || !courierForm.lastMedicineCheckedByName.trim()) {
+      setCourierError('Packaging by, chits written by and last medicine checking by are required');
+      return;
+    }
+    const saved = await sendToCourier(courierAction, courierForm);
+    if (saved) setCourierAction(null);
   };
 
   const activeDateValue = dateMode === 'week' ? weekValue : dateMode === 'month' ? monthValue : dateValue;
@@ -247,6 +291,14 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                         Sent to courier: {formatDateTime(request.sentToCourierAt)} by {request.sentToCourierByName || '-'}
                       </p>
                     )}
+                    {(request.packagedByName || request.chitsWrittenByName || request.lastMedicineCheckedByName) && (
+                      <div className="mt-2 rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-xs text-charcoal/65">
+                        <p>Packaging by: <span className="font-semibold text-charcoal">{request.packagedByName || '-'}</span></p>
+                        <p className="mt-1">Chits written by: <span className="font-semibold text-charcoal">{request.chitsWrittenByName || '-'}</span></p>
+                        <p className="mt-1">Last checking by: <span className="font-semibold text-charcoal">{request.lastMedicineCheckedByName || '-'}</span></p>
+                        <p className="mt-1">Filled by: <span className="font-semibold text-charcoal">{request.packagingDetailsFilledByName || '-'}</span></p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="text-sm text-charcoal/70">
@@ -280,6 +332,10 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                             onClick={() => {
                               if (action.requiresImage) {
                                 openImageAction(row, action);
+                                return;
+                              }
+                              if (action.status === 'sent_to_courier') {
+                                openCourierAction(row);
                                 return;
                               }
                               updateStatus(row, action.status);
@@ -318,6 +374,53 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
               </Button>
               <Button type="submit" disabled={!!busyKey}>
                 {busyKey ? 'Saving...' : 'Upload & Mark Made'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {courierAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
+          <form onSubmit={submitCourierAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-charcoal">Send To Courier</h3>
+            <p className="mt-1 text-sm text-charcoal/60">Fill medicine packaging details before sending this request to courier.</p>
+            {courierError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{courierError}</p>}
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-charcoal">Packaging done by</label>
+                <input
+                  value={courierForm.packagedByName}
+                  onChange={(e) => setCourierForm({ ...courierForm, packagedByName: e.target.value })}
+                  className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-charcoal">Chits written by</label>
+                <input
+                  value={courierForm.chitsWrittenByName}
+                  onChange={(e) => setCourierForm({ ...courierForm, chitsWrittenByName: e.target.value })}
+                  className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-charcoal">Last medicine checking by</label>
+                <input
+                  value={courierForm.lastMedicineCheckedByName}
+                  onChange={(e) => setCourierForm({ ...courierForm, lastMedicineCheckedByName: e.target.value })}
+                  className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                  required
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setCourierAction(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!!busyKey}>
+                {busyKey ? 'Saving...' : 'Send To Courier'}
               </Button>
             </div>
           </form>

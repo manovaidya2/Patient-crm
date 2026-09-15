@@ -97,6 +97,11 @@ const medicineRequestSchema = new mongoose.Schema(
       type: [{ url: String, fileName: String }],
       default: [],
     },
+    packagedByName: { type: String, trim: true, default: '' },
+    chitsWrittenByName: { type: String, trim: true, default: '' },
+    lastMedicineCheckedByName: { type: String, trim: true, default: '' },
+    packagingDetailsFilledByName: { type: String, trim: true, default: '' },
+    packagingDetailsFilledAt: { type: Date, default: null },
     sentToCourierAt: { type: Date, default: null },
     sentToCourierByName: { type: String, trim: true, default: '' },
     courier: {

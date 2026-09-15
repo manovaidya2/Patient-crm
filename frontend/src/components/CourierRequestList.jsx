@@ -176,8 +176,8 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       setModalError('Package image is required');
       return;
     }
-    if (form.deliveryMode === 'self' && !form.selfPickupByName.trim()) {
-      setModalError('Picked up by name is required');
+    if (form.deliveryMode === 'self' && (!form.receiverName.trim() || !form.receiverPhone.trim())) {
+      setModalError('Receiver name and receiver phone are required');
       return;
     }
     setSaving(true);
@@ -185,7 +185,8 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
     try {
       const formData = new FormData();
       Object.entries(form).forEach(([key, value]) => formData.append(key, value));
-      formData.append('status', 'dispatched');
+      formData.append('status', form.deliveryMode === 'self' ? 'delivered' : 'dispatched');
+      if (form.deliveryMode === 'self') formData.append('receivedByName', form.receiverName);
       files.forEach((file) => formData.append('courierImage', file));
       await api.patch(`/courier/requests/${dispatchRow.patientId}/stages/${dispatchRow.stage}`, formData);
       setDispatchRow(null);
@@ -300,12 +301,20 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                     </div>
                     <p className="mt-1 text-xs text-charcoal/55">{row.patientNumber || '-'} · Sent: {formatDateTime(request.sentToCourierAt)}</p>
                     <p className="mt-2 whitespace-pre-line text-sm text-charcoal/70">{request.medicines}</p>
+                    {(request.packagedByName || request.chitsWrittenByName || request.lastMedicineCheckedByName) && (
+                      <div className="mt-2 rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-xs text-charcoal/65">
+                        <p>Packaging by: <span className="font-semibold text-charcoal">{request.packagedByName || '-'}</span></p>
+                        <p className="mt-1">Chits written by: <span className="font-semibold text-charcoal">{request.chitsWrittenByName || '-'}</span></p>
+                        <p className="mt-1">Last checking by: <span className="font-semibold text-charcoal">{request.lastMedicineCheckedByName || '-'}</span></p>
+                        <p className="mt-1">Filled by: <span className="font-semibold text-charcoal">{request.packagingDetailsFilledByName || '-'}</span></p>
+                      </div>
+                    )}
                   </div>
                   <div className="text-sm text-charcoal/70">
-                    <p className="font-semibold text-charcoal">Dispatch</p>
+                    <p className="font-semibold text-charcoal">{courier.deliveryMode === 'self' ? 'Delivery' : 'Dispatch'}</p>
                     <p className="mt-1">Mode: {courier.deliveryMode === 'self' ? 'Self pickup' : 'Courier'}</p>
                     {courier.deliveryMode === 'self' ? (
-                      <p className="mt-1">Picked up by: {courier.selfPickupByName || '-'}</p>
+                      <p className="mt-1">Self pickup at clinic</p>
                     ) : (
                       <>
                         <p className="mt-1">Via: {courier.courierPartner || '-'}</p>
@@ -316,9 +325,13 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                     <p className="mt-1">To: {courier.receiverName || '-'} {courier.receiverPhone ? `(${courier.receiverPhone})` : ''}</p>
                   </div>
                   <div className="text-sm text-charcoal/70">
-                    <p className="font-semibold text-charcoal">Payment / Delivery</p>
-                    <p className="mt-1">Paid by: {courier.paymentPaidBy === 'client' ? 'Client' : 'Clinic'}</p>
-                    <p className="mt-1">Amount: {formatMoney(courier.paymentAmount)}</p>
+                    <p className="font-semibold text-charcoal">Delivery</p>
+                    {courier.deliveryMode !== 'self' && (
+                      <>
+                        <p className="mt-1">Paid by: {courier.paymentPaidBy === 'client' ? 'Client' : 'Clinic'}</p>
+                        <p className="mt-1">Amount: {formatMoney(courier.paymentAmount)}</p>
+                      </>
+                    )}
                     <p className="mt-1">Received by: {courier.receivedByName || '-'}</p>
                     <p className="mt-1">Delivered: {formatDateTime(courier.deliveredAt)}</p>
                     <div className="mt-2 flex flex-wrap gap-3">
@@ -349,28 +362,28 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="Receiver Name" value={form.receiverName} onChange={(e) => setForm({ ...form, receiverName: e.target.value })} required />
-            <Input label="Receiver Phone" value={form.receiverPhone} onChange={(e) => setForm({ ...form, receiverPhone: e.target.value })} required={form.deliveryMode !== 'self'} />
-            {form.deliveryMode === 'self' ? (
-              <Input label="Picked Up By" value={form.selfPickupByName} onChange={(e) => setForm({ ...form, selfPickupByName: e.target.value })} required />
-            ) : (
+            <Input label="Receiver Phone" value={form.receiverPhone} onChange={(e) => setForm({ ...form, receiverPhone: e.target.value })} required />
+            {form.deliveryMode !== 'self' && (
               <>
                 <Input label="Courier Partner" value={form.courierPartner} onChange={(e) => setForm({ ...form, courierPartner: e.target.value })} required />
                 <Input label="Tracking Number" value={form.trackingNumber} onChange={(e) => setForm({ ...form, trackingNumber: e.target.value })} required />
+                <Input label="Courier Payment Amount" type="number" min="0" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} />
+                <div>
+                  <label className="block text-sm font-medium text-charcoal mb-1.5">Paid By</label>
+                  <select value={form.paymentPaidBy} onChange={(e) => setForm({ ...form, paymentPaidBy: e.target.value })} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
+                    <option value="clinic">Clinic</option>
+                    <option value="client">Client</option>
+                  </select>
+                </div>
               </>
             )}
-            <Input label="Courier Payment Amount" type="number" min="0" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} />
-            <div>
-              <label className="block text-sm font-medium text-charcoal mb-1.5">Paid By</label>
-              <select value={form.paymentPaidBy} onChange={(e) => setForm({ ...form, paymentPaidBy: e.target.value })} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
-                <option value="clinic">Clinic</option>
-                <option value="client">Client</option>
-              </select>
-            </div>
           </div>
           {form.deliveryMode !== 'self' && (
             <textarea rows={3} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" required />
           )}
-          <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
+          {form.deliveryMode !== 'self' && (
+            <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
+          )}
           <label className="block rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-4 text-center text-sm font-semibold text-sage cursor-pointer">
             Upload package images
             <input type="file" accept="image/*" multiple onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
@@ -380,7 +393,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
             <input type="file" accept="image/*" capture="environment" onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
           </label>
           <SelectedAttachments files={files} onRemove={(index) => removeSelectedFile(setFiles, index)} />
-          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setDispatchRow(null)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Dispatch'}</Button></div>
+          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setDispatchRow(null)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : form.deliveryMode === 'self' ? 'Mark Delivered' : 'Dispatch'}</Button></div>
         </form>
       </Modal>
 

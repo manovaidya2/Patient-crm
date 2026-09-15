@@ -626,7 +626,7 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest }) => {
       </div>
 
       {collapsed ? null : hasRequest ? (
-        <div className="mt-4 grid gap-4 xl:grid-cols-3">
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr_1.35fr]">
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-3.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Medicines</p>
             <p className="mt-1 whitespace-pre-line text-sm text-charcoal">{request.medicines || '-'}</p>
@@ -638,21 +638,29 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest }) => {
             {request.inProcessAt && <p className="mt-1">In process: {formatDateTime(request.inProcessAt)}</p>}
             {request.madeAt && <p className="mt-1">Medicine made: {formatDateTime(request.madeAt)}</p>}
             {request.sentToCourierAt && <p className="mt-1">Sent to courier: {formatDateTime(request.sentToCourierAt)}</p>}
+            {(request.packagedByName || request.chitsWrittenByName || request.lastMedicineCheckedByName) && (
+              <div className="mt-2 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2 text-xs text-charcoal/65">
+                <p>Packaging by: <span className="font-semibold text-charcoal">{request.packagedByName || '-'}</span></p>
+                <p className="mt-1">Chits written by: <span className="font-semibold text-charcoal">{request.chitsWrittenByName || '-'}</span></p>
+                <p className="mt-1">Last checking by: <span className="font-semibold text-charcoal">{request.lastMedicineCheckedByName || '-'}</span></p>
+                <p className="mt-1">Filled by: <span className="font-semibold text-charcoal">{request.packagingDetailsFilledByName || '-'}</span></p>
+              </div>
+            )}
             <FileLinks files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescriptions" />
             <FileLinks files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine image'} label="Medicine Images" />
           </div>
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-3.5 text-sm text-charcoal/70">
-            <p className="font-semibold text-charcoal">Courier</p>
-            <p className="mt-1">Status: {request.courier?.statusLabel || 'Courier Pending'}</p>
-            <p className="mt-1">Via: {request.courier?.courierPartner || '-'}</p>
-            <p className="mt-1">Tracking: {request.courier?.trackingNumber || '-'}</p>
+            <p className="font-semibold text-charcoal">{request.courier?.deliveryMode === 'self' ? 'Self Pickup' : 'Courier'}</p>
+            <p className="mt-1">Status: {request.courier?.deliveryMode === 'self' ? 'Delivered' : (request.courier?.statusLabel || 'Courier Pending')}</p>
+            {request.courier?.deliveryMode !== 'self' && <p className="mt-1">Via: {request.courier?.courierPartner || '-'}</p>}
+            {request.courier?.deliveryMode !== 'self' && <p className="mt-1">Tracking: {request.courier?.trackingNumber || '-'}</p>}
             <p className="mt-1">Receiver: {request.courier?.receiverName || '-'} {request.courier?.receiverPhone ? `(${request.courier.receiverPhone})` : ''}</p>
-            <p className="mt-1">Courier paid by: {request.courier?.paymentPaidBy === 'client' ? 'Client' : 'Clinic'} · {formatMoney(request.courier?.paymentAmount || 0)}</p>
-            <p className="mt-1">Dispatched: {request.courier?.dispatchedAt ? formatDateTime(request.courier.dispatchedAt) : '-'}</p>
+            {request.courier?.deliveryMode !== 'self' && <p className="mt-1">Courier paid by: {request.courier?.paymentPaidBy === 'client' ? 'Client' : 'Clinic'} - {formatMoney(request.courier?.paymentAmount || 0)}</p>}
+            {request.courier?.deliveryMode !== 'self' && <p className="mt-1">Dispatched: {request.courier?.dispatchedAt ? formatDateTime(request.courier.dispatchedAt) : '-'}</p>}
             <p className="mt-1">Delivered: {request.courier?.deliveredAt ? formatDateTime(request.courier.deliveredAt) : '-'}</p>
-            <p className="mt-1">Received by: {request.courier?.receivedByName || '-'}</p>
-            <FileLinks files={request.courier?.packageImages} fallbackUrl={request.courier?.packageImageUrl} fallbackName={request.courier?.packageImageFileName || 'Package image'} label="Package Images" />
-            <FileLinks files={request.courier?.deliveryProofImages} fallbackUrl={request.courier?.deliveryProofUrl} fallbackName={request.courier?.deliveryProofFileName || 'Delivery proof'} label="Delivery Proofs" />
+            <p className="mt-1">Received by: {request.courier?.receivedByName || request.courier?.receiverName || '-'}</p>
+            <FileLinks files={request.courier?.packageImages} fallbackUrl={request.courier?.packageImageUrl} fallbackName={request.courier?.packageImageFileName || 'Package image'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Package Images'} />
+            <FileLinks files={request.courier?.deliveryProofImages} fallbackUrl={request.courier?.deliveryProofUrl} fallbackName={request.courier?.deliveryProofFileName || 'Delivery proof'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Delivery Proofs'} />
           </div>
         </div>
       ) : (
