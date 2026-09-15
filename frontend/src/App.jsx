@@ -25,6 +25,8 @@ import AdviceGiven from './pages/admin/AdviceGiven.jsx';
 import Worksheet from './pages/admin/Worksheet.jsx';
 import CrmChatGPT from './pages/admin/CrmChatGPT.jsx';
 import DigitalMarketing from './pages/admin/DigitalMarketing.jsx';
+import PackageNotBought from './pages/admin/PackageNotBought.jsx';
+import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -35,6 +37,7 @@ const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
 const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT];
+const PACKAGE_NOT_BOUGHT_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
 
 function App() {
   const { user, loading } = useAuth();
@@ -195,6 +198,22 @@ function App() {
           element={
             <ProtectedRoute roles={PATIENT_ACCESS_ROLES}>
               <AllPatients />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="package-not-bought"
+          element={
+            <ProtectedRoute roles={PACKAGE_NOT_BOUGHT_ROLES}>
+              <PackageNotBought />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="package-not-bought/:id"
+          element={
+            <ProtectedRoute roles={PACKAGE_NOT_BOUGHT_ROLES}>
+              <PackageNotBoughtDetails />
             </ProtectedRoute>
           }
         />
