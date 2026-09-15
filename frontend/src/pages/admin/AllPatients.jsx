@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus, Calendar, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
@@ -32,15 +32,18 @@ const formatDate = (iso) =>
 
 const AllPatients = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
-  const [page, setPage] = useState(1);
+  // Restored from the URL on mount so the browser/router "back" button (from a
+  // patient's details page) lands on the same page/search/filter, not a reset list.
+  const [search, setSearch] = useState(() => searchParams.get('search') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('search') || '');
+  const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || '');
+  const [dateFilter, setDateFilter] = useState(() => searchParams.get('date') || '');
+  const [page, setPage] = useState(() => Number(searchParams.get('page')) || 1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
@@ -48,18 +51,40 @@ const AllPatients = () => {
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
   const [postCounselorOptions, setPostCounselorOptions] = useState([]);
+  // Track the previous filter values (not just "have we mounted") so React 18 StrictMode's
+  // dev-only double-invoke of this effect — same values, twice — can't misread its own
+  // second pass as a real change and reset the restored page back to 1.
+  const prevFiltersRef = useRef({ categoryFilter, dateFilter });
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
+      setDebouncedSearch((prev) => {
+        if (prev !== search) setPage(1);
+        return search;
+      });
     }, 400);
     return () => clearTimeout(timer);
   }, [search]);
 
   useEffect(() => {
-    setPage(1);
+    const prev = prevFiltersRef.current;
+    if (prev.categoryFilter !== categoryFilter || prev.dateFilter !== dateFilter) {
+      setPage(1);
+    }
+    prevFiltersRef.current = { categoryFilter, dateFilter };
   }, [categoryFilter, dateFilter]);
+
+  // Keep the URL in sync (replace, not push) so it always reflects the current
+  // page/search/filters without spamming browser history on every keystroke/click.
+  useEffect(() => {
+    const params = {};
+    if (page > 1) params.page = String(page);
+    if (debouncedSearch) params.search = debouncedSearch;
+    if (categoryFilter) params.category = categoryFilter;
+    if (dateFilter) params.date = dateFilter;
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, categoryFilter, dateFilter]);
 
   useEffect(() => {
     const fetchPatients = async () => {

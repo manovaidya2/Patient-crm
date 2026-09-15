@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
@@ -1762,6 +1762,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
 
 const PatientDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const canAssignDoctor = ASSIGN_DOCTOR_ROLES.includes(user?.role);
   const [patient, setPatient] = useState(null);
@@ -2080,12 +2081,23 @@ const PatientDetails = () => {
 
   return (
     <div>
-      <Link
-        to="/admin/patients"
+      <button
+        type="button"
+        onClick={() => {
+          // Genuine "back" — returns to whichever page/list state (Dashboard, Follow-ups,
+          // a specific All Patients page/search, etc.) this was opened from. Only when
+          // there's nowhere to go back to (direct link, fresh tab) does it fall back.
+          const historyIndex = window.history.state?.idx;
+          if (typeof historyIndex === 'number' && historyIndex > 0) {
+            navigate(-1);
+          } else {
+            navigate('/admin/patients');
+          }
+        }}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-sage hover:text-charcoal mb-5"
       >
-        <ArrowLeft size={15} /> All Patients
-      </Link>
+        <ArrowLeft size={15} /> Back
+      </button>
 
       {loading ? (
         <Card className="text-center text-sm text-charcoal/55 py-10">Loading patient…</Card>
