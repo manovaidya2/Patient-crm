@@ -238,6 +238,11 @@ const patientSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    patientHistoryBy: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     // Mental Health only
     relativeName: {
       type: String,

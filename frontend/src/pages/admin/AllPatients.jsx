@@ -19,6 +19,7 @@ const emptyPatientForm = {
   number: '',
   guardianName: '',
   alternateNumber: '',
+  patientHistoryBy: '',
   relativeName: '',
   currentStage: 1,
   postCounselor: '',
@@ -338,6 +339,7 @@ const AllPatients = () => {
               onChange={(e) => updateAddForm('number', e.target.value)}
               required
             />
+            
             {addForm.category === PATIENT_CATEGORIES.AUTISM_ADHD ? (
               <>
                 <Input
@@ -380,6 +382,13 @@ const AllPatients = () => {
                 ))}
               </select>
             </div>
+            <Input
+              id="patientHistoryBy"
+              label="Patient History By"
+              placeholder="Name"
+              value={addForm.patientHistoryBy}
+              onChange={(e) => updateAddForm('patientHistoryBy', e.target.value)}
+            />
             <div>
               <label htmlFor="postCounselor" className="block text-sm font-medium text-charcoal mb-1.5">
                 Post Counselor

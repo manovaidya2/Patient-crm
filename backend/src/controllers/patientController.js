@@ -442,6 +442,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   number: p.number,
   guardianName: p.guardianName || null,
   alternateNumber: p.alternateNumber || null,
+  patientHistoryBy: p.patientHistoryBy || '',
   relativeName: p.relativeName || null,
   currentStage: p.currentStage || 1,
   currentStageLabel: STAGE_LABELS[p.currentStage || 1],
@@ -1098,6 +1099,7 @@ const createPatient = asyncHandler(async (req, res) => {
     number,
     guardianName,
     alternateNumber,
+    patientHistoryBy,
     relativeName,
     currentStage,
     postCounselor,
@@ -1153,6 +1155,7 @@ const createPatient = asyncHandler(async (req, res) => {
     number,
     guardianName: category === 'autism_adhd' ? guardianName : '',
     alternateNumber: category === 'autism_adhd' ? alternateNumber : '',
+    patientHistoryBy: String(patientHistoryBy || '').trim(),
     relativeName: category === 'mental_health' ? relativeName : '',
     currentStage: stageNum,
     source: 'manual',
@@ -1270,6 +1273,7 @@ const updatePatient = asyncHandler(async (req, res) => {
     number,
     guardianName,
     alternateNumber,
+    patientHistoryBy,
     relativeName,
     currentStage,
     assignedDoctor,
@@ -1318,6 +1322,7 @@ const updatePatient = asyncHandler(async (req, res) => {
   updateField('number', number, "Father's number");
   updateField('guardianName', guardianName, 'Father/Mother name');
   updateField('alternateNumber', alternateNumber, "Mother's number");
+  updateField('patientHistoryBy', patientHistoryBy, 'Patient history taken by');
   updateField('relativeName', relativeName, 'Relative name');
 
   if (currentStage !== undefined) {

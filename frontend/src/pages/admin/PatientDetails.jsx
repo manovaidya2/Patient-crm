@@ -2018,7 +2018,7 @@ const PatientDetails = () => {
           )}
 
                     {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-px bg-cardline border-t border-cardline">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-10 gap-px bg-cardline border-t border-cardline">
             <EditableField
               label="Patient ID"
               value={patient.patientCode || ''}
@@ -2058,6 +2058,13 @@ const PatientDetails = () => {
               value={patient.alternateNumber}
               placeholder="Not added"
               onSave={(val) => saveField('alternateNumber', val)}
+              readOnly={!canEditPatientDetails}
+            />
+            <EditableField
+              label="Patient History By"
+              value={patient.patientHistoryBy || ''}
+              placeholder="Not added"
+              onSave={(val) => saveField('patientHistoryBy', val)}
               readOnly={!canEditPatientDetails}
             />
             <EditableField
