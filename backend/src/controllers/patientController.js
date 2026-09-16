@@ -2540,13 +2540,12 @@ const updateScheduleEntry = (fieldKey) =>
           const pdfName = `${fieldKey === 'followUps' ? 'followup' : 'family-session'}-${safeEntryId}.pdf`;
           const pdfPath = path.join(__dirname, '../../uploads/forms', safePatientId, pdfName);
           const submittedMeta = completionFormData?.meta || {};
-          // A PDF failure (disk, font, renderer) must never cost the staff member their
-          // filled-in follow-up — save the completion regardless and just leave the PDF
-          // off if it couldn't be generated, instead of throwing away the whole request.
+          // Keep the form open for retry if its original layout cannot be rendered.
           try {
             await writeTextPdf({
               filePath: pdfPath,
               html: completionHtml,
+              requireHtml: true,
               title: fieldKey === 'followUps'
                 ? 'MANOVAIDYA - AUTISM FOLLOW-UP ROUTINE & COMPLIANCE CHECK'
                 : 'MANOVAIDYA WELLNESS PVT. LTD. - FAMILY SESSION RECORD',
@@ -2567,8 +2566,7 @@ const updateScheduleEntry = (fieldKey) =>
             entry.completionPdfName = pdfName;
           } catch (pdfError) {
             console.error(`Completion PDF generation failed for ${fieldKey} ${safeEntryId}:`, pdfError.message);
-            entry.completionPdfUrl = null;
-            entry.completionPdfName = '';
+            return res.status(503).json({ message: 'Form PDF could not be generated. Please keep your form open and retry after the server PDF browser is configured.' });
           }
         }
       }

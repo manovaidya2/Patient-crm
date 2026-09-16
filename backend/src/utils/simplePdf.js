@@ -311,14 +311,13 @@ const drawNotes = (doc, fields) => {
   doc.y += height;
 };
 
-const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, html }) => {
+const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, html, requireHtml = false }) => {
+  if (requireHtml && !html?.trim()) {
+    throw new Error('Original form HTML is required to generate this PDF');
+  }
   if (html) {
-    try {
-      await writeHtmlPdf({ filePath, html });
-      return;
-    } catch (error) {
-      console.warn(`HTML PDF render failed, falling back to drawn PDF: ${error.message}`);
-    }
+    await writeHtmlPdf({ filePath, html });
+    return;
   }
 
   // Fail explicitly if deployment omits the font instead of saving unreadable Hindi.
