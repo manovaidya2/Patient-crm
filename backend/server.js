@@ -7,6 +7,7 @@ const path = require('path');
 dotenv.config();
 
 const connectDB = require('./src/config/db');
+const { checkPdfRenderer } = require('./src/utils/simplePdf');
 const { errorHandler } = require('./src/middleware/errorHandler');
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
@@ -43,6 +44,14 @@ if (process.env.NODE_ENV !== 'production') {
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ success: true, message: 'CRM API is running' });
+});
+
+// Actually launches the PDF renderer's headless browser so a missing system Chromium
+// dependency (common on a bare Linux host) shows up here instead of only being
+// discoverable by reading server logs after a completion form is submitted.
+app.get('/api/health/pdf', async (req, res) => {
+  const result = await checkPdfRenderer();
+  res.status(result.ok ? 200 : 503).json({ success: result.ok, ...result });
 });
 
 // Uploaded payment screenshots — served at http://<host>/uploads/payments/<file>

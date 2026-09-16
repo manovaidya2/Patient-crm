@@ -101,6 +101,36 @@ const writeHtmlPdf = async ({ filePath, html }) => {
   }
 };
 
+// Actually launches a browser and renders a tiny page, rather than just checking a path
+// exists — a missing shared library (common on a bare Linux server) only shows up at
+// launch time. Exposed via GET /api/health/pdf so this can be checked from a browser
+// without needing server log/terminal access.
+const checkPdfRenderer = async () => {
+  if (!puppeteer) {
+    return { ok: false, error: 'puppeteer is not installed' };
+  }
+  const executablePath = await findBrowserPath();
+  if (!executablePath) {
+    return { ok: false, error: 'No Chromium/Chrome/Edge executable was found (bundled or system)' };
+  }
+
+  let browser = null;
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+    const pageInstance = await browser.newPage();
+    await pageInstance.setContent('<html><body>ok</body></html>');
+    return { ok: true, executablePath };
+  } catch (error) {
+    return { ok: false, executablePath, error: error.message };
+  } finally {
+    if (browser) await browser.close();
+  }
+};
+
 const normalizeText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
 const collectValueParts = (value) => {
@@ -384,4 +414,4 @@ const writeImagesPdf = async ({ filePath, images = [] }) => {
   });
 };
 
-module.exports = { writeTextPdf, writeImagesPdf };
+module.exports = { writeTextPdf, writeImagesPdf, checkPdfRenderer };
