@@ -218,7 +218,7 @@ const createEmptyCompletionForm = (formType) => {
   const sections =
     formType === 'family_section_a'
       ? { 'A. दवा, घरेलू प्रक्रियाएं, डाइट एवं दैनिक अभ्यास': paperFamilySectionAFields }
-      : paperFollowupSectionFields;
+      : { 'A. à¤¦à¤µà¤¾, à¤˜à¤°à¥‡à¤²à¥‚ à¤ªà¥à¤°à¤•à¥à¤°à¤¿à¤¯à¤¾à¤à¤‚, à¤¡à¤¾à¤‡à¤Ÿ à¤à¤µà¤‚ à¤¦à¥ˆà¤¨à¤¿à¤• à¤…à¤­à¥à¤¯à¤¾à¤¸': paperFamilySectionAFields };
   return Object.entries(sections).reduce((acc, [section, fields]) => {
     acc[section] = fields.reduce((fieldAcc, [label]) => ({ ...fieldAcc, [label]: '' }), {});
     return acc;
@@ -226,12 +226,12 @@ const createEmptyCompletionForm = (formType) => {
 };
 
 const getCompletionPlaceholder = (formType, label) => {
-  const fields = formType === 'family_section_a' ? paperFamilySectionAFields : Object.values(paperFollowupSectionFields).flat();
+  const fields = formType === 'family_section_a' ? paperFamilySectionAFields : paperFamilySectionAFields;
   return fields.find(([field]) => field === label)?.[1] || 'Fill details';
 };
 
 const getPaperRowCells = (formType, label) => {
-  const fields = formType === 'family_section_a' ? paperFamilySectionAFields : Object.values(paperFollowupSectionFields).flat();
+  const fields = formType === 'family_section_a' ? paperFamilySectionAFields : paperFamilySectionAFields;
   const row = fields.find(([field]) => field === label) || [];
   return {
     method: row[1] || '',

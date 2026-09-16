@@ -2340,9 +2340,6 @@ const updateScheduleEntry = (fieldKey) =>
       if (isTrackerFollowUp && !String(trackerSubmissionUrl || '').trim()) {
         return res.status(400).json({ success: false, message: 'Tracker submission link is required to mark tracker done' });
       }
-      if (!isShortFollowUp && !isTrackerFollowUp && (!completionName || (!completionDetails && !hasCompletionAttachment))) {
-        return res.status(400).json({ success: false, message: 'Name and details or an uploaded file are required to mark this done' });
-      }
     }
     if (status === 'cancelled' && !String(cancelReason || '').trim()) {
       return res.status(400).json({ success: false, message: 'Cancellation reason is required' });

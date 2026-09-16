@@ -884,10 +884,6 @@ const ScheduleCard = ({
     e.preventDefault();
     const isShortFollowUp = doneEntry?.followUpType === 'sfs';
     const isTrackerFollowUp = doneEntry?.followUpType === 'tracker';
-    if (!isShortFollowUp && !isTrackerFollowUp && !doneName.trim()) {
-      setDoneError('Talked with person name is required');
-      return;
-    }
     if (isShortFollowUp && !doneDetails.trim()) {
       if (!doneFiles.length) {
         setDoneError('Add a note or upload a photo/file');
@@ -907,7 +903,7 @@ const ScheduleCard = ({
           ? 'Tracker submitted'
           : flattenCompletionSummary(doneForm);
       await onUpdateStatus(doneEntryId, 'completed', {
-        completionName: isShortFollowUp ? 'SFS Call' : isTrackerFollowUp ? 'Tracker Submission' : doneName,
+        completionName: isShortFollowUp ? 'SFS Call' : isTrackerFollowUp ? 'Tracker Submission' : (doneName.trim() || 'Follow-up'),
         completionDetails,
         files: doneFiles,
         ...(isTrackerFollowUp ? { trackerSubmissionUrl: trackerSubmissionUrl.trim() } : {}),
