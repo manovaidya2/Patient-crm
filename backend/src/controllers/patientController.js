@@ -2506,6 +2506,18 @@ const updateScheduleEntry = (fieldKey) =>
         entry.followUpType = nextFollowUpType;
       }
     }
+    if (fieldKey === 'familySessions' && meetRecordingUrl !== undefined) {
+      const nextMeetRecordingUrl = String(meetRecordingUrl || '').trim();
+      if (!sameValue(entry.meetRecordingUrl || '', nextMeetRecordingUrl)) {
+        entry.meetRecordingUrl = nextMeetRecordingUrl;
+        addActivity(
+          patient,
+          req.user,
+          `Family session recording link ${nextMeetRecordingUrl ? 'updated' : 'cleared'} for Phase ${stageNum}`,
+          nextMeetRecordingUrl || 'Cleared'
+        );
+      }
+    }
 
     if (status !== undefined) {
       if (status === 'sent') {
@@ -2527,7 +2539,7 @@ const updateScheduleEntry = (fieldKey) =>
         const completionFiles = toFileItems(uploadedCompletionFiles, 'schedule');
         entry.completionFiles = mergeFileItems(entry.completionFiles || [], completionFiles);
         entry.trackerSubmissionUrl = isTrackerFollowUp ? String(trackerSubmissionUrl || '').trim() : '';
-        entry.meetRecordingUrl = fieldKey === 'familySessions' ? meetRecordingUrl || '' : '';
+        entry.meetRecordingUrl = fieldKey === 'familySessions' ? String(meetRecordingUrl || '').trim() : '';
         entry.completedAt = new Date();
         entry.completionFormType = isShortFollowUp ? 'sfs' : isTrackerFollowUp ? 'tracker' : completionFormType || (fieldKey === 'followUps' ? 'followup_full' : 'family_section_a');
         entry.completionFormData = (isShortFollowUp || isTrackerFollowUp) ? null : completionFormData || null;

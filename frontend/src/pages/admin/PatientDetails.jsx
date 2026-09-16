@@ -1045,6 +1045,11 @@ const ScheduleCard = ({
   const [doneForm, setDoneForm] = useState(() => createEmptyCompletionForm(formType));
   const [doneSaving, setDoneSaving] = useState(false);
   const [doneError, setDoneError] = useState('');
+  const [recordingModalOpen, setRecordingModalOpen] = useState(false);
+  const [recordingEntry, setRecordingEntry] = useState(null);
+  const [recordingUrl, setRecordingUrl] = useState('');
+  const [recordingSaving, setRecordingSaving] = useState(false);
+  const [recordingError, setRecordingError] = useState('');
   const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
   const [rescheduleEntry, setRescheduleEntry] = useState(null);
   const [rescheduleDateTime, setRescheduleDateTime] = useState('');
@@ -1192,6 +1197,31 @@ const ScheduleCard = ({
 
   const handleTrackerSent = (entryId) => {
     onUpdateStatus(entryId, 'sent');
+  };
+
+  const openRecordingModal = (entry) => {
+    setRecordingEntry(entry);
+    setRecordingUrl(entry.meetRecordingUrl || '');
+    setRecordingError('');
+    setRecordingModalOpen(true);
+  };
+
+  const handleRecordingSubmit = async (e) => {
+    e.preventDefault();
+    if (!recordingEntry?.id) {
+      setRecordingError('Family session not found');
+      return;
+    }
+    setRecordingSaving(true);
+    setRecordingError('');
+    try {
+      await onUpdateStatus(recordingEntry.id, undefined, { meetRecordingUrl: recordingUrl.trim() });
+      setRecordingModalOpen(false);
+    } catch (err) {
+      setRecordingError(err.response?.data?.message || 'Could not save recording link');
+    } finally {
+      setRecordingSaving(false);
+    }
   };
 
   const openEditModal = (entry) => {
@@ -1368,6 +1398,20 @@ const ScheduleCard = ({
                       >
                         <Paperclip size={13} /> Meet Recording
                       </a>
+                    )}
+                    {formType === 'family_section_a' && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {!e.meetRecordingUrl && (
+                          <span className="rounded-full bg-[#9C6B2E]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#9C6B2E]">
+                            Recording link pending
+                          </span>
+                        )}
+                        {canUpdate && (
+                          <Button size="sm" variant="outline" onClick={() => openRecordingModal(e)}>
+                            <Paperclip size={13} /> {e.meetRecordingUrl ? 'Edit Meet Link' : 'Add Meet Link'}
+                          </Button>
+                        )}
+                      </div>
                     )}
                     {e.trackerSubmissionUrl && (
                       <a
@@ -1595,13 +1639,18 @@ const ScheduleCard = ({
                 />
               </div>
               {formType === 'family_section_a' && (
-                <Input
-                  id="meetRecordingUrl"
-                  label="Google Meet Recording Link"
-                  placeholder="Paste Google Drive recording link"
-                  value={meetRecordingUrl}
-                  onChange={(e) => setMeetRecordingUrl(e.target.value)}
-                />
+                <div>
+                  <Input
+                    id="meetRecordingUrl"
+                    label="Google Meet Recording Link (optional)"
+                    placeholder="Paste later if recording is not ready"
+                    value={meetRecordingUrl}
+                    onChange={(e) => setMeetRecordingUrl(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-charcoal/50">
+                    Session can be marked done now. Add the Drive recording link later from the completed session row.
+                  </p>
+                </div>
               )}
             </>
           )}
@@ -1649,6 +1698,30 @@ const ScheduleCard = ({
             </Button>
             <Button type="submit" disabled={doneSaving}>
               {doneSaving ? 'Saving…' : 'Mark Done'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={recordingModalOpen} onClose={() => setRecordingModalOpen(false)} title="Family Session Recording Link">
+        <form onSubmit={handleRecordingSubmit} className="space-y-4">
+          {recordingError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{recordingError}</div>}
+          <div className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-sm text-charcoal/70">
+            Session: <span className="font-semibold text-charcoal">{recordingEntry?.dateTime ? formatDateTime(recordingEntry.dateTime) : '-'}</span>
+          </div>
+          <Input
+            id="familySessionRecordingUrl"
+            label="Google Drive Meet Recording Link"
+            placeholder="Paste recording link when it is ready"
+            value={recordingUrl}
+            onChange={(e) => setRecordingUrl(e.target.value)}
+          />
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setRecordingModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={recordingSaving}>
+              {recordingSaving ? 'Saving...' : 'Save Link'}
             </Button>
           </div>
         </form>
