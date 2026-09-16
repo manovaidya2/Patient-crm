@@ -299,4 +299,54 @@ const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, htm
   });
 };
 
-module.exports = { writeTextPdf };
+const writeImagesPdf = async ({ filePath, images = [] }) => {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  const doc = new PDFDocument({ size: 'A4', margin: 24, autoFirstPage: false });
+  const stream = fs.createWriteStream(filePath);
+  doc.pipe(stream);
+
+  let writtenPages = 0;
+  images.forEach((image) => {
+    if (!image?.filePath || !fs.existsSync(image.filePath)) return;
+    writtenPages += 1;
+    const addedOn = image.uploadedAt
+      ? new Date(image.uploadedAt).toLocaleString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Kolkata',
+        })
+      : '';
+    const caption = ['Scanned page', addedOn ? `Added: ${addedOn}` : '', image.uploadedByName ? `By: ${image.uploadedByName}` : '']
+      .filter(Boolean)
+      .join(' | ');
+
+    doc.addPage();
+    doc.image(image.filePath, page.margin, page.margin, {
+      fit: [page.width - page.margin * 2, page.height - page.margin * 2 - 24],
+      align: 'center',
+      valign: 'center',
+    });
+    doc.fontSize(8).fillColor(colors.muted).text(caption, page.margin, page.height - page.margin - 10, {
+      width: page.width - page.margin * 2,
+      align: 'center',
+    });
+  });
+
+  if (writtenPages === 0) {
+    doc.addPage();
+    doc.fontSize(12).text('No record images found', page.margin, page.margin);
+  }
+
+  doc.end();
+
+  return new Promise((resolve, reject) => {
+    stream.on('finish', resolve);
+    stream.on('error', reject);
+  });
+};
+
+module.exports = { writeTextPdf, writeImagesPdf };

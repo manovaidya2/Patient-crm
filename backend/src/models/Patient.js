@@ -181,6 +181,17 @@ const stageEntrySchema = new mongoose.Schema(
       type: [{ url: String, fileName: String }],
       default: [],
     },
+    recordScanFiles: {
+      type: [{
+        url: String,
+        fileName: String,
+        uploadedAt: Date,
+        uploadedByName: String,
+      }],
+      default: [],
+    },
+    recordPdfPageCount: { type: Number, default: 0, min: 0 },
+    recordPdfUpdatedAt: { type: Date, default: null },
     medicineRequest: { type: medicineRequestSchema, default: () => ({}) },
     // Follow-ups and Family Sessions scheduled specifically for this stage
     followUps: { type: [scheduleEntrySchema], default: [] },
@@ -317,6 +328,9 @@ const patientSchema = new mongoose.Schema(
           payments: [],
           recordFileUrl: null,
           recordFileName: '',
+          recordScanFiles: [],
+          recordPdfPageCount: 0,
+          recordPdfUpdatedAt: null,
           medicineRequest: {},
           followUps: [],
           familySessions: [],

@@ -2,9 +2,10 @@ const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
 const BankAccount = require('../models/BankAccount');
+const fs = require('fs');
 const path = require('path');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { writeTextPdf } = require('../utils/simplePdf');
+const { writeTextPdf, writeImagesPdf } = require('../utils/simplePdf');
 const { ALL_CATEGORIES, CATEGORY_LABELS } = require('../constants/patientCategories');
 const {
   STAGES,
@@ -437,6 +438,9 @@ const normalizeStages = (existing = []) => {
       recordFileUrl: found?.recordFileUrl || null,
       recordFileName: found?.recordFileName || '',
       recordFiles: withLegacyFile(found?.recordFiles || [], found?.recordFileUrl, found?.recordFileName),
+      recordScanFiles: found?.recordScanFiles || [],
+      recordPdfPageCount: found?.recordPdfPageCount || 0,
+      recordPdfUpdatedAt: found?.recordPdfUpdatedAt || null,
       medicineRequest: { ...emptyMedicineRequest(), ...(found?.medicineRequest?.toObject?.() || found?.medicineRequest || {}) },
       followUps: found?.followUps || [],
       familySessions: found?.familySessions || [],
@@ -506,6 +510,9 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       recordFileUrl: s.recordFileUrl || null,
       recordFileName: s.recordFileName || '',
       recordFiles: withLegacyFile(s.recordFiles || [], s.recordFileUrl, s.recordFileName),
+      recordScanFiles: s.recordScanFiles || [],
+      recordPdfPageCount: s.recordPdfPageCount || 0,
+      recordPdfUpdatedAt: s.recordPdfUpdatedAt || null,
       medicineRequest: formatMedicineRequest(s.medicineRequest),
       followUps: shouldShowFollowUps(user)
         ? (s.followUps || []).map(formatScheduleEntry).sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
@@ -1829,6 +1836,55 @@ const approveStagePayment = asyncHandler(async (req, res) => {
 // @desc    Upload (or replace) the patient-record file for a stage
 // @route   POST /api/patients/:id/stages/:number/record
 // @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+const getUploadsFilePathFromUrl = (url) => {
+  if (!url) return null;
+  const relativePath = String(url).replace(/^\//, '');
+  const uploadsRoot = path.resolve(__dirname, '../../uploads');
+  const filePath = path.resolve(__dirname, '../..', relativePath);
+  if (!filePath.toLowerCase().startsWith(`${uploadsRoot.toLowerCase()}${path.sep}`)) return null;
+  return filePath;
+};
+
+const deleteUploadedFileByUrl = async (url) => {
+  const filePath = getUploadsFilePathFromUrl(url);
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.warn(`Could not delete uploaded file ${filePath}: ${error.message}`);
+    }
+  }
+};
+
+const regenerateStageRecordPdf = async (patient, stageEntry, stageNum) => {
+  const scans = stageEntry.recordScanFiles || [];
+  if (!scans.length) {
+    await deleteUploadedFileByUrl(stageEntry.recordFileUrl);
+    stageEntry.recordFileUrl = null;
+    stageEntry.recordFileName = '';
+    stageEntry.recordFiles = [];
+    stageEntry.recordPdfPageCount = 0;
+    stageEntry.recordPdfUpdatedAt = null;
+    return;
+  }
+
+  const pdfFileName = `patient-${patient._id}-phase-${stageNum}-records.pdf`;
+  const pdfPath = path.join(__dirname, '../../uploads/records', pdfFileName);
+  const pdfImages = scans.map((file) => ({
+    filePath: getUploadsFilePathFromUrl(file.url),
+    uploadedAt: file.uploadedAt,
+    uploadedByName: file.uploadedByName,
+  }));
+  await writeImagesPdf({ filePath: pdfPath, images: pdfImages });
+
+  stageEntry.recordFileUrl = `/uploads/records/${pdfFileName}`;
+  stageEntry.recordFileName = `Phase ${stageNum} scanned records (${scans.length} pages).pdf`;
+  stageEntry.recordFiles = [{ url: stageEntry.recordFileUrl, fileName: stageEntry.recordFileName }];
+  stageEntry.recordPdfPageCount = scans.length;
+  stageEntry.recordPdfUpdatedAt = new Date();
+};
+
 const uploadStageRecord = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
@@ -1838,6 +1894,10 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
   const uploadedFiles = filesFromRequest(req);
   if (!uploadedFiles.length) {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
+  }
+  const invalidFile = uploadedFiles.find((file) => !['image/jpeg', 'image/png'].includes(file.mimetype));
+  if (invalidFile) {
+    return res.status(400).json({ success: false, message: 'Only JPG or PNG images can be scanned into patient record PDF' });
   }
 
   const patient = await Patient.findById(req.params.id);
@@ -1858,11 +1918,62 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
-  const recordFiles = toFileItems(uploadedFiles, 'records');
-  stageEntry.recordFileUrl = recordFiles[0].url;
-  stageEntry.recordFileName = recordFiles[0].fileName;
-  stageEntry.recordFiles = recordFiles;
-  addActivity(patient, req.user, `Record replaced for Phase ${stageNum}`, recordFiles[0].fileName);
+  const uploadedItems = toFileItems(uploadedFiles, 'records').map((file) => ({
+    ...file,
+    uploadedAt: new Date(),
+    uploadedByName: req.user.name,
+  }));
+  stageEntry.recordScanFiles = [...(stageEntry.recordScanFiles || []), ...uploadedItems];
+  await regenerateStageRecordPdf(patient, stageEntry, stageNum);
+  addActivity(
+    patient,
+    req.user,
+    `Record scans appended for Phase ${stageNum}`,
+    `${uploadedItems.length} page(s) added. Total ${stageEntry.recordScanFiles.length} page(s).`
+  );
+
+  await patient.save();
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+const deleteStageRecordScan = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN) {
+    return res.status(403).json({ success: false, message: 'Only Admin can delete scanned record pages' });
+  }
+
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  const scans = stageEntry.recordScanFiles || [];
+  const scanIndex = scans.findIndex((scan) => String(scan._id) === String(req.params.scanId));
+  if (scanIndex === -1) {
+    return res.status(404).json({ success: false, message: 'Scanned page not found' });
+  }
+
+  const [removedScan] = scans.splice(scanIndex, 1);
+  stageEntry.recordScanFiles = scans;
+  await deleteUploadedFileByUrl(removedScan?.url);
+  await regenerateStageRecordPdf(patient, stageEntry, stageNum);
+  addActivity(
+    patient,
+    req.user,
+    `Record scan deleted for Phase ${stageNum}`,
+    removedScan?.fileName || 'Scanned page removed'
+  );
 
   await patient.save();
   await populateAssignments(patient);
@@ -2596,6 +2707,7 @@ module.exports = {
   updateStagePayment,
   approveStagePayment,
   uploadStageRecord,
+  deleteStageRecordScan,
   requestStageMedicine,
   listMedicineRequests,
   updateMedicineRequestStatus,

@@ -15,6 +15,7 @@ const {
   updateStagePayment,
   approveStagePayment,
   uploadStageRecord,
+  deleteStageRecordScan,
   requestStageMedicine,
   addFollowUp,
   updateFollowUp,
@@ -47,7 +48,8 @@ router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES), upda
 router.post('/:id/stages/:number/payments', authorize(...PACKAGE_STAGE_EDIT_ROLES), uploadPaymentScreenshot.array('screenshot', 10), addStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId', authorize('admin'), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approveStagePayment);
-router.post('/:id/stages/:number/record', authorize(...PACKAGE_STAGE_EDIT_ROLES), uploadRecordMiddleware.single('record'), uploadStageRecord);
+router.post('/:id/stages/:number/record', authorize(...PACKAGE_STAGE_EDIT_ROLES), uploadRecordMiddleware.array('record', 30), uploadStageRecord);
+router.delete('/:id/stages/:number/record-scans/:scanId', authorize(ROLES.ADMIN), deleteStageRecordScan);
 router.post('/:id/stages/:number/medicine-request', authorize(...PATIENT_WRITE_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
 router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), addFollowUp);
 router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFollowUp);
