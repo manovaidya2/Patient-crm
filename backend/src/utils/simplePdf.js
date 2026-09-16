@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
-const fontkit = require('fontkit');
 let puppeteer = null;
 try {
   puppeteer = require('puppeteer-core');
@@ -9,7 +8,8 @@ try {
   puppeteer = null;
 }
 
-const fontPath = 'C:\\Windows\\Fonts\\Nirmala.ttc';
+const fontPath = path.join(__dirname, '../../assets/fonts/NotoSansDevanagari.ttf');
+const boldFontPath = path.join(__dirname, '../../assets/fonts/NotoSansDevanagari-Bold.ttf');
 const page = { margin: 28, width: 595.28, height: 841.89 };
 const colors = {
   ink: '#273238',
@@ -20,6 +20,10 @@ const colors = {
 
 const browserCandidates = [
   process.env.PDF_BROWSER_PATH,
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -44,6 +48,23 @@ const writeHtmlPdf = async ({ filePath, html }) => {
     const pageInstance = await browser.newPage();
     await pageInstance.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 1 });
     await pageInstance.setContent(html, { waitUntil: ['load', 'networkidle0'] });
+    // Embed the same Hindi-capable font on every host, including Linux servers.
+    const fontData = fs.readFileSync(fontPath).toString('base64');
+    const boldFontData = fs.readFileSync(boldFontPath).toString('base64');
+    await pageInstance.addStyleTag({ content: `
+      @font-face {
+        font-family: 'CRM PDF';
+        src: url(data:font/ttf;base64,${fontData}) format('truetype');
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: 'CRM PDF';
+        src: url(data:font/ttf;base64,${boldFontData}) format('truetype');
+        font-weight: 700;
+      }
+      html body, html body * { font-family: 'CRM PDF', sans-serif !important; }
+    ` });
+    await pageInstance.evaluate(async () => { await document.fonts.ready; });
     await pageInstance.emulateMediaType('screen');
     await pageInstance.pdf({
       path: filePath,
@@ -247,6 +268,9 @@ const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, htm
     }
   }
 
+  // Fail explicitly if deployment omits the font instead of saving unreadable Hindi.
+  const regular = fs.readFileSync(fontPath);
+  const bold = fs.readFileSync(boldFontPath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   const doc = new PDFDocument({ size: 'A4', margin: page.margin, bufferPages: true, autoFirstPage: false });
@@ -254,16 +278,8 @@ const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, htm
   doc.pipe(stream);
   doc.addPage();
 
-  if (fs.existsSync(fontPath)) {
-    const collection = fontkit.openSync(fontPath);
-    const regular = collection.fonts?.find((font) => font.fullName === 'Nirmala UI') || collection.fonts?.[0];
-    const bold = collection.fonts?.find((font) => font.fullName === 'Nirmala UI Bold') || regular;
-    doc.registerFont('Main', regular);
-    doc.registerFont('MainBold', bold);
-  } else {
-    doc.registerFont('Main', 'Helvetica');
-    doc.registerFont('MainBold', 'Helvetica-Bold');
-  }
+  doc.registerFont('Main', regular);
+  doc.registerFont('MainBold', bold);
   doc.font('Main');
 
   drawHeader(
