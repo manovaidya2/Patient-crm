@@ -2540,27 +2540,36 @@ const updateScheduleEntry = (fieldKey) =>
           const pdfName = `${fieldKey === 'followUps' ? 'followup' : 'family-session'}-${safeEntryId}.pdf`;
           const pdfPath = path.join(__dirname, '../../uploads/forms', safePatientId, pdfName);
           const submittedMeta = completionFormData?.meta || {};
-          await writeTextPdf({
-            filePath: pdfPath,
-            html: completionHtml,
-            title: fieldKey === 'followUps'
-              ? 'MANOVAIDYA - AUTISM FOLLOW-UP ROUTINE & COMPLIANCE CHECK'
-              : 'MANOVAIDYA WELLNESS PVT. LTD. - FAMILY SESSION RECORD',
-            metaRows: [
-              `Patient: ${patient.patientName}`,
-              submittedMeta.patient ? `Patient details: ${submittedMeta.patient}` : '',
-              submittedMeta.dateRecord ? `Record details: ${submittedMeta.dateRecord}` : '',
-              `Phase: ${stageNum}`,
-              `Scheduled: ${new Date(entry.dateTime).toLocaleString('en-IN')}`,
-              `Completed: ${new Date().toLocaleString('en-IN')}`,
-              `Completed by/with: ${completionName}`,
-              fieldKey === 'familySessions' && meetRecordingUrl ? `Google Meet recording: ${meetRecordingUrl}` : '',
-              `Summary: ${completionDetails}`,
-            ].filter(Boolean),
-            formData: completionFormData?.sections || completionFormData || {},
-          });
-          entry.completionPdfUrl = `/uploads/forms/${safePatientId}/${pdfName}`;
-          entry.completionPdfName = pdfName;
+          // A PDF failure (disk, font, renderer) must never cost the staff member their
+          // filled-in follow-up — save the completion regardless and just leave the PDF
+          // off if it couldn't be generated, instead of throwing away the whole request.
+          try {
+            await writeTextPdf({
+              filePath: pdfPath,
+              html: completionHtml,
+              title: fieldKey === 'followUps'
+                ? 'MANOVAIDYA - AUTISM FOLLOW-UP ROUTINE & COMPLIANCE CHECK'
+                : 'MANOVAIDYA WELLNESS PVT. LTD. - FAMILY SESSION RECORD',
+              metaRows: [
+                `Patient: ${patient.patientName}`,
+                submittedMeta.patient ? `Patient details: ${submittedMeta.patient}` : '',
+                submittedMeta.dateRecord ? `Record details: ${submittedMeta.dateRecord}` : '',
+                `Phase: ${stageNum}`,
+                `Scheduled: ${new Date(entry.dateTime).toLocaleString('en-IN')}`,
+                `Completed: ${new Date().toLocaleString('en-IN')}`,
+                `Completed by/with: ${completionName}`,
+                fieldKey === 'familySessions' && meetRecordingUrl ? `Google Meet recording: ${meetRecordingUrl}` : '',
+                `Summary: ${completionDetails}`,
+              ].filter(Boolean),
+              formData: completionFormData?.sections || completionFormData || {},
+            });
+            entry.completionPdfUrl = `/uploads/forms/${safePatientId}/${pdfName}`;
+            entry.completionPdfName = pdfName;
+          } catch (pdfError) {
+            console.error(`Completion PDF generation failed for ${fieldKey} ${safeEntryId}:`, pdfError.message);
+            entry.completionPdfUrl = null;
+            entry.completionPdfName = '';
+          }
         }
       }
       if (!sameValue(entry.status, status)) {

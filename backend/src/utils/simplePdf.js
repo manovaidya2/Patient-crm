@@ -8,8 +8,14 @@ try {
   puppeteer = null;
 }
 
-const fontPath = path.join(__dirname, '../../assets/fonts/NotoSansDevanagari.ttf');
-const boldFontPath = path.join(__dirname, '../../assets/fonts/NotoSansDevanagari-Bold.ttf');
+// NotoSansDevanagari used to be here, but its GPOS (mark-attachment) table triggers a
+// null-pointer crash deep in fontkit for ordinary Hindi text ("Cannot read properties of
+// null (reading 'xCoordinate')") — a known fontkit bug with certain fonts' Devanagari
+// shaping data, reproduced locally against this app's actual form text. Mukta renders the
+// exact same content correctly (verified against every Hindi string in the completion
+// forms plus conjunct-heavy stress words) and has no such issue.
+const fontPath = path.join(__dirname, '../../assets/fonts/Mukta.ttf');
+const boldFontPath = path.join(__dirname, '../../assets/fonts/Mukta-Bold.ttf');
 const page = { margin: 28, width: 595.28, height: 841.89 };
 const colors = {
   ink: '#273238',
@@ -282,11 +288,7 @@ const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, htm
   doc.registerFont('MainBold', bold);
   doc.font('Main');
 
-  drawHeader(
-    doc,
-    title,
-    title.includes('FOLLOW-UP') ? 'Back Slide | Therapy | Caregiver Compliance | New Problem Check | Action & Accountability' : 'पालन, मिसिंग और बदलाव की चेकलिस्ट'
-  );
+  drawHeader(doc, title, 'पालन, मिसिंग और बदलाव की चेकलिस्ट');
   drawMeta(doc, metaRows);
 
   Object.entries(formData || {}).forEach(([section, fields]) => {

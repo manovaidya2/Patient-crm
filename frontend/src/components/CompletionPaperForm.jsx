@@ -102,64 +102,6 @@ const getCompletionPdfHtml = (node) => {
   return `<!doctype html><html><head><meta charset="utf-8" /><style>${COMPLETION_PDF_CSS}</style></head><body><main class="pdf-print-page">${clone.innerHTML}</main></body></html>`;
 };
 
-const familySectionAFields = [
-  ['दवा / Formulation', 'नाम/पैक, समय/मात्रा, पालन, Miss/बाधा/नोट'],
-  ['दवा लेने में दिक्कत', 'मना, थूका/उल्टी, निगलना/चबाना, कितनी बार, क्या हुआ/कब'],
-  ['नस्य', 'समय/तरीका, नियमित/कुछ/नहीं, Miss/बाधा/नोट'],
-  ['मालिश / अभ्यंग', 'तेल/जगह, दिन/मिनट, Miss/बाधा/नोट'],
-  ['लेप / भाप', 'यदि लिखी हो, तरीका, दिन/मिनट, Miss/बाधा/नोट'],
-  ['ॐकार / शांत श्वास', 'बार/दिन x मिनट, नियमित/कुछ/नहीं, बच्चा कैसे जुड़ा'],
-  ['मर्म / Acupressure', 'जगह/तरीका, दिन/मिनट, Miss/बाधा/नोट'],
-  ['उबला गुनगुना पानी', 'घूंट-घूंट, मात्रा, पूरा/कम/नहीं, Miss/बाधा'],
-  ['डाइट / बाहर का चीज', 'मना/बाहर क्या, गलत/बाहर बार, क्या'],
-  ['खाना / भूख', 'पेट भर/कम/अधिक, रुचि/नापसंद, भोजन Miss, उदाहरण/बाधा'],
-  ['पेट साफ / Digestion', 'साफ/कब्ज/गैस/दर्द/उल्टी, दिक्कत, clinic informed/time'],
-  ['थेरेपी / Home Practice', 'Command, Communication, Eye contact, Fine force, Behaviour, दिन/मिनट, Miss/उदाहरण'],
-];
-
-const followupSectionFields = {
-  'A. Back Slide / Therapy / Caregiver Compliance': [
-    ['1. Medicine routine', 'दवा prescribed? No/Yes, taken, missed, issue'],
-    ['2. Diet routine', 'Diet follow हुआ? No/Partial/Yes, issue'],
-    ['3. Sleep routine', 'Sleep routine follow हुआ? No/Partial/Yes, issue'],
-    ['4. Screen / routine', 'Screen/routine control, issue, action'],
-    ['5. Home practice', 'Practice done, duration, missed reason'],
-  ],
-  'B. New Problem Check': [
-    ['6. New symptom', 'कोई new symptom? No/Yes, detail'],
-    ['7. Improvement', 'कोई improvement? Detail'],
-    ['8. Emergency concern', 'Emergency/severe issue? No/Yes, detail'],
-  ],
-  'C. Therapy & School Compliance': [
-    ['16. Speech Therapy prescribed?', 'No/Yes, Advised, Attended, Missed'],
-    ['17. Occupational Therapy prescribed?', 'No/Yes, Advised, Attended, Missed'],
-    ['18. Behavioural / Special Education sessions', 'Advised, Attended, Missed'],
-    ['19. School routine regular?', 'Yes/Partial/No/N/A, Attendance/routine issue'],
-  ],
-  'D. Parent / Caregiver Compliance': [
-    ['20. Parents routine follow कर रहे हैं?', 'Yes/Partial/No, Difference'],
-    ['21. Grandparents / other caregivers plan disturb कर रहे हैं?', 'No/Yes, Issue'],
-    ['22. Parents को instructions समझने में confusion है?', 'No/Yes, कौन-सी instruction'],
-    ['23. Prescribed step practically करने में difficulty है?', 'No/Yes, कौन-सा'],
-    ['24. आज सबसे ज्यादा क्या miss हो रहा है?', 'Medicine/Diet/Therapy/Exercise/Sleep/Screen/Routine/Other'],
-    ['25. Miss होने का मुख्य कारण', 'भूलना/समय की कमी/Caregiver unavailable/Instruction clear नहीं/Child tolerance difficulty/Other'],
-  ],
-  'E. केवल New / Extra Problem Check': [
-    ['26. कोई physical problem?', 'No/Yes, Detail'],
-    ['27. नई sleep / feeding / toilet concern?', 'No/Yes, Detail'],
-    ['28. कोई unusual physical complaint?', 'No/Yes, Detail'],
-    ['29. कोई अचानक severe behaviour / safety concern?', 'No/Yes, Detail'],
-    ['30. कोई नई बात जिसके लिए doctor review चाहिए?', 'No/Yes, Detail'],
-  ],
-  'F. Staff Action & Accountability - Mandatory': [
-    ['A. आज सबसे बड़ी compliance problem', 'Write problem'],
-    ['B. किसकी responsibility है?', 'Mother/Father/Caregiver/Therapist/Clinic/Other'],
-    ['C. आज क्या corrective action दिया?', 'Write action'],
-    ['D. अगली follow-up में सबसे पहले क्या verify करना है?', 'Write verification point'],
-    ['Repeated Non-Compliance & Closure', 'No/2nd Time/3rd Time or More, Senior/Doctor informed, Compliance status, Next priority'],
-  ],
-};
-
 const paperFamilySectionAFields = [
   ['दवा / Formulation', 'नाम/पैक: ____\nसमय/मात्रा: ____', '□ पूरा\n□ कुछ  □ नहीं', 'Miss: ___ | माध्यम: ___\n□ गुनगुना □ सामान्य □ ठंडा □ अन्य'],
   ['दवा लेने में दिक्कत', '□ मना  □ थूका/उल्टी\n□ निगलना/चबाना □ नहीं', 'कितनी बार: ____', 'क्या हुआ / कब: ____'],
@@ -181,58 +123,41 @@ const paperFamilySectionBFields = [
   ['अगली अवधि के 2 लक्ष्य', '1) ____  2) ____  | जिम्मेदार: ____'],
 ];
 
-const paperFollowupSectionFields = {
+// Family Session form: the two shared sections (routine table + changes/plan).
+const paperFamilySectionFields = {
   'A. दवा, घरेलू प्रक्रियाएं, डाइट एवं दैनिक अभ्यास': paperFamilySectionAFields,
   'B. बदलाव, Clinical Concern एवं अगला Plan': paperFamilySectionBFields,
-  'C. Therapy & School Compliance': [
-    ['16. Speech Therapy prescribed है?', '□ No □ Yes   Advised: ____   Attended: ____   Missed: ____'],
-    ['17. Occupational Therapy prescribed है?', '□ No □ Yes   Advised: ____   Attended: ____   Missed: ____'],
-    ['18. Behavioural / Special Education sessions', 'Advised: ____   Attended: ____   Missed: ____'],
-    ['19. School routine regular है?', '□ Yes □ Partial □ No □ N/A   Attendance/routine issue: ____'],
-  ],
-  'D. Parent / Caregiver Compliance': [
-    ['20. Parents दोनों एक ही routine follow कर रहे हैं?', '□ Yes □ Partial □ No   Difference: ____'],
-    ['21. Grandparents / other caregivers plan को disturb कर रहे हैं?', '□ No □ Yes   Issue: ____'],
-    ['22. Parents को किसी instruction को समझने में confusion है?', '□ No □ Yes   कौन-सी instruction: ____'],
-    ['23. किसी prescribed step को practically करने में difficulty है?', '□ No □ Yes   कौन-सा: ____'],
-    ['24. घर पर सबसे ज्यादा क्या miss हो रहा है?', '□ Medicine □ Diet □ Therapy □ Exercise □ Sleep □ Screen □ Routine □ Other ____'],
-    ['25. Miss होने का मुख्य कारण', '□ भूलना □ समय की कमी □ Caregiver unavailable □ Instruction clear नहीं □ Child tolerance difficulty □ Other ____'],
-  ],
-  'E. केवल NEW / EXTRA Problem Check': [
-    ['26. नई physical problem?', '□ No □ Yes   Detail: ____'],
-    ['27. नई sleep / feeding / toilet concern?', '□ No □ Yes   Detail: ____'],
-    ['28. कोई unusual physical complaint?', '□ No □ Yes   Detail: ____'],
-    ['29. कोई अचानक severe behaviour / safety concern?', '□ No □ Yes   Detail: ____'],
-    ['30. कोई नई बात जिसके लिए doctor review चाहिए?', '□ No □ Yes   Detail: ____'],
-  ],
-  'F. Staff Action & Accountability - Mandatory': [
-    ['A. आज सबसे बड़ी compliance problem', '____'],
-    ['B. किसकी responsibility है?', '□ Mother □ Father □ Caregiver □ Therapist □ Clinic □ Other'],
-    ['C. आज क्या corrective action दिया?', '____'],
-    ['D. अगली follow-up में सबसे पहले क्या verify करना है?', '____'],
-    ['Repeated Non-Compliance & Closure', 'इस follow-up में भी miss था? □ No □ 2nd Time □ 3rd Time or More   Senior/Doctor informed: □ Yes □ No   □ Good Compliance □ Partial Compliance □ Major Missing Points   Next follow-up priority: ____'],
-  ],
 };
 
+// Follow-up form: only the routine table (section A) — no extra sections.
+const paperFollowupSectionFields = {
+  'A. दवा, घरेलू प्रक्रियाएं, डाइट एवं दैनिक अभ्यास': paperFamilySectionAFields,
+};
+
+const getSectionFields = (formType) => (formType === 'family_section_a' ? paperFamilySectionFields : paperFollowupSectionFields);
+
 const createEmptyCompletionForm = (formType) => {
-  const sections =
-    formType === 'family_section_a'
-      ? { 'A. दवा, घरेलू प्रक्रियाएं, डाइट एवं दैनिक अभ्यास': paperFamilySectionAFields }
-      : { 'A. à¤¦à¤µà¤¾, à¤˜à¤°à¥‡à¤²à¥‚ à¤ªà¥à¤°à¤•à¥à¤°à¤¿à¤¯à¤¾à¤à¤‚, à¤¡à¤¾à¤‡à¤Ÿ à¤à¤µà¤‚ à¤¦à¥ˆà¤¨à¤¿à¤• à¤…à¤­à¥à¤¯à¤¾à¤¸': paperFamilySectionAFields };
+  const sections = getSectionFields(formType);
   return Object.entries(sections).reduce((acc, [section, fields]) => {
     acc[section] = fields.reduce((fieldAcc, [label]) => ({ ...fieldAcc, [label]: '' }), {});
     return acc;
   }, { 'Additional Notes / अतिरिक्त नोट': { Notes: '' } });
 };
 
+// Used for every section except "A." (that one renders via getPaperRowCells instead).
 const getCompletionPlaceholder = (formType, label) => {
-  const fields = formType === 'family_section_a' ? paperFamilySectionAFields : paperFamilySectionAFields;
-  return fields.find(([field]) => field === label)?.[1] || 'Fill details';
+  const sections = getSectionFields(formType);
+  for (const fields of Object.values(sections)) {
+    const row = fields.find(([field]) => field === label);
+    if (row) return row[1] || 'Fill details';
+  }
+  return 'Fill details';
 };
 
-const getPaperRowCells = (formType, label) => {
-  const fields = formType === 'family_section_a' ? paperFamilySectionAFields : paperFamilySectionAFields;
-  const row = fields.find(([field]) => field === label) || [];
+// Section "A." is the same routine table for both form types, so it always reads
+// straight from paperFamilySectionAFields regardless of formType.
+const getPaperRowCells = (label) => {
+  const row = paperFamilySectionAFields.find(([field]) => field === label) || [];
   return {
     method: row[1] || '',
     compliance: row[2] || '',
@@ -432,11 +357,6 @@ const PaperCompletionForm = ({ formType, formData, onChange, patientMeta }) => {
           <h3 className="pdf-title-main mt-1 text-center font-display text-sm font-bold uppercase tracking-wide">
             {isFamily ? 'Family Session Record' : 'Autism Follow-Up - Routine & Compliance Check'}
           </h3>
-          {!isFamily && (
-            <p className="pdf-title-sub mt-1 text-center text-[10px] text-offwhite-100/80">
-              Back Slide | Therapy | Caregiver Compliance | New Problem Check | Action & Accountability
-            </p>
-          )}
         </div>
 
         {isFamily && (
@@ -483,7 +403,7 @@ const PaperCompletionForm = ({ formType, formData, onChange, patientMeta }) => {
                 </thead>
                 <tbody>
                   {Object.entries(fields).map(([label, value]) => {
-                    const cells = getPaperRowCells(formType, label);
+                    const cells = getPaperRowCells(label);
                     const paperValue = toPaperCellValue(value);
                     return (
                     <tr key={label}>
