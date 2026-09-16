@@ -8,8 +8,9 @@ const COMPLETION_PDF_CSS = `
     font-family: "Nirmala UI", "Mangal", Arial, sans-serif;
     font-size: 11px;
     line-height: 1.35;
+    overflow: visible;
   }
-  .pdf-print-page { width: 194mm; margin: 0 auto; }
+  .pdf-print-page { width: 100%; max-width: 194mm; margin: 0 auto; overflow: visible; }
   .pdf-paper-scroll { max-height: none !important; overflow: visible !important; border: 0 !important; background: #ffffff !important; padding: 0 !important; box-shadow: none !important; }
   .pdf-sheet { border: 1px solid rgba(39, 50, 56, 0.65); background: #fffdf8; }
   .pdf-title-bar { background: #273238; color: #fffdf8; padding: 10px 12px; text-align: center; }
