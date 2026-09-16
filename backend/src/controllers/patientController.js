@@ -241,6 +241,15 @@ const canSeeMedicineConnectReminder = (user, patient, stage) => {
 const canEditPackageStage = (user) =>
   [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
 
+const canEditPatientRecords = (user) =>
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+
+const canAddStagePayment = (user) =>
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+
+const canEditPatientIdentity = (user) =>
+  [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+
 const assigneeKey = (assignedUser, fallbackName = 'Unassigned') =>
   assignedUser?._id ? String(assignedUser._id) : assignedUser ? String(assignedUser) : fallbackName;
 
@@ -1368,6 +1377,7 @@ const updatePatient = asyncHandler(async (req, res) => {
   const {
     patientCode,
     patientName,
+    category,
     age,
     number,
     guardianName,
@@ -1388,7 +1398,9 @@ const updatePatient = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 
-  if (req.user.role === ROLES.PSYCHOLOGIST) {
+  const identityFields = ['patientCode', 'patientName', 'category'];
+  const hasNonIdentityUpdate = Object.keys(req.body || {}).some((key) => !identityFields.includes(key));
+  if (req.user.role === ROLES.PSYCHOLOGIST && hasNonIdentityUpdate) {
     return res.status(403).json({ success: false, message: 'Psychologist cannot edit patient details' });
   }
 
@@ -1400,8 +1412,8 @@ const updatePatient = asyncHandler(async (req, res) => {
   };
 
   if (patientCode !== undefined) {
-    if (req.user.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only Admin can edit Patient ID' });
+    if (!canEditPatientIdentity(req.user)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to edit Patient ID' });
     }
     const normalizedPatientCode = String(patientCode || '').trim().toUpperCase();
     if (!normalizedPatientCode) {
@@ -1416,7 +1428,21 @@ const updatePatient = asyncHandler(async (req, res) => {
     }
   }
 
+  if (patientName !== undefined && !canEditPatientIdentity(req.user)) {
+    return res.status(403).json({ success: false, message: 'You do not have permission to edit Patient name' });
+  }
   updateField('patientName', patientName, 'Patient name');
+
+  if (category !== undefined) {
+    if (!canEditPatientIdentity(req.user)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to edit patient category' });
+    }
+    if (!ALL_CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: 'Invalid patient category' });
+    }
+    updateField('category', category, 'Patient category');
+  }
+
   updateField('age', age, 'Age');
   updateField('number', number, "Father's number");
   updateField('guardianName', guardianName, 'Father/Mother name');
@@ -1671,16 +1697,12 @@ const addStagePayment = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
 
-  if (!canEditPackageStage(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package phase details' });
+  if (!canAddStagePayment(req.user)) {
+    return res.status(403).json({ success: false, message: 'You do not have access to add payments' });
   }
 
   if (!canAccessPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
-  }
-
-  if (req.user.role === ROLES.PSYCHOLOGIST) {
-    return res.status(403).json({ success: false, message: 'Psychologist cannot add payments' });
   }
 
   if (!patient.stages || patient.stages.length !== STAGES.length) {
@@ -1909,8 +1931,8 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 
-  if (!canEditPackageStage(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package phase details' });
+  if (!canEditPatientRecords(req.user)) {
+    return res.status(403).json({ success: false, message: 'You do not have access to edit patient records' });
   }
 
   if (!patient.stages || patient.stages.length !== STAGES.length) {
@@ -1939,8 +1961,8 @@ const uploadStageRecord = asyncHandler(async (req, res) => {
 });
 
 const deleteStageRecordScan = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.ADMIN) {
-    return res.status(403).json({ success: false, message: 'Only Admin can delete scanned record pages' });
+  if (!canEditPatientRecords(req.user)) {
+    return res.status(403).json({ success: false, message: 'You do not have access to edit patient records' });
   }
 
   const stageNum = parseInt(req.params.number, 10);
@@ -1951,6 +1973,10 @@ const deleteStageRecordScan = asyncHandler(async (req, res) => {
   const patient = await Patient.findById(req.params.id);
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if (!canAccessPatient(req.user, patient)) {
+    return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 
   if (!patient.stages || patient.stages.length !== STAGES.length) {

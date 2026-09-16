@@ -12,7 +12,7 @@ import Drawer from '../../components/ui/Drawer.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
+import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 import { STAGES, STAGE_LABELS, STAGE_STATUS_OPTIONS } from '../../constants/treatmentStages.js';
 import { PAYMENT_MODES, PAYMENT_MODE_OPTIONS } from '../../constants/paymentModes.js';
 import { ASSIGN_DOCTOR_ROLES, ROLES } from '../../constants/roles.js';
@@ -770,6 +770,81 @@ const ScannedRecordFileField = ({
         </div>
       </Modal>
     </div>
+  );
+};
+
+const HeaderEditButton = ({ label, value, onSave, readOnly = false, type = 'text', options = [] }) => {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const startEdit = () => {
+    if (readOnly) return;
+    setDraft(value || '');
+    setError('');
+    setOpen(true);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(draft);
+      setOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (readOnly) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={startEdit}
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-cardline bg-offwhite-200 text-sage shadow-sm hover:bg-sage-muted/20 hover:text-charcoal"
+        title={`Edit ${label}`}
+      >
+        <Pencil size={14} />
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title={`Edit ${label}`} className="max-w-sm">
+        <form onSubmit={handleSave} className="space-y-4">
+          {type === 'select' ? (
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-charcoal/55">{label}</span>
+              <select
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-semibold text-charcoal outline-none focus:border-sage"
+              >
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <Input label={label} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+          )}
+          {error && <p className="text-xs font-semibold text-[#8C3B2E]">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </>
   );
 };
 
@@ -2035,6 +2110,9 @@ const PatientDetails = () => {
   const isAccountant = user?.role === ROLES.ACCOUNTANT;
   const isAdmin = user?.role === ROLES.ADMIN;
   const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canEditPatientIdentity = [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
   const showFollowUps = user?.role !== ROLES.PSYCHOLOGIST;
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
@@ -2276,14 +2354,40 @@ const PatientDetails = () => {
       ) : (
         <Card padded={false} className="overflow-hidden">
           <div className="p-6">
-            <div className="flex items-start justify-between">
-              <span className="font-mono text-xs tracking-widest text-charcoal/40 font-semibold">
-                {patient.patientCode || `PT-${String(patient.id).slice(-6).toUpperCase()}`}
-              </span>
-              <Badge tone={isAutism ? 'teal' : 'amber'}>{patient.categoryLabel}</Badge>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-1">
+                <span className="truncate font-mono text-xs tracking-widest text-charcoal/40 font-semibold">
+                  {patient.patientCode || `PT-${String(patient.id).slice(-6).toUpperCase()}`}
+                </span>
+                <HeaderEditButton
+                  label="Patient ID"
+                  value={patient.patientCode || ''}
+                  onSave={(val) => saveField('patientCode', val)}
+                  readOnly={!canEditPatientIdentity}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Badge tone={isAutism ? 'teal' : 'amber'}>{patient.categoryLabel}</Badge>
+                <HeaderEditButton
+                  label="Category"
+                  type="select"
+                  options={ALL_PATIENT_CATEGORIES.map((category) => ({ value: category, label: CATEGORY_LABELS[category] }))}
+                  value={patient.category}
+                  onSave={(val) => saveField('category', val)}
+                  readOnly={!canEditPatientIdentity}
+                />
+              </div>
             </div>
 
-            <h1 className="font-serif text-3xl font-semibold text-charcoal mt-3">{patient.patientName}</h1>
+            <div className="mt-3 flex min-w-0 items-start gap-2">
+              <h1 className="min-w-0 break-words font-serif text-3xl font-semibold leading-tight text-charcoal">{patient.patientName}</h1>
+              <HeaderEditButton
+                label="Patient Name"
+                value={patient.patientName || ''}
+                onSave={(val) => saveField('patientName', val)}
+                readOnly={!canEditPatientIdentity}
+              />
+            </div>
             <p className="mt-1.5 text-sm text-charcoal/60">
               {patient.categoryLabel} · Added {formatDate(patient.createdAt)}
             </p>
@@ -2315,21 +2419,7 @@ const PatientDetails = () => {
           )}
 
                     {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-10 gap-px bg-cardline border-t border-cardline">
-            <EditableField
-              label="Patient ID"
-              value={patient.patientCode || ''}
-              placeholder="Not added"
-              onSave={(val) => saveField('patientCode', val)}
-              readOnly={!isAdmin}
-            />
-            <EditableField
-              label="Patient Name"
-              value={patient.patientName || ''}
-              placeholder="Not added"
-              onSave={(val) => saveField('patientName', val)}
-              readOnly={!isAdmin}
-            />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-px bg-cardline border-t border-cardline">
             <EditableField
               label="Age"
               value={patient.age ?? ''}
@@ -2597,7 +2687,7 @@ const PatientDetails = () => {
                     <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Amount Left</p>
                     <p className="mt-1 text-sm font-bold text-charcoal">{formatMoney(activeStage.remainingAmount)}</p>
                   </div>
-                  {canEditStageDetails ? (
+                  {canAddPayment ? (
                     <AddPaymentField onAdd={handleAddPayment} />
                   ) : (
                     <div className="bg-offwhite-100 p-4">
@@ -2613,8 +2703,8 @@ const PatientDetails = () => {
                     scanFiles={activeStage.recordScanFiles || []}
                     onUpload={handleUploadRecord}
                     onDeleteScan={handleDeleteRecordScan}
-                    canUpload={canEditStageDetails}
-                    canDelete={isAdmin}
+                    canUpload={canEditPatientRecords}
+                    canDelete={canEditPatientRecords}
                   />
                 </div>
               </div>
