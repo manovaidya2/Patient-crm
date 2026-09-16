@@ -1,9 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
+// Full `puppeteer` (not puppeteer-core) bundles its own Chromium build, downloaded on
+// `npm install` — that's what makes PDF rendering reliable on a bare server that has no
+// browser installed system-wide, instead of silently falling back to the much lower
+// quality hand-drawn PDF below whenever none of the hardcoded system paths exist.
 let puppeteer = null;
 try {
-  puppeteer = require('puppeteer-core');
+  puppeteer = require('puppeteer');
 } catch (error) {
   puppeteer = null;
 }
@@ -36,12 +40,25 @@ const browserCandidates = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ].filter(Boolean);
 
-const findBrowserPath = () => browserCandidates.find((candidate) => fs.existsSync(candidate));
+// Prefer an explicit override or an already-installed system browser (skips relaunching
+// puppeteer's own copy); otherwise use the Chromium puppeteer bundles itself, which is
+// always present right after `npm install` regardless of what the host has installed.
+const findBrowserPath = async () => {
+  const systemMatch = browserCandidates.find((candidate) => fs.existsSync(candidate));
+  if (systemMatch) return systemMatch;
+  if (!puppeteer) return null;
+  try {
+    const bundled = await puppeteer.executablePath();
+    return bundled && fs.existsSync(bundled) ? bundled : null;
+  } catch (error) {
+    return null;
+  }
+};
 
 const writeHtmlPdf = async ({ filePath, html }) => {
-  if (!puppeteer) throw new Error('puppeteer-core is not installed');
-  const executablePath = findBrowserPath();
-  if (!executablePath) throw new Error('Chrome or Edge executable was not found');
+  if (!puppeteer) throw new Error('puppeteer is not installed');
+  const executablePath = await findBrowserPath();
+  if (!executablePath) throw new Error('No Chromium/Chrome/Edge executable was found (bundled or system)');
 
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const browser = await puppeteer.launch({
