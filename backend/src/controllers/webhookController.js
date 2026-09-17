@@ -293,42 +293,41 @@ const pick = (source, keys, fallback) => {
   return fallback;
 };
 
-const findPatientForCall = async ({ patientId, externalPatientId, phoneNumber }) => {
+const findPatientForCall = async ({ patientId, externalPatientId, phoneNumber, alternatePhoneNumber }) => {
   if (patientId) {
     const patient = await Patient.findById(patientId);
-    if (patient) return patient;
+    if (patient) return { patient, matchedPhone: phoneNumber || alternatePhoneNumber };
   }
 
   if (externalPatientId) {
     const patient = await Patient.findOne({ externalId: externalPatientId });
-    if (patient) return patient;
+    if (patient) return { patient, matchedPhone: phoneNumber || alternatePhoneNumber };
   }
 
-  const phone = normalizePhone(phoneNumber);
-  if (!phone) return null;
-  const phoneTail = phone.slice(-10);
+  const phones = [...new Set([phoneNumber, alternatePhoneNumber].map(normalizePhone).filter(Boolean))];
+  if (!phones.length) return null;
 
   const candidates = await Patient.find({
-    $or: [
-      { number: phoneNumber },
-      { alternateNumber: phoneNumber },
-      ...(phoneTail ? [{ number: new RegExp(`${phoneTail}$`) }, { alternateNumber: new RegExp(`${phoneTail}$`) }] : []),
-    ],
-  }).limit(10);
+    $or: phones.flatMap((phone) => {
+      const phoneTail = phone.slice(-10);
+      return [
+        { number: phone },
+        { alternateNumber: phone },
+        { number: new RegExp(`${phoneTail}$`) },
+        { alternateNumber: new RegExp(`${phoneTail}$`) },
+      ];
+    }),
+  });
 
-  return (
-    candidates.find(
-      (patient) => {
-        const patientPhone = normalizePhone(patient.number);
-        const alternatePhone = normalizePhone(patient.alternateNumber);
-        return (
-          patientPhone === phone ||
-          alternatePhone === phone ||
-          (phoneTail && (patientPhone.endsWith(phoneTail) || alternatePhone.endsWith(phoneTail)))
-        );
-      }
-    ) || null
-  );
+  const matches = candidates.flatMap((patient) => {
+    const patientPhones = [normalizePhone(patient.number), normalizePhone(patient.alternateNumber)].filter(Boolean);
+    const matchedPhone = phones.find((phone) => patientPhones.some((stored) =>
+      stored === phone || (phone.length >= 10 && stored.endsWith(phone.slice(-10)))
+    ));
+    return matchedPhone ? [{ patient, matchedPhone }] : [];
+  });
+
+  return matches.length === 1 ? matches[0] : null;
 };
 
 const findExistingCallForPatient = async ({ patient, externalCallId, dedupeKey, phoneNumber, callType, normalizedTime }) => {
@@ -382,7 +381,8 @@ const receiveCallWebhook = asyncHandler(async (req, res) => {
     const actionFields = parseMaybeJson(action.fields, action.fields) || action;
     const patientId = pick(rootFields, ['patientId', 'patient_id']);
     const externalPatientId = pick(rootFields, ['externalPatientId', 'external_patient_id', 'externalId']);
-    const phoneNumber = pick(rootFields, ['Phone', 'phone', 'phoneNumber', 'phone_number', 'number', 'mobile', 'alternatePhone', 'alternate_phone']);
+    const phoneNumber = pick(rootFields, ['Phone', 'phone', 'phoneNumber', 'phone_number', 'number', 'mobile']);
+    const alternatePhoneNumber = pick(rootFields, ['Alternate_phone', 'alternatePhone', 'alternate_phone', 'alternateNumber']);
     const patientName = pick(rootFields, ['Name', 'name', 'patientName', 'patient_name']);
     const callType = pick(actionFields, ['type', 'callType', 'call_type', 'call type']);
     const duration = pick(actionFields, ['durationSeconds', 'duration_seconds', 'duration'], '0');
@@ -394,20 +394,21 @@ const receiveCallWebhook = asyncHandler(async (req, res) => {
 
     if (!callType) continue;
 
-    const patient = await findPatientForCall({ patientId, externalPatientId, phoneNumber });
-    if (!patient) {
+    const match = await findPatientForCall({ patientId, externalPatientId, phoneNumber, alternatePhoneNumber });
+    if (!match) {
       // A calling-system contact that is not a CRM patient must never create a
       // call row or leave an uploaded recording in local storage.
       await removeUploadedRecording(file);
       ignoredActions += 1;
       continue;
     }
+    const { patient, matchedPhone } = match;
 
     const normalizedTime = toDateOrNow(actionCreationTime);
     const externalCallId = pick(actionFields, ['externalCallId', 'external_call_id', 'callId', 'call_id']);
     const dedupeKey = externalCallId
       ? undefined
-      : `${normalizePhone(phoneNumber || patientName).slice(-10) || 'unknown'}|${callType.toLowerCase()}|${normalizedTime.getTime()}`;
+      : `${normalizePhone(matchedPhone || patientName).slice(-10) || 'unknown'}|${callType.toLowerCase()}|${normalizedTime.getTime()}`;
     const recordingUrl = cleanRecordingUrl(
       pick(actionFields, ['callRecordingUrl', 'call recording url', 'recordingUrl', 'recording_url', 'callRecording', 'call_recording'])
     );
@@ -417,7 +418,7 @@ const receiveCallWebhook = asyncHandler(async (req, res) => {
       patient,
       externalCallId,
       dedupeKey,
-      phoneNumber,
+      phoneNumber: matchedPhone,
       callType,
       normalizedTime,
     });
@@ -443,7 +444,7 @@ const receiveCallWebhook = asyncHandler(async (req, res) => {
     const callLogData = {
       patient: patient._id,
       patientName: patient.patientName || patientName || existing?.patientName || '',
-      phoneNumber: phoneNumber || existing?.phoneNumber || '',
+      phoneNumber: matchedPhone || existing?.phoneNumber || '',
       externalPatientId: externalPatientId || existing?.externalPatientId || '',
       dedupeKey,
       callType,
