@@ -1,6 +1,8 @@
 const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
+const AdviceRequest = require('../models/AdviceRequest');
+const DigitalMarketingReview = require('../models/DigitalMarketingReview');
 const BankAccount = require('../models/BankAccount');
 const fs = require('fs');
 const path = require('path');
@@ -1804,6 +1806,37 @@ const updateStagePayment = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
+// @desc    Delete a payment entry from a phase
+// @route   DELETE /api/patients/:id/stages/:number/payments/:paymentId
+// @access  Private/Admin
+const deleteStagePayment = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  const stageEntry = patient.stages?.find((stage) => stage.number === stageNum);
+  const payment = stageEntry?.payments.id(req.params.paymentId);
+  if (!payment) {
+    return res.status(404).json({ success: false, message: 'Payment not found' });
+  }
+
+  const details = `${payment.amount} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode} (payment ID: ${payment._id})`;
+  const screenshotUrls = [payment.screenshotUrl, ...(payment.screenshotFiles || []).map((file) => file.url)].filter(Boolean);
+  payment.deleteOne();
+  addActivity(patient, req.user, `Payment deleted for Phase ${stageNum}`, details);
+  await patient.save();
+  await Promise.all([...new Set(screenshotUrls)].map(deleteUploadedFileByUrl));
+  await populateAssignments(patient);
+
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
 // @desc    Approve one payment entry so it counts as accounts-verified — this is the
 //          per-payment approval that keeps firing for an existing, already-approved
 //          patient every time a new payment comes in on any stage.
@@ -1878,6 +1911,39 @@ const deleteUploadedFileByUrl = async (url) => {
     }
   }
 };
+
+// @desc    Remove a patient and records owned by that patient
+// @route   DELETE /api/patients/:id
+// @access  Private/Admin
+const deletePatient = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  const calls = await CallLog.find({ patient: patient._id }).select('recordingFileUrl');
+  const fileUrls = new Set(calls.map((call) => call.recordingFileUrl).filter(Boolean));
+  const collectFiles = (value) => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) return value.forEach(collectFiles);
+    for (const [key, item] of Object.entries(value)) {
+      if (key.toLowerCase().endsWith('url') && typeof item === 'string' && item.startsWith('/uploads/')) {
+        fileUrls.add(item);
+      } else if (item && typeof item === 'object') {
+        collectFiles(item);
+      }
+    }
+  };
+  collectFiles(patient.toObject().stages);
+
+  await AdviceRequest.deleteMany({ patient: patient._id });
+  await DigitalMarketingReview.deleteMany({ patient: patient._id });
+  await CallLog.deleteMany({ patient: patient._id });
+  await Patient.deleteOne({ _id: patient._id });
+  await Promise.all([...fileUrls].map(deleteUploadedFileByUrl));
+
+  res.status(200).json({ success: true, message: 'Patient deleted' });
+});
 
 const regenerateStageRecordPdf = async (patient, stageEntry, stageNum) => {
   const scans = stageEntry.recordScanFiles || [];
@@ -2742,6 +2808,7 @@ module.exports = {
   getStaffDashboardStats,
   getPaymentsLedger,
   getPatientById,
+  deletePatient,
   getPatientCallLogs,
   createPatient,
   getPendingApprovals,
@@ -2750,6 +2817,7 @@ module.exports = {
   updatePatientStage,
   addStagePayment,
   updateStagePayment,
+  deleteStagePayment,
   approveStagePayment,
   uploadStageRecord,
   deleteStageRecordScan,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2 } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -2092,6 +2092,9 @@ const PatientDetails = () => {
   const [approveError, setApproveError] = useState('');
   const [approvingPaymentId, setApprovingPaymentId] = useState(null);
   const [paymentApproveError, setPaymentApproveError] = useState('');
+  const [deletingPaymentId, setDeletingPaymentId] = useState(null);
+  const [deletingPatient, setDeletingPatient] = useState(false);
+  const [deletePatientError, setDeletePatientError] = useState('');
 
   const loadPatientData = useCallback(
     async ({ silent = false } = {}) => {
@@ -2283,6 +2286,34 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
+  const handleDeletePayment = async (stageNumber, payment) => {
+    if (!window.confirm(`Delete the ${formatMoney(payment.amount)} payment from Phase ${stageNumber}?`)) return;
+    setDeletingPaymentId(payment.id);
+    setPaymentApproveError('');
+    try {
+      const { data } = await api.delete(`/patients/${id}/stages/${stageNumber}/payments/${payment.id}`);
+      setPatient(data.patient);
+    } catch (err) {
+      setPaymentApproveError(err.response?.data?.message || 'Could not delete payment');
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
+
+  const handleDeletePatient = async () => {
+    const label = patient.patientCode || patient.patientName;
+    if (!window.confirm(`Permanently delete ${patient.patientName} (${label}) and all related patient records? This cannot be undone.`)) return;
+    setDeletingPatient(true);
+    setDeletePatientError('');
+    try {
+      await api.delete(`/patients/${id}`);
+      navigate('/admin/patients', { replace: true });
+    } catch (err) {
+      setDeletePatientError(err.response?.data?.message || 'Could not delete patient');
+      setDeletingPatient(false);
+    }
+  };
+
   const handleApprovePayment = async (stageNumber, paymentId) => {
     setApprovingPaymentId(paymentId);
     setPaymentApproveError('');
@@ -2468,6 +2499,19 @@ const PatientDetails = () => {
               <p className="mt-0.5 text-xs text-charcoal/40">
                 Approved by {patient.approvedByName}{patient.approvedAt ? ` on ${formatDate(patient.approvedAt)}` : ''}
               </p>
+            )}
+            {isAdmin && (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleDeletePatient}
+                  disabled={deletingPatient}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8C3B2E] hover:underline disabled:opacity-50"
+                >
+                  <Trash2 size={14} /> {deletingPatient ? 'Deleting...' : 'Delete Patient'}
+                </button>
+                {deletePatientError && <p className="mt-1 text-xs text-[#8C3B2E]">{deletePatientError}</p>}
+              </div>
             )}
           </div>
 
@@ -2952,7 +2996,19 @@ const PatientDetails = () => {
                     <IndianRupee size={12} /> {Number(pay.amount).toLocaleString('en-IN')}
                   </span>
                   <div className="flex items-center gap-1.5">
-                    {isAdmin && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
+                     {isAdmin && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
+                     {isAdmin && (
+                       <button
+                         type="button"
+                         title="Delete payment"
+                         aria-label="Delete payment"
+                         onClick={() => handleDeletePayment(activeStage.number, pay)}
+                         disabled={deletingPaymentId === pay.id}
+                         className="p-1.5 text-[#8C3B2E] hover:bg-[#8C3B2E]/10 disabled:opacity-50"
+                       >
+                         <Trash2 size={15} />
+                       </button>
+                     )}
                     <Badge tone={pay.paymentMode === 'cash' ? 'amber' : 'teal'}>{pay.paymentModeLabel}</Badge>
                     {pay.approvalStatus === 'pending' && <Badge tone="amber">Pending Approval</Badge>}
                   </div>
