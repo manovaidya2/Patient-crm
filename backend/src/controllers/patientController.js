@@ -1550,7 +1550,16 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   }
 
   if (!canEditPackageStage(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor, Accountant and Post Counselor can edit package phase details' });
+    const medicineFields = new Set([
+      'medicineMonthsGiven', 'medicineExplainDate', 'medicineSupplyNote',
+      'medicineNextConnectDate', 'medicineNextConnectNote', 'medicineTakenDate',
+      'medicineFullyGiven', 'medicineConnectDone',
+    ]);
+    if (req.user.role !== ROLES.ASSISTANT_DOCTOR ||
+        !Object.keys(req.body).length ||
+        Object.keys(req.body).some((key) => !medicineFields.has(key))) {
+      return res.status(403).json({ success: false, message: 'You can only edit medicine supply details for this phase' });
+    }
   }
 
   // Backfill the full 6-entry array if this patient predates the stages field

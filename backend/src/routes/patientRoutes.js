@@ -49,7 +49,7 @@ router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
 router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approvePatient);
 router.patch('/:id', authorize(...PATIENT_WRITE_ROLES), updatePatient);
-router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES), updatePatientStage);
+router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES, ROLES.ASSISTANT_DOCTOR), updatePatientStage);
 router.post('/:id/stages/:number/payments', authorize(...PAYMENT_ADD_ROLES), uploadPaymentScreenshot.array('screenshot', 10), addStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId', authorize('admin'), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
 router.delete('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN), deleteStagePayment);

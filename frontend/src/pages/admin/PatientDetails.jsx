@@ -2186,6 +2186,7 @@ const PatientDetails = () => {
   const isAccountant = user?.role === ROLES.ACCOUNTANT;
   const isAdmin = user?.role === ROLES.ADMIN;
   const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
   const canEditPatientIdentity = [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
@@ -2855,7 +2856,7 @@ const PatientDetails = () => {
                     value={activeStage.medicineMonthsGiven || ''}
                     placeholder="0"
                     onSave={(val) => saveStageField('medicineMonthsGiven', val)}
-                    readOnly={!canEditStageDetails}
+                    readOnly={!canEditMedicineSupply}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
                   <EditableField
@@ -2864,7 +2865,7 @@ const PatientDetails = () => {
                     value={toDateInputValue(activeStage.medicineExplainDate)}
                     placeholder="Not added"
                     onSave={(val) => saveStageField('medicineExplainDate', val)}
-                    readOnly={!canEditStageDetails}
+                    readOnly={!canEditMedicineSupply}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
                   <EditableField
@@ -2873,7 +2874,7 @@ const PatientDetails = () => {
                     value={toDateInputValue(activeStage.medicineNextConnectDate)}
                     placeholder="Not added"
                     onSave={(val) => saveStageField('medicineNextConnectDate', val)}
-                    readOnly={!canEditStageDetails}
+                    readOnly={!canEditMedicineSupply}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
                   <EditableField
@@ -2882,7 +2883,7 @@ const PatientDetails = () => {
                     value={toDateInputValue(activeStage.medicineTakenDate)}
                     placeholder="Not added"
                     onSave={(val) => saveStageField('medicineTakenDate', val)}
-                    readOnly={!canEditStageDetails}
+                    readOnly={!canEditMedicineSupply}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
                   <EditableField
@@ -2891,7 +2892,7 @@ const PatientDetails = () => {
                     options={YES_NO_OPTIONS}
                     value={String(Boolean(activeStage.medicineFullyGiven))}
                     onSave={(val) => saveStageField('medicineFullyGiven', val)}
-                    readOnly={!canEditStageDetails}
+                    readOnly={!canEditMedicineSupply}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
                   <EditableField
@@ -2900,7 +2901,7 @@ const PatientDetails = () => {
                     options={YES_NO_OPTIONS}
                     value={String(Boolean(activeStage.medicineConnectDone))}
                     onSave={(val) => saveStageField('medicineConnectDone', val)}
-                    readOnly={!canEditStageDetails}
+                    readOnly={!canEditMedicineSupply}
                     tone={activeMedicineConnectDue ? 'danger' : 'default'}
                   />
                   <div className="sm:col-span-3">
@@ -2910,7 +2911,7 @@ const PatientDetails = () => {
                       value={activeStage.medicineSupplyNote || ''}
                       placeholder="Write medicine given/not given details"
                       onSave={(val) => saveStageField('medicineSupplyNote', val)}
-                      readOnly={!canEditStageDetails}
+                      readOnly={!canEditMedicineSupply}
                       tone={activeMedicineConnectDue ? 'danger' : 'default'}
                     />
                   </div>
@@ -2921,7 +2922,7 @@ const PatientDetails = () => {
                       value={activeStage.medicineNextConnectNote || ''}
                       placeholder="Write the issue to remember"
                       onSave={(val) => saveStageField('medicineNextConnectNote', val)}
-                      readOnly={!canEditStageDetails}
+                      readOnly={!canEditMedicineSupply}
                       tone={activeMedicineConnectDue ? 'danger' : 'default'}
                     />
                   </div>
