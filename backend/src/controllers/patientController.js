@@ -6,6 +6,7 @@ const DigitalMarketingReview = require('../models/DigitalMarketingReview');
 const BankAccount = require('../models/BankAccount');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { writeTextPdf, writeImagesPdf } = require('../utils/simplePdf');
 const { ALL_CATEGORIES, CATEGORY_LABELS } = require('../constants/patientCategories');
@@ -328,6 +329,7 @@ const formatMedicineRequest = (request = {}) => {
   const courier = { ...emptyCourier(), ...(data.courier?.toObject?.() || data.courier || {}) };
   return {
     ...data,
+    id: data.requestId || 'legacy',
     prescriptionFiles: withLegacyFile(data.prescriptionFiles, data.prescriptionUrl, data.prescriptionFileName),
     medicineImages: withLegacyFile(data.medicineImages, data.medicineImageUrl, data.medicineImageFileName),
     courier: {
@@ -454,6 +456,7 @@ const normalizeStages = (existing = []) => {
       recordPdfPageCount: found?.recordPdfPageCount || 0,
       recordPdfUpdatedAt: found?.recordPdfUpdatedAt || null,
       medicineRequest: { ...emptyMedicineRequest(), ...(found?.medicineRequest?.toObject?.() || found?.medicineRequest || {}) },
+      medicineRequests: found?.medicineRequests || [],
       followUps: found?.followUps || [],
       familySessions: found?.familySessions || [],
     };
@@ -526,6 +529,9 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       recordPdfPageCount: s.recordPdfPageCount || 0,
       recordPdfUpdatedAt: s.recordPdfUpdatedAt || null,
       medicineRequest: formatMedicineRequest(s.medicineRequest),
+      medicineRequests: stageMedicineRequests(s)
+        .map(formatMedicineRequest)
+        .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0)),
       followUps: shouldShowFollowUps(user)
         ? (s.followUps || []).map(formatScheduleEntry).sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
         : [],
@@ -774,14 +780,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             postCounselor: stage.postCounselor?.name || '',
           });
         }
-        const request = formatMedicineRequest(stage.medicineRequest);
-        if (request.status === MEDICINE_STATUSES.REQUESTED) workflowSummary.medicineRequested += 1;
-        if (request.status === MEDICINE_STATUSES.IN_PROCESS) workflowSummary.medicineInProcess += 1;
-        if ([MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER].includes(request.status)) workflowSummary.medicineMade += 1;
-        if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER) workflowSummary.sentToCourier += 1;
-        if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER && request.courier.status === COURIER_STATUSES.PENDING) workflowSummary.courierPending += 1;
-        if (request.courier.status === COURIER_STATUSES.DISPATCHED) workflowSummary.courierDispatched += 1;
-        if (request.courier.status === COURIER_STATUSES.DELIVERED) workflowSummary.courierDelivered += 1;
+        stageMedicineRequests(stage).map(formatMedicineRequest).forEach((request) => {
+          if (request.status === MEDICINE_STATUSES.REQUESTED) workflowSummary.medicineRequested += 1;
+          if (request.status === MEDICINE_STATUSES.IN_PROCESS) workflowSummary.medicineInProcess += 1;
+          if ([MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER].includes(request.status)) workflowSummary.medicineMade += 1;
+          if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER) workflowSummary.sentToCourier += 1;
+          if (request.status === MEDICINE_STATUSES.SENT_TO_COURIER && request.courier.status === COURIER_STATUSES.PENDING) workflowSummary.courierPending += 1;
+          if (request.courier.status === COURIER_STATUSES.DISPATCHED) workflowSummary.courierDispatched += 1;
+          if (request.courier.status === COURIER_STATUSES.DELIVERED) workflowSummary.courierDelivered += 1;
+        });
 
         (stage.followUps || []).forEach((entry) => {
           const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
@@ -1947,6 +1954,17 @@ const deleteUploadedFileByUrl = async (url) => {
   }
 };
 
+const stageMedicineRequests = (stage) => [
+  ...(stage.medicineRequest && stage.medicineRequest.status !== MEDICINE_STATUSES.NOT_REQUESTED
+    ? [stage.medicineRequest] : []),
+  ...(stage.medicineRequests || []),
+];
+
+const findStageMedicineRequest = (stage, requestId) => {
+  if (!requestId || requestId === 'legacy') return stage.medicineRequest;
+  return (stage.medicineRequests || []).find((request) => request.requestId === requestId);
+};
+
 // @desc    Remove a patient and records owned by that patient
 // @route   DELETE /api/patients/:id
 // @access  Private/Admin
@@ -2145,20 +2163,33 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
   const prescriptionFiles = toFileItems(uploadedFiles, 'prescriptions');
-  stageEntry.medicineRequest = {
+  const createNew = req.body.createNew === 'true' || req.body.createNew === true;
+  const existingRequest = createNew ? null : findStageMedicineRequest(stageEntry, req.body.requestId);
+  if (!createNew && req.body.requestId && !existingRequest) {
+    return res.status(404).json({ success: false, message: 'Medicine request not found' });
+  }
+  const nextRequest = {
     ...emptyMedicineRequest(),
-    ...(stageEntry.medicineRequest?.toObject?.() || stageEntry.medicineRequest || {}),
+    ...(existingRequest?.toObject?.() || existingRequest || {}),
+    ...(createNew ? { requestId: crypto.randomUUID() } : {}),
     status: MEDICINE_STATUSES.REQUESTED,
     medicines,
     notes: notes || '',
     prescriptionUrl: prescriptionFiles[0].url,
     prescriptionFileName: prescriptionFiles[0].fileName,
-    prescriptionFiles: mergeFileItems(stageEntry.medicineRequest?.prescriptionFiles || [], prescriptionFiles),
+    prescriptionFiles: mergeFileItems(existingRequest?.prescriptionFiles || [], prescriptionFiles),
     requestedAt: new Date(),
     requestedByName: req.user.name,
   };
+  if (createNew) {
+    stageEntry.medicineRequests.push(nextRequest);
+  } else if (req.body.requestId && req.body.requestId !== 'legacy') {
+    Object.assign(existingRequest, nextRequest);
+  } else {
+    stageEntry.medicineRequest = nextRequest;
+  }
 
-  addActivity(patient, req.user, `Medicine requested for Phase ${stageNum}`, medicines);
+  addActivity(patient, req.user, `${createNew ? 'Medicine requested' : 'Medicine request updated'} for Phase ${stageNum}`, `${medicines} | Request: ${nextRequest.requestId || 'legacy'}`);
 
   await patient.save();
   await populateAssignments(patient);
@@ -2173,6 +2204,7 @@ const formatMedicineListItem = (patient, stage, request) => ({
   categoryLabel: CATEGORY_LABELS[patient.category],
   stage: stage.number,
   stageLabel: STAGE_LABELS[stage.number],
+  requestId: request?.requestId || 'legacy',
   medicineRequest: formatMedicineRequest(request),
 });
 
@@ -2194,9 +2226,9 @@ const listMedicineRequests = asyncHandler(async (req, res) => {
 
   patients.forEach((patient) => {
     normalizeStages(patient.stages).forEach((stage) => {
-      const request = formatMedicineRequest(stage.medicineRequest);
-      if (!statuses.includes(request.status)) return;
-      rows.push(formatMedicineListItem(patient, stage, request));
+      stageMedicineRequests(stage).forEach((request) => {
+        if (statuses.includes(request.status)) rows.push(formatMedicineListItem(patient, stage, request));
+      });
     });
   });
 
@@ -2233,7 +2265,9 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
-  const currentRequest = { ...emptyMedicineRequest(), ...(stageEntry.medicineRequest?.toObject?.() || stageEntry.medicineRequest || {}) };
+  const requestDoc = findStageMedicineRequest(stageEntry, req.body.requestId);
+  if (!requestDoc) return res.status(404).json({ success: false, message: 'Medicine request not found' });
+  const currentRequest = { ...emptyMedicineRequest(), ...(requestDoc.toObject?.() || requestDoc) };
   const uploadedFiles = filesFromRequest(req);
   const existingMedicineImages = withLegacyFile(currentRequest.medicineImages || [], currentRequest.medicineImageUrl, currentRequest.medicineImageFileName);
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
@@ -2252,7 +2286,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   }
 
   const medicineImages = toFileItems(uploadedFiles, 'medicine');
-  stageEntry.medicineRequest = {
+  const nextRequest = {
     ...currentRequest,
     status,
     ...(status === MEDICINE_STATUSES.IN_PROCESS ? { inProcessAt: new Date(), inProcessByName: req.user.name } : {}),
@@ -2281,14 +2315,19 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
         }
       : {}),
   };
+  if (req.body.requestId && req.body.requestId !== 'legacy') {
+    Object.assign(requestDoc, nextRequest);
+  } else {
+    stageEntry.medicineRequest = nextRequest;
+  }
 
   addActivity(
     patient,
     req.user,
     `Medicine status updated for Phase ${stageNum}`,
     status === MEDICINE_STATUSES.SENT_TO_COURIER
-      ? `${MEDICINE_STATUS_LABELS[status]} | Packaging: ${req.body.packagedByName} | Chits: ${req.body.chitsWrittenByName} | Last checking: ${req.body.lastMedicineCheckedByName}`
-      : MEDICINE_STATUS_LABELS[status]
+      ? `${MEDICINE_STATUS_LABELS[status]} | Packaging: ${req.body.packagedByName} | Chits: ${req.body.chitsWrittenByName} | Last checking: ${req.body.lastMedicineCheckedByName} | Request: ${currentRequest.requestId || 'legacy'}`
+      : `${MEDICINE_STATUS_LABELS[status]} | Request: ${currentRequest.requestId || 'legacy'}`
   );
 
   await patient.save();
@@ -2297,7 +2336,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     patient: formatPatient(patient, req.user, { includeActivity: true }),
-    item: formatMedicineListItem(patient, stageEntry, stageEntry.medicineRequest),
+    item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)),
   });
 });
 
@@ -2314,10 +2353,11 @@ const listCourierRequests = asyncHandler(async (req, res) => {
 
   patients.forEach((patient) => {
     normalizeStages(patient.stages).forEach((stage) => {
-      const request = formatMedicineRequest(stage.medicineRequest);
-      if (request.status !== MEDICINE_STATUSES.SENT_TO_COURIER) return;
-      if (!statusFilter.includes('all') && !statusFilter.includes(request.courier.status)) return;
-      rows.push(formatMedicineListItem(patient, stage, request));
+      stageMedicineRequests(stage).forEach((request) => {
+        if (request.status !== MEDICINE_STATUSES.SENT_TO_COURIER) return;
+        if (!statusFilter.includes('all') && !statusFilter.includes(request.courier.status)) return;
+        rows.push(formatMedicineListItem(patient, stage, request));
+      });
     });
   });
 
@@ -2354,7 +2394,9 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
-  const currentRequest = { ...emptyMedicineRequest(), ...(stageEntry.medicineRequest?.toObject?.() || stageEntry.medicineRequest || {}) };
+  const requestDoc = findStageMedicineRequest(stageEntry, req.body.requestId);
+  if (!requestDoc) return res.status(404).json({ success: false, message: 'Medicine request not found' });
+  const currentRequest = { ...emptyMedicineRequest(), ...(requestDoc.toObject?.() || requestDoc) };
   const currentCourier = { ...emptyCourier(), ...(currentRequest.courier?.toObject?.() || currentRequest.courier || {}) };
   const uploadedFiles = filesFromRequest(req);
   const existingPackageImages = withLegacyFile(currentCourier.packageImages || [], currentCourier.packageImageUrl, currentCourier.packageImageFileName);
@@ -2437,10 +2479,15 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     }
   }
 
-  stageEntry.medicineRequest = {
+  const nextRequest = {
     ...currentRequest,
     courier: nextCourier,
   };
+  if (req.body.requestId && req.body.requestId !== 'legacy') {
+    Object.assign(requestDoc, nextRequest);
+  } else {
+    stageEntry.medicineRequest = nextRequest;
+  }
 
   addActivity(
     patient,
@@ -2448,11 +2495,11 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     `Courier ${status} for Phase ${stageNum}`,
     status === COURIER_STATUSES.DELIVERED
       ? nextCourier.deliveryMode === 'self'
-        ? `Self pickup delivered to ${nextCourier.receivedByName}`
-        : `Received by ${nextCourier.receivedByName}`
+        ? `Self pickup delivered to ${nextCourier.receivedByName} | Request: ${currentRequest.requestId || 'legacy'}`
+        : `Received by ${nextCourier.receivedByName} | Request: ${currentRequest.requestId || 'legacy'}`
       : nextCourier.deliveryMode === 'self'
-        ? `Self pickup by ${nextCourier.receiverName}`
-        : nextCourier.trackingNumber
+        ? `Self pickup by ${nextCourier.receiverName} | Request: ${currentRequest.requestId || 'legacy'}`
+        : `${nextCourier.trackingNumber} | Request: ${currentRequest.requestId || 'legacy'}`
   );
 
   await patient.save();
@@ -2461,7 +2508,7 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     patient: formatPatient(patient, req.user, { includeActivity: true }),
-    item: formatMedicineListItem(patient, stageEntry, stageEntry.medicineRequest),
+    item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)),
   });
 });
 

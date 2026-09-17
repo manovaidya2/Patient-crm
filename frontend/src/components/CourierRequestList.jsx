@@ -186,6 +186,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       const formData = new FormData();
       Object.entries(form).forEach(([key, value]) => formData.append(key, value));
       formData.append('status', form.deliveryMode === 'self' ? 'delivered' : 'dispatched');
+      if (dispatchRow.requestId) formData.append('requestId', dispatchRow.requestId);
       if (form.deliveryMode === 'self') formData.append('receivedByName', form.receiverName);
       files.forEach((file) => formData.append('courierImage', file));
       await api.patch(`/courier/requests/${dispatchRow.patientId}/stages/${dispatchRow.stage}`, formData);
@@ -216,6 +217,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
     try {
       const formData = new FormData();
       formData.append('status', 'delivered');
+      if (deliverRow.requestId) formData.append('requestId', deliverRow.requestId);
       formData.append('receivedByName', receivedByName);
       files.forEach((file) => formData.append('courierImage', file));
       await api.patch(`/courier/requests/${deliverRow.patientId}/stages/${deliverRow.stage}`, formData);
@@ -292,7 +294,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
               const request = row.medicineRequest;
               const courier = request.courier || {};
               return (
-                <div key={`${row.patientId}-${row.stage}`} className="grid gap-4 p-5 xl:grid-cols-[1.1fr_1fr_1fr_auto]">
+                <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className="grid gap-4 p-5 xl:grid-cols-[1.1fr_1fr_1fr_auto]">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       {isAdmin ? <Link to={`/admin/patients/${row.patientId}`} className="font-display text-lg font-bold text-charcoal hover:text-sage">{row.patientName}</Link> : <span className="font-display text-lg font-bold text-charcoal">{row.patientName}</span>}

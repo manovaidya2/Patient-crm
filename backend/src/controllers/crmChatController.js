@@ -209,13 +209,14 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
       summary.payments.amount += Number(payment.amount || 0);
     });
 
-    const medicine = stage.medicineRequest || {};
-    if (medicine.status && medicine.status !== 'not_requested') {
-      summary.medicine.requested += 1;
-      if (medicine.status === 'in_process') summary.medicine.inProcess += 1;
-      if (['made', 'sent_to_courier'].includes(medicine.status)) summary.medicine.made += 1;
-      if (medicine.status === 'sent_to_courier') summary.medicine.sentToCourier += 1;
-    }
+    [stage.medicineRequest || {}, ...(stage.medicineRequests || [])].forEach((medicine) => {
+      if (medicine.status && medicine.status !== 'not_requested') {
+        summary.medicine.requested += 1;
+        if (medicine.status === 'in_process') summary.medicine.inProcess += 1;
+        if (['made', 'sent_to_courier'].includes(medicine.status)) summary.medicine.made += 1;
+        if (medicine.status === 'sent_to_courier') summary.medicine.sentToCourier += 1;
+      }
+    });
     if (
       stage.medicineMonthsGiven
       || stage.medicineExplainDate
@@ -361,7 +362,7 @@ const buildMemberWorkSummary = (users = [], patients = [], adviceRequests = [], 
         });
       });
 
-      const medicine = stage.medicineRequest || {};
+      [stage.medicineRequest || {}, ...(stage.medicineRequests || [])].forEach((medicine) => {
       [
         [medicine.requestedByName, 'Medicine requested', medicine.requestedAt],
         [medicine.inProcessByName, 'Medicine marked in process', medicine.inProcessAt],
@@ -386,6 +387,7 @@ const buildMemberWorkSummary = (users = [], patients = [], adviceRequests = [], 
           patientCode: formatPatientCode(patient),
           at,
         });
+      });
       });
     });
   });
@@ -479,6 +481,16 @@ const summarizeStage = (stage) => {
       requestedBy: medicine.requestedByName || '',
       courierStatus: medicine.courier?.status || '',
       trackingNumber: medicine.courier?.trackingNumber || '',
+      requests: [stage.medicineRequest || {}, ...(stage.medicineRequests || [])]
+        .filter((request) => request.status && request.status !== 'not_requested')
+        .map((request) => ({
+          id: request.requestId || 'legacy',
+          status: request.status,
+          medicines: request.medicines || '',
+          requestedAt: formatDate(request.requestedAt),
+          requestedBy: request.requestedByName || '',
+          courierStatus: request.courier?.status || '',
+        })),
       courierPartner: medicine.courier?.courierPartner || '',
       deliveredAt: formatDate(medicine.courier?.deliveredAt),
       supply: {
@@ -723,6 +735,7 @@ const buildCrmContext = async (message) => {
         });
       }
 
+      [stage.medicineRequest || {}, ...(stage.medicineRequests || [])].forEach((medicine) => {
       if (medicine.status && medicine.status !== 'not_requested') {
         medicineRequestList.push({
           patient: patient.patientName || '',
@@ -772,6 +785,7 @@ const buildCrmContext = async (message) => {
           _ts: toTime(courier.deliveredAt) || toTime(courier.dispatchedAt) || toTime(medicine.sentToCourierAt),
         });
       }
+      });
 
       (stage.payments || []).forEach((payment) => {
         if (!isApprovedPayment(payment)) return;

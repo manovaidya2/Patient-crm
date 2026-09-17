@@ -109,16 +109,17 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   }, [statuses, reloadKey]);
 
   const updateStatus = async (row, status, files = []) => {
-    const key = `${row.patientId}-${row.stage}-${status}`;
+    const key = `${row.patientId}-${row.stage}-${row.requestId}-${status}`;
     setBusyKey(key);
     try {
       if (files.length) {
         const formData = new FormData();
         formData.append('status', status);
+        if (row.requestId) formData.append('requestId', row.requestId);
         files.forEach((file) => formData.append('medicineImage', file));
         await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, formData);
       } else {
-        await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { status });
+        await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { status, requestId: row.requestId });
       }
       setReloadKey((value) => value + 1);
     } catch (err) {
@@ -129,11 +130,12 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   };
 
   const sendToCourier = async (row, values) => {
-    const key = `${row.patientId}-${row.stage}-sent_to_courier`;
+    const key = `${row.patientId}-${row.stage}-${row.requestId}-sent_to_courier`;
     setBusyKey(key);
     try {
       await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, {
         status: 'sent_to_courier',
+        requestId: row.requestId,
         packagedByName: values.packagedByName,
         chitsWrittenByName: values.chitsWrittenByName,
         lastMedicineCheckedByName: values.lastMedicineCheckedByName,
@@ -259,7 +261,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
             {filteredRows.map((row) => {
               const request = row.medicineRequest;
               return (
-                <div key={`${row.patientId}-${row.stage}`} className="grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto]">
+                <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className="grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto]">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       {isAdmin ? (
@@ -322,7 +324,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                     {actions
                       .filter((action) => action.from.includes(request.status))
                       .map((action) => {
-                        const key = `${row.patientId}-${row.stage}-${action.status}`;
+                        const key = `${row.patientId}-${row.stage}-${row.requestId}-${action.status}`;
                         return (
                           <Button
                             key={action.status}

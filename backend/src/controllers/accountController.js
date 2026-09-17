@@ -72,7 +72,7 @@ const listCourierClinicExpenses = async ({ from, to } = {}) => {
 
   patients.forEach((patient) => {
     (patient.stages || []).forEach((stage) => {
-      const request = stage.medicineRequest || {};
+      [stage.medicineRequest || {}, ...(stage.medicineRequests || [])].forEach((request) => {
       const courier = request.courier || {};
       if (courier.paymentPaidBy !== 'clinic' || !courier.paymentAmount) return;
       const date = courier.dispatchedAt || request.sentToCourierAt;
@@ -80,7 +80,7 @@ const listCourierClinicExpenses = async ({ from, to } = {}) => {
       const compare = new Date(date);
       if (from && to && (compare < from || compare >= to)) return;
       expenses.push({
-        id: `courier-${patient._id}-${stage.number}`,
+        id: `courier-${patient._id}-${stage.number}-${request.requestId || 'legacy'}`,
         type: 'expense',
         category: 'courier',
         categoryLabel: 'Courier',
@@ -95,6 +95,7 @@ const listCourierClinicExpenses = async ({ from, to } = {}) => {
         editedAt: null,
         createdAt: date,
         source: 'courier',
+      });
       });
     });
   });

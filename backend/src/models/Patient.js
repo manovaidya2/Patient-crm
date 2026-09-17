@@ -78,6 +78,7 @@ const paymentEntrySchema = new mongoose.Schema(
 
 const medicineRequestSchema = new mongoose.Schema(
   {
+    requestId: { type: String, trim: true, default: '' },
     status: {
       type: String,
       enum: ['not_requested', 'requested', 'in_process', 'made', 'sent_to_courier'],
@@ -194,6 +195,7 @@ const stageEntrySchema = new mongoose.Schema(
     recordPdfPageCount: { type: Number, default: 0, min: 0 },
     recordPdfUpdatedAt: { type: Date, default: null },
     medicineRequest: { type: medicineRequestSchema, default: () => ({}) },
+    medicineRequests: { type: [medicineRequestSchema], default: [] },
     // Follow-ups and Family Sessions scheduled specifically for this stage
     followUps: { type: [scheduleEntrySchema], default: [] },
     familySessions: { type: [scheduleEntrySchema], default: [] },

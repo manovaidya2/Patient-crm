@@ -848,7 +848,7 @@ const HeaderEditButton = ({ label, value, onSave, readOnly = false, type = 'text
   );
 };
 
-const MedicineRequestPanel = ({ request, canRequest, onRequest }) => {
+const MedicineRequestPanel = ({ request, canRequest, onRequest, isNew = false }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [medicines, setMedicines] = useState('');
@@ -897,12 +897,12 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest }) => {
           <h2 className="flex items-center gap-2 font-display text-base font-bold text-charcoal">
             <PackageCheck size={17} className="text-sage" /> Medicine & Courier Status
           </h2>
-          <p className="mt-1 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</p>
+          {!isNew && <p className="mt-1 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</p>}
         </div>
         <div className="flex items-center gap-2">
           {canRequest && (
             <Button size="sm" variant={hasRequest ? 'outline' : 'primary'} onClick={openModal}>
-              <Plus size={14} /> {hasRequest ? 'Update Request' : 'Request Medicine'}
+              <Plus size={14} /> {isNew ? 'New Request' : hasRequest ? 'Update Request' : 'Request Medicine'}
             </Button>
           )}
           <button
@@ -955,9 +955,9 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest }) => {
             <FileLinks files={request.courier?.deliveryProofImages} fallbackUrl={request.courier?.deliveryProofUrl} fallbackName={request.courier?.deliveryProofFileName || 'Delivery proof'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Delivery Proofs'} />
           </div>
         </div>
-      ) : (
+      ) : !isNew ? (
         <p className="mt-4 text-sm text-charcoal/55">Medicine request has not been sent yet.</p>
-      )}
+      ) : null}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Request Medicine">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -2371,10 +2371,12 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
-  const handleRequestMedicine = async ({ medicines, notes, files = [] }) => {
+  const handleRequestMedicine = async ({ medicines, notes, files = [], requestId, createNew = false }) => {
     const formData = new FormData();
     formData.append('medicines', medicines);
     formData.append('notes', notes || '');
+    if (requestId) formData.append('requestId', requestId);
+    if (createNew) formData.append('createNew', 'true');
     files.forEach((file) => formData.append('prescription', file));
     const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/medicine-request`, formData);
     setPatient(data.patient);
@@ -2970,11 +2972,21 @@ const PatientDetails = () => {
                 </div>
               </div>
 
-              <MedicineRequestPanel
-                request={activeStage.medicineRequest}
-                canRequest={canRequestMedicine}
-                onRequest={handleRequestMedicine}
-              />
+              {canRequestMedicine && (
+                <MedicineRequestPanel
+                  isNew
+                  canRequest
+                  onRequest={(payload) => handleRequestMedicine({ ...payload, createNew: true })}
+                />
+              )}
+              {(activeStage.medicineRequests || []).map((request, index) => (
+                <MedicineRequestPanel
+                  key={request.id || index}
+                  request={request}
+                  canRequest={canRequestMedicine}
+                  onRequest={(payload) => handleRequestMedicine({ ...payload, requestId: request.id })}
+                />
+              ))}
 
               {showFollowUps && (
                 <ScheduleCard
