@@ -409,7 +409,7 @@ const AllPatients = () => {
             </div>
             <Input
               id="patientHistoryBy"
-              label="Patient History By"
+              label={`Patient History By - Phase ${addForm.currentStage}`}
               placeholder="Name"
               value={addForm.patientHistoryBy}
               onChange={(e) => updateAddForm('patientHistoryBy', e.target.value)}

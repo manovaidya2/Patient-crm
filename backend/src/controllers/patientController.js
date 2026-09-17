@@ -433,6 +433,7 @@ const normalizeStages = (existing = []) => {
       date: found?.date ?? null,
       notes: found?.notes || '',
       packageName: found?.packageName || '',
+      patientHistoryBy: found?.patientHistoryBy || '',
       totalAmount: found?.totalAmount || 0,
       postCounselor: found?.postCounselor || null,
       medicineMonthsGiven: found?.medicineMonthsGiven || 0,
@@ -482,7 +483,6 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   number: p.number,
   guardianName: p.guardianName || null,
   alternateNumber: p.alternateNumber || null,
-  patientHistoryBy: p.patientHistoryBy || '',
   relativeName: p.relativeName || null,
   currentStage: p.currentStage || 1,
   currentStageLabel: STAGE_LABELS[p.currentStage || 1],
@@ -504,6 +504,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       date: s.date,
       notes: s.notes,
       packageName: s.packageName,
+      patientHistoryBy: s.patientHistoryBy || (s.number === 1 ? p.patientHistoryBy || '' : ''),
       totalAmount: s.totalAmount,
       postCounselor: formatAssignedUser(s.postCounselor),
       medicineMonthsGiven: s.medicineMonthsGiven || 0,
@@ -1248,6 +1249,7 @@ const createPatient = asyncHandler(async (req, res) => {
 
   const stages = normalizeStages();
   const stageEntry = stages.find((stage) => stage.number === stageNum);
+  stageEntry.patientHistoryBy = String(patientHistoryBy || '').trim();
   if (stageEntry && selectedPostCounselor) {
     stageEntry.postCounselor = selectedPostCounselor._id;
   }
@@ -1260,7 +1262,6 @@ const createPatient = asyncHandler(async (req, res) => {
     number,
     guardianName: category === 'autism_adhd' ? guardianName : '',
     alternateNumber: category === 'autism_adhd' ? alternateNumber : '',
-    patientHistoryBy: String(patientHistoryBy || '').trim(),
     relativeName: category === 'mental_health' ? relativeName : '',
     currentStage: stageNum,
     source: 'manual',
@@ -1449,7 +1450,19 @@ const updatePatient = asyncHandler(async (req, res) => {
   updateField('number', number, "Father's number");
   updateField('guardianName', guardianName, 'Father/Mother name');
   updateField('alternateNumber', alternateNumber, "Mother's number");
-  updateField('patientHistoryBy', patientHistoryBy, 'Patient history taken by');
+  if (patientHistoryBy !== undefined) {
+    if (!patient.stages || patient.stages.length !== STAGES.length) {
+      patient.stages = normalizeStages(patient.stages);
+    }
+    const firstPhase = patient.stages.find((stage) => stage.number === 1);
+    const nextName = String(patientHistoryBy || '').trim();
+    const previousName = firstPhase.patientHistoryBy || patient.patientHistoryBy || '';
+    if (!sameValue(previousName, nextName)) {
+      addActivity(patient, req.user, 'Phase 1 patient history by updated', `From "${previousName || 'Blank'}" to "${nextName || 'Blank'}"`);
+    }
+    firstPhase.patientHistoryBy = nextName;
+    patient.patientHistoryBy = '';
+  }
   updateField('relativeName', relativeName, 'Relative name');
 
   if (currentStage !== undefined) {
@@ -1525,6 +1538,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     date,
     notes,
     packageName,
+    patientHistoryBy,
     totalAmount,
     postCounselor,
     medicineMonthsGiven,
@@ -1551,14 +1565,17 @@ const updatePatientStage = asyncHandler(async (req, res) => {
 
   if (!canEditPackageStage(req.user)) {
     const medicineFields = new Set([
+      'patientHistoryBy',
       'medicineMonthsGiven', 'medicineExplainDate', 'medicineSupplyNote',
       'medicineNextConnectDate', 'medicineNextConnectNote', 'medicineTakenDate',
       'medicineFullyGiven', 'medicineConnectDone',
     ]);
-    if (req.user.role !== ROLES.ASSISTANT_DOCTOR ||
-        !Object.keys(req.body).length ||
-        Object.keys(req.body).some((key) => !medicineFields.has(key))) {
-      return res.status(403).json({ success: false, message: 'You can only edit medicine supply details for this phase' });
+    const allowedFields = req.user.role === ROLES.MANAGER
+      ? new Set(['patientHistoryBy'])
+      : req.user.role === ROLES.ASSISTANT_DOCTOR ? medicineFields : null;
+    if (!allowedFields || !Object.keys(req.body).length ||
+        Object.keys(req.body).some((key) => !allowedFields.has(key))) {
+      return res.status(403).json({ success: false, message: 'You can only edit patient history by and medicine supply details for this phase' });
     }
   }
 
@@ -1568,6 +1585,15 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  if (patientHistoryBy !== undefined) {
+    const nextName = String(patientHistoryBy || '').trim();
+    const previousName = stageEntry.patientHistoryBy || (stageNum === 1 ? patient.patientHistoryBy || '' : '');
+    if (!sameValue(previousName, nextName)) {
+      addActivity(patient, req.user, `Phase ${stageNum} patient history by updated`, `From "${previousName || 'Blank'}" to "${nextName || 'Blank'}"`);
+    }
+    stageEntry.patientHistoryBy = nextName;
+    if (stageNum === 1) patient.patientHistoryBy = '';
+  }
   if (status !== undefined && !sameValue(stageEntry.status, status)) {
     addActivity(patient, req.user, `Phase ${stageNum} status updated`, `From ${STAGE_STATUS_LABELS[stageEntry.status]} to ${STAGE_STATUS_LABELS[status]}`);
     stageEntry.status = status;

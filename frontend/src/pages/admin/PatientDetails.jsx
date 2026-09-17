@@ -2576,7 +2576,7 @@ const PatientDetails = () => {
           )}
 
                     {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-px bg-cardline border-t border-cardline">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
             <EditableField
               label="Age"
               value={patient.age ?? ''}
@@ -2602,13 +2602,6 @@ const PatientDetails = () => {
               value={patient.alternateNumber}
               placeholder="Not added"
               onSave={(val) => saveField('alternateNumber', val)}
-              readOnly={!canEditPatientDetails}
-            />
-            <EditableField
-              label="Patient History By"
-              value={patient.patientHistoryBy || ''}
-              placeholder="Not added"
-              onSave={(val) => saveField('patientHistoryBy', val)}
               readOnly={!canEditPatientDetails}
             />
             <EditableField
@@ -2784,6 +2777,15 @@ const PatientDetails = () => {
           {/* Tab content — details for the selected phase, shown inline below the tabs */}
           {activeStage && (
             <div className="px-6 pb-6">
+              <div className="mb-4 border border-cardline bg-offwhite-100">
+                <EditableField
+                  label={`Patient History By - Phase ${activeStage.number}`}
+                  value={activeStage.patientHistoryBy || ''}
+                  placeholder="Not added"
+                  onSave={(val) => saveStageField('patientHistoryBy', val)}
+                  readOnly={!canEditPatientDetails}
+                />
+              </div>
               {/* Package card — compact, same small-field style as Age/Phone/etc above */}
               <div className="rounded-lg border border-cardline bg-offwhite-100 overflow-hidden">
                 <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">

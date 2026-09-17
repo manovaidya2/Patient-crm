@@ -157,6 +157,7 @@ const stageEntrySchema = new mongoose.Schema(
     date: { type: Date, default: null },
     notes: { type: String, trim: true, default: '' },
     packageName: { type: String, trim: true, default: '' },
+    patientHistoryBy: { type: String, trim: true, default: '' },
     totalAmount: { type: Number, default: 0, min: 0 },
     postCounselor: {
       type: mongoose.Schema.Types.ObjectId,
