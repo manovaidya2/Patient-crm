@@ -21,8 +21,10 @@ const {
   requestStageMedicine,
   addFollowUp,
   updateFollowUp,
+  deleteFollowUp,
   addFamilySession,
   updateFamilySession,
+  deleteFamilySession,
 } = require('../controllers/patientController');
 const { protect, authorize } = require('../middleware/auth');
 const { uploadPaymentScreenshot } = require('../middleware/upload');
@@ -59,7 +61,9 @@ router.delete('/:id/stages/:number/record-scans/:scanId', authorize(...PATIENT_R
 router.post('/:id/stages/:number/medicine-request', authorize(...PATIENT_WRITE_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
 router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), addFollowUp);
 router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFollowUp);
+router.delete('/:id/stages/:number/followups/:entryId', authorize(ROLES.ADMIN), deleteFollowUp);
 router.post('/:id/stages/:number/family-sessions', authorize(...PATIENT_WRITE_ROLES), addFamilySession);
 router.patch('/:id/stages/:number/family-sessions/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFamilySession);
+router.delete('/:id/stages/:number/family-sessions/:entryId', authorize(ROLES.ADMIN), deleteFamilySession);
 
 module.exports = router;

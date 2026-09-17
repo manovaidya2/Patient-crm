@@ -1018,6 +1018,7 @@ const ScheduleCard = ({
   entries,
   onAdd,
   onUpdateStatus,
+  onDelete,
   canAdd = true,
   canUpdate = true,
   canEditEntries = false,
@@ -1033,6 +1034,8 @@ const ScheduleCard = ({
   const [followUpType, setFollowUpType] = useState('normal');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deletingEntryId, setDeletingEntryId] = useState(null);
 
   const [doneModalOpen, setDoneModalOpen] = useState(false);
   const [doneEntryId, setDoneEntryId] = useState(null);
@@ -1292,6 +1295,19 @@ const ScheduleCard = ({
 
   const sortedEntries = sortScheduleEntries(entries);
 
+  const handleDeleteEntry = async (entry) => {
+    if (!window.confirm(`Delete this ${title === 'Follow-ups' ? 'follow-up' : 'family session'} scheduled for ${formatDateTime(entry.dateTime)}?`)) return;
+    setDeletingEntryId(entry.id);
+    setDeleteError('');
+    try {
+      await onDelete(entry.id);
+    } catch (err) {
+      setDeleteError(err.response?.data?.message || 'Could not delete entry');
+    } finally {
+      setDeletingEntryId(null);
+    }
+  };
+
   return (
     <Card className="mt-5">
       <div className="flex items-center justify-between mb-4">
@@ -1316,6 +1332,7 @@ const ScheduleCard = ({
         </div>
       </div>
 
+      {deleteError && <p className="mb-3 text-xs text-[#8C3B2E]">{deleteError}</p>}
       {collapsed ? null : entries.length === 0 ? (
         <p className="text-sm text-charcoal/55">Nothing scheduled yet.</p>
       ) : (
@@ -1343,6 +1360,18 @@ const ScheduleCard = ({
                       <Button size="sm" variant="outline" onClick={() => openEditModal(e)}>
                         <Pencil size={14} /> Edit
                       </Button>
+                    )}
+                    {canEditEntries && (
+                      <button
+                        type="button"
+                        title="Delete entry"
+                        aria-label="Delete entry"
+                        onClick={() => handleDeleteEntry(e)}
+                        disabled={deletingEntryId === e.id}
+                        className="p-1.5 text-[#8C3B2E] hover:bg-[#8C3B2E]/10 disabled:opacity-50"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     )}
                     {(canAct || canMarkSentTrackerDone) && (
                       <>
@@ -2377,6 +2406,11 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
+  const handleDeleteFollowUp = async (entryId) => {
+    const { data } = await api.delete(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}`);
+    setPatient(data.patient);
+  };
+
   const handleAddFamilySession = async ({ dateTime, notes }) => {
     const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/family-sessions`, { dateTime, notes });
     setPatient(data.patient);
@@ -2384,6 +2418,11 @@ const PatientDetails = () => {
 
   const handleUpdateFamilySessionStatus = async (entryId, status, extra = {}) => {
     const { data } = await patchScheduleEntry(`/patients/${id}/stages/${activeStageTab}/family-sessions/${entryId}`, { status, ...extra });
+    setPatient(data.patient);
+  };
+
+  const handleDeleteFamilySession = async (entryId) => {
+    const { data } = await api.delete(`/patients/${id}/stages/${activeStageTab}/family-sessions/${entryId}`);
     setPatient(data.patient);
   };
 
@@ -2942,6 +2981,7 @@ const PatientDetails = () => {
                   entries={activeStage.followUps}
                   onAdd={handleAddFollowUp}
                   onUpdateStatus={handleUpdateFollowUpStatus}
+                  onDelete={handleDeleteFollowUp}
                   canEditEntries={isAdmin}
                   formType="followup_full"
                   patient={patient}
@@ -2954,6 +2994,7 @@ const PatientDetails = () => {
                 entries={activeStage.familySessions}
                 onAdd={handleAddFamilySession}
                 onUpdateStatus={handleUpdateFamilySessionStatus}
+                onDelete={handleDeleteFamilySession}
                 canUpdate={canUpdateFamilySessions}
                 canEditEntries={isAdmin}
                 formType="family_section_a"

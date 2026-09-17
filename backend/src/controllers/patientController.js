@@ -2682,6 +2682,36 @@ const updateScheduleEntry = (fieldKey) =>
     res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
   });
 
+const deleteScheduleEntry = (fieldKey) =>
+  asyncHandler(async (req, res) => {
+    const stageNum = parseInt(req.params.number, 10);
+    if (!STAGES.includes(stageNum)) {
+      return res.status(400).json({ success: false, message: 'Invalid phase number' });
+    }
+
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    const stageEntry = patient.stages?.find((stage) => stage.number === stageNum);
+    const entry = stageEntry?.[fieldKey].id(req.params.entryId);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Entry not found' });
+    }
+
+    const fileUrls = [entry.completionPdfUrl, ...(entry.completionFiles || []).map((file) => file.url)].filter(Boolean);
+    const entryType = fieldKey === 'followUps' ? 'Follow-up' : 'Family session';
+    const details = `Scheduled ${entry.dateTime.toISOString()} | status: ${entry.status} | entry ID: ${entry._id}`;
+    entry.deleteOne();
+    addActivity(patient, req.user, `${entryType} deleted for Phase ${stageNum}`, details);
+    await patient.save();
+    await Promise.all([...new Set(fileUrls)].map(deleteUploadedFileByUrl));
+    await populateAssignments(patient);
+
+    res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+  });
+
 // @desc    Follow-ups / Family Sessions grouped by assignee, with status counts
 // @route   GET /api/schedule/followups | /api/schedule/family-sessions
 // @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
@@ -2806,8 +2836,10 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
 
 const addFollowUp = addScheduleEntry('followUps');
 const updateFollowUp = updateScheduleEntry('followUps');
+const deleteFollowUp = deleteScheduleEntry('followUps');
 const addFamilySession = addScheduleEntry('familySessions');
 const updateFamilySession = updateScheduleEntry('familySessions');
+const deleteFamilySession = deleteScheduleEntry('familySessions');
 const getFollowUps = listScheduleEntries('followUps', { groupByAssignedDoctor: true });
 const getFamilySessions = listScheduleEntries('familySessions', { groupByAssignedPsychologist: true });
 
@@ -2837,8 +2869,10 @@ module.exports = {
   updateCourierRequest,
   addFollowUp,
   updateFollowUp,
+  deleteFollowUp,
   addFamilySession,
   updateFamilySession,
+  deleteFamilySession,
   getFollowUps,
   getFamilySessions,
   getScheduleReminders,
