@@ -1019,6 +1019,9 @@ const ScheduleCard = ({
   onAdd,
   onUpdateStatus,
   onDelete,
+  onFetchNotes,
+  onAddNote,
+  onDeleteNote,
   canAdd = true,
   canUpdate = true,
   canEditEntries = false,
@@ -1070,6 +1073,12 @@ const ScheduleCard = ({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelSaving, setCancelSaving] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const [notesDrawerOpen, setNotesDrawerOpen] = useState(false);
+  const [notesList, setNotesList] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
 
   const openModal = () => {
     setDateTime('');
@@ -1198,6 +1207,46 @@ const ScheduleCard = ({
     }
   };
 
+  const openNotesDrawer = async () => {
+    setNoteText('');
+    setNotesError('');
+    setNotesDrawerOpen(true);
+    setNotesLoading(true);
+    try {
+      const list = await onFetchNotes?.();
+      setNotesList(list || []);
+    } catch (err) {
+      setNotesError(err.response?.data?.message || 'Could not load notes');
+    } finally {
+      setNotesLoading(false);
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!noteText.trim()) return;
+    setNoteSaving(true);
+    setNotesError('');
+    try {
+      const list = await onAddNote?.(noteText.trim());
+      setNotesList(list || []);
+      setNoteText('');
+    } catch (err) {
+      setNotesError(err.response?.data?.message || 'Could not add note');
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    setNotesError('');
+    try {
+      const list = await onDeleteNote?.(noteId);
+      setNotesList(list || []);
+    } catch (err) {
+      setNotesError(err.response?.data?.message || 'Could not delete note');
+    }
+  };
+
   const handleTrackerSent = (entryId) => {
     onUpdateStatus(entryId, 'sent');
   };
@@ -1315,6 +1364,11 @@ const ScheduleCard = ({
           <Icon size={17} className="text-sage" /> {title}
         </h2>
         <div className="flex items-center gap-2">
+          {!collapsed && (
+            <Button size="sm" variant="outline" onClick={openNotesDrawer}>
+              <MessageSquareText size={14} /> Notes
+            </Button>
+          )}
           {canAdd && !collapsed && (
             <Button size="sm" onClick={openModal}>
               <Plus size={14} /> Schedule
@@ -1755,6 +1809,59 @@ const ScheduleCard = ({
           </div>
         </form>
       </Modal>
+
+      <Drawer
+        open={notesDrawerOpen}
+        onClose={() => setNotesDrawerOpen(false)}
+        title={`${title} Notes — Phase ${stageNumber}`}
+      >
+        <p className="mb-4 text-xs text-charcoal/55">
+          Private reminders only you can see — nobody else on the team can read these.
+        </p>
+        {notesError && <div className="mb-3 rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{notesError}</div>}
+        <div className="space-y-2">
+          <textarea
+            rows={3}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="Likh kar yaad rakhein..."
+            className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+          />
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleAddNote} disabled={noteSaving || !noteText.trim()}>
+              {noteSaving ? 'Saving...' : 'Add Note'}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {notesLoading ? (
+            <p className="text-center text-sm text-charcoal/55 py-6">Loading…</p>
+          ) : notesList.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <MessageSquareText size={20} className="text-charcoal/30" />
+              <p className="text-sm text-charcoal/50">No notes yet</p>
+            </div>
+          ) : (
+            notesList.map((note) => (
+              <div key={note.id} className="rounded-lg border border-cardline bg-offwhite-200 p-3">
+                <p className="whitespace-pre-line text-sm text-charcoal">{note.text}</p>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-charcoal/45">
+                  <span>{formatDateTime(note.createdAt)}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteNote(note.id)}
+                    aria-label="Delete note"
+                    className="p-1 text-charcoal/35 hover:text-[#8C3B2E]"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Drawer>
     </Card>
   );
 };
@@ -2427,6 +2534,23 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
+  // One shared notepad per stage for Follow-ups and one for Family Sessions — every
+  // user only ever sees/adds/removes their own notes here, never a teammate's.
+  const fetchScheduleNotes = async (scheduleField) => {
+    const { data } = await api.get(`/patients/${id}/stages/${activeStageTab}/${scheduleField}/notes`);
+    return data.notes;
+  };
+
+  const addScheduleNote = async (scheduleField, text) => {
+    const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/${scheduleField}/notes`, { text });
+    return data.notes;
+  };
+
+  const deleteScheduleNote = async (scheduleField, noteId) => {
+    const { data } = await api.delete(`/patients/${id}/stages/${activeStageTab}/${scheduleField}/notes/${noteId}`);
+    return data.notes;
+  };
+
   const handleRequestAdvice = async ({ query, isUrgent }) => {
     if (!activeStageTab) return;
     await api.post(`/advice/patients/${id}`, { query, isUrgent, stage: activeStageTab });
@@ -3002,6 +3126,9 @@ const PatientDetails = () => {
                 onAdd={handleAddFollowUp}
                 onUpdateStatus={handleUpdateFollowUpStatus}
                 onDelete={handleDeleteFollowUp}
+                onFetchNotes={() => fetchScheduleNotes('followups')}
+                onAddNote={(text) => addScheduleNote('followups', text)}
+                onDeleteNote={(noteId) => deleteScheduleNote('followups', noteId)}
                 canAdd={!isPsychologist}
                 canUpdate={!isPsychologist}
                 canEditEntries={isAdmin}
@@ -3016,6 +3143,9 @@ const PatientDetails = () => {
                 onAdd={handleAddFamilySession}
                 onUpdateStatus={handleUpdateFamilySessionStatus}
                 onDelete={handleDeleteFamilySession}
+                onFetchNotes={() => fetchScheduleNotes('family-sessions')}
+                onAddNote={(text) => addScheduleNote('family-sessions', text)}
+                onDeleteNote={(noteId) => deleteScheduleNote('family-sessions', noteId)}
                 canUpdate={canUpdateFamilySessions}
                 canEditEntries={isAdmin}
                 formType="family_section_a"

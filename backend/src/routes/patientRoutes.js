@@ -27,6 +27,11 @@ const {
   updateFamilySession,
   deleteFamilySession,
 } = require('../controllers/patientController');
+const {
+  listScheduleNotes,
+  addScheduleNote,
+  deleteScheduleNote,
+} = require('../controllers/scheduleNoteController');
 const { protect, authorize } = require('../middleware/auth');
 const { uploadPaymentScreenshot } = require('../middleware/upload');
 const { uploadStageRecord: uploadRecordMiddleware, uploadPrescription, uploadScheduleCompletion } = require('../middleware/fileUploads');
@@ -67,5 +72,15 @@ router.delete('/:id/stages/:number/followups/:entryId', authorize(ROLES.ADMIN), 
 router.post('/:id/stages/:number/family-sessions', authorize(...PATIENT_WRITE_ROLES), addFamilySession);
 router.patch('/:id/stages/:number/family-sessions/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFamilySession);
 router.delete('/:id/stages/:number/family-sessions/:entryId', authorize(ROLES.ADMIN), deleteFamilySession);
+
+// One shared notepad per stage for Follow-ups and one for Family Sessions (not tied to
+// a single scheduled entry) — every user only ever sees, adds and deletes their own
+// notes here (enforced in the controller).
+router.get('/:id/stages/:number/followups/notes', authorize(...PATIENT_WRITE_ROLES), listScheduleNotes('followup'));
+router.post('/:id/stages/:number/followups/notes', authorize(...PATIENT_WRITE_ROLES), addScheduleNote('followup'));
+router.delete('/:id/stages/:number/followups/notes/:noteId', authorize(...PATIENT_WRITE_ROLES), deleteScheduleNote('followup'));
+router.get('/:id/stages/:number/family-sessions/notes', authorize(...PATIENT_WRITE_ROLES), listScheduleNotes('family_session'));
+router.post('/:id/stages/:number/family-sessions/notes', authorize(...PATIENT_WRITE_ROLES), addScheduleNote('family_session'));
+router.delete('/:id/stages/:number/family-sessions/notes/:noteId', authorize(...PATIENT_WRITE_ROLES), deleteScheduleNote('family_session'));
 
 module.exports = router;
