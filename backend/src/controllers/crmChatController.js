@@ -438,6 +438,8 @@ const summarizeStage = (stage) => {
   return {
     stage: stage.number,
     status: stage.status,
+    consultationDate: formatDateOnly(stage.consultationDate),
+    patientHistoryBy: stage.patientHistoryBy || '',
     packageName: stage.packageName || '',
     totalAmount: stage.totalAmount || 0,
     paidAmount: payments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0),

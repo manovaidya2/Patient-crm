@@ -156,6 +156,7 @@ const stageEntrySchema = new mongoose.Schema(
     number: { type: Number, enum: STAGES, required: true },
     status: { type: String, enum: ALL_STAGE_STATUSES, default: STAGE_STATUSES.NOT_STARTED },
     date: { type: Date, default: null },
+    consultationDate: { type: Date, default: null },
     notes: { type: String, trim: true, default: '' },
     packageName: { type: String, trim: true, default: '' },
     patientHistoryBy: { type: String, trim: true, default: '' },

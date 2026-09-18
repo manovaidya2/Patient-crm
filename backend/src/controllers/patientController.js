@@ -433,6 +433,7 @@ const normalizeStages = (existing = []) => {
       number: n,
       status: found?.status || STAGE_STATUSES.NOT_STARTED,
       date: found?.date ?? null,
+      consultationDate: found?.consultationDate ?? null,
       notes: found?.notes || '',
       packageName: found?.packageName || '',
       patientHistoryBy: found?.patientHistoryBy || '',
@@ -505,6 +506,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       status: s.status,
       statusLabel: STAGE_STATUS_LABELS[s.status],
       date: s.date,
+      consultationDate: s.consultationDate,
       notes: s.notes,
       packageName: s.packageName,
       patientHistoryBy: s.patientHistoryBy || (s.number === 1 ? p.patientHistoryBy || '' : ''),
@@ -1224,6 +1226,7 @@ const createPatient = asyncHandler(async (req, res) => {
     patientHistoryBy,
     relativeName,
     currentStage,
+    consultationDate,
     postCounselor,
   } = req.body;
   const ageText = String(age ?? '').trim();
@@ -1266,6 +1269,13 @@ const createPatient = asyncHandler(async (req, res) => {
   const stages = normalizeStages();
   const stageEntry = stages.find((stage) => stage.number === stageNum);
   stageEntry.patientHistoryBy = String(patientHistoryBy || '').trim();
+  if (consultationDate) {
+    const parsedConsultationDate = new Date(`${consultationDate}T00:00:00.000Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(consultationDate) || Number.isNaN(parsedConsultationDate.getTime()) || parsedConsultationDate.toISOString().slice(0, 10) !== consultationDate) {
+      return res.status(400).json({ success: false, message: 'Invalid consultation date' });
+    }
+    stageEntry.consultationDate = consultationDate;
+  }
   if (stageEntry && selectedPostCounselor) {
     stageEntry.postCounselor = selectedPostCounselor._id;
   }
@@ -1290,6 +1300,12 @@ const createPatient = asyncHandler(async (req, res) => {
         actorName: req.user?.name || 'System',
         actorRole: req.user?.role || '',
       },
+      ...(consultationDate ? [{
+        action: `Phase ${stageNum} consultation date set`,
+        details: consultationDate,
+        actorName: req.user?.name || 'System',
+        actorRole: req.user?.role || '',
+      }] : []),
     ],
   });
 
@@ -1554,6 +1570,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     date,
     notes,
     packageName,
+    consultationDate,
     patientHistoryBy,
     totalAmount,
     postCounselor,
@@ -1581,13 +1598,13 @@ const updatePatientStage = asyncHandler(async (req, res) => {
 
   if (!canEditPackageStage(req.user)) {
     const medicineFields = new Set([
-      'patientHistoryBy',
+      'patientHistoryBy', 'consultationDate',
       'medicineMonthsGiven', 'medicineExplainDate', 'medicineSupplyNote',
       'medicineNextConnectDate', 'medicineNextConnectNote', 'medicineTakenDate',
       'medicineFullyGiven', 'medicineConnectDone',
     ]);
     const allowedFields = req.user.role === ROLES.MANAGER
-      ? new Set(['patientHistoryBy'])
+      ? new Set(['patientHistoryBy', 'consultationDate'])
       : req.user.role === ROLES.ASSISTANT_DOCTOR ? medicineFields : null;
     if (!allowedFields || !Object.keys(req.body).length ||
         Object.keys(req.body).some((key) => !allowedFields.has(key))) {
@@ -1601,6 +1618,20 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  if (consultationDate !== undefined) {
+    const nextDate = consultationDate || '';
+    if (nextDate) {
+      const parsedConsultationDate = new Date(`${nextDate}T00:00:00.000Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate) || Number.isNaN(parsedConsultationDate.getTime()) || parsedConsultationDate.toISOString().slice(0, 10) !== nextDate) {
+        return res.status(400).json({ success: false, message: 'Invalid consultation date' });
+      }
+    }
+    const previousDate = stageEntry.consultationDate ? stageEntry.consultationDate.toISOString().slice(0, 10) : '';
+    if (previousDate !== nextDate) {
+      addActivity(patient, req.user, `Phase ${stageNum} consultation date updated`, `From ${previousDate || 'Blank'} to ${nextDate || 'Blank'}`);
+      stageEntry.consultationDate = nextDate || null;
+    }
+  }
   if (patientHistoryBy !== undefined) {
     const nextName = String(patientHistoryBy || '').trim();
     const previousName = stageEntry.patientHistoryBy || (stageNum === 1 ? patient.patientHistoryBy || '' : '');

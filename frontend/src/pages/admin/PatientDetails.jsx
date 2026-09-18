@@ -2237,7 +2237,7 @@ const PatientDetails = () => {
   const saveStageField = async (fieldKey, rawValue) => {
     const numberFields = ['totalAmount', 'medicineMonthsGiven'];
     const booleanFields = ['medicineFullyGiven', 'medicineConnectDone'];
-    const dateFields = ['medicineNextConnectDate', 'medicineTakenDate', 'medicineExplainDate'];
+    const dateFields = ['consultationDate', 'medicineNextConnectDate', 'medicineTakenDate', 'medicineExplainDate'];
     const payload = {
       [fieldKey]: numberFields.includes(fieldKey)
         ? Number(rawValue) || 0
@@ -2779,13 +2779,21 @@ const PatientDetails = () => {
           {/* Tab content — details for the selected phase, shown inline below the tabs */}
           {activeStage && (
             <div className="px-6 pb-6">
-              <div className="mb-4 border border-cardline bg-offwhite-100">
+              <div className="mb-4 grid grid-cols-1 gap-px border border-cardline bg-cardline sm:grid-cols-2">
                 <EditableField
                   label={`Patient History By - Phase ${activeStage.number}`}
                   value={activeStage.patientHistoryBy || ''}
                   placeholder="Not added"
                   onSave={(val) => saveStageField('patientHistoryBy', val)}
                   readOnly={!canEditPatientDetails}
+                />
+                <EditableField
+                  label={`Consultation Date - Phase ${activeStage.number}`}
+                  type="date"
+                  value={toDateInputValue(activeStage.consultationDate)}
+                  placeholder="Not added"
+                  onSave={(val) => saveStageField('consultationDate', val)}
+                  readOnly={!(canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR || user?.role === ROLES.MANAGER)}
                 />
               </div>
               {/* Package card — compact, same small-field style as Age/Phone/etc above */}

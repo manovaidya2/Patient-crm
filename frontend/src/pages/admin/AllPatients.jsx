@@ -20,6 +20,7 @@ const emptyPatientForm = {
   guardianName: '',
   alternateNumber: '',
   patientHistoryBy: '',
+  consultationDate: '',
   relativeName: '',
   currentStage: 1,
   postCounselor: '',
@@ -458,6 +459,13 @@ const AllPatients = () => {
               placeholder="Name"
               value={addForm.patientHistoryBy}
               onChange={(e) => updateAddForm('patientHistoryBy', e.target.value)}
+            />
+            <Input
+              id="consultationDate"
+              label={`Consultation Date - Phase ${addForm.currentStage}`}
+              type="date"
+              value={addForm.consultationDate}
+              onChange={(e) => updateAddForm('consultationDate', e.target.value)}
             />
             <div>
               <label htmlFor="postCounselor" className="block text-sm font-medium text-charcoal mb-1.5">
