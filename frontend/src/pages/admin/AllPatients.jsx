@@ -50,6 +50,7 @@ const AllPatients = () => {
   const [addForm, setAddForm] = useState(emptyPatientForm);
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  const [codeCheck, setCodeCheck] = useState({ code: '', status: 'idle' });
   const [postCounselorOptions, setPostCounselorOptions] = useState([]);
   // Track the previous filter values (not just "have we mounted") so React 18 StrictMode's
   // dev-only double-invoke of this effect — same values, twice — can't misread its own
@@ -124,6 +125,30 @@ const AllPatients = () => {
     fetchPostCounselors();
   }, []);
 
+  useEffect(() => {
+    if (!addOpen) return;
+    const code = addForm.patientCode.trim().toUpperCase();
+    if (!code) {
+      setCodeCheck({ code: '', status: 'idle' });
+      return;
+    }
+
+    const controller = new AbortController();
+    setCodeCheck({ code, status: 'checking' });
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/patients/check-code', { params: { code }, signal: controller.signal });
+        setCodeCheck({ code, status: data.exists ? 'duplicate' : 'available' });
+      } catch (err) {
+        if (!controller.signal.aborted) setCodeCheck({ code, status: 'error' });
+      }
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [addOpen, addForm.patientCode]);
+
   const updateAddForm = (field, value) => {
     setAddForm((current) => ({ ...current, [field]: value }));
   };
@@ -131,16 +156,25 @@ const AllPatients = () => {
   const openAddModal = () => {
     setAddForm(emptyPatientForm);
     setAddError('');
+    setCodeCheck({ code: '', status: 'idle' });
     setAddOpen(true);
   };
 
   const handleAddPatient = async (e) => {
     e.preventDefault();
+    const code = addForm.patientCode.trim().toUpperCase();
+    if (!code) return;
     setAddSaving(true);
     setAddError('');
     try {
+      const check = await api.get('/patients/check-code', { params: { code } });
+      if (check.data.exists) {
+        setCodeCheck({ code, status: 'duplicate' });
+        return;
+      }
       const { data } = await api.post('/patients', {
         ...addForm,
+        patientCode: code,
         age: addForm.age.trim(),
         currentStage: Number(addForm.currentStage),
         postCounselor: addForm.postCounselor || null,
@@ -148,7 +182,12 @@ const AllPatients = () => {
       setAddOpen(false);
       navigate(`/admin/patients/${data.patient.id}`);
     } catch (err) {
-      setAddError(err.response?.data?.message || 'Could not add patient.');
+      const message = err.response?.data?.message || 'Could not add patient.';
+      if (/patient.?id already exists|patientcode already exists/i.test(message)) {
+        setCodeCheck({ code, status: 'duplicate' });
+      } else {
+        setAddError(message);
+      }
     } finally {
       setAddSaving(false);
     }
@@ -317,14 +356,20 @@ const AllPatients = () => {
           {addError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{addError}</div>}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              id="patientCode"
-              label="Patient ID"
-              placeholder="PT-E67640"
-              value={addForm.patientCode}
-              onChange={(e) => updateAddForm('patientCode', e.target.value)}
-              required
-            />
+            <div>
+              <Input
+                id="patientCode"
+                label="Patient ID"
+                placeholder="PT-E67640"
+                value={addForm.patientCode}
+                onChange={(e) => updateAddForm('patientCode', e.target.value)}
+                error={codeCheck.code === addForm.patientCode.trim().toUpperCase() && codeCheck.status === 'duplicate' ? 'Duplicate Patient ID. Enter a different ID.' : undefined}
+                required
+              />
+              {codeCheck.code === addForm.patientCode.trim().toUpperCase() && codeCheck.status === 'checking' && (
+                <p className="mt-1 text-xs text-charcoal/55">Checking Patient ID...</p>
+              )}
+            </div>
             <Input
               id="patientName"
               label="Patient Name"
@@ -439,7 +484,7 @@ const AllPatients = () => {
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={addSaving}>
+            <Button type="submit" disabled={addSaving || (codeCheck.code === addForm.patientCode.trim().toUpperCase() && codeCheck.status === 'duplicate')}>
               {addSaving ? 'Saving...' : 'Add Patient'}
             </Button>
           </div>

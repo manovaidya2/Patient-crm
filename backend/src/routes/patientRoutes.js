@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   getPatients,
+  checkPatientCode,
   getDashboardStats,
   getStaffDashboardStats,
   getPaymentsLedger,
@@ -41,6 +42,7 @@ const PAYMENT_ADD_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.PO
 router.use(protect, authorize(...PATIENT_ACCESS_ROLES));
 
 router.get('/', getPatients);
+router.get('/check-code', authorize(...PATIENT_CREATE_ROLES), checkPatientCode);
 router.post('/', authorize(...PATIENT_CREATE_ROLES), createPatient);
 router.get('/dashboard-stats', authorize(ROLES.ADMIN, ROLES.DOCTOR), getDashboardStats);
 router.get('/staff-dashboard-stats', authorize(ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST), getStaffDashboardStats);

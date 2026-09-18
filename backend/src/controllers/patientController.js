@@ -651,6 +651,15 @@ const getPatients = asyncHandler(async (req, res) => {
   });
 });
 
+const checkPatientCode = asyncHandler(async (req, res) => {
+  const patientCode = String(req.query.code || '').trim().toUpperCase();
+  if (!patientCode) {
+    return res.status(400).json({ success: false, message: 'Patient ID is required' });
+  }
+  const exists = Boolean(await Patient.exists({ patientCode }));
+  res.status(200).json({ success: true, exists });
+});
+
 // @desc    Admin dashboard patient/payment summary
 // @route   GET /api/patients/dashboard-stats
 // @access  Private/Admin
@@ -2918,6 +2927,7 @@ const getFamilySessions = listScheduleEntries('familySessions', { groupByAssigne
 
 module.exports = {
   getPatients,
+  checkPatientCode,
   getDashboardStats,
   getStaffDashboardStats,
   getPaymentsLedger,
