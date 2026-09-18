@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2 } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -2226,6 +2226,12 @@ const PatientDetails = () => {
   const [stageFormError, setStageFormError] = useState('');
   const [approveSaving, setApproveSaving] = useState(false);
   const [approveError, setApproveError] = useState('');
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState('');
+  const [closeSaving, setCloseSaving] = useState(false);
+  const [closeError, setCloseError] = useState('');
+  const [reactivateSaving, setReactivateSaving] = useState(false);
+  const [reactivateError, setReactivateError] = useState('');
   const [approvingPaymentId, setApprovingPaymentId] = useState(null);
   const [paymentApproveError, setPaymentApproveError] = useState('');
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
@@ -2575,6 +2581,40 @@ const PatientDetails = () => {
     }
   };
 
+  const openCloseModal = () => {
+    setCloseReason('');
+    setCloseError('');
+    setCloseModalOpen(true);
+  };
+
+  const handleClosePatient = async (e) => {
+    e.preventDefault();
+    setCloseSaving(true);
+    setCloseError('');
+    try {
+      const { data } = await api.patch(`/patients/${id}/status`, { isActive: false, reason: closeReason.trim() });
+      setPatient(data.patient);
+      setCloseModalOpen(false);
+    } catch (err) {
+      setCloseError(err.response?.data?.message || 'Could not close patient');
+    } finally {
+      setCloseSaving(false);
+    }
+  };
+
+  const handleReactivatePatient = async () => {
+    setReactivateSaving(true);
+    setReactivateError('');
+    try {
+      const { data } = await api.patch(`/patients/${id}/status`, { isActive: true });
+      setPatient(data.patient);
+    } catch (err) {
+      setReactivateError(err.response?.data?.message || 'Could not reactivate patient');
+    } finally {
+      setReactivateSaving(false);
+    }
+  };
+
   // Live view of the open tab's stage (reflects payments as they're added)
   const activeStage = patient?.stages?.find((s) => s.number === activeStageTab);
   const activeMedicineConnectDue = activeStage
@@ -2665,20 +2705,52 @@ const PatientDetails = () => {
                 Approved by {patient.approvedByName}{patient.approvedAt ? ` on ${formatDate(patient.approvedAt)}` : ''}
               </p>
             )}
-            {isAdmin && (
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={handleDeletePatient}
-                  disabled={deletingPatient}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8C3B2E] hover:underline disabled:opacity-50"
-                >
-                  <Trash2 size={14} /> {deletingPatient ? 'Deleting...' : 'Delete Patient'}
-                </button>
-                {deletePatientError && <p className="mt-1 text-xs text-[#8C3B2E]">{deletePatientError}</p>}
+            {(isAdmin || (patient.canToggleActive && patient.isActive)) && (
+              <div className="mt-4 flex flex-wrap items-center gap-4">
+                {patient.canToggleActive && patient.isActive && (
+                  <button
+                    type="button"
+                    onClick={openCloseModal}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-charcoal/55 hover:underline"
+                  >
+                    <UserX size={14} /> Close Patient
+                  </button>
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleDeletePatient}
+                    disabled={deletingPatient}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8C3B2E] hover:underline disabled:opacity-50"
+                  >
+                    <Trash2 size={14} /> {deletingPatient ? 'Deleting...' : 'Delete Patient'}
+                  </button>
+                )}
               </div>
             )}
+            {deletePatientError && <p className="mt-1 text-xs text-[#8C3B2E]">{deletePatientError}</p>}
           </div>
+
+          {!patient.isActive && (
+            <div className="mx-6 mb-2 flex flex-col gap-3 rounded-lg border border-charcoal/20 bg-charcoal/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2.5">
+                <UserX size={18} className="mt-0.5 shrink-0 text-charcoal/55" />
+                <div>
+                  <p className="text-sm font-bold text-charcoal">Inactive patient</p>
+                  <p className="mt-0.5 text-xs text-charcoal/60">
+                    Closed {formatDate(patient.inactivatedAt)}{patient.inactivatedByName ? ` by ${patient.inactivatedByName}` : ''}
+                    {patient.inactiveReason ? ` — ${patient.inactiveReason}` : ''}. Hidden from the patient list and no follow-up/family-session reminders fire while closed.
+                  </p>
+                  {reactivateError && <p className="mt-1 text-xs font-semibold text-[#8C3B2E]">{reactivateError}</p>}
+                </div>
+              </div>
+              {patient.canToggleActive && (
+                <Button size="sm" variant="outline" onClick={handleReactivatePatient} disabled={reactivateSaving} className="shrink-0">
+                  <RotateCcw size={14} /> {reactivateSaving ? 'Reactivating...' : 'Reactivate'}
+                </Button>
+              )}
+            </div>
+          )}
 
           {patient.approvalStatus === 'pending' && (
             <div className="mx-6 mb-2 flex flex-col gap-3 rounded-lg border border-[#9C6B2E]/35 bg-[#9C6B2E]/8 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -3251,6 +3323,35 @@ const PatientDetails = () => {
           </ul>
         )}
       </Drawer>
+
+      <Modal open={closeModalOpen} onClose={() => setCloseModalOpen(false)} title="Close Patient">
+        <form onSubmit={handleClosePatient} className="space-y-4">
+          {closeError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{closeError}</div>}
+          <p className="text-sm text-charcoal/70">
+            This moves {patient?.patientName} to Inactive Patients — it drops off the main patient list and stops
+            generating follow-up/family-session/medicine-connect reminders. Nothing is deleted, and it can be
+            reactivated any time.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-charcoal mb-1.5">Reason (optional)</label>
+            <textarea
+              rows={3}
+              value={closeReason}
+              onChange={(e) => setCloseReason(e.target.value)}
+              placeholder="e.g. Medicine stopped, treatment discontinued"
+              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setCloseModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={closeSaving}>
+              {closeSaving ? 'Closing...' : 'Close Patient'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

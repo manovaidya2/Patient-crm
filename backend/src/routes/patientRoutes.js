@@ -11,6 +11,7 @@ const {
   createPatient,
   getPendingApprovals,
   approvePatient,
+  updatePatientStatus,
   updatePatient,
   updatePatientStage,
   addStagePayment,
@@ -57,6 +58,7 @@ router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
 router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approvePatient);
+router.patch('/:id/status', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR), updatePatientStatus);
 router.patch('/:id', authorize(...PATIENT_WRITE_ROLES), updatePatient);
 router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER), updatePatientStage);
 router.post('/:id/stages/:number/payments', authorize(...PAYMENT_ADD_ROLES), uploadPaymentScreenshot.array('screenshot', 10), addStagePayment);

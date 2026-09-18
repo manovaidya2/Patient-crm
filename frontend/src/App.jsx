@@ -6,6 +6,7 @@ import Dashboard from './pages/admin/Dashboard.jsx';
 import StaffDashboard from './pages/admin/StaffDashboard.jsx';
 import TeamMembers from './pages/admin/TeamMembers.jsx';
 import AllPatients from './pages/admin/AllPatients.jsx';
+import InactivePatients from './pages/admin/InactivePatients.jsx';
 import PatientApprovals from './pages/admin/PatientApprovals.jsx';
 import PatientDetails from './pages/admin/PatientDetails.jsx';
 import PatientsByStage from './pages/admin/PatientsByStage.jsx';
@@ -39,6 +40,7 @@ const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
 const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT];
+const INACTIVE_PATIENTS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR];
 const PACKAGE_NOT_BOUGHT_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
 
 function App() {
@@ -216,6 +218,14 @@ function App() {
           element={
             <ProtectedRoute roles={PATIENT_ACCESS_ROLES}>
               <AllPatients />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="inactive-patients"
+          element={
+            <ProtectedRoute roles={INACTIVE_PATIENTS_ROLES}>
+              <InactivePatients />
             </ProtectedRoute>
           }
         />

@@ -108,6 +108,7 @@ const emptyMedicineRequest = () => ({
 const canAccessPatient = (user, patient) => {
   if (user.role !== ROLES.ASSISTANT_DOCTOR && user.role !== ROLES.PSYCHOLOGIST) return true;
   if ((patient.approvalStatus || 'approved') !== 'approved') return false;
+  if (patient.isActive === false) return false;
   const assignment = user.role === ROLES.ASSISTANT_DOCTOR ? patient.assignedDoctor : patient.assignedPsychologist;
   if (!assignment) return false;
   const assignedId = assignment._id || assignment;
@@ -115,6 +116,7 @@ const canAccessPatient = (user, patient) => {
 };
 
 const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
+const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
 
 const formatAssignedUser = (assignedUser) => {
@@ -494,6 +496,13 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   approvedByName: p.approvedByName || '',
   approvedAt: p.approvedAt || null,
   canApprove: canReviewPatientApproval(user),
+  isActive: p.isActive !== false,
+  inactiveReason: p.inactiveReason || '',
+  inactivatedByName: p.inactivatedByName || '',
+  inactivatedAt: p.inactivatedAt || null,
+  reactivatedByName: p.reactivatedByName || '',
+  reactivatedAt: p.reactivatedAt || null,
+  canToggleActive: canTogglePatientActive(user),
   assignedDoctor: formatAssignedUser(p.assignedDoctor),
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
   hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
@@ -580,9 +589,13 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
 // @route   GET /api/patients
 // @access  Private/Admin, Doctor, Accountant, Post Counselor
 const getPatients = asyncHandler(async (req, res) => {
-  const { search = '', category, stage, receivedDate, page = 1, limit = 10 } = req.query;
+  const { search = '', category, stage, receivedDate, status, page = 1, limit = 10 } = req.query;
 
   const filter = {};
+
+  // Closed/inactive cases stay out of the main list by default; the dedicated
+  // Inactive Patients page asks for them explicitly with ?status=inactive.
+  filter.isActive = status === 'inactive' ? false : { $ne: false };
 
   if (category) {
     if (!ALL_CATEGORIES.includes(category)) {
@@ -924,7 +937,8 @@ const getStaffDashboardStats = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'This dashboard is not available for your role' });
   }
 
-  const filter = {};
+  // Closed patients never generate reminders/workload for anyone.
+  const filter = { isActive: { $ne: false } };
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     filter.assignedDoctor = req.user._id;
     filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
@@ -1398,6 +1412,48 @@ const approvePatient = asyncHandler(async (req, res) => {
   patient.approvedByName = req.user.name;
   patient.approvedAt = new Date();
   addActivity(patient, req.user, 'Patient approved', 'Cleared accounts approval — now visible to assigned staff');
+  await patient.save();
+
+  await populateAssignments(patient);
+  await patient.populate('stages.postCounselor', 'name');
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @desc    Close ("inactive") or reopen ("active") a patient — a closed patient drops off
+//          the main patient list, stops generating follow-up/family-session/medicine-
+//          connect reminders, and can be reactivated any time. Nothing is deleted.
+// @route   PATCH /api/patients/:id/status
+// @access  Private/Admin, Doctor, Post Counselor
+const updatePatientStatus = asyncHandler(async (req, res) => {
+  if (!canTogglePatientActive(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Post Counselor can close/reopen a patient' });
+  }
+
+  const isActive = req.body.isActive !== false;
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  if ((patient.isActive !== false) === isActive) {
+    return res.status(400).json({
+      success: false,
+      message: isActive ? 'This patient is already active' : 'This patient is already inactive',
+    });
+  }
+
+  patient.isActive = isActive;
+  if (isActive) {
+    patient.reactivatedByName = req.user.name;
+    patient.reactivatedAt = new Date();
+    addActivity(patient, req.user, 'Patient reactivated', 'Back on the active patient list');
+  } else {
+    const reason = String(req.body.reason || '').trim();
+    patient.inactiveReason = reason;
+    patient.inactivatedByName = req.user.name;
+    patient.inactivatedAt = new Date();
+    addActivity(patient, req.user, 'Patient marked inactive', reason || 'No reason given');
+  }
   await patient.save();
 
   await populateAssignments(patient);
@@ -2840,7 +2896,8 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
       });
     }
 
-    const filter = {};
+    // Closed patients drop off the Follow-ups/Family Sessions tracking pages too.
+    const filter = { isActive: { $ne: false } };
     if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
       filter.assignedDoctor = req.user._id;
       filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
@@ -2919,7 +2976,8 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, count: 0, reminders: [] });
   }
 
-  const filter = {};
+  // Closed patients never generate reminders for anyone.
+  const filter = { isActive: { $ne: false } };
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     filter.assignedDoctor = req.user._id;
     filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
@@ -2968,6 +3026,7 @@ module.exports = {
   createPatient,
   getPendingApprovals,
   approvePatient,
+  updatePatientStatus,
   updatePatient,
   updatePatientStage,
   addStagePayment,

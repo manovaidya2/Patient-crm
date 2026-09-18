@@ -293,6 +293,16 @@ const patientSchema = new mongoose.Schema(
     },
     approvedByName: { type: String, trim: true, default: '' },
     approvedAt: { type: Date, default: null },
+    // "Closed" cases — Admin/Doctor/Post Counselor mark a patient inactive once their
+    // medicine/treatment stops. An inactive patient drops off the main patient list and
+    // stops generating follow-up/family-session/medicine-connect reminders, but every
+    // record stays intact and it can be reactivated any time.
+    isActive: { type: Boolean, default: true, index: true },
+    inactiveReason: { type: String, trim: true, default: '' },
+    inactivatedByName: { type: String, trim: true, default: '' },
+    inactivatedAt: { type: Date, default: null },
+    reactivatedByName: { type: String, trim: true, default: '' },
+    reactivatedAt: { type: Date, default: null },
     // Which Assistant Doctor this patient is currently assigned to (set by Admin/Manager/Post Counselor)
     assignedDoctor: {
       type: mongoose.Schema.Types.ObjectId,
