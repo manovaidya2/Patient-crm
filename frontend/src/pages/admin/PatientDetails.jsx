@@ -2220,7 +2220,6 @@ const PatientDetails = () => {
   const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
-  const showFollowUps = user?.role !== ROLES.PSYCHOLOGIST;
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
   const canEditPatientDetails = !isPsychologist && !isAccountant;
   const canEditPostCounselor = isAdmin;
@@ -2996,20 +2995,20 @@ const PatientDetails = () => {
                 />
               ))}
 
-              {showFollowUps && (
-                <ScheduleCard
-                  icon={CalendarClock}
-                  title="Follow-ups"
-                  entries={activeStage.followUps}
-                  onAdd={handleAddFollowUp}
-                  onUpdateStatus={handleUpdateFollowUpStatus}
-                  onDelete={handleDeleteFollowUp}
-                  canEditEntries={isAdmin}
-                  formType="followup_full"
-                  patient={patient}
-                  stageNumber={activeStage.number}
-                />
-              )}
+              <ScheduleCard
+                icon={CalendarClock}
+                title="Follow-ups"
+                entries={activeStage.followUps}
+                onAdd={handleAddFollowUp}
+                onUpdateStatus={handleUpdateFollowUpStatus}
+                onDelete={handleDeleteFollowUp}
+                canAdd={!isPsychologist}
+                canUpdate={!isPsychologist}
+                canEditEntries={isAdmin}
+                formType="followup_full"
+                patient={patient}
+                stageNumber={activeStage.number}
+              />
               <ScheduleCard
                 icon={HeartHandshake}
                 title="Family Sessions"

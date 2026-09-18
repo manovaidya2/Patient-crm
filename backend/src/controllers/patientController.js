@@ -465,7 +465,7 @@ const normalizeStages = (existing = []) => {
 };
 
 const shouldShowFollowUps = (user) =>
-  !user || ![ROLES.PSYCHOLOGIST, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
 
 const shouldShowFamilySessions = (user) =>
   !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
