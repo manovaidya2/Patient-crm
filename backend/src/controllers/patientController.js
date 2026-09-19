@@ -38,6 +38,7 @@ const MEDICINE_STATUS_LABELS = {
 };
 
 const ACTIVE_MEDICINE_STATUSES = Object.values(MEDICINE_STATUSES);
+const MEDICINE_LOCKED_STATUSES = [MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER];
 
 const COURIER_STATUSES = {
   PENDING: 'pending',
@@ -2263,6 +2264,15 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
   const existingRequest = createNew ? null : findStageMedicineRequest(stageEntry, req.body.requestId);
   if (!createNew && req.body.requestId && !existingRequest) {
     return res.status(404).json({ success: false, message: 'Medicine request not found' });
+  }
+  // Once the medicine department has made it, only Admin may change the request —
+  // updating resets it to "requested", which would undo the department's work.
+  if (
+    existingRequest
+    && MEDICINE_LOCKED_STATUSES.includes(existingRequest.status)
+    && req.user.role !== ROLES.ADMIN
+  ) {
+    return res.status(403).json({ success: false, message: 'This medicine request is already done — only Admin can update it' });
   }
   const nextRequest = {
     ...emptyMedicineRequest(),

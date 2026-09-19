@@ -848,25 +848,25 @@ const HeaderEditButton = ({ label, value, onSave, readOnly = false, type = 'text
   );
 };
 
-const MedicineRequestPanel = ({ request, canRequest, onRequest, isNew = false }) => {
-  const [collapsed, setCollapsed] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+// Once the medicine department has made it (or it is already on its way), only Admin can still update the request.
+const MEDICINE_DONE_STATUSES = ['made', 'sent_to_courier'];
+
+// Create / update form for one medicine request — shared by "New Request" and each row's "Update Request".
+const MedicineRequestModal = ({ open, onClose, request, onRequest }) => {
   const [medicines, setMedicines] = useState('');
   const [notes, setNotes] = useState('');
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const status = request?.status || 'not_requested';
-  const hasRequest = status !== 'not_requested';
-
-  const openModal = () => {
+  useEffect(() => {
+    if (!open) return;
     setMedicines(request?.medicines || '');
     setNotes(request?.notes || '');
     setFiles([]);
     setError('');
-    setModalOpen(true);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -882,7 +882,7 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest, isNew = false })
     setError('');
     try {
       await onRequest({ medicines, notes, files });
-      setModalOpen(false);
+      onClose();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not send medicine request');
     } finally {
@@ -891,34 +891,92 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest, isNew = false })
   };
 
   return (
-    <Card className="mt-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <Modal open={open} onClose={onClose} title="Request Medicine">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
         <div>
-          <h2 className="flex items-center gap-2 font-display text-base font-bold text-charcoal">
-            <PackageCheck size={17} className="text-sage" /> Medicine & Courier Status
-          </h2>
-          {!isNew && <p className="mt-1 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</p>}
+          <label className="block text-sm font-medium text-charcoal mb-1.5">Medicine Details</label>
+          <textarea
+            rows={4}
+            value={medicines}
+            onChange={(e) => setMedicines(e.target.value)}
+            placeholder="Medicine names, quantity, dose..."
+            className="w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+          />
         </div>
-        <div className="flex items-center gap-2">
-          {canRequest && (
-            <Button size="sm" variant={hasRequest ? 'outline' : 'primary'} onClick={openModal}>
-              <Plus size={14} /> {isNew ? 'New Request' : hasRequest ? 'Update Request' : 'Request Medicine'}
-            </Button>
-          )}
-          <button
-            type="button"
-            onClick={() => setCollapsed((value) => !value)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-sage hover:bg-sage-muted/20"
-            aria-label={collapsed ? 'Expand medicine and courier status' : 'Collapse medicine and courier status'}
-            title={collapsed ? 'Expand' : 'Collapse'}
-          >
-            <ChevronDown size={18} className={`transition-transform ${collapsed ? '' : 'rotate-180'}`} />
-          </button>
+        <div>
+          <label className="block text-sm font-medium text-charcoal mb-1.5">Notes</label>
+          <textarea
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional notes for medicine department"
+            className="w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+          />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-charcoal mb-1.5">Prescription Image / Document</label>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
+            <Paperclip size={14} />
+            <span className="truncate">Attach prescriptions</span>
+            <input type="file" accept="image/*,.pdf,.doc,.docx" multiple onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
+          </label>
+          <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
+            <Paperclip size={14} />
+            Camera
+            <input type="file" accept="image/*" capture="environment" onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
+          </label>
+          <SelectedAttachments files={files} onRemove={(index) => removeSelectedFile(setFiles, index)} />
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Sending...' : 'Send Request'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+// One medicine request as a compact collapsible row — summary always visible,
+// full medicine / packaging / courier detail only when expanded.
+const MedicineRequestRow = ({ request, label, canRequest, onRequest }) => {
+  const [open, setOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-cardline bg-offwhite-100">
+      <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          aria-expanded={open}
+        >
+          <ChevronDown size={16} className={`shrink-0 text-sage transition-transform ${open ? 'rotate-180' : ''}`} />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-charcoal">
+              {label}
+              <span className="ml-2 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</span>
+            </p>
+            <p className="mt-0.5 truncate text-xs text-charcoal/55">
+              {request?.requestedAt ? formatDateTime(request.requestedAt) : '-'}
+              {request?.medicines ? ` · ${request.medicines.replace(/\s+/g, ' ')}` : ''}
+            </p>
+          </div>
+        </button>
+        {canRequest && (
+          <Button size="sm" variant="outline" onClick={() => setModalOpen(true)} className="shrink-0">
+            <Plus size={14} /> Update Request
+          </Button>
+        )}
       </div>
 
-      {collapsed ? null : hasRequest ? (
-        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr_1.35fr]">
+      {open && (
+        <div className="grid gap-4 border-t border-cardline p-3.5 xl:grid-cols-[1fr_1fr_1.35fr]">
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-3.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Medicines</p>
             <p className="mt-1 whitespace-pre-line text-sm text-charcoal">{request.medicines || '-'}</p>
@@ -955,57 +1013,70 @@ const MedicineRequestPanel = ({ request, canRequest, onRequest, isNew = false })
             <FileLinks files={request.courier?.deliveryProofImages} fallbackUrl={request.courier?.deliveryProofUrl} fallbackName={request.courier?.deliveryProofFileName || 'Delivery proof'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Delivery Proofs'} />
           </div>
         </div>
-      ) : !isNew ? (
-        <p className="mt-4 text-sm text-charcoal/55">Medicine request has not been sent yet.</p>
-      ) : null}
+      )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Request Medicine">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
-          <div>
-            <label className="block text-sm font-medium text-charcoal mb-1.5">Medicine Details</label>
-            <textarea
-              rows={4}
-              value={medicines}
-              onChange={(e) => setMedicines(e.target.value)}
-              placeholder="Medicine names, quantity, dose..."
-              className="w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-charcoal mb-1.5">Notes</label>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional notes for medicine department"
-              className="w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-charcoal mb-1.5">Prescription Image / Document</label>
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
-              <Paperclip size={14} />
-              <span className="truncate">Attach prescriptions</span>
-              <input type="file" accept="image/*,.pdf,.doc,.docx" multiple onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
-            </label>
-            <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
-              <Paperclip size={14} />
-              Camera
-              <input type="file" accept="image/*" capture="environment" onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
-            </label>
-            <SelectedAttachments files={files} onRemove={(index) => removeSelectedFile(setFiles, index)} />
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setModalOpen(false)}>
-              Cancel
+      <MedicineRequestModal open={modalOpen} onClose={() => setModalOpen(false)} request={request} onRequest={onRequest} />
+    </div>
+  );
+};
+
+// All of a phase's medicine requests in ONE card — the whole card collapses, and each
+// request inside is its own collapsible row so several requests don't stack into
+// several huge cards.
+const MedicineRequestsSection = ({ requests = [], canRequest, isAdmin = false, onNewRequest, onUpdateRequest }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  const [newModalOpen, setNewModalOpen] = useState(false);
+  const total = requests.length;
+
+  return (
+    <Card className="mt-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 font-display text-base font-bold text-charcoal">
+            <PackageCheck size={17} className="text-sage" /> Medicine & Courier Status
+            {total > 0 && (
+              <span className="rounded-full bg-sage-muted/25 px-2 py-0.5 text-[11px] font-bold text-sage">{total}</span>
+            )}
+          </h2>
+          {total === 0 && <p className="mt-1 text-sm text-charcoal/55">Medicine request has not been sent yet.</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          {canRequest && (
+            <Button size="sm" onClick={() => setNewModalOpen(true)}>
+              <Plus size={14} /> New Request
             </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Sending...' : 'Send Request'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-sage hover:bg-sage-muted/20"
+            aria-label={collapsed ? 'Expand medicine and courier status' : 'Collapse medicine and courier status'}
+            title={collapsed ? 'Expand' : 'Collapse'}
+          >
+            <ChevronDown size={18} className={`transition-transform ${collapsed ? '' : 'rotate-180'}`} />
+          </button>
+        </div>
+      </div>
+
+      {!collapsed && total > 0 && (
+        <div className="mt-4 space-y-2.5">
+          {requests.map((request, index) => (
+            <MedicineRequestRow
+              key={request.id || index}
+              request={request}
+              label={`Request ${total - index}`}
+              canRequest={canRequest && (isAdmin || !MEDICINE_DONE_STATUSES.includes(request.status))}
+              onRequest={(payload) => onUpdateRequest(request, payload)}
+            />
+          ))}
+        </div>
+      )}
+
+      <MedicineRequestModal
+        open={newModalOpen}
+        onClose={() => setNewModalOpen(false)}
+        onRequest={onNewRequest}
+      />
     </Card>
   );
 };
@@ -3175,21 +3246,13 @@ const PatientDetails = () => {
                 </div>
               </div>
 
-              {canRequestMedicine && (
-                <MedicineRequestPanel
-                  isNew
-                  canRequest
-                  onRequest={(payload) => handleRequestMedicine({ ...payload, createNew: true })}
-                />
-              )}
-              {(activeStage.medicineRequests || []).map((request, index) => (
-                <MedicineRequestPanel
-                  key={request.id || index}
-                  request={request}
-                  canRequest={canRequestMedicine}
-                  onRequest={(payload) => handleRequestMedicine({ ...payload, requestId: request.id })}
-                />
-              ))}
+              <MedicineRequestsSection
+                requests={activeStage.medicineRequests || []}
+                canRequest={canRequestMedicine}
+                isAdmin={isAdmin}
+                onNewRequest={(payload) => handleRequestMedicine({ ...payload, createNew: true })}
+                onUpdateRequest={(request, payload) => handleRequestMedicine({ ...payload, requestId: request.id })}
+              />
 
               <ScheduleCard
                 icon={CalendarClock}
