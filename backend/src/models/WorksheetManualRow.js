@@ -14,9 +14,10 @@ const worksheetManualRowSchema = new mongoose.Schema(
     patientName: { type: String, trim: true, default: '' },
     patientCode: { type: String, trim: true, default: '' },
     currentStage: { type: String, trim: true, default: '' },
-    workType: { type: String, required: true, trim: true },
+    workType: { type: String, trim: true, default: '' },
     details: { type: String, trim: true, default: '' },
     customValues: { type: mongoose.Schema.Types.Mixed, default: {} },
+    source: { type: String, enum: ['manual', 'import'], default: 'manual' },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

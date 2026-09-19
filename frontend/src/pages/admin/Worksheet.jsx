@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, Columns3, Inbox, Plus, RefreshCw, Table2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, CalendarDays, Columns3, FileSpreadsheet, Inbox, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -15,55 +14,59 @@ const todayInputValue = () => {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 };
 
-const formatDate = (iso) =>
-  new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const formatCellValue = (column, value) => {
+  if (!value) return '-';
+  if (column.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  return value;
+};
 
-const formatTime = (iso) =>
-  new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+const selectClass =
+  'w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20';
 
 const Worksheet = () => {
   const [tabs, setTabs] = useState([]);
   const [rows, setRows] = useState([]);
-  const [customColumns, setCustomColumns] = useState([]);
-  const [activeTab, setActiveTab] = useState('all');
-  const [dateMode, setDateMode] = useState('day');
+  const [columns, setColumns] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [dateMode, setDateMode] = useState('all');
   const [dateValue, setDateValue] = useState(todayInputValue);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+
   const [rowModalOpen, setRowModalOpen] = useState(false);
-  const [columnModalOpen, setColumnModalOpen] = useState(false);
+  const [editingRowId, setEditingRowId] = useState('');
+  const [rowValues, setRowValues] = useState({});
   const [savingRow, setSavingRow] = useState(false);
-  const [savingColumn, setSavingColumn] = useState(false);
+
+  const [columnsModalOpen, setColumnsModalOpen] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
+  const [newColumnType, setNewColumnType] = useState('text');
+  const [columnBusy, setColumnBusy] = useState(false);
+
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState('');
+  const fileInputRef = useRef(null);
+
   const [modalError, setModalError] = useState('');
-  const [columnName, setColumnName] = useState('');
-  const [manualRow, setManualRow] = useState({
-    userId: '',
-    workDate: todayInputValue(),
-    patientName: '',
-    patientCode: '',
-    currentStage: '',
-    workType: '',
-    details: '',
-    customValues: {},
-  });
 
   useEffect(() => {
     const fetchWorksheet = async () => {
       setLoading(true);
       setError('');
       try {
-        const { data } = await api.get('/worksheet', {
-          params: dateMode === 'all' ? { dateMode } : { dateMode, date: dateValue },
-        });
-        const nextTabs = data.tabs || [];
-        setTabs(nextTabs);
+        const params = { dateMode, ...(selectedUserId ? { userId: selectedUserId } : {}) };
+        if (dateMode === 'day') params.date = dateValue;
+        const { data } = await api.get('/worksheet', { params });
+        setTabs(data.tabs || []);
+        setColumns(data.columns || []);
         setRows(data.rows || []);
-        setCustomColumns(data.customColumns || []);
-        setActiveTab((current) => {
-          if (current === 'all') return current;
-          return nextTabs.some((tab) => tab.id === current) ? current : nextTabs[0]?.id || 'all';
-        });
+        if (data.selectedUserId && data.selectedUserId !== selectedUserId) setSelectedUserId(data.selectedUserId);
       } catch (err) {
         setError(err.response?.data?.message || 'Could not load worksheet.');
       } finally {
@@ -71,88 +74,140 @@ const Worksheet = () => {
       }
     };
     fetchWorksheet();
-  }, [dateMode, dateValue, reloadKey]);
+    // selectedUserId is intentionally a dependency so switching tabs loads that person's sheet.
+  }, [dateMode, dateValue, selectedUserId, reloadKey]);
 
-  const filteredRows = useMemo(() => {
-    if (activeTab === 'all') return rows;
-    return rows.filter((row) => String(row.userId) === String(activeTab));
-  }, [activeTab, rows]);
+  const reload = () => setReloadKey((value) => value + 1);
+  const selectedTab = tabs.find((tab) => tab.id === selectedUserId);
+  const showOwnerNote = tabs.length > 1;
 
-  const totalCount = rows.length;
-  const selectedTab = activeTab === 'all' ? null : tabs.find((tab) => tab.id === activeTab);
-  const canChooseUser = tabs.length > 1;
-
-  const openRowModal = () => {
-    const defaultUserId = selectedTab?.id || tabs[0]?.id || '';
-    setManualRow({
-      userId: defaultUserId,
-      workDate: dateMode === 'day' ? dateValue : todayInputValue(),
-      patientName: '',
-      patientCode: '',
-      currentStage: '',
-      workType: '',
-      details: '',
-      customValues: {},
+  const openNewRow = () => {
+    setEditingRowId('');
+    const initial = {};
+    columns.filter((column) => column.type === 'date').forEach((column) => {
+      initial[column.key] = dateMode === 'day' ? dateValue : todayInputValue();
     });
+    setRowValues(initial);
     setModalError('');
     setRowModalOpen(true);
   };
 
-  const openColumnModal = () => {
-    setColumnName('');
+  const openEditRow = (row) => {
+    setEditingRowId(row.id);
+    setRowValues({ ...row.values });
     setModalError('');
-    setColumnModalOpen(true);
+    setRowModalOpen(true);
   };
 
-  const updateCustomValue = (key, value) => {
-    setManualRow((row) => ({
-      ...row,
-      customValues: {
-        ...row.customValues,
-        [key]: value,
-      },
-    }));
-  };
-
-  const submitManualRow = async (e) => {
+  const submitRow = async (e) => {
     e.preventDefault();
-    if (!manualRow.userId) {
-      setModalError('Select a user');
-      return;
-    }
-    if (!manualRow.workType.trim()) {
-      setModalError('Work is required');
-      return;
-    }
     setSavingRow(true);
     setModalError('');
     try {
-      await api.post('/worksheet/rows', manualRow);
+      if (editingRowId) {
+        await api.put(`/worksheet/rows/${editingRowId}`, { values: rowValues });
+      } else {
+        await api.post('/worksheet/rows', { userId: selectedUserId, values: rowValues });
+      }
       setRowModalOpen(false);
-      setReloadKey((value) => value + 1);
+      reload();
     } catch (err) {
-      setModalError(err.response?.data?.message || 'Could not add work row.');
+      setModalError(err.response?.data?.message || 'Could not save row.');
     } finally {
       setSavingRow(false);
     }
   };
 
-  const submitColumn = async (e) => {
+  const deleteRow = async (row) => {
+    if (!window.confirm('Delete this row?')) return;
+    try {
+      await api.delete(`/worksheet/rows/${row.id}`);
+      reload();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not delete row.');
+    }
+  };
+
+  const openColumnsModal = () => {
+    setNewColumnName('');
+    setNewColumnType('text');
+    setModalError('');
+    setColumnsModalOpen(true);
+  };
+
+  const addColumn = async (e) => {
     e.preventDefault();
-    if (!columnName.trim()) {
+    if (!newColumnName.trim()) {
       setModalError('Column name is required');
       return;
     }
-    setSavingColumn(true);
+    setColumnBusy(true);
     setModalError('');
     try {
-      await api.post('/worksheet/columns', { label: columnName.trim() });
-      setColumnModalOpen(false);
-      setReloadKey((value) => value + 1);
+      await api.post('/worksheet/columns', { userId: selectedUserId, label: newColumnName.trim(), type: newColumnType });
+      setNewColumnName('');
+      setNewColumnType('text');
+      reload();
     } catch (err) {
       setModalError(err.response?.data?.message || 'Could not add column.');
     } finally {
-      setSavingColumn(false);
+      setColumnBusy(false);
+    }
+  };
+
+  const renameColumn = async (column) => {
+    const label = window.prompt('Rename column', column.label);
+    if (label === null || !label.trim() || label.trim() === column.label) return;
+    setModalError('');
+    try {
+      await api.put(`/worksheet/columns/${column.id}`, { label: label.trim() });
+      reload();
+    } catch (err) {
+      setModalError(err.response?.data?.message || 'Could not rename column.');
+    }
+  };
+
+  const deleteColumn = async (column) => {
+    if (!window.confirm(`Delete column "${column.label}"? Values in this column will be removed from all rows.`)) return;
+    setModalError('');
+    try {
+      await api.delete(`/worksheet/columns/${column.id}`);
+      reload();
+    } catch (err) {
+      setModalError(err.response?.data?.message || 'Could not delete column.');
+    }
+  };
+
+  const openImportModal = () => {
+    setImportFile(null);
+    setImportResult('');
+    setModalError('');
+    setImportModalOpen(true);
+  };
+
+  const submitImport = async (e) => {
+    e.preventDefault();
+    if (!importFile) {
+      setModalError('Choose a CSV or Excel file first');
+      return;
+    }
+    setImporting(true);
+    setModalError('');
+    setImportResult('');
+    try {
+      const form = new FormData();
+      form.append('file', importFile);
+      form.append('userId', selectedUserId);
+      const { data } = await api.post('/worksheet/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const newColumnsNote = data.newColumns?.length ? ` New columns added: ${data.newColumns.join(', ')}.` : '';
+      setImportResult(`${data.importedRows} rows imported.${newColumnsNote}`);
+      setImportFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      reload();
+    } catch (err) {
+      setModalError(err.response?.data?.message || 'Could not import file.');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -162,23 +217,25 @@ const Worksheet = () => {
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Team Worksheet</p>
           <h1 className="font-display text-2xl font-bold text-charcoal">Worksheet</h1>
-          <p className="mt-1 text-sm text-charcoal/55">Daily CRM work auto-filled like a spreadsheet.</p>
+          <p className="mt-1 text-sm text-charcoal/55">
+            Fill your own rows and columns, or upload a CSV / Excel file. Nothing is filled automatically.
+          </p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <div className="inline-flex rounded-lg border border-cardline bg-offwhite-200 p-1">
-            <button
-              type="button"
-              onClick={() => setDateMode('day')}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold ${dateMode === 'day' ? 'bg-sage text-offwhite-100' : 'text-charcoal/60 hover:text-charcoal'}`}
-            >
-              Day
-            </button>
             <button
               type="button"
               onClick={() => setDateMode('all')}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold ${dateMode === 'all' ? 'bg-sage text-offwhite-100' : 'text-charcoal/60 hover:text-charcoal'}`}
             >
               All
+            </button>
+            <button
+              type="button"
+              onClick={() => setDateMode('day')}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold ${dateMode === 'day' ? 'bg-sage text-offwhite-100' : 'text-charcoal/60 hover:text-charcoal'}`}
+            >
+              Day
             </button>
           </div>
           {dateMode === 'day' && (
@@ -192,14 +249,17 @@ const Worksheet = () => {
               />
             </label>
           )}
-          <Button type="button" variant="outline" onClick={() => setReloadKey((value) => value + 1)}>
+          <Button type="button" variant="outline" onClick={reload}>
             <RefreshCw size={14} /> Refresh
           </Button>
-          <Button type="button" variant="outline" onClick={openColumnModal}>
-            <Columns3 size={14} /> Add Column
+          <Button type="button" variant="outline" onClick={openImportModal} disabled={!selectedUserId}>
+            <Upload size={14} /> Upload CSV / Excel
           </Button>
-          <Button type="button" onClick={openRowModal}>
-            <Plus size={14} /> Add Work
+          <Button type="button" variant="outline" onClick={openColumnsModal} disabled={!selectedUserId}>
+            <Columns3 size={14} /> Columns
+          </Button>
+          <Button type="button" onClick={openNewRow} disabled={!selectedUserId}>
+            <Plus size={14} /> Add Row
           </Button>
         </div>
       </div>
@@ -211,103 +271,88 @@ const Worksheet = () => {
       )}
 
       <Card className="mt-5" padded={false}>
-        <div className="border-b border-cardline px-4 py-3">
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('all')}
-              className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                activeTab === 'all'
-                  ? 'border-sage bg-sage text-offwhite-100'
-                  : 'border-cardline bg-offwhite-200 text-charcoal/70 hover:text-charcoal'
-              }`}
-            >
-              All <span className="ml-1 text-xs opacity-80">{totalCount}</span>
-            </button>
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
-                  activeTab === tab.id
-                    ? 'border-sage bg-sage text-offwhite-100'
-                    : 'border-cardline bg-offwhite-200 text-charcoal/70 hover:text-charcoal'
-                }`}
-              >
-                <span>{tab.name}</span>
-                <span className="ml-2 text-xs opacity-80">{tab.count}</span>
-                <span className="ml-2 text-[10px] uppercase opacity-70">{tab.roleLabel}</span>
-              </button>
-            ))}
+        {showOwnerNote && (
+          <div className="border-b border-cardline px-4 py-3">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setSelectedUserId(tab.id)}
+                  className={`shrink-0 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
+                    selectedUserId === tab.id
+                      ? 'border-sage bg-sage text-offwhite-100'
+                      : 'border-cardline bg-offwhite-200 text-charcoal/70 hover:text-charcoal'
+                  }`}
+                >
+                  <span>{tab.name}</span>
+                  <span className="ml-2 text-xs opacity-80">{tab.count}</span>
+                  <span className="ml-2 text-[10px] uppercase opacity-70">{tab.roleLabel}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
+          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-offwhite-300 text-[11px] uppercase tracking-wide text-charcoal/55">
               <tr>
                 <th className="w-14 border-b border-r border-cardline px-3 py-2">#</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Date</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Time</th>
-                <th className="border-b border-r border-cardline px-3 py-2">User</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Role</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Patient ID</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Patient</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Phase</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Work</th>
-                <th className="border-b border-r border-cardline px-3 py-2">Details</th>
-                {customColumns.map((column) => (
+                {columns.map((column) => (
                   <th key={column.key} className="border-b border-r border-cardline px-3 py-2">{column.label}</th>
                 ))}
-                <th className="border-b border-cardline px-3 py-2">Source</th>
+                <th className="w-28 border-b border-cardline px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11 + customColumns.length} className="px-4 py-12 text-center text-sm text-charcoal/55">
+                  <td colSpan={columns.length + 2} className="px-4 py-12 text-center text-sm text-charcoal/55">
                     Loading worksheet...
                   </td>
                 </tr>
-              ) : filteredRows.length === 0 ? (
+              ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={11 + customColumns.length} className="px-4 py-12">
+                  <td colSpan={columns.length + 2} className="px-4 py-12">
                     <div className="flex flex-col items-center gap-2 text-center">
                       <Inbox size={22} className="text-charcoal/35" />
-                      <p className="text-sm font-semibold text-charcoal">No work found</p>
-                      <p className="text-xs text-charcoal/55">Change the date or tab to view more rows.</p>
+                      <p className="text-sm font-semibold text-charcoal">
+                        {selectedTab ? `No rows in ${selectedTab.name}'s worksheet yet` : 'No rows yet'}
+                      </p>
+                      <p className="text-xs text-charcoal/55">Use Add Row or Upload CSV / Excel to fill this sheet.</p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row, index) => (
+                rows.map((row, index) => (
                   <tr key={row.id} className="odd:bg-offwhite-100 even:bg-offwhite-200/70 hover:bg-sage-muted/15">
                     <td className="border-b border-r border-cardline px-3 py-2 font-mono text-xs text-charcoal/45">{index + 1}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2 whitespace-nowrap">{formatDate(row.createdAt)}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2 whitespace-nowrap">{formatTime(row.createdAt)}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2 font-semibold text-charcoal">{row.userName}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2">
-                      <Badge tone="default">{row.userRoleLabel}</Badge>
-                    </td>
-                    <td className="border-b border-r border-cardline px-3 py-2 font-mono text-xs text-charcoal/60">{row.patientCode || '-'}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2">
-                      <Link to={`/admin/patients/${row.patientId}`} className="font-semibold text-sage hover:text-charcoal">
-                        {row.patientName}
-                      </Link>
-                    </td>
-                    <td className="border-b border-r border-cardline px-3 py-2 whitespace-nowrap">{row.currentStage ? `Phase ${row.currentStage}` : '-'}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2 font-medium text-charcoal">{row.workType}</td>
-                    <td className="border-b border-r border-cardline px-3 py-2 text-charcoal/65">
-                      <span className="line-clamp-2 whitespace-pre-line">{row.details || '-'}</span>
-                    </td>
-                    {customColumns.map((column) => (
-                      <td key={column.key} className="border-b border-r border-cardline px-3 py-2 text-charcoal/65">
-                        {row.customValues?.[column.key] || '-'}
+                    {columns.map((column) => (
+                      <td key={column.key} className="border-b border-r border-cardline px-3 py-2 text-charcoal/80">
+                        <span className="line-clamp-3 whitespace-pre-line">{formatCellValue(column, row.values?.[column.key])}</span>
                       </td>
                     ))}
                     <td className="border-b border-cardline px-3 py-2">
-                      <Badge tone={row.source === 'manual' ? 'amber' : 'teal'}>{row.source === 'manual' ? 'Manual' : 'Auto'}</Badge>
+                      <div className="flex items-center justify-end gap-1">
+                        {row.source === 'import' && <Badge tone="teal">Imported</Badge>}
+                        <button
+                          type="button"
+                          onClick={() => openEditRow(row)}
+                          className="rounded-md p-1.5 text-charcoal/55 hover:bg-offwhite-300 hover:text-charcoal"
+                          aria-label="Edit row"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteRow(row)}
+                          className="rounded-md p-1.5 text-charcoal/55 hover:bg-[#8C3B2E]/10 hover:text-[#8C3B2E]"
+                          aria-label="Delete row"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -317,96 +362,108 @@ const Worksheet = () => {
         </div>
       </Card>
 
-      <Modal open={rowModalOpen} onClose={() => setRowModalOpen(false)} title="Add Work Row" className="max-w-3xl">
-        <form onSubmit={submitManualRow} className="space-y-4">
+      <Modal open={rowModalOpen} onClose={() => setRowModalOpen(false)} title={editingRowId ? 'Edit Row' : 'Add Row'} className="max-w-3xl">
+        <form onSubmit={submitRow} className="space-y-4">
           {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {canChooseUser && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-charcoal">User</label>
-                <select
-                  value={manualRow.userId}
-                  onChange={(e) => setManualRow({ ...manualRow, userId: e.target.value })}
-                  className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-                >
-                  {tabs.map((tab) => (
-                    <option key={tab.id} value={tab.id}>{tab.name} - {tab.roleLabel}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <Input
-              type="date"
-              label="Date"
-              value={manualRow.workDate}
-              onChange={(e) => setManualRow({ ...manualRow, workDate: e.target.value })}
-            />
-            <Input
-              label="Patient ID"
-              placeholder="Optional"
-              value={manualRow.patientCode}
-              onChange={(e) => setManualRow({ ...manualRow, patientCode: e.target.value })}
-            />
-            <Input
-              label="Patient"
-              placeholder="Optional"
-              value={manualRow.patientName}
-              onChange={(e) => setManualRow({ ...manualRow, patientName: e.target.value })}
-            />
-            <Input
-              label="Phase"
-              placeholder="Example: 1"
-              value={manualRow.currentStage}
-              onChange={(e) => setManualRow({ ...manualRow, currentStage: e.target.value })}
-            />
-            <Input
-              label="Work"
-              placeholder="Example: Offline call, report review"
-              value={manualRow.workType}
-              onChange={(e) => setManualRow({ ...manualRow, workType: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-charcoal">Details</label>
-            <textarea
-              rows={4}
-              value={manualRow.details}
-              onChange={(e) => setManualRow({ ...manualRow, details: e.target.value })}
-              placeholder="Write details..."
-              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
-          </div>
-          {customColumns.length > 0 && (
+          {columns.length === 0 ? (
+            <p className="text-sm text-charcoal/60">Add at least one column first.</p>
+          ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              {customColumns.map((column) => (
+              {columns.map((column) => (
                 <Input
                   key={column.key}
+                  type={column.type === 'date' ? 'date' : 'text'}
                   label={column.label}
-                  value={manualRow.customValues[column.key] || ''}
-                  onChange={(e) => updateCustomValue(column.key, e.target.value)}
+                  value={rowValues[column.key] || ''}
+                  onChange={(e) => setRowValues((values) => ({ ...values, [column.key]: e.target.value }))}
                 />
               ))}
             </div>
           )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setRowModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={savingRow}>{savingRow ? 'Saving...' : 'Add Row'}</Button>
+            <Button type="submit" disabled={savingRow || columns.length === 0}>
+              {savingRow ? 'Saving...' : editingRowId ? 'Save Row' : 'Add Row'}
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={columnModalOpen} onClose={() => setColumnModalOpen(false)} title="Add Worksheet Column">
-        <form onSubmit={submitColumn} className="space-y-4">
+      <Modal open={columnsModalOpen} onClose={() => setColumnsModalOpen(false)} title={`Columns${selectedTab && showOwnerNote ? ` - ${selectedTab.name}` : ''}`}>
+        <div className="space-y-4">
           {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
-          <Input
-            label="Column Name"
-            placeholder="Example: Remark, Follow-up outcome"
-            value={columnName}
-            onChange={(e) => setColumnName(e.target.value)}
+          <ul className="divide-y divide-cardline rounded-lg border border-cardline">
+            {columns.map((column) => (
+              <li key={column.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                <span className="text-sm font-medium text-charcoal">
+                  {column.label}
+                  {column.type === 'date' && <span className="ml-2 text-[10px] uppercase text-charcoal/50">Date</span>}
+                </span>
+                <span className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => renameColumn(column)}
+                    className="rounded-md p-1.5 text-charcoal/55 hover:bg-offwhite-300 hover:text-charcoal"
+                    aria-label={`Rename ${column.label}`}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteColumn(column)}
+                    className="rounded-md p-1.5 text-charcoal/55 hover:bg-[#8C3B2E]/10 hover:text-[#8C3B2E]"
+                    aria-label={`Delete ${column.label}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <form onSubmit={addColumn} className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+            <Input
+              label="New column"
+              placeholder="Example: Remark, Outcome"
+              value={newColumnName}
+              onChange={(e) => setNewColumnName(e.target.value)}
+            />
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-charcoal">Type</label>
+              <select value={newColumnType} onChange={(e) => setNewColumnType(e.target.value)} className={selectClass}>
+                <option value="text">Text</option>
+                <option value="date">Date</option>
+              </select>
+            </div>
+            <Button type="submit" disabled={columnBusy}>{columnBusy ? 'Adding...' : 'Add'}</Button>
+          </form>
+        </div>
+      </Modal>
+
+      <Modal open={importModalOpen} onClose={() => setImportModalOpen(false)} title="Upload CSV / Excel">
+        <form onSubmit={submitImport} className="space-y-4">
+          {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
+          {importResult && <div className="rounded-lg bg-sage-muted/25 px-3.5 py-3 text-sm text-charcoal">{importResult}</div>}
+          <div className="rounded-lg border border-dashed border-cardline bg-offwhite-200 p-4 text-sm text-charcoal/70">
+            <p className="flex items-center gap-2 font-semibold text-charcoal">
+              <FileSpreadsheet size={16} className="text-sage" /> How it works
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+              <li>First row of the file must be the column names.</li>
+              <li>Names that match your existing columns fill those columns; other names become new columns.</li>
+              <li>Rows are added{selectedTab && showOwnerNote ? ` to ${selectedTab.name}'s worksheet` : ' to your worksheet'}. Existing rows are not changed.</li>
+              <li>Google Sheet: File &gt; Download &gt; Comma-separated values (.csv) or Microsoft Excel (.xlsx). Max 5 MB / 5000 rows.</li>
+            </ul>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+            className="block w-full text-sm text-charcoal file:mr-3 file:rounded-lg file:border-0 file:bg-sage file:px-3 file:py-2 file:text-sm file:font-semibold file:text-offwhite-100"
           />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setColumnModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={savingColumn}>{savingColumn ? 'Saving...' : 'Add Column'}</Button>
+            <Button type="button" variant="ghost" onClick={() => setImportModalOpen(false)}>Close</Button>
+            <Button type="submit" disabled={importing || !importFile}>{importing ? 'Uploading...' : 'Upload'}</Button>
           </div>
         </form>
       </Modal>
