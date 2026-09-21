@@ -564,6 +564,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
           utr: pay.utr || '',
           transactionId: pay.transactionId || '',
           receivedBy: pay.receivedBy || '',
+          notes: pay.notes || '',
           screenshotUrl: pay.screenshotUrl || null,
           screenshotFiles: withLegacyFile(pay.screenshotFiles || [], pay.screenshotUrl, 'Payment screenshot'),
           recordedByName: pay.recordedByName || '',
@@ -590,7 +591,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
 // @route   GET /api/patients
 // @access  Private/Admin, Doctor, Accountant, Post Counselor
 const getPatients = asyncHandler(async (req, res) => {
-  const { search = '', category, stage, receivedDate, status, page = 1, limit = 10 } = req.query;
+  const { search = '', category, stage, receivedDate, consultationDate, status, page = 1, limit = 10 } = req.query;
 
   const filter = {};
 
@@ -621,6 +622,35 @@ const getPatients = asyncHandler(async (req, res) => {
     const start = new Date(`${dateText}T00:00:00.000+05:30`);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
     filter.createdAt = { $gte: start, $lt: end };
+  }
+
+  if (consultationDate) {
+    const dateText = String(consultationDate).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
+      return res.status(400).json({ success: false, message: 'Invalid consultation date filter' });
+    }
+    const start = new Date(`${dateText}T00:00:00.000Z`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    filter.$expr = {
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$stages', []] },
+              as: 'phase',
+              cond: {
+                $and: [
+                  { $eq: ['$$phase.number', { $ifNull: ['$currentStage', 1] }] },
+                  { $gte: ['$$phase.consultationDate', start] },
+                  { $lt: ['$$phase.consultationDate', end] },
+                ],
+              },
+            },
+          },
+        },
+        0,
+      ],
+    };
   }
 
   if (search) {
@@ -1125,6 +1155,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
           utr: payment.utr || '',
           transactionId: payment.transactionId || '',
           receivedBy: payment.receivedBy || '',
+          notes: payment.notes || '',
           recordedByName: payment.recordedByName || '',
           editedByName: payment.editedByName || '',
           editedAt: payment.editedAt || null,
@@ -1352,6 +1383,7 @@ const pendingPaymentsOf = (patient) => {
         utr: payment.utr || '',
         transactionId: payment.transactionId || '',
         receivedBy: payment.receivedBy || '',
+        notes: payment.notes || '',
         recordedByName: payment.recordedByName || '',
         screenshotCount: (payment.screenshotFiles || []).length,
         screenshotFiles: withLegacyFile(payment.screenshotFiles || [], payment.screenshotUrl, 'Payment screenshot'),
@@ -1862,6 +1894,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
     utr: paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '',
     transactionId: paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '',
     receivedBy: paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '',
+    notes: String(req.body.notes || '').trim(),
     screenshotUrl: screenshotFiles[0]?.url || null,
     screenshotFiles,
     recordedByName: req.user.name,
@@ -1871,7 +1904,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
     patient,
     req.user,
     `Payment added for Phase ${stageNum}`,
-    `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]} — pending accounts approval`
+    `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]} — pending accounts approval${req.body.notes ? ` | Note: ${String(req.body.notes).trim()}` : ''}`
   );
 
   await patient.save();
@@ -1914,7 +1947,7 @@ const updateStagePayment = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: `Payment mode must be one of: ${ALL_PAYMENT_MODES.join(', ')}` });
   }
 
-  const previousSummary = `${payment.amount || 0} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode}`;
+  const previousSummary = `${payment.amount || 0} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode}${payment.notes ? ` | Note: ${payment.notes}` : ''}`;
   payment.amount = amountNum;
   payment.date = req.body.date || payment.date || new Date();
   payment.paymentMode = paymentMode;
@@ -1924,6 +1957,7 @@ const updateStagePayment = asyncHandler(async (req, res) => {
   payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '';
   payment.transactionId = paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '';
   payment.receivedBy = paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '';
+  payment.notes = String(req.body.notes || '').trim();
   payment.editedByName = req.user.name;
   payment.editedAt = new Date();
   const screenshotFiles = toFileItems(filesFromRequest(req), 'payments');
@@ -1936,7 +1970,7 @@ const updateStagePayment = asyncHandler(async (req, res) => {
     patient,
     req.user,
     `Payment edited for Phase ${stageNum}`,
-    `From ${previousSummary} to ${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}`
+    `From ${previousSummary} to ${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}${payment.notes ? ` | Note: ${payment.notes}` : ''}`
   );
 
   await patient.save();

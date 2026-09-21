@@ -52,6 +52,7 @@ const paymentEntrySchema = new mongoose.Schema(
     utr: { type: String, trim: true, default: '' },
     transactionId: { type: String, trim: true, default: '' },
     receivedBy: { type: String, trim: true, default: '' },
+    notes: { type: String, trim: true, default: '', maxlength: 2000 },
     screenshotUrl: { type: String, default: null },
     screenshotFiles: {
       type: [{ url: String, fileName: String }],

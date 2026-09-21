@@ -44,6 +44,9 @@ const AllPatients = () => {
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || '');
   const [dateFilter, setDateFilter] = useState(() => searchParams.get('date') || '');
+  const [consultationDateFilter, setConsultationDateFilter] = useState(
+    () => searchParams.get('consultationDate') || '',
+  );
   const [page, setPage] = useState(() => Number(searchParams.get('page')) || 1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -56,7 +59,7 @@ const AllPatients = () => {
   // Track the previous filter values (not just "have we mounted") so React 18 StrictMode's
   // dev-only double-invoke of this effect — same values, twice — can't misread its own
   // second pass as a real change and reset the restored page back to 1.
-  const prevFiltersRef = useRef({ categoryFilter, dateFilter });
+  const prevFiltersRef = useRef({ categoryFilter, dateFilter, consultationDateFilter });
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -70,11 +73,15 @@ const AllPatients = () => {
 
   useEffect(() => {
     const prev = prevFiltersRef.current;
-    if (prev.categoryFilter !== categoryFilter || prev.dateFilter !== dateFilter) {
+    if (
+      prev.categoryFilter !== categoryFilter ||
+      prev.dateFilter !== dateFilter ||
+      prev.consultationDateFilter !== consultationDateFilter
+    ) {
       setPage(1);
     }
-    prevFiltersRef.current = { categoryFilter, dateFilter };
-  }, [categoryFilter, dateFilter]);
+    prevFiltersRef.current = { categoryFilter, dateFilter, consultationDateFilter };
+  }, [categoryFilter, dateFilter, consultationDateFilter]);
 
   // Keep the URL in sync (replace, not push) so it always reflects the current
   // page/search/filters without spamming browser history on every keystroke/click.
@@ -84,9 +91,10 @@ const AllPatients = () => {
     if (debouncedSearch) params.search = debouncedSearch;
     if (categoryFilter) params.category = categoryFilter;
     if (dateFilter) params.date = dateFilter;
+    if (consultationDateFilter) params.consultationDate = consultationDateFilter;
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, categoryFilter, dateFilter]);
+  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter]);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -100,6 +108,7 @@ const AllPatients = () => {
             search: debouncedSearch || undefined,
             category: categoryFilter || undefined,
             receivedDate: dateFilter || undefined,
+            consultationDate: consultationDateFilter || undefined,
           },
         });
         setPatients(data.patients);
@@ -112,7 +121,7 @@ const AllPatients = () => {
       }
     };
     fetchPatients();
-  }, [page, debouncedSearch, categoryFilter, dateFilter]);
+  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter]);
 
   useEffect(() => {
     const fetchPostCounselors = async () => {
@@ -209,40 +218,70 @@ const AllPatients = () => {
       </div>
 
       <Card className="mt-6" padded={false}>
-        <div className="p-4 flex flex-col lg:flex-row gap-3 border-b border-cardline-soft">
-          <div className="relative flex-1">
+        <div className="grid gap-3 border-b border-cardline-soft p-4 lg:grid-cols-[minmax(260px,1.5fr)_minmax(165px,0.75fr)_minmax(165px,0.75fr)_minmax(180px,0.8fr)]">
+          <div className="relative self-end">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
             <input
               placeholder="Search by patient ID, name, father or mother number"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-xs text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
             />
           </div>
-          <div className="relative sm:w-56">
-            <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
-              aria-label="Filter by received date"
-            />
-            {dateFilter && (
-              <button
-                type="button"
-                onClick={() => setDateFilter('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-charcoal/45 hover:bg-sage-muted/25 hover:text-charcoal"
-                aria-label="Clear date filter"
-              >
-                <X size={14} />
-              </button>
-            )}
+          <div className="self-end">
+            <label htmlFor="received-date-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">
+              Received Date Filter
+            </label>
+            <div className="relative">
+              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+              <input
+                id="received-date-filter"
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              />
+              {dateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setDateFilter('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-charcoal/45 hover:bg-sage-muted/25 hover:text-charcoal"
+                  aria-label="Clear received date filter"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="self-end">
+            <label htmlFor="consultation-date-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">
+              Consultation Date Filter
+            </label>
+            <div className="relative">
+              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+              <input
+                id="consultation-date-filter"
+                type="date"
+                value={consultationDateFilter}
+                onChange={(e) => setConsultationDateFilter(e.target.value)}
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+              />
+              {consultationDateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setConsultationDateFilter('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-charcoal/45 hover:bg-sage-muted/25 hover:text-charcoal"
+                  aria-label="Clear consultation date filter"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition sm:w-56"
+            className="w-full self-end rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
           >
             <option value="">All categories</option>
             {ALL_PATIENT_CATEGORIES.map((c) => (
@@ -276,22 +315,27 @@ const AllPatients = () => {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-xs">
                 <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-charcoal/55 border-b border-cardline-soft">
-                    <th className="px-5 py-3 font-semibold">Patient ID</th>
-                    <th className="px-5 py-3 font-semibold">Patient Name</th>
-                    <th className="px-5 py-3 font-semibold">Category</th>
-                    <th className="px-5 py-3 font-semibold">Age</th>
-                    <th className="px-5 py-3 font-semibold">Phone / Father's Number</th>
-                    <th className="px-5 py-3 font-semibold">Guardian / Relative</th>
-                    <th className="px-5 py-3 font-semibold">Mother's Number</th>
-                    <th className="px-5 py-3 font-semibold">Received</th>
+                  <tr className="text-left text-[10px] uppercase text-charcoal/55 border-b border-cardline-soft">
+                    <th className="w-[8%] px-3 py-2.5 font-semibold">Patient ID</th>
+                    <th className="w-[11%] px-3 py-2.5 font-semibold">Patient Name</th>
+                    <th className="w-[14%] px-3 py-2.5 font-semibold">Category</th>
+                    <th className="w-[6%] px-3 py-2.5 font-semibold">Age</th>
+                    <th className="w-[14%] px-3 py-2.5 font-semibold">Phone / Father's Number</th>
+                    <th className="w-[13%] px-3 py-2.5 font-semibold">Guardian / Relative</th>
+                    <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's Number</th>
+                    <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
+                    <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {patients.map((p) => (
-                    <tr
+                  {patients.map((p) => {
+                    const currentPhase = p.stages?.find(
+                      (phase) => Number(phase.number) === Number(p.currentStage || 1),
+                    );
+                    return (
+                      <tr
                       key={p.id}
                       onClick={() => navigate(`/admin/patients/${p.id}`)}
                       className={`border-b border-cardline-soft last:border-0 cursor-pointer ${
@@ -300,9 +344,9 @@ const AllPatients = () => {
                           : 'hover:bg-offwhite-300/25'
                       }`}
                     >
-                      <td className="px-5 py-3.5 font-mono text-xs font-bold tracking-widest text-charcoal/45">{p.patientCode}</td>
-                      <td className="px-5 py-3.5 font-medium text-charcoal">{p.patientName}</td>
-                      <td className="px-5 py-3.5">
+                      <td className="break-words px-3 py-3 font-mono text-[10px] font-bold text-charcoal/45">{p.patientCode}</td>
+                      <td className="break-words px-3 py-3 font-medium text-charcoal">{p.patientName}</td>
+                      <td className="px-3 py-3">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge tone={categoryTone(p.category)}>{p.categoryLabel}</Badge>
                           {p.approvalStatus === 'pending' && (
@@ -312,15 +356,19 @@ const AllPatients = () => {
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 text-charcoal/70">{p.age}</td>
-                      <td className="px-5 py-3.5 text-charcoal/70">{p.number}</td>
-                      <td className="px-5 py-3.5 text-charcoal/70">
+                      <td className="break-words px-3 py-3 text-charcoal/70">{p.age}</td>
+                      <td className="break-words px-3 py-3 text-charcoal/70">{p.number}</td>
+                      <td className="break-words px-3 py-3 text-charcoal/70">
                         {p.guardianName || p.relativeName || '—'}
                       </td>
-                      <td className="px-5 py-3.5 text-charcoal/70">{p.alternateNumber || '—'}</td>
-                      <td className="px-5 py-3.5 text-charcoal/55">{formatDate(p.createdAt)}</td>
-                    </tr>
-                  ))}
+                      <td className="break-words px-3 py-3 text-charcoal/70">{p.alternateNumber || '—'}</td>
+                      <td className="px-3 py-3 text-charcoal/55">
+                        {currentPhase?.consultationDate ? formatDate(currentPhase.consultationDate) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

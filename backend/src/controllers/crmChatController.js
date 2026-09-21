@@ -801,6 +801,7 @@ const buildCrmContext = async (message) => {
           paymentMode: payment.paymentMode || '',
           receivedBy: payment.receivedBy || payment.recordedByName || '',
           reference: payment.utr || payment.transactionId || '',
+          notes: payment.notes || '',
           _ts: toTime(payment.createdAt) || toTime(payment.date),
         });
       });

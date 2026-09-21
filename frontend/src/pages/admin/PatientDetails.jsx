@@ -142,6 +142,7 @@ const emptyPaymentForm = {
   utr: '',
   transactionId: '',
   receivedBy: '',
+  notes: '',
 };
 
 // Small box matching EditableField's look; clicking "+ Add" opens a Modal with the full payment form.
@@ -287,6 +288,18 @@ const AddPaymentField = ({ onAdd }) => {
           )}
 
           <div>
+            <label htmlFor="paymentNotes" className="block text-sm font-medium text-charcoal mb-1.5">Notes (optional)</label>
+            <textarea
+              id="paymentNotes"
+              rows={3}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Add any payment-related note"
+              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+            />
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-charcoal mb-1.5">Screenshot (optional)</label>
             <label
               htmlFor="paymentScreenshot"
@@ -366,6 +379,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
       utr: payment.utr || '',
       transactionId: payment.transactionId || '',
       receivedBy: payment.receivedBy || '',
+      notes: payment.notes || '',
     });
     setFiles([]);
     setError('');
@@ -483,6 +497,18 @@ const EditPaymentButton = ({ payment, onSave }) => {
               onChange={(e) => setForm({ ...form, receivedBy: e.target.value })}
             />
           )}
+
+          <div>
+            <label htmlFor={`editPaymentNotes-${payment.id}`} className="block text-sm font-medium text-charcoal mb-1.5">Notes (optional)</label>
+            <textarea
+              id={`editPaymentNotes-${payment.id}`}
+              rows={3}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Add any payment-related note"
+              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+            />
+          </div>
 
           <div>
             <label className="block text-sm font-medium text-charcoal mb-1.5">Screenshot (optional)</label>
@@ -2470,6 +2496,7 @@ const PatientDetails = () => {
     formData.append('amount', payload.amount);
     formData.append('date', payload.date);
     formData.append('paymentMode', payload.paymentMode);
+    formData.append('notes', payload.notes || '');
     if (payload.paymentMode === PAYMENT_MODES.ONLINE) {
       formData.append('payToBank', payload.payToBank || '');
       formData.append('utr', payload.utr || '');
@@ -2487,6 +2514,7 @@ const PatientDetails = () => {
     formData.append('amount', payload.amount);
     formData.append('date', payload.date);
     formData.append('paymentMode', payload.paymentMode);
+    formData.append('notes', payload.notes || '');
     if (payload.paymentMode === PAYMENT_MODES.ONLINE) {
       formData.append('payToBank', payload.payToBank || '');
       formData.append('utr', payload.utr || '');
@@ -3356,6 +3384,12 @@ const PatientDetails = () => {
                 )}
                 {pay.paymentMode === 'cash' && pay.receivedBy && (
                   <p className="mt-1.5 text-[11px] text-charcoal/60">Received by: {pay.receivedBy}</p>
+                )}
+                {pay.notes && (
+                  <div className="mt-2 rounded-md border border-cardline-soft bg-offwhite-100 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase text-charcoal/50">Notes</p>
+                    <p className="mt-0.5 whitespace-pre-line break-words text-xs text-charcoal/75">{pay.notes}</p>
+                  </div>
                 )}
                 <p className="mt-1 text-xs text-charcoal/60">Recorded by {pay.recordedByName || 'Unknown'}</p>
                 {pay.editedByName && (
