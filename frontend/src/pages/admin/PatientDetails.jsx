@@ -1185,7 +1185,7 @@ const ScheduleCard = ({
       `ID: ${patient?.patientCode || `PT-${String(patient?.id || '').slice(-6).toUpperCase()}`}`,
       patient?.age ? `Age: ${patient.age}` : '',
       defaultName ? `Parent/Relative: ${defaultName}` : '',
-      patient?.number ? `Father's Number: ${patient.number}` : '',
+      patient?.number ? `${patient?.category === PATIENT_CATEGORIES.AUTISM_ADHD ? "Father's Number" : 'Phone Number'}: ${patient.number}` : '',
     ].filter(Boolean).join(' | ');
     const dateLine = [
       `Date: ${filledOn}`,
@@ -2852,7 +2852,7 @@ const PatientDetails = () => {
               readOnly={!canEditPatientDetails}
             />
             <EditableField
-              label="Father's Number"
+              label={isAutism ? "Father's Number" : 'Phone Number'}
               value={patient.number}
               placeholder="Not added"
               onSave={(val) => saveField('number', val)}

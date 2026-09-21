@@ -283,7 +283,7 @@ const AllPatients = () => {
                     <th className="px-5 py-3 font-semibold">Patient Name</th>
                     <th className="px-5 py-3 font-semibold">Category</th>
                     <th className="px-5 py-3 font-semibold">Age</th>
-                    <th className="px-5 py-3 font-semibold">Father's Number</th>
+                    <th className="px-5 py-3 font-semibold">Phone / Father's Number</th>
                     <th className="px-5 py-3 font-semibold">Guardian / Relative</th>
                     <th className="px-5 py-3 font-semibold">Mother's Number</th>
                     <th className="px-5 py-3 font-semibold">Received</th>
@@ -405,7 +405,7 @@ const AllPatients = () => {
             />
             <Input
               id="number"
-              label="Father's Number"
+              label={addForm.category === PATIENT_CATEGORIES.AUTISM_ADHD ? "Father's Number" : 'Phone Number'}
               value={addForm.number}
               onChange={(e) => updateAddForm('number', e.target.value)}
               required

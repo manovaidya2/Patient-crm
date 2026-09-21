@@ -118,7 +118,7 @@ const PatientsByStage = () => {
                     <th className="px-5 py-3 font-semibold">Patient Name</th>
                     <th className="px-5 py-3 font-semibold">Category</th>
                     <th className="px-5 py-3 font-semibold">Age</th>
-                    <th className="px-5 py-3 font-semibold">Father's Number</th>
+                    <th className="px-5 py-3 font-semibold">Phone / Father's Number</th>
                     <th className="px-5 py-3 font-semibold">Phase</th>
                     <th className="px-5 py-3 font-semibold">Received</th>
                   </tr>
