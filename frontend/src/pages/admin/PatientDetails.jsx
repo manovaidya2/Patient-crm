@@ -2400,7 +2400,7 @@ const PatientDetails = () => {
   }, [canAssignDoctor]);
 
   useEffect(() => {
-    if (user?.role !== ROLES.ADMIN) return;
+    if (![ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role)) return;
     const fetchPostCounselors = async () => {
       try {
         const { data } = await api.get('/users/post-counselors');
@@ -2424,15 +2424,17 @@ const PatientDetails = () => {
   const isPsychologist = user?.role === ROLES.PSYCHOLOGIST;
   const isAccountant = user?.role === ROLES.ACCOUNTANT;
   const isAdmin = user?.role === ROLES.ADMIN;
+  const isPostCounselor = user?.role === ROLES.POST_COUNSELOR;
   const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
   const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
-  const canEditPatientIdentity = [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canEditPatientIdentity = [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
   const canEditPatientDetails = !isPsychologist && !isAccountant;
-  const canEditPostCounselor = isAdmin;
+  const canEditPostCounselor = isAdmin || isPostCounselor;
+  const canEditPayments = isAdmin || isPostCounselor;
 
   // Every field goes through the same PATCH endpoint; the response is the fresh patient record.
   const saveField = async (fieldKey, rawValue) => {
@@ -3352,7 +3354,7 @@ const PatientDetails = () => {
                     <IndianRupee size={12} /> {Number(pay.amount).toLocaleString('en-IN')}
                   </span>
                   <div className="flex items-center gap-1.5">
-                     {isAdmin && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
+                     {canEditPayments && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
                      {isAdmin && (
                        <button
                          type="button"

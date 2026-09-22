@@ -254,7 +254,7 @@ const canAddStagePayment = (user) =>
   [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canEditPatientIdentity = (user) =>
-  [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const assigneeKey = (assignedUser, fallbackName = 'Unassigned') =>
   assignedUser?._id ? String(assignedUser._id) : assignedUser ? String(assignedUser) : fallbackName;
@@ -1913,9 +1913,9 @@ const addStagePayment = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
-// @desc    Edit a payment entry. Admin only; other members can add where allowed but cannot edit.
+// @desc    Edit a payment entry.
 // @route   PATCH /api/patients/:id/stages/:number/payments/:paymentId
-// @access  Private/Admin
+// @access  Private/Admin, Post Counselor
 const updateStagePayment = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
