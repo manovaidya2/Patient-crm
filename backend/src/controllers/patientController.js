@@ -1266,10 +1266,6 @@ const createPatient = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Father/Mother name is required for Autism/ADHD patients' });
   }
 
-  if (category === 'mental_health' && !relativeName) {
-    return res.status(400).json({ success: false, message: 'Relative name is required for Mental Health patients' });
-  }
-
   const stageNum = Number(currentStage || 1);
   if (!STAGES.includes(stageNum)) {
     return res.status(400).json({ success: false, message: `Phase must be one of: ${STAGES.join(', ')}` });
@@ -1304,8 +1300,8 @@ const createPatient = asyncHandler(async (req, res) => {
     age: ageText,
     number,
     guardianName: category === 'autism_adhd' ? guardianName : '',
-    alternateNumber: category === 'autism_adhd' ? alternateNumber : '',
-    relativeName: category === 'mental_health' ? relativeName : '',
+    alternateNumber: String(alternateNumber || '').trim(),
+    relativeName: category === 'mental_health' ? String(relativeName || '').trim() : '',
     currentStage: stageNum,
     source: 'manual',
     approvalStatus: 'pending',

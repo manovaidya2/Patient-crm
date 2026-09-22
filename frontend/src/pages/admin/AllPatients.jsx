@@ -324,7 +324,7 @@ const AllPatients = () => {
                     <th className="w-[6%] px-3 py-2.5 font-semibold">Age</th>
                     <th className="w-[14%] px-3 py-2.5 font-semibold">Phone / Father's Number</th>
                     <th className="w-[13%] px-3 py-2.5 font-semibold">Guardian / Relative</th>
-                    <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's Number</th>
+                    <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's / Relative Number</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>
                   </tr>
@@ -476,13 +476,20 @@ const AllPatients = () => {
                 />
               </>
             ) : (
-              <Input
-                id="relativeName"
-                label="Relative Name"
-                value={addForm.relativeName}
-                onChange={(e) => updateAddForm('relativeName', e.target.value)}
-                required
-              />
+              <>
+                <Input
+                  id="relativeName"
+                  label="Relative Name"
+                  value={addForm.relativeName}
+                  onChange={(e) => updateAddForm('relativeName', e.target.value)}
+                />
+                <Input
+                  id="alternateNumber"
+                  label="Relative Number"
+                  value={addForm.alternateNumber}
+                  onChange={(e) => updateAddForm('alternateNumber', e.target.value)}
+                />
+              </>
             )}
             <div>
               <label htmlFor="currentStage" className="block text-sm font-medium text-charcoal mb-1.5">

@@ -2896,7 +2896,7 @@ const PatientDetails = () => {
               readOnly={!canEditPatientDetails}
             />
             <EditableField
-              label="Mother's Number"
+              label={isAutism ? "Mother's Number" : 'Relative Number'}
               value={patient.alternateNumber}
               placeholder="Not added"
               onSave={(val) => saveField('alternateNumber', val)}

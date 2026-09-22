@@ -269,12 +269,7 @@ const patientSchema = new mongoose.Schema(
     relativeName: {
       type: String,
       trim: true,
-      required: [
-        function () {
-          return this.category === CATEGORIES.MENTAL_HEALTH;
-        },
-        'Relative name is required for Mental Health patients',
-      ],
+      default: '',
     },
         // Which of the 6 treatment stages the patient is currently on
     currentStage: {

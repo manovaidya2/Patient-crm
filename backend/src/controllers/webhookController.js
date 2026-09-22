@@ -38,13 +38,6 @@ const receivePatientWebhook = asyncHandler(async (req, res) => {
     });
   }
 
-  if (category === CATEGORIES.MENTAL_HEALTH && !relativeName) {
-    return res.status(400).json({
-      success: false,
-      message: 'relativeName is required for Mental Health patients',
-    });
-  }
-
   // If the CRM resends the same patient (same externalId), update instead of duplicating
   if (externalId) {
     const existing = await Patient.findOne({ externalId });
@@ -54,8 +47,8 @@ const receivePatientWebhook = asyncHandler(async (req, res) => {
       existing.age = ageText;
       existing.number = number;
       existing.guardianName = category === CATEGORIES.AUTISM_ADHD ? guardianName : undefined;
-      existing.alternateNumber = category === CATEGORIES.AUTISM_ADHD ? alternateNumber : undefined;
-      existing.relativeName = category === CATEGORIES.MENTAL_HEALTH ? relativeName : undefined;
+      existing.alternateNumber = String(alternateNumber || '').trim();
+      existing.relativeName = category === CATEGORIES.MENTAL_HEALTH ? String(relativeName || '').trim() : undefined;
       existing.activityLog.push({
         action: 'Patient updated from CRM webhook',
         details: externalId ? `External ID: ${externalId}` : '',
@@ -73,8 +66,8 @@ const receivePatientWebhook = asyncHandler(async (req, res) => {
     age: ageText,
     number,
     guardianName: category === CATEGORIES.AUTISM_ADHD ? guardianName : undefined,
-    alternateNumber: category === CATEGORIES.AUTISM_ADHD ? alternateNumber : undefined,
-    relativeName: category === CATEGORIES.MENTAL_HEALTH ? relativeName : undefined,
+    alternateNumber: String(alternateNumber || '').trim(),
+    relativeName: category === CATEGORIES.MENTAL_HEALTH ? String(relativeName || '').trim() : undefined,
     externalId,
     activityLog: [
       {
