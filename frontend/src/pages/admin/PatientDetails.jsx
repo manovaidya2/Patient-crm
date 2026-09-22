@@ -1123,6 +1123,7 @@ const ScheduleCard = ({
   canUpdate = true,
   canEditEntries = false,
   formType = 'followup_full',
+  allowShortFollowUp = false,
   patient,
   stageNumber,
 }) => {
@@ -1194,7 +1195,7 @@ const ScheduleCard = ({
     setSaving(true);
     setError('');
     try {
-      await onAdd({ dateTime: dateTimeLocalToIso(dateTime), notes, followUpType: formType === 'followup_full' ? followUpType : undefined });
+      await onAdd({ dateTime: dateTimeLocalToIso(dateTime), notes, followUpType: (formType === 'followup_full' || allowShortFollowUp) ? followUpType : undefined });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not save');
@@ -1234,6 +1235,10 @@ const ScheduleCard = ({
     e.preventDefault();
     const isShortFollowUp = doneEntry?.followUpType === 'sfs';
     const isTrackerFollowUp = doneEntry?.followUpType === 'tracker';
+    if (isShortFollowUp && allowShortFollowUp && !doneDetails.trim()) {
+      setDoneError('Add a short follow-up note');
+      return;
+    }
     if (isShortFollowUp && !doneDetails.trim()) {
       if (!doneFiles.length) {
         setDoneError('Add a note or upload a photo/file');
@@ -1253,7 +1258,7 @@ const ScheduleCard = ({
           ? 'Tracker submitted'
           : flattenCompletionSummary(doneForm);
       await onUpdateStatus(doneEntryId, 'completed', {
-        completionName: isShortFollowUp ? 'SFS Call' : isTrackerFollowUp ? 'Tracker Submission' : (doneName.trim() || 'Follow-up'),
+        completionName: isShortFollowUp ? (allowShortFollowUp ? 'Short Follow-up' : 'SFS Call') : isTrackerFollowUp ? 'Tracker Submission' : (doneName.trim() || 'Follow-up'),
         completionDetails,
         files: doneFiles,
         ...(isTrackerFollowUp ? { trackerSubmissionUrl: trackerSubmissionUrl.trim() } : {}),
@@ -1398,7 +1403,7 @@ const ScheduleCard = ({
       await onUpdateStatus(editEntry.id, undefined, {
         dateTime: dateTimeLocalToIso(editDateTime),
         notes: editNotes,
-        ...(formType === 'followup_full' ? { followUpType: editFollowUpType } : {}),
+        ...((formType === 'followup_full' || allowShortFollowUp) ? { followUpType: editFollowUpType } : {}),
       });
       setEditModalOpen(false);
     } catch (err) {
@@ -1497,9 +1502,9 @@ const ScheduleCard = ({
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-charcoal">{formatDateTime(e.dateTime)}</p>
-                    {formType === 'followup_full' && e.followUpType !== 'normal' && (
+                    {(formType === 'followup_full' || allowShortFollowUp) && e.followUpType !== 'normal' && (
                       <span className="mt-1 inline-flex rounded-full bg-sage-muted/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sage">
-                        {e.followUpType === 'tracker' ? 'Tracker' : 'SFS'}
+                        {e.followUpType === 'tracker' ? 'Tracker' : allowShortFollowUp ? 'Short Follow-up' : 'SFS'}
                       </span>
                     )}
                     {e.notes && <p className="mt-0.5 text-xs text-charcoal/60 truncate">{e.notes}</p>}
@@ -1579,7 +1584,7 @@ const ScheduleCard = ({
                         <Paperclip size={13} /> Meet Recording
                       </a>
                     )}
-                    {formType === 'family_section_a' && (
+                    {formType === 'family_section_a' && e.followUpType !== 'sfs' && (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {!e.meetRecordingUrl && (
                           <span className="rounded-full bg-[#9C6B2E]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#9C6B2E]">
@@ -1642,7 +1647,7 @@ const ScheduleCard = ({
               className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
             />
           </div>
-          {formType === 'followup_full' && (
+          {(formType === 'followup_full' || allowShortFollowUp) && (
             <div className="w-full">
               <label className="block text-sm font-medium text-charcoal mb-1.5">Follow-up Type</label>
               <select
@@ -1650,9 +1655,9 @@ const ScheduleCard = ({
                 onChange={(e) => setFollowUpType(e.target.value)}
                 className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
               >
-                <option value="normal">Normal follow-up</option>
-                <option value="sfs">SFS short follow-up</option>
-                <option value="tracker">Tracker</option>
+                <option value="normal">{allowShortFollowUp ? 'Family Session' : 'Normal follow-up'}</option>
+                <option value="sfs">{allowShortFollowUp ? 'Short Follow-up' : 'SFS short follow-up'}</option>
+                {!allowShortFollowUp && <option value="tracker">Tracker</option>}
               </select>
             </div>
           )}
@@ -1742,7 +1747,7 @@ const ScheduleCard = ({
               className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
             />
           </div>
-          {formType === 'followup_full' && (
+          {(formType === 'followup_full' || allowShortFollowUp) && (
             <div className="w-full">
               <label className="block text-sm font-medium text-charcoal mb-1.5">Follow-up Type</label>
               <select
@@ -1750,9 +1755,9 @@ const ScheduleCard = ({
                 onChange={(e) => setEditFollowUpType(e.target.value)}
                 className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
               >
-                <option value="normal">Normal follow-up</option>
-                <option value="sfs">SFS short follow-up</option>
-                <option value="tracker">Tracker</option>
+                <option value="normal">{allowShortFollowUp ? 'Family Session' : 'Normal follow-up'}</option>
+                <option value="sfs">{allowShortFollowUp ? 'Short Follow-up' : 'SFS short follow-up'}</option>
+                {!allowShortFollowUp && <option value="tracker">Tracker</option>}
               </select>
             </div>
           )}
@@ -1776,12 +1781,12 @@ const ScheduleCard = ({
         </form>
       </Modal>
 
-      <Modal open={doneModalOpen} onClose={() => setDoneModalOpen(false)} title={`Mark ${title.replace(/s$/, '')} Done`} className="max-w-5xl">
+      <Modal open={doneModalOpen} onClose={() => setDoneModalOpen(false)} title={`Mark ${title.replace(/s$/, '')} Done`} className={allowShortFollowUp && doneEntry?.followUpType === 'sfs' ? 'max-w-lg' : 'max-w-5xl'}>
         <form onSubmit={handleDoneSubmit} className="space-y-4">
           {doneError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{doneError}</div>}
           {doneEntry?.followUpType === 'sfs' ? (
             <div className="w-full">
-              <label className="block text-sm font-medium text-charcoal mb-1.5">SFS Note</label>
+              <label className="block text-sm font-medium text-charcoal mb-1.5">{allowShortFollowUp ? 'Short Follow-up Note' : 'SFS Note'}</label>
               <textarea
                 rows={5}
                 placeholder="Enter call note..."
@@ -1834,7 +1839,7 @@ const ScheduleCard = ({
               )}
             </>
           )}
-          {!doneEntry || doneEntry?.followUpType !== 'tracker' ? (
+          {(!doneEntry || doneEntry?.followUpType !== 'tracker') && !(allowShortFollowUp && doneEntry?.followUpType === 'sfs') ? (
             <div>
               <label className="block text-sm font-medium text-charcoal mb-1.5">Upload Photo / File</label>
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
@@ -2626,8 +2631,12 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
-  const handleAddFamilySession = async ({ dateTime, notes }) => {
-    const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/family-sessions`, { dateTime, notes });
+  const handleAddFamilySession = async ({ dateTime, notes, followUpType }) => {
+    const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/family-sessions`, {
+      dateTime,
+      notes,
+      followUpType,
+    });
     setPatient(data.patient);
   };
 
@@ -3314,6 +3323,7 @@ const PatientDetails = () => {
                 canUpdate={canUpdateFamilySessions}
                 canEditEntries={isAdmin}
                 formType="family_section_a"
+                allowShortFollowUp
                 patient={patient}
                 stageNumber={activeStage.number}
               />

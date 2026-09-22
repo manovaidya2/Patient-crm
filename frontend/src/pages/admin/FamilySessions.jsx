@@ -5,6 +5,7 @@ const FamilySessions = () => (
     title="Family Sessions"
     subtitle="Who's handling family sessions, and where things stand."
     apiPath="/schedule/family-sessions"
+    showFamilySessionTypeFilter
   />
 );
 

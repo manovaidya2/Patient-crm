@@ -287,7 +287,9 @@ const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } 
           ...formatted,
           type,
           reminderKind: isLate ? 'late' : 'next_24_hours',
-          typeLabel: type === 'followup' ? 'Follow-up' : 'Family Session',
+          typeLabel: type === 'followup'
+            ? 'Follow-up'
+            : formatted.followUpType === 'sfs' ? 'Short Follow-up' : 'Family Session',
           patientId: patient._id,
           patientName: patient.patientName,
           patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
@@ -2657,14 +2659,15 @@ const addScheduleEntry = (fieldKey) =>
 
     const stageEntry = patient.stages.find((s) => s.number === stageNum);
     const requestedFollowUpType = String(followUpType || '').toLowerCase();
-    const normalizedFollowUpType = fieldKey === 'followUps' && ['sfs', 'tracker'].includes(requestedFollowUpType)
-      ? requestedFollowUpType
-      : 'normal';
+    const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker'] : ['normal', 'sfs'];
+    const normalizedFollowUpType = allowedTypes.includes(requestedFollowUpType) ? requestedFollowUpType : 'normal';
     stageEntry[fieldKey].push({ dateTime, notes: notes || '', followUpType: normalizedFollowUpType, createdByName: req.user.name });
     addActivity(
       patient,
       req.user,
-      `${fieldKey === 'followUps' ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : 'Follow-up'}` : 'Family session'} scheduled for Phase ${stageNum}`,
+      `${fieldKey === 'followUps'
+        ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : 'Follow-up'}`
+        : normalizedFollowUpType === 'sfs' ? 'Short follow-up' : 'Family session'} scheduled for Phase ${stageNum}`,
       `${new Date(dateTime).toLocaleString('en-IN')}${notes ? ` - ${notes}` : ''}`
     );
     await patient.save();
@@ -2719,13 +2722,16 @@ const updateScheduleEntry = (fieldKey) =>
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }
 
-    const isShortFollowUp = fieldKey === 'followUps' && entry.followUpType === 'sfs';
+    const isShortFollowUp = entry.followUpType === 'sfs';
     const isTrackerFollowUp = fieldKey === 'followUps' && entry.followUpType === 'tracker';
     if (status === 'sent' && !isTrackerFollowUp) {
       return res.status(400).json({ success: false, message: 'Only tracker follow-ups can be marked sent' });
     }
     if (status === 'completed') {
       const hasCompletionAttachment = uploadedCompletionFiles.length > 0 || (entry.completionFiles || []).length > 0;
+      if (fieldKey === 'familySessions' && isShortFollowUp && !String(completionDetails || '').trim()) {
+        return res.status(400).json({ success: false, message: 'Add a short follow-up note' });
+      }
       if (isShortFollowUp && !String(completionDetails || '').trim() && !hasCompletionAttachment) {
         return res.status(400).json({ success: false, message: 'Add an SFS note or upload a photo/file' });
       }
@@ -2739,7 +2745,7 @@ const updateScheduleEntry = (fieldKey) =>
 
     const scheduleLabel = fieldKey === 'followUps'
       ? (isShortFollowUp ? 'SFS follow-up' : isTrackerFollowUp ? 'Tracker follow-up' : 'Follow-up')
-      : 'Family session';
+      : isShortFollowUp ? 'Short follow-up' : 'Family session';
     if (dateTime !== undefined && !sameValue(new Date(entry.dateTime).toISOString(), new Date(dateTime).toISOString())) {
       addActivity(patient, req.user, `${scheduleLabel} rescheduled for Phase ${stageNum}`, new Date(dateTime).toLocaleString('en-IN'));
       entry.dateTime = dateTime;
@@ -2748,13 +2754,14 @@ const updateScheduleEntry = (fieldKey) =>
       addActivity(patient, req.user, `${scheduleLabel} notes updated for Phase ${stageNum}`, notes || 'Cleared');
       entry.notes = notes;
     }
-    if (fieldKey === 'followUps' && followUpType !== undefined) {
+    if (followUpType !== undefined) {
       if (req.user.role !== ROLES.ADMIN) {
-        return res.status(403).json({ success: false, message: 'Only Admin can edit follow-up type' });
+        return res.status(403).json({ success: false, message: 'Only Admin can edit schedule type' });
       }
       const nextFollowUpType = String(followUpType || 'normal').toLowerCase();
-      if (!['normal', 'sfs', 'tracker'].includes(nextFollowUpType)) {
-        return res.status(400).json({ success: false, message: 'Follow-up type must be normal, sfs, or tracker' });
+      const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker'] : ['normal', 'sfs'];
+      if (!allowedTypes.includes(nextFollowUpType)) {
+        return res.status(400).json({ success: false, message: `Schedule type must be one of: ${allowedTypes.join(', ')}` });
       }
       if (!sameValue(entry.followUpType || 'normal', nextFollowUpType)) {
         addActivity(patient, req.user, `${scheduleLabel} type updated for Phase ${stageNum}`, `From ${entry.followUpType || 'normal'} to ${nextFollowUpType}`);

@@ -101,7 +101,7 @@ const formatDateTime = (iso) =>
 // Grouped-by-assignee summary with status-bucket counts — used for both the
 // Follow-ups and Family Sessions sidebar pages. Each count is clickable and
 // opens a drawer listing exactly those entries (patient, stage, date & time).
-const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = false }) => {
+const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = false, showFamilySessionTypeFilter = false }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
@@ -144,7 +144,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
       .filter((r) => r.assignee.toLowerCase().includes(search.toLowerCase()))
       .map((row) => {
         const entries = row.entries.filter((entry) => {
-          if (showFollowUpTypeFilter && followUpTypeFilter !== 'all' && (entry.followUpType || 'normal') !== followUpTypeFilter) {
+          if ((showFollowUpTypeFilter || showFamilySessionTypeFilter) && followUpTypeFilter !== 'all' && (entry.followUpType || 'normal') !== followUpTypeFilter) {
             return false;
           }
           if (!activeRange) return true;
@@ -158,7 +158,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
         return { ...row, entries, counts };
       })
       .filter((row) => row.entries.length > 0);
-  }, [rows, search, activeRange, showFollowUpTypeFilter, followUpTypeFilter]);
+  }, [rows, search, activeRange, showFollowUpTypeFilter, showFamilySessionTypeFilter, followUpTypeFilter]);
 
   const filteredTotals = useMemo(() => {
     const totals = { upcoming: 0, late: 0, done: 0, done_late: 0, cancelled: 0 };
@@ -217,7 +217,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-              {showFollowUpTypeFilter && (
+              {(showFollowUpTypeFilter || showFamilySessionTypeFilter) && (
                 <select
                   value={followUpTypeFilter}
                   onChange={(e) => setFollowUpTypeFilter(e.target.value)}
@@ -225,9 +225,9 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                   aria-label="Filter follow-up type"
                 >
                   <option value="all">All Types</option>
-                  <option value="normal">Normal</option>
+                  <option value="normal">{showFamilySessionTypeFilter ? 'Family Session' : 'Normal'}</option>
                   <option value="sfs">SFS</option>
-                  <option value="tracker">Tracker</option>
+                  {showFollowUpTypeFilter && <option value="tracker">Tracker</option>}
                 </select>
               )}
               <select
@@ -347,9 +347,11 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
               <p className="mt-1 text-xs text-charcoal/60">
                 {e.stageLabel} · {formatDateTime(e.dateTime)}
               </p>
-              {showFollowUpTypeFilter && (
+              {(showFollowUpTypeFilter || showFamilySessionTypeFilter) && (
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-charcoal/45">
-                  {(e.followUpType || 'normal') === 'sfs' ? 'SFS' : (e.followUpType || 'normal') === 'tracker' ? 'Tracker' : 'Normal'}
+                  {showFamilySessionTypeFilter
+                    ? (e.followUpType === 'sfs' ? 'Short Follow-up' : 'Family Session')
+                    : (e.followUpType || 'normal') === 'sfs' ? 'SFS' : (e.followUpType || 'normal') === 'tracker' ? 'Tracker' : 'Normal'}
                 </p>
               )}
               {e.trackerSubmissionUrl && (
