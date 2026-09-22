@@ -1,6 +1,7 @@
 const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
+const { parseCallTimestamp } = require('../utils/callTimestamp');
 const AdviceRequest = require('../models/AdviceRequest');
 const DigitalMarketingReview = require('../models/DigitalMarketingReview');
 const BankAccount = require('../models/BankAccount');
@@ -368,36 +369,6 @@ const pickWebhookValue = (source, keys, fallback) => {
   return fallback;
 };
 
-const parseCallTimeText = (value) => {
-  if (typeof value !== 'string') return null;
-  const text = value.trim();
-  const monthMap = {
-    jan: 0,
-    feb: 1,
-    mar: 2,
-    apr: 3,
-    may: 4,
-    jun: 5,
-    jul: 6,
-    aug: 7,
-    sep: 8,
-    sept: 8,
-    oct: 9,
-    nov: 10,
-    dec: 11,
-  };
-  const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)\s*,?\s*(?:[a-z]{3,9},?\s+)?(\d{1,2})\s+([a-z]{3,9})\s+(\d{2,4})$/i);
-  if (!match) return null;
-  const [, rawHour, minute, second = '0', meridiem, day, monthName, rawYear] = match;
-  let hour = Number(rawHour) % 12;
-  if (meridiem.toLowerCase() === 'pm') hour += 12;
-  const month = monthMap[monthName.toLowerCase()];
-  if (month === undefined) return null;
-  const yearNumber = Number(rawYear);
-  const year = yearNumber < 100 ? 2000 + yearNumber : yearNumber;
-  return new Date(year, month, Number(day), hour, Number(minute), Number(second));
-};
-
 const getRawCallCreationTime = (callLog) => {
   const payload = parseMaybeJsonValue(callLog.rawPayload, callLog.rawPayload) || {};
   const parsedActions = parseMaybeJsonValue(payload.actions, payload.actions);
@@ -406,7 +377,7 @@ const getRawCallCreationTime = (callLog) => {
   return pickWebhookValue(fields, ['creationTimestamp', 'creation timestamp', 'actionCreationTime', 'action_creation_time', 'createdTime', 'created_time'], null);
 };
 
-const getDisplayCallTime = (callLog) => parseCallTimeText(getRawCallCreationTime(callLog)) || callLog.actionCreationTime;
+const getDisplayCallTime = (callLog) => parseCallTimestamp(getRawCallCreationTime(callLog)) || callLog.actionCreationTime;
 
 const formatCallLog = (callLog) => ({
   id: callLog._id,

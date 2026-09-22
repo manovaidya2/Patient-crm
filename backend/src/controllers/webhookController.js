@@ -6,6 +6,7 @@ const http = require('http');
 const https = require('https');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { CATEGORIES, ALL_CATEGORIES, CATEGORY_LABELS } = require('../constants/patientCategories');
+const { parseCallTimestamp } = require('../utils/callTimestamp');
 
 const RECORDING_UPLOAD_FOLDER = 'recording';
 
@@ -89,7 +90,6 @@ const receivePatientWebhook = asyncHandler(async (req, res) => {
 });
 
 const normalizePhone = (value = '') => String(value).replace(/\D/g, '');
-
 const toDurationSeconds = (duration) => {
   if (duration === undefined || duration === null || duration === '') return 0;
   if (typeof duration === 'number') return Math.max(duration, 0);
@@ -105,43 +105,7 @@ const toDurationSeconds = (duration) => {
 };
 
 const toDateOrNow = (value) => {
-  if (typeof value === 'string') {
-    const text = value.trim();
-    const numericMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-    if (numericMatch) {
-      const [, day, month, year, hour, minute, second = '0'] = numericMatch;
-      return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
-    }
-    const monthMap = {
-      jan: 0,
-      feb: 1,
-      mar: 2,
-      apr: 3,
-      may: 4,
-      jun: 5,
-      jul: 6,
-      aug: 7,
-      sep: 8,
-      sept: 8,
-      oct: 9,
-      nov: 10,
-      dec: 11,
-    };
-    const callTimeMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)\s*,?\s*(?:[a-z]{3,9},?\s+)?(\d{1,2})\s+([a-z]{3,9})\s+(\d{2,4})$/i);
-    if (callTimeMatch) {
-      const [, rawHour, minute, second = '0', meridiem, day, monthName, rawYear] = callTimeMatch;
-      let hour = Number(rawHour) % 12;
-      if (meridiem.toLowerCase() === 'pm') hour += 12;
-      const month = monthMap[monthName.toLowerCase()];
-      const yearNumber = Number(rawYear);
-      const year = yearNumber < 100 ? 2000 + yearNumber : yearNumber;
-      if (month !== undefined) {
-        return new Date(year, month, Number(day), hour, Number(minute), Number(second));
-      }
-    }
-  }
-  const date = new Date(value || Date.now());
-  return Number.isNaN(date.getTime()) ? new Date() : date;
+  return parseCallTimestamp(value) || new Date();
 };
 
 const getFileNameFromUrl = (recordingUrl) => {
