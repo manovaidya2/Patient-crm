@@ -12,6 +12,7 @@ const ROLES = {
   DIGITAL_MARKETING: 'digital_marketing',
   ACCOUNTANT: 'accountant',
   SALES_TEAM: 'sales_team',
+  RECEPTIONIST: 'receptionist',
 };
 
 // Roles the admin is allowed to create/manage through the Team Members module.
@@ -26,6 +27,7 @@ const CREATABLE_ROLES = [
   ROLES.DIGITAL_MARKETING,
   ROLES.ACCOUNTANT,
   ROLES.SALES_TEAM,
+  ROLES.RECEPTIONIST,
 ];
 
 const ALL_ROLES = [ROLES.ADMIN, ...CREATABLE_ROLES];
@@ -51,6 +53,7 @@ const ROLE_LABELS = {
   [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
   [ROLES.ACCOUNTANT]: 'Accountant',
   [ROLES.SALES_TEAM]: 'Sales Team',
+  [ROLES.RECEPTIONIST]: 'Receptionist',
 };
 
 module.exports = {

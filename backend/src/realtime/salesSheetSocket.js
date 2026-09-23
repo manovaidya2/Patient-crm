@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { ROLES } = require('../constants/roles');
 
-const allowedRoles = [ROLES.ADMIN, ROLES.SALES_TEAM];
+const allowedRoles = [ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST];
 const dateRoom = (date) => `sales-sheet:date:${date}`;
 
 const registerSalesSheetSocket = (io) => {

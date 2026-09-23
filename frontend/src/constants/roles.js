@@ -10,6 +10,7 @@ export const ROLES = {
   DIGITAL_MARKETING: 'digital_marketing',
   ACCOUNTANT: 'accountant',
   SALES_TEAM: 'sales_team',
+  RECEPTIONIST: 'receptionist',
 };
 
 // Roles the admin can create logins for (admin itself is seeded, not created here)
@@ -24,6 +25,7 @@ export const CREATABLE_ROLES = [
   ROLES.DIGITAL_MARKETING,
   ROLES.ACCOUNTANT,
   ROLES.SALES_TEAM,
+  ROLES.RECEPTIONIST,
 ];
 
 export const ROLE_LABELS = {
@@ -38,11 +40,12 @@ export const ROLE_LABELS = {
   [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
   [ROLES.ACCOUNTANT]: 'Accountant',
   [ROLES.SALES_TEAM]: 'Sales Team',
+  [ROLES.RECEPTIONIST]: 'Receptionist',
 };
 
 // Roles that can open All Patients / Patient Details (Assistant Doctor and Psychologist are scoped by the backend)
 export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
-export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING];
+export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING, ROLES.RECEPTIONIST];
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor
 export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR];
@@ -50,6 +53,7 @@ export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNS
 // Where a user lands right after logging in
 export const getDefaultRoute = (role) => {
   if (role === ROLES.SALES_TEAM) return '/sales';
+  if (role === ROLES.RECEPTIONIST) return '/admin';
   if (role === ROLES.ADMIN) return '/admin';
   if (role === ROLES.DOCTOR) return '/admin';
   if ([ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(role)) return '/admin';

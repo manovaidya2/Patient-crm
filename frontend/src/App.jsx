@@ -31,6 +31,7 @@ import PackageNotBought from './pages/admin/PackageNotBought.jsx';
 import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
 import PaymentSettings from './pages/admin/PaymentSettings.jsx';
 import SalesWorkspace from './pages/SalesWorkspace.jsx';
+import ReceptionistDashboard from './pages/admin/ReceptionistDashboard.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -38,7 +39,7 @@ import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
-const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
 const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT];
 const INACTIVE_PATIENTS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR];
@@ -74,7 +75,11 @@ function App() {
           index
           element={
             <ProtectedRoute roles={DASHBOARD_ACCESS_ROLES}>
-              {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) ? <Dashboard /> : <StaffDashboard />}
+              {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)
+                ? <Dashboard />
+                : user?.role === ROLES.RECEPTIONIST
+                  ? <ReceptionistDashboard />
+                  : <StaffDashboard />}
             </ProtectedRoute>
           }
         />
@@ -287,6 +292,14 @@ function App() {
           }
         />
         <Route
+          path="appointment-management"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <ReceptionistDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="family-sessions"
           element={
             <ProtectedRoute roles={FAMILY_SESSION_ACCESS_ROLES}>
@@ -299,7 +312,7 @@ function App() {
       <Route
         path="/sales"
         element={
-          <ProtectedRoute roles={[ROLES.ADMIN, ROLES.SALES_TEAM]}>
+          <ProtectedRoute roles={[ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST]}>
             <SalesWorkspace />
           </ProtectedRoute>
         }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Columns3, LogOut, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight, Columns3, LogOut, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import api from '../api/axios.js';
@@ -31,6 +31,8 @@ const Field = ({ column, value, onChange, disabled = false }) => {
 const SalesWorkspace = () => {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
+  const canReturnToDashboard = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
+  const canManageReception = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
   const [selectedDate, setSelectedDate] = useState(isoDate(new Date()));
   const [columns, setColumns] = useState([]);
   const [rows, setRows] = useState([]);
@@ -94,6 +96,13 @@ const SalesWorkspace = () => {
     try { await api.delete(`/sales-sheet/appointments/${row.id}`); await loadRows(); }
     catch (err) { setError(err.response?.data?.message || 'Appointment could not be deleted'); }
   };
+  const acceptRow = async (row) => {
+    try {
+      setError('');
+      await api.post(`/sales-sheet/appointments/${row.id}/accept`);
+      await loadRows();
+    } catch (err) { setError(err.response?.data?.message || 'Appointment could not be accepted'); }
+  };
   const addColumn = async (event) => {
     event.preventDefault();
     try {
@@ -116,7 +125,7 @@ const SalesWorkspace = () => {
       <header className="flex h-16 items-center justify-between gap-3 bg-teal-950 px-4 text-offwhite-100 sm:px-7">
         <div className="flex min-w-0 items-center gap-2.5"><BrandLogo size="sm" /><span className="truncate font-display text-sm font-bold">Manovaidya Operation System</span></div>
         <div className="flex items-center gap-2">
-          {isAdmin && <Link to="/admin"><Button variant="ghost" size="sm" className="text-offwhite-100 hover:bg-teal-800"><ArrowLeft size={15} /> CRM</Button></Link>}
+          {canReturnToDashboard && <Link to="/admin"><Button variant="ghost" size="sm" className="text-offwhite-100 hover:bg-teal-800"><ArrowLeft size={15} /> Dashboard</Button></Link>}
           <Button variant="ghost" size="sm" onClick={logout} className="text-offwhite-100 hover:bg-teal-800"><LogOut size={15} /><span className="hidden sm:inline">Log out</span></Button>
         </div>
       </header>
@@ -138,12 +147,12 @@ const SalesWorkspace = () => {
         {error && <div className="mb-3 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         <div className="overflow-x-auto border border-tan-300 bg-offwhite-100">
           <table className="w-full min-w-max border-collapse text-left">
-            <thead><tr className="bg-tan-100 text-xs uppercase text-charcoal/60"><th className="w-14 border-r border-tan-300 px-3 py-3 text-center">#</th>{columns.map((column) => <th key={column.id} className="min-w-[150px] border-r border-tan-300 px-3 py-3">{column.label}{column.required && <span className="ml-1 text-red-600">*</span>}</th>)}<th className="min-w-[140px] border-r border-tan-300 px-3 py-3">Added by</th><th className="w-24 px-3 py-3 text-center">Actions</th></tr></thead>
+            <thead><tr className="bg-tan-100 text-xs uppercase text-charcoal/60"><th className="w-14 border-r border-tan-300 px-3 py-3 text-center">#</th>{columns.map((column) => <th key={column.id} className="min-w-[150px] border-r border-tan-300 px-3 py-3">{column.label}{column.required && <span className="ml-1 text-red-600">*</span>}</th>)}<th className="min-w-[140px] border-r border-tan-300 px-3 py-3">Added by</th>{canManageReception && <th className="min-w-[130px] border-r border-tan-300 px-3 py-3 text-center">Reception</th>}<th className="w-24 px-3 py-3 text-center">Actions</th></tr></thead>
             <tbody>
-              {draft && <tr className="bg-sage/5"><td className="border-r border-tan-300 px-3 text-center text-xs font-semibold">{editingId ? rows.findIndex((row) => row.id === editingId) + 1 : rows.length + 1}</td>{columns.map((column) => <td key={column.id} className="border-r border-tan-300 p-0"><Field column={column} value={draft.values[column.id]} onChange={(value) => setDraft((current) => ({ values: { ...current.values, [column.id]: value } }))} /></td>)}<td className="border-r border-tan-300 px-3 text-sm font-medium">{editingId ? rows.find((row) => row.id === editingId)?.createdByName : user?.name}</td><td><div className="flex justify-center gap-1"><button onClick={saveRow} className="p-2 text-sage" title="Save"><Save size={17} /></button><button onClick={() => { setDraft(null); setEditingId(null); }} className="p-2 text-charcoal/50" title="Cancel"><X size={17} /></button></div></td></tr>}
-              {!loading && rows.map((row, index) => editingId === row.id ? null : <tr key={row.id} className="border-t border-tan-300 hover:bg-tan-100/40"><td className="border-r border-tan-300 px-3 py-3 text-center text-xs text-charcoal/50">{index + 1}</td>{columns.map((column) => <td key={column.id} className="max-w-[280px] whitespace-pre-wrap border-r border-tan-300 px-3 py-3 text-sm">{row.values[column.id] || <span className="text-charcoal/30">-</span>}</td>)}<td className="border-r border-tan-300 px-3 py-3 text-sm"><span className="font-medium">{row.createdByName}</span>{String(row.createdBy) === String(user?.id || user?._id) && <span className="ml-2 text-xs text-sage">You</span>}</td><td><div className="flex justify-center">{row.canEdit ? <><button onClick={() => startEdit(row)} className="p-2 text-sage" title="Edit"><Pencil size={16} /></button><button onClick={() => removeRow(row)} className="p-2 text-red-700" title="Delete"><Trash2 size={16} /></button></> : <span className="text-xs text-charcoal/35">View only</span>}</div></td></tr>)}
-              {!loading && !rows.length && !draft && <tr><td colSpan={columns.length + 3} className="px-6 py-16 text-center text-sm text-charcoal/50">{columns.length ? 'No appointments added for this date.' : 'Admin has not configured sheet columns yet.'}</td></tr>}
-              {loading && <tr><td colSpan={columns.length + 3} className="px-6 py-16 text-center text-sm text-charcoal/50">Loading sheet...</td></tr>}
+              {draft && <tr className="bg-sage/5"><td className="border-r border-tan-300 px-3 text-center text-xs font-semibold">{editingId ? rows.findIndex((row) => row.id === editingId) + 1 : rows.length + 1}</td>{columns.map((column) => <td key={column.id} className="border-r border-tan-300 p-0"><Field column={column} value={draft.values[column.id]} onChange={(value) => setDraft((current) => ({ values: { ...current.values, [column.id]: value } }))} /></td>)}<td className="border-r border-tan-300 px-3 text-sm font-medium">{editingId ? rows.find((row) => row.id === editingId)?.createdByName : user?.name}</td>{canManageReception && <td className="border-r border-tan-300" />}<td><div className="flex justify-center gap-1"><button onClick={saveRow} className="p-2 text-sage" title="Save"><Save size={17} /></button><button onClick={() => { setDraft(null); setEditingId(null); }} className="p-2 text-charcoal/50" title="Cancel"><X size={17} /></button></div></td></tr>}
+              {!loading && rows.map((row, index) => editingId === row.id ? null : <tr key={row.id} className="border-t border-tan-300 hover:bg-tan-100/40"><td className="border-r border-tan-300 px-3 py-3 text-center text-xs text-charcoal/50">{index + 1}</td>{columns.map((column) => <td key={column.id} className="max-w-[280px] whitespace-pre-wrap border-r border-tan-300 px-3 py-3 text-sm">{row.values[column.id] || <span className="text-charcoal/30">-</span>}</td>)}<td className="border-r border-tan-300 px-3 py-3 text-sm"><span className="font-medium">{row.createdByName}</span>{String(row.createdBy) === String(user?.id || user?._id) && <span className="ml-2 text-xs text-sage">You</span>}</td>{canManageReception && <td className="border-r border-tan-300 px-3 py-3 text-center">{row.acceptedAt ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-sage"><Check size={14} /> Accepted</span> : <Button size="sm" onClick={() => acceptRow(row)}><Check size={14} /> Accept</Button>}</td>}<td><div className="flex justify-center">{row.canEdit ? <><button onClick={() => startEdit(row)} className="p-2 text-sage" title="Edit"><Pencil size={16} /></button><button onClick={() => removeRow(row)} className="p-2 text-red-700" title="Delete"><Trash2 size={16} /></button></> : <span className="text-xs text-charcoal/35">View only</span>}</div></td></tr>)}
+              {!loading && !rows.length && !draft && <tr><td colSpan={columns.length + 3 + (canManageReception ? 1 : 0)} className="px-6 py-16 text-center text-sm text-charcoal/50">{columns.length ? 'No appointments added for this date.' : 'Admin has not configured sheet columns yet.'}</td></tr>}
+              {loading && <tr><td colSpan={columns.length + 3 + (canManageReception ? 1 : 0)} className="px-6 py-16 text-center text-sm text-charcoal/50">Loading sheet...</td></tr>}
             </tbody>
           </table>
         </div>
