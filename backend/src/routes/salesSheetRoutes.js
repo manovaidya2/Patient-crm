@@ -6,6 +6,8 @@ const controller = require('../controllers/salesSheetController');
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST));
 router.get('/columns', controller.listColumns);
+router.get('/layout', controller.listLayout);
+router.put('/layout', authorize(ROLES.ADMIN), controller.updateLayout);
 router.post('/columns', authorize(ROLES.ADMIN), controller.createColumn);
 router.patch('/columns/:id', authorize(ROLES.ADMIN), controller.updateColumn);
 router.delete('/columns/:id', authorize(ROLES.ADMIN), controller.deleteColumn);
@@ -20,6 +22,7 @@ router.patch('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), cont
 router.delete('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteManagedAppointment);
 router.post('/appointments', controller.createAppointment);
 router.post('/appointments/:id/accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.acceptAppointment);
+router.post('/appointments/:id/reschedule', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.rescheduleAppointment);
 router.patch('/appointments/:id', controller.updateAppointment);
 router.delete('/appointments/:id', controller.deleteAppointment);
 module.exports = router;

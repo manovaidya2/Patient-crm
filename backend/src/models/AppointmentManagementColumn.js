@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const schema = new mongoose.Schema({
   label: { type: String, required: true, trim: true },
-  type: { type: String, enum: ['text', 'number', 'phone', 'date', 'time', 'select', 'textarea'], default: 'text' },
+  type: { type: String, enum: ['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'], default: 'text' },
   options: [{ type: String, trim: true }],
   required: { type: Boolean, default: false },
   order: { type: Number, default: 0 },
