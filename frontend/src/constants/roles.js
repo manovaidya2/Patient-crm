@@ -9,6 +9,7 @@ export const ROLES = {
   DISPATCH_COURIER: 'dispatch_courier',
   DIGITAL_MARKETING: 'digital_marketing',
   ACCOUNTANT: 'accountant',
+  SALES_TEAM: 'sales_team',
 };
 
 // Roles the admin can create logins for (admin itself is seeded, not created here)
@@ -22,6 +23,7 @@ export const CREATABLE_ROLES = [
   ROLES.DISPATCH_COURIER,
   ROLES.DIGITAL_MARKETING,
   ROLES.ACCOUNTANT,
+  ROLES.SALES_TEAM,
 ];
 
 export const ROLE_LABELS = {
@@ -35,6 +37,7 @@ export const ROLE_LABELS = {
   [ROLES.DISPATCH_COURIER]: 'Dispatch & Courier',
   [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
   [ROLES.ACCOUNTANT]: 'Accountant',
+  [ROLES.SALES_TEAM]: 'Sales Team',
 };
 
 // Roles that can open All Patients / Patient Details (Assistant Doctor and Psychologist are scoped by the backend)
@@ -46,6 +49,7 @@ export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNS
 
 // Where a user lands right after logging in
 export const getDefaultRoute = (role) => {
+  if (role === ROLES.SALES_TEAM) return '/sales';
   if (role === ROLES.ADMIN) return '/admin';
   if (role === ROLES.DOCTOR) return '/admin';
   if ([ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(role)) return '/admin';

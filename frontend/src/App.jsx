@@ -30,6 +30,7 @@ import DigitalMarketing from './pages/admin/DigitalMarketing.jsx';
 import PackageNotBought from './pages/admin/PackageNotBought.jsx';
 import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
 import PaymentSettings from './pages/admin/PaymentSettings.jsx';
+import SalesWorkspace from './pages/SalesWorkspace.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -294,6 +295,15 @@ function App() {
           }
         />
       </Route>
+
+      <Route
+        path="/sales"
+        element={
+          <ProtectedRoute roles={[ROLES.ADMIN, ROLES.SALES_TEAM]}>
+            <SalesWorkspace />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/dashboard"

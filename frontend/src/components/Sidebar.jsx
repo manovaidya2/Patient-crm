@@ -60,6 +60,7 @@ export const navItems = [
   
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
   { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true },
+  { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', adminOnly: true },
   { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   
 ];
