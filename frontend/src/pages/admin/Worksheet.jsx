@@ -41,7 +41,7 @@ const Worksheet = () => {
   const [rows, setRows] = useState([]);
   const [columns, setColumns] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [dateMode, setDateMode] = useState('all');
+  const [dateMode, setDateMode] = useState('day');
   const [dateValue, setDateValue] = useState(todayInputValue);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

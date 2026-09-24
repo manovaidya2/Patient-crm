@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const getCache = new Map();
 const getRequests = new Map();
+const GET_CACHE_VERSION = 'v2';
 const noCachePaths = ['/auth/me', '/advice/unread-count', '/schedule/reminders'];
 
 const clearGetCache = () => {
@@ -66,7 +67,7 @@ api.get = (url, config = {}) => {
   if (!isCacheableGet(url)) return originalGet(url, config);
 
   const token = localStorage.getItem('crm_token') || '';
-  const key = `${token}:${url}?${stableParams(config.params)}`;
+  const key = `${GET_CACHE_VERSION}:${token}:${url}?${stableParams(config.params)}`;
   if (getCache.has(key)) return Promise.resolve(getCache.get(key));
   if (getRequests.has(key)) return getRequests.get(key);
 
