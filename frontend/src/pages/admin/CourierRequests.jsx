@@ -4,7 +4,7 @@ const CourierRequests = () => (
   <CourierRequestList
     title="Courier Requests"
     subtitle="Courier requests sent by the medicine department will be dispatched here."
-    statuses={['pending', 'dispatched']}
+    statuses={['pending', 'dispatched', 'cancelled']}
     emptyText="No courier requests."
   />
 );

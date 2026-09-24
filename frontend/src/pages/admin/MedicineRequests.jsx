@@ -4,7 +4,7 @@ const MedicineRequests = () => (
   <MedicineRequestList
     title="New Medicine Requests"
     subtitle="Medicine requests received with prescriptions will be processed here."
-    statuses={['requested', 'in_process']}
+    statuses={['requested', 'in_process', 'made', 'cancelled']}
     emptyText="No new medicine requests."
     actions={[
       { from: ['requested'], status: 'in_process', label: 'Mark In Process', variant: 'outline' },

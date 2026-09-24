@@ -82,7 +82,7 @@ const medicineRequestSchema = new mongoose.Schema(
     requestId: { type: String, trim: true, default: '' },
     status: {
       type: String,
-      enum: ['not_requested', 'requested', 'in_process', 'made', 'sent_to_courier'],
+      enum: ['not_requested', 'requested', 'in_process', 'made', 'sent_to_courier', 'cancelled'],
       default: 'not_requested',
     },
     medicines: { type: String, trim: true, default: '' },
@@ -112,10 +112,13 @@ const medicineRequestSchema = new mongoose.Schema(
     packagingDetailsFilledAt: { type: Date, default: null },
     sentToCourierAt: { type: Date, default: null },
     sentToCourierByName: { type: String, trim: true, default: '' },
+    cancelledAt: { type: Date, default: null },
+    cancelledByName: { type: String, trim: true, default: '' },
+    cancelReason: { type: String, trim: true, default: '' },
     courier: {
       status: {
         type: String,
-        enum: ['pending', 'dispatched', 'delivered'],
+        enum: ['pending', 'dispatched', 'delivered', 'cancelled'],
         default: 'pending',
       },
       receiverName: { type: String, trim: true, default: '' },
@@ -139,6 +142,9 @@ const medicineRequestSchema = new mongoose.Schema(
       dispatchedByName: { type: String, trim: true, default: '' },
       deliveredAt: { type: Date, default: null },
       deliveredByName: { type: String, trim: true, default: '' },
+      cancelledAt: { type: Date, default: null },
+      cancelledByName: { type: String, trim: true, default: '' },
+      cancelReason: { type: String, trim: true, default: '' },
       receivedByName: { type: String, trim: true, default: '' },
       deliveryProofUrl: { type: String, default: null },
       deliveryProofFileName: { type: String, trim: true, default: '' },
