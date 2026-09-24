@@ -12,8 +12,9 @@ const emitDateChanged = (req, date) => req.app.get('io')?.to(dateRoom(date)).emi
 
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 const createAppointmentCode = () => {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
-  return `APT-${parts.year}${parts.month}${parts.day}-${parts.hour}${parts.minute}${parts.second}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const suffix = Math.random().toString(36).slice(2, 4).toUpperCase();
+  return `APT-${timestamp}-${suffix}`;
 };
 const serializeColumn = (column) => ({
   id: String(column._id), label: column.label, type: column.type, options: column.options || [],
