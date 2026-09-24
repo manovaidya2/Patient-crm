@@ -32,6 +32,7 @@ import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
 import PaymentSettings from './pages/admin/PaymentSettings.jsx';
 import SalesWorkspace from './pages/SalesWorkspace.jsx';
 import ReceptionistDashboard from './pages/admin/ReceptionistDashboard.jsx';
+import PatientQueries from './pages/admin/PatientQueries.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -296,6 +297,14 @@ function App() {
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
               <ReceptionistDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="patient-queries"
+          element={
+            <ProtectedRoute roles={[ROLES.RECEPTIONIST]}>
+              <PatientQueries />
             </ProtectedRoute>
           }
         />
