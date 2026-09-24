@@ -41,6 +41,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
+    window.dispatchEvent(new Event('crm:logout'));
     setUser(null);
   };
 

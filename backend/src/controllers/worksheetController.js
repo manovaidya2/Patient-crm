@@ -166,6 +166,7 @@ const formatRow = (row) => ({
   values: rowValues(row),
   source: row.source || 'manual',
   createdAt: row.workDate || row.createdAt,
+  savedAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
