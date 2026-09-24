@@ -295,7 +295,7 @@ function App() {
         <Route
           path="appointment-management"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
               <ReceptionistDashboard />
             </ProtectedRoute>
           }

@@ -37,6 +37,7 @@ const SalesWorkspace = () => {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
   const canReturnToDashboard = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
+  const canReturnToAppointmentManagement = user?.role === ROLES.SALES_TEAM;
   const canManageReception = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
   const [selectedDate, setSelectedDate] = useState(isoDate(new Date()));
   const [columns, setColumns] = useState([]);
@@ -150,6 +151,7 @@ const SalesWorkspace = () => {
         <div className="flex min-w-0 items-center gap-2.5"><BrandLogo size="sm" /><span className="truncate font-display text-sm font-bold">Manovaidya Operation System</span></div>
         <div className="flex items-center gap-2">
           {canReturnToDashboard && <Link to="/admin"><Button variant="ghost" size="sm" className="text-offwhite-100 hover:bg-teal-800"><ArrowLeft size={15} /> Dashboard</Button></Link>}
+          {canReturnToAppointmentManagement && <Link to="/admin/appointment-management"><Button variant="ghost" size="sm" className="text-offwhite-100 hover:bg-teal-800"><ArrowLeft size={15} /> Appointment Management</Button></Link>}
           <Button variant="ghost" size="sm" onClick={logout} className="text-offwhite-100 hover:bg-teal-800"><LogOut size={15} /><span className="hidden sm:inline">Log out</span></Button>
         </div>
       </header>

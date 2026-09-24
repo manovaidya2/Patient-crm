@@ -45,14 +45,14 @@ export const ROLE_LABELS = {
 
 // Roles that can open All Patients / Patient Details (Assistant Doctor and Psychologist are scoped by the backend)
 export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
-export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING, ROLES.RECEPTIONIST];
+export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING, ROLES.RECEPTIONIST, ROLES.SALES_TEAM];
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor
 export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR];
 
 // Where a user lands right after logging in
 export const getDefaultRoute = (role) => {
-  if (role === ROLES.SALES_TEAM) return '/sales';
+  if (role === ROLES.SALES_TEAM) return '/admin/appointment-management';
   if (role === ROLES.RECEPTIONIST) return '/admin';
   if (role === ROLES.ADMIN) return '/admin';
   if (role === ROLES.DOCTOR) return '/admin';

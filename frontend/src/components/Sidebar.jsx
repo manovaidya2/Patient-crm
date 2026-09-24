@@ -38,7 +38,7 @@ import BrandLogo from './BrandLogo.jsx';
 export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
-  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
   { to: '/admin/patient-queries', icon: MessageCircleQuestion, label: 'Help Desk / Patient Queries', roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
@@ -64,7 +64,7 @@ export const navItems = [
   
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
   { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true },
-  { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
   { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   
 ];
