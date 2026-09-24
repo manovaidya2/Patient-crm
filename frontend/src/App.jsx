@@ -33,6 +33,7 @@ import PaymentSettings from './pages/admin/PaymentSettings.jsx';
 import SalesWorkspace from './pages/SalesWorkspace.jsx';
 import ReceptionistDashboard from './pages/admin/ReceptionistDashboard.jsx';
 import PatientQueries from './pages/admin/PatientQueries.jsx';
+import KnowledgeLibrary from './pages/admin/KnowledgeLibrary.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -263,7 +264,7 @@ function App() {
         <Route
           path="patients/:id"
           element={
-            <ProtectedRoute roles={PATIENT_ACCESS_ROLES}>
+            <ProtectedRoute roles={[...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST]}>
               <PatientDetails />
             </ProtectedRoute>
           }
@@ -303,8 +304,16 @@ function App() {
         <Route
           path="patient-queries"
           element={
-            <ProtectedRoute roles={[ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
               <PatientQueries />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="knowledge-library"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <KnowledgeLibrary />
             </ProtectedRoute>
           }
         />

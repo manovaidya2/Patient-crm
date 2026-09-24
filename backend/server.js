@@ -27,6 +27,8 @@ const digitalMarketingRoutes = require('./src/routes/digitalMarketingRoutes');
 const packageNotBoughtRoutes = require('./src/routes/packageNotBoughtRoutes');
 const bankRoutes = require('./src/routes/bankRoutes');
 const salesSheetRoutes = require('./src/routes/salesSheetRoutes');
+const helpDeskRoutes = require('./src/routes/helpDeskRoutes');
+const knowledgeRoutes = require('./src/routes/knowledgeRoutes');
 const { registerSalesSheetSocket } = require('./src/realtime/salesSheetSocket');
 
 connectDB();
@@ -86,6 +88,8 @@ app.use('/api/digital-marketing', digitalMarketingRoutes);
 app.use('/api/package-not-bought', packageNotBoughtRoutes);
 app.use('/api/banks', bankRoutes);
 app.use('/api/sales-sheet', salesSheetRoutes);
+app.use('/api/help-desk', helpDeskRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res) => {
