@@ -570,6 +570,37 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   createdAt: p.createdAt,
 });
 
+// The patient list only needs row-level display fields. Keep the full formatter
+// for the patient details page, but never serialize payments, records, schedules
+// or medicine files when rendering a paginated list.
+const formatPatientListItem = (p, user = null) => {
+  const currentStage = Number(p.currentStage || 1);
+  const currentStageEntry = (p.stages || []).find((stage) => Number(stage.number) === currentStage);
+  return {
+    id: p._id,
+    patientCode: p.patientCode || `PT-${String(p._id).slice(-6).toUpperCase()}`,
+    patientName: p.patientName,
+    category: p.category,
+    categoryLabel: CATEGORY_LABELS[p.category],
+    age: p.age,
+    number: p.number,
+    guardianName: p.guardianName || null,
+    alternateNumber: p.alternateNumber || null,
+    relativeName: p.relativeName || null,
+    currentStage,
+    currentStageLabel: STAGE_LABELS[currentStage],
+    approvalStatus: p.approvalStatus || 'approved',
+    canApprove: canReviewPatientApproval(user),
+    isActive: p.isActive !== false,
+    inactiveReason: p.inactiveReason || '',
+    inactivatedByName: p.inactivatedByName || '',
+    inactivatedAt: p.inactivatedAt || null,
+    canToggleActive: canTogglePatientActive(user),
+    hasDueMedicineConnect: Boolean(currentStageEntry && isMedicineConnectDue(currentStageEntry)),
+    createdAt: p.createdAt,
+  };
+};
+
 // @desc    List patients received via webhook (search, filter by category, paginated)
 // @route   GET /api/patients
 // @access  Private/Admin, Doctor, Accountant, Post Counselor
@@ -660,10 +691,14 @@ const getPatients = asyncHandler(async (req, res) => {
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
   const skip = (pageNum - 1) * limitNum;
 
+  const listProjection = [
+    'patientCode patientName category age number guardianName alternateNumber relativeName currentStage',
+    'approvalStatus isActive inactiveReason inactivatedByName inactivatedAt createdAt',
+    'stages.number stages.medicineNextConnectDate stages.medicineConnectDone',
+  ].join(' ');
   const [patients, total] = await Promise.all([
     Patient.find(filter)
-      .populate('assignedDoctor', 'name')
-      .populate('assignedPsychologist', 'name')
+      .select(listProjection)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum),
@@ -676,7 +711,7 @@ const getPatients = asyncHandler(async (req, res) => {
     total,
     page: pageNum,
     pages: Math.max(Math.ceil(total / limitNum), 1),
-    patients: patients.map((patient) => formatPatient(patient, req.user)),
+    patients: patients.map((patient) => formatPatientListItem(patient, req.user)),
   });
 });
 
@@ -694,7 +729,20 @@ const checkPatientCode = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
   const patients = await Patient.find({})
-    .select('patientName patientCode currentStage stages assignedDoctor assignedPsychologist createdAt')
+    .select(
+      'patientName patientCode currentStage assignedDoctor assignedPsychologist createdAt '
+      + 'stages.number stages.totalAmount stages.payments.amount stages.payments.date stages.payments.createdAt '
+      + 'stages.payments.paymentMode stages.payments.payToBank stages.payments.payToBankName stages.payments.approvalStatus '
+      + 'stages.packageName stages.postCounselor stages.medicineNextConnectDate stages.medicineConnectDone stages.medicineNextConnectNote '
+      + 'stages.medicineRequest.requestId stages.medicineRequest.status stages.medicineRequest.requestedAt '
+      + 'stages.medicineRequest.inProcessAt stages.medicineRequest.madeAt stages.medicineRequest.sentToCourierAt '
+      + 'stages.medicineRequest.courier.status '
+      + 'stages.medicineRequests.requestId stages.medicineRequests.status stages.medicineRequests.requestedAt '
+      + 'stages.medicineRequests.inProcessAt stages.medicineRequests.madeAt stages.medicineRequests.sentToCourierAt '
+      + 'stages.medicineRequests.courier.status '
+      + 'stages.followUps.dateTime stages.followUps.status stages.followUps.followUpType '
+      + 'stages.familySessions.dateTime stages.familySessions.status stages.familySessions.followUpType'
+    )
     .populate('assignedDoctor', 'name')
     .populate('assignedPsychologist', 'name')
     .populate('stages.postCounselor', 'name')
@@ -2982,10 +3030,19 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
       filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
     }
 
+    const rangeStart = req.query.from ? new Date(req.query.from) : null;
+    const rangeEnd = req.query.to ? new Date(req.query.to) : null;
+    const hasRange = rangeStart && rangeEnd && !Number.isNaN(rangeStart.getTime()) && !Number.isNaN(rangeEnd.getTime());
+
     // Only this one schedule field is ever read here — selecting the whole "stages" tree
     // (payments, medicine/courier data, record files) made this scan very slow at scale.
     let query = Patient.find(filter)
-      .select(`patientName category stages.number stages.${fieldKey} assignedDoctor assignedPsychologist`)
+      .select(
+        `patientName patientCode category stages.number assignedDoctor assignedPsychologist `
+        + `stages.${fieldKey}.dateTime stages.${fieldKey}.status stages.${fieldKey}.followUpType `
+        + `stages.${fieldKey}.notes stages.${fieldKey}.createdByName stages.${fieldKey}.trackerSubmissionUrl `
+        + `stages.${fieldKey}.cancelReason stages.${fieldKey}.cancelledAt stages.${fieldKey}.cancelledByName`
+      )
       .lean();
     if (groupByAssignedDoctor) {
       query = query.populate('assignedDoctor', 'name');
@@ -3004,7 +3061,11 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
         : (p.assignedPsychologist && p.assignedPsychologist.name) || 'Unassigned';
 
       (p.stages || []).forEach((s) => {
-        (s[fieldKey] || []).forEach((e) => {
+        (s[fieldKey] || []).filter((e) => {
+          if (!hasRange) return true;
+          const date = e.dateTime ? new Date(e.dateTime) : null;
+          return date && date >= rangeStart && date <= rangeEnd;
+        }).forEach((e) => {
           const formatted = formatScheduleEntry(e);
           const assignee = groupByAssignedDoctor || groupByAssignedPsychologist
             ? patientAssignee

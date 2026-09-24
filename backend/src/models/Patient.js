@@ -371,4 +371,12 @@ const patientSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Common list/dashboard filters should use Mongo indexes instead of scanning
+// the complete patient collection before applying pagination.
+patientSchema.index({ isActive: 1, createdAt: -1 });
+patientSchema.index({ currentStage: 1, isActive: 1, createdAt: -1 });
+patientSchema.index({ category: 1, isActive: 1, createdAt: -1 });
+patientSchema.index({ assignedDoctor: 1, isActive: 1 });
+patientSchema.index({ assignedPsychologist: 1, isActive: 1 });
+
 module.exports = mongoose.model('Patient', patientSchema);

@@ -23,6 +23,16 @@ const formatCellValue = (column, value) => {
   return value;
 };
 
+const formatSavedTime = (value) => value
+  ? new Date(value).toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  : '-';
+
 const selectClass =
   'w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20';
 
@@ -353,6 +363,10 @@ const Worksheet = () => {
                           <Trash2 size={14} />
                         </button>
                       </div>
+                      <p className="mt-1 text-right text-[10px] leading-tight text-charcoal/45" title={row.updatedAt && row.updatedAt !== row.savedAt ? `Updated ${formatSavedTime(row.updatedAt)}` : undefined}>
+                        Saved {formatSavedTime(row.savedAt)}
+                        {row.updatedAt && row.updatedAt !== row.savedAt ? <span className="block">Updated {formatSavedTime(row.updatedAt)}</span> : null}
+                      </p>
                     </td>
                   </tr>
                 ))
