@@ -226,8 +226,12 @@ const getWorksheet = asyncHandler(async (req, res) => {
     allowedUsers[0] ||
     null;
 
+  const countMatch = {
+    user: { $in: allowedUsers.map((user) => user.id) },
+    ...(dateRange ? { workDate: { $gte: dateRange.start, $lte: dateRange.end } } : {}),
+  };
   const counts = await WorksheetManualRow.aggregate([
-    { $match: { user: { $in: allowedUsers.map((user) => user.id) } } },
+    { $match: countMatch },
     { $group: { _id: '$user', count: { $sum: 1 } } },
   ]);
   const countByUser = new Map(counts.map((entry) => [String(entry._id), entry.count]));
