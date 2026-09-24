@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, Inbox, PackageCheck, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Inbox, PackageCheck, RefreshCw, Ban, Trash2 } from 'lucide-react';
 import api from '../api/axios.js';
 import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
@@ -124,6 +124,26 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
       setReloadKey((value) => value + 1);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not update medicine status.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const adminRequestAction = async (row, status) => {
+    if (!isAdmin) return;
+    const label = status === 'cancelled' ? 'cancel this medicine request' : 'delete this medicine request permanently';
+    if (!window.confirm(`Are you sure you want to ${label}?`)) return;
+    if (status === 'cancelled') {
+      await updateStatus(row, status);
+      return;
+    }
+    const key = `${row.patientId}-${row.stage}-${row.requestId}-delete`;
+    setBusyKey(key);
+    try {
+      await api.delete(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { data: { requestId: row.requestId } });
+      setReloadKey((value) => value + 1);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not delete medicine request.');
     } finally {
       setBusyKey('');
     }
@@ -321,6 +341,16 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                   </div>
 
                   <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                    {isAdmin && request.status !== 'cancelled' && (
+                      <>
+                        <Button size="sm" variant="outline" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'cancelled')}>
+                          <Ban size={14} /> Cancel
+                        </Button>
+                        <Button size="sm" variant="danger" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'delete')}>
+                          <Trash2 size={14} /> Delete
+                        </Button>
+                      </>
+                    )}
                     {actions
                       .filter((action) => action.from.includes(request.status))
                       .map((action) => {

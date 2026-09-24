@@ -28,6 +28,7 @@ const MEDICINE_STATUSES = {
   IN_PROCESS: 'in_process',
   MADE: 'made',
   SENT_TO_COURIER: 'sent_to_courier',
+  CANCELLED: 'cancelled',
 };
 
 const MEDICINE_STATUS_LABELS = {
@@ -36,6 +37,7 @@ const MEDICINE_STATUS_LABELS = {
   [MEDICINE_STATUSES.IN_PROCESS]: 'Medicine Preparation In Process',
   [MEDICINE_STATUSES.MADE]: 'Medicine Done',
   [MEDICINE_STATUSES.SENT_TO_COURIER]: 'Sent To Courier',
+  [MEDICINE_STATUSES.CANCELLED]: 'Cancelled',
 };
 
 const ACTIVE_MEDICINE_STATUSES = Object.values(MEDICINE_STATUSES);
@@ -45,12 +47,14 @@ const COURIER_STATUSES = {
   PENDING: 'pending',
   DISPATCHED: 'dispatched',
   DELIVERED: 'delivered',
+  CANCELLED: 'cancelled',
 };
 
 const COURIER_STATUS_LABELS = {
   [COURIER_STATUSES.PENDING]: 'Courier Pending',
   [COURIER_STATUSES.DISPATCHED]: 'Courier Dispatched',
   [COURIER_STATUSES.DELIVERED]: 'Delivered',
+  [COURIER_STATUSES.CANCELLED]: 'Cancelled',
 };
 
 const emptyCourier = () => ({
@@ -73,6 +77,9 @@ const emptyCourier = () => ({
   dispatchedByName: '',
   deliveredAt: null,
   deliveredByName: '',
+  cancelledAt: null,
+  cancelledByName: '',
+  cancelReason: '',
   receivedByName: '',
   deliveryProofUrl: null,
   deliveryProofFileName: '',
@@ -102,6 +109,9 @@ const emptyMedicineRequest = () => ({
   packagingDetailsFilledAt: null,
   sentToCourierAt: null,
   sentToCourierByName: '',
+  cancelledAt: null,
+  cancelledByName: '',
+  cancelReason: '',
   courier: emptyCourier(),
 });
 // Assistant Doctor and Psychologist can only see/edit patients assigned to them,
@@ -2360,7 +2370,10 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   }
 
   const { status } = req.body;
-  if (![MEDICINE_STATUSES.IN_PROCESS, MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER].includes(status)) {
+  if (status === MEDICINE_STATUSES.CANCELLED && req.user.role !== ROLES.ADMIN) {
+    return res.status(403).json({ success: false, message: 'Only Admin can cancel a medicine request' });
+  }
+  if (![MEDICINE_STATUSES.IN_PROCESS, MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER, MEDICINE_STATUSES.CANCELLED].includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid medicine status update' });
   }
 
@@ -2377,6 +2390,15 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   const requestDoc = findStageMedicineRequest(stageEntry, req.body.requestId);
   if (!requestDoc) return res.status(404).json({ success: false, message: 'Medicine request not found' });
   const currentRequest = { ...emptyMedicineRequest(), ...(requestDoc.toObject?.() || requestDoc) };
+  if (status === MEDICINE_STATUSES.CANCELLED) {
+    const nextRequest = { ...currentRequest, status, cancelledAt: new Date(), cancelledByName: req.user.name, cancelReason: String(req.body.cancelReason || '').trim() };
+    if (req.body.requestId && req.body.requestId !== 'legacy') Object.assign(requestDoc, nextRequest);
+    else stageEntry.medicineRequest = nextRequest;
+    addActivity(patient, req.user, `Medicine request cancelled for Phase ${stageNum}`, `${nextRequest.cancelReason || 'Cancelled by Admin'} | Request: ${currentRequest.requestId || 'legacy'}`);
+    await patient.save();
+    await populateAssignments(patient);
+    return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)) });
+  }
   const uploadedFiles = filesFromRequest(req);
   const existingMedicineImages = withLegacyFile(currentRequest.medicineImages || [], currentRequest.medicineImageUrl, currentRequest.medicineImageFileName);
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
@@ -2479,6 +2501,29 @@ const listCourierRequests = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, count: rows.length, rows });
 });
 
+const deleteMedicineRequest = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can delete requests' });
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) return res.status(400).json({ success: false, message: 'Invalid phase number' });
+  const patient = await Patient.findById(req.params.patientId);
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  patient.stages = normalizeStages(patient.stages);
+  const stageEntry = patient.stages.find((stage) => stage.number === stageNum);
+  const requestId = req.body?.requestId || req.query.requestId || 'legacy';
+  if (requestId === 'legacy') {
+    if (!stageEntry.medicineRequest || stageEntry.medicineRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) return res.status(404).json({ success: false, message: 'Medicine request not found' });
+    stageEntry.medicineRequest = emptyMedicineRequest();
+  } else {
+    const index = (stageEntry.medicineRequests || []).findIndex((request) => request.requestId === requestId);
+    if (index < 0) return res.status(404).json({ success: false, message: 'Medicine request not found' });
+    stageEntry.medicineRequests.splice(index, 1);
+  }
+  addActivity(patient, req.user, `Medicine request deleted for Phase ${stageNum}`, `Request: ${requestId}`);
+  await patient.save();
+  await populateAssignments(patient);
+  res.status(200).json({ success: true, message: 'Request deleted' });
+});
+
 // @desc    Courier department/admin updates courier dispatch or delivery details
 // @route   PATCH /api/courier/requests/:patientId/stages/:number
 // @access  Private/Admin, Dispatch & Courier
@@ -2489,7 +2534,10 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   }
 
   const { status } = req.body;
-  if (![COURIER_STATUSES.DISPATCHED, COURIER_STATUSES.DELIVERED].includes(status)) {
+  if (status === COURIER_STATUSES.CANCELLED && req.user.role !== ROLES.ADMIN) {
+    return res.status(403).json({ success: false, message: 'Only Admin can cancel a courier request' });
+  }
+  if (![COURIER_STATUSES.DISPATCHED, COURIER_STATUSES.DELIVERED, COURIER_STATUSES.CANCELLED].includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid courier status update' });
   }
 
@@ -2511,6 +2559,16 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   const existingPackageImages = withLegacyFile(currentCourier.packageImages || [], currentCourier.packageImageUrl, currentCourier.packageImageFileName);
   if (currentRequest.status !== MEDICINE_STATUSES.SENT_TO_COURIER) {
     return res.status(400).json({ success: false, message: 'Medicine has not been sent to courier yet' });
+  }
+
+  if (status === COURIER_STATUSES.CANCELLED) {
+    const nextRequest = { ...currentRequest, courier: { ...currentCourier, status, cancelledAt: new Date(), cancelledByName: req.user.name, cancelReason: String(req.body.cancelReason || '').trim() } };
+    if (req.body.requestId && req.body.requestId !== 'legacy') Object.assign(requestDoc, nextRequest);
+    else stageEntry.medicineRequest = nextRequest;
+    addActivity(patient, req.user, `Courier request cancelled for Phase ${stageNum}`, `${nextRequest.courier.cancelReason || 'Cancelled by Admin'} | Request: ${currentRequest.requestId || 'legacy'}`);
+    await patient.save();
+    await populateAssignments(patient);
+    return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)) });
   }
 
   if (status === COURIER_STATUSES.DISPATCHED) {
@@ -3056,6 +3114,7 @@ module.exports = {
   requestStageMedicine,
   listMedicineRequests,
   updateMedicineRequestStatus,
+  deleteMedicineRequest,
   listCourierRequests,
   updateCourierRequest,
   addFollowUp,

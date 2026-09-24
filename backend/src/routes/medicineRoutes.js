@@ -1,5 +1,5 @@
 const express = require('express');
-const { listMedicineRequests, updateMedicineRequestStatus } = require('../controllers/patientController');
+const { listMedicineRequests, updateMedicineRequestStatus, deleteMedicineRequest } = require('../controllers/patientController');
 const {
   listInventory,
   createInventoryItem,
@@ -21,5 +21,6 @@ router.post('/inventory/:id/transactions', addInventoryTransaction);
 
 router.get('/requests', listMedicineRequests);
 router.patch('/requests/:patientId/stages/:number', uploadMedicineImage.array('medicineImage', 10), updateMedicineRequestStatus);
+router.delete('/requests/:patientId/stages/:number', deleteMedicineRequest);
 
 module.exports = router;

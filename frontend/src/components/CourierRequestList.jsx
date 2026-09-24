@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, Inbox, PackageCheck, RefreshCw, Truck } from 'lucide-react';
+import { AlertTriangle, Ban, CalendarDays, Inbox, PackageCheck, RefreshCw, Trash2, Truck } from 'lucide-react';
 import api from '../api/axios.js';
 import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
@@ -230,6 +230,26 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
     }
   };
 
+  const adminRequestAction = async (row, action) => {
+    if (!isAdmin) return;
+    const label = action === 'cancel' ? 'cancel this courier request' : 'delete this courier request permanently';
+    if (!window.confirm(`Are you sure you want to ${label}?`)) return;
+    setSaving(true);
+    setModalError('');
+    try {
+      if (action === 'cancel') {
+        await api.patch(`/courier/requests/${row.patientId}/stages/${row.stage}`, { status: 'cancelled', requestId: row.requestId });
+      } else {
+        await api.delete(`/courier/requests/${row.patientId}/stages/${row.stage}`, { data: { requestId: row.requestId } });
+      }
+      setReloadKey((value) => value + 1);
+    } catch (err) {
+      setError(err.response?.data?.message || `Could not ${action} courier request.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -342,6 +362,16 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                     </div>
                   </div>
                   <div className="flex flex-wrap items-start gap-2 xl:justify-end">
+                    {isAdmin && courier.status !== 'cancelled' && (
+                      <>
+                        <Button size="sm" variant="outline" disabled={saving} onClick={() => adminRequestAction(row, 'cancel')}>
+                          <Ban size={14} /> Cancel
+                        </Button>
+                        <Button size="sm" variant="danger" disabled={saving} onClick={() => adminRequestAction(row, 'delete')}>
+                          <Trash2 size={14} /> Delete
+                        </Button>
+                      </>
+                    )}
                     {courier.status === 'pending' && <Button size="sm" onClick={() => openDispatch(row)}><Truck size={14} /> Dispatch</Button>}
                     {courier.status === 'dispatched' && <Button size="sm" onClick={() => openDeliver(row)}><PackageCheck size={14} /> Mark Delivered</Button>}
                   </div>
