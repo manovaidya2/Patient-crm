@@ -32,6 +32,8 @@ import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
 import PaymentSettings from './pages/admin/PaymentSettings.jsx';
 import SalesWorkspace from './pages/SalesWorkspace.jsx';
 import ReceptionistDashboard from './pages/admin/ReceptionistDashboard.jsx';
+import ReceptionistHomeDashboard from './pages/admin/ReceptionistHomeDashboard.jsx';
+import ReceptionistChecklist from './pages/admin/ReceptionistChecklist.jsx';
 import PatientQueries from './pages/admin/PatientQueries.jsx';
 import KnowledgeLibrary from './pages/admin/KnowledgeLibrary.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
@@ -80,7 +82,7 @@ function App() {
               {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)
                 ? <Dashboard />
                 : user?.role === ROLES.RECEPTIONIST
-                  ? <ReceptionistDashboard />
+                  ? <ReceptionistHomeDashboard />
                   : <StaffDashboard />}
             </ProtectedRoute>
           }
@@ -298,6 +300,14 @@ function App() {
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
               <ReceptionistDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="receptionist-checklist"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <ReceptionistChecklist />
             </ProtectedRoute>
           }
         />

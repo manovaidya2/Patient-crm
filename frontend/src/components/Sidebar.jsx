@@ -29,6 +29,7 @@ import {
   UserX,
   MessageCircleQuestion,
   BookOpen,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -40,6 +41,7 @@ export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
+  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Receptionist Checklist', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/patient-queries', icon: MessageCircleQuestion, label: 'Help Desk / Patient Queries', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
