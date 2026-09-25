@@ -12,6 +12,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 
 const PAGE_SIZE = 10;
 const OPTIONAL_PATIENT_COLUMNS = [
+  { key: 'receivedDate', label: 'Received' },
   { key: 'followUps', label: 'Follow-ups' },
   { key: 'familySessions', label: 'Family Sessions' },
 ];
@@ -62,12 +63,13 @@ const AllPatients = () => {
   const [addError, setAddError] = useState('');
   const [codeCheck, setCodeCheck] = useState({ code: '', status: 'idle' });
   const [postCounselorOptions, setPostCounselorOptions] = useState([]);
-  const optionalColumnsStorageKey = `crm_patient_optional_columns_${user?._id || user?.id || 'guest'}`;
+  const optionalColumnsStorageKey = `crm_patient_optional_columns_v2_${user?._id || user?.id || 'guest'}`;
   const [optionalColumns, setOptionalColumns] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(`crm_patient_optional_columns_${user?._id || user?.id || 'guest'}`) || '[]');
+      const stored = localStorage.getItem(`crm_patient_optional_columns_v2_${user?._id || user?.id || 'guest'}`);
+      return stored === null ? ['receivedDate'] : JSON.parse(stored);
     } catch {
-      return [];
+      return ['receivedDate'];
     }
   });
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -361,9 +363,9 @@ const AllPatients = () => {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-xs">
+              <table className="w-full table-fixed text-center text-xs">
                 <thead>
-                  <tr className="text-left text-[10px] uppercase text-charcoal/55 border-b border-cardline-soft">
+                  <tr className="border-b border-[#56695D] bg-[#56695D] text-center text-[10px] font-bold uppercase text-white">
                     <th className="w-[8%] px-3 py-2.5 font-semibold">Patient ID</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Patient Name</th>
                     <th className="w-[14%] px-3 py-2.5 font-semibold">Category</th>
@@ -372,7 +374,7 @@ const AllPatients = () => {
                     <th className="w-[13%] px-3 py-2.5 font-semibold">Guardian / Relative</th>
                     <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's / Relative Number</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
-                    <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>
+                    {optionalColumns.includes('receivedDate') && <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>}
                     {optionalColumns.includes('followUps') && <th className="w-[12%] px-3 py-2.5 font-semibold">Follow-ups</th>}
                     {optionalColumns.includes('familySessions') && <th className="w-[14%] px-3 py-2.5 font-semibold">Family Sessions</th>}
                   </tr>
@@ -392,7 +394,7 @@ const AllPatients = () => {
                       <td className="break-words px-3 py-3 font-mono text-[10px] font-bold text-charcoal/45">{p.patientCode}</td>
                       <td className="break-words px-3 py-3 font-medium text-charcoal">{p.patientName}</td>
                       <td className="px-3 py-3">
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex flex-wrap items-center justify-center gap-1.5">
                           <Badge tone={categoryTone(p.category)}>{p.categoryLabel}</Badge>
                           {p.approvalStatus === 'pending' && (
                             <span className="inline-flex items-center rounded-full bg-[#9C6B2E]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#9C6B2E]">
@@ -410,7 +412,7 @@ const AllPatients = () => {
                       <td className="px-3 py-3 text-charcoal/55">
                         {p.consultationDate ? formatDate(p.consultationDate) : '—'}
                       </td>
-                      <td className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>
+                      {optionalColumns.includes('receivedDate') && <td className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>}
                       {optionalColumns.includes('followUps') && (
                         <td className="px-3 py-3 text-charcoal/70">
                           <span className="font-semibold text-charcoal">{p.followUpTotal || 0}</span>
