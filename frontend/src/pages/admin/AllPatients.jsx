@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus, Calendar, X } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus, Calendar, X, SlidersHorizontal } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -8,8 +8,13 @@ import Badge from '../../components/ui/Badge.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const PAGE_SIZE = 10;
+const OPTIONAL_PATIENT_COLUMNS = [
+  { key: 'followUps', label: 'Follow-ups' },
+  { key: 'familySessions', label: 'Family Sessions' },
+];
 
 const emptyPatientForm = {
   patientCode: '',
@@ -33,6 +38,7 @@ const formatDate = (iso) =>
 
 const AllPatients = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,10 +62,23 @@ const AllPatients = () => {
   const [addError, setAddError] = useState('');
   const [codeCheck, setCodeCheck] = useState({ code: '', status: 'idle' });
   const [postCounselorOptions, setPostCounselorOptions] = useState([]);
+  const optionalColumnsStorageKey = `crm_patient_optional_columns_${user?._id || user?.id || 'guest'}`;
+  const [optionalColumns, setOptionalColumns] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`crm_patient_optional_columns_${user?._id || user?.id || 'guest'}`) || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [columnsOpen, setColumnsOpen] = useState(false);
   // Track the previous filter values (not just "have we mounted") so React 18 StrictMode's
   // dev-only double-invoke of this effect — same values, twice — can't misread its own
   // second pass as a real change and reset the restored page back to 1.
   const prevFiltersRef = useRef({ categoryFilter, dateFilter, consultationDateFilter });
+
+  useEffect(() => {
+    localStorage.setItem(optionalColumnsStorageKey, JSON.stringify(optionalColumns));
+  }, [optionalColumns, optionalColumnsStorageKey]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -212,10 +231,37 @@ const AllPatients = () => {
             Patients - {total} total.
           </p>
         </div>
-        <Button onClick={openAddModal}>
-          <Plus size={16} /> Add Patient
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setColumnsOpen(true)}>
+            <SlidersHorizontal size={15} /> Columns
+          </Button>
+          <Button onClick={openAddModal}>
+            <Plus size={16} /> Add Patient
+          </Button>
+        </div>
       </div>
+
+      <Modal open={columnsOpen} onClose={() => setColumnsOpen(false)} title="Patient list columns">
+        <div className="space-y-3">
+          <p className="text-sm text-charcoal/60">Choose optional columns for your own patient list view.</p>
+          {OPTIONAL_PATIENT_COLUMNS.map((column) => (
+            <label key={column.key} className="flex cursor-pointer items-center justify-between rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-sm font-semibold text-charcoal">
+              <span>{column.label}</span>
+              <input
+                type="checkbox"
+                checked={optionalColumns.includes(column.key)}
+                onChange={(event) => setOptionalColumns((current) => event.target.checked
+                  ? [...new Set([...current, column.key])]
+                  : current.filter((key) => key !== column.key))}
+                className="h-4 w-4 accent-sage"
+              />
+            </label>
+          ))}
+          <div className="flex justify-end">
+            <Button type="button" onClick={() => setColumnsOpen(false)}>Done</Button>
+          </div>
+        </div>
+      </Modal>
 
       <Card className="mt-6" padded={false}>
         <div className="grid gap-3 border-b border-cardline-soft p-4 lg:grid-cols-[minmax(260px,1.5fr)_minmax(165px,0.75fr)_minmax(165px,0.75fr)_minmax(180px,0.8fr)]">
@@ -327,13 +373,12 @@ const AllPatients = () => {
                     <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's / Relative Number</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>
+                    {optionalColumns.includes('followUps') && <th className="w-[12%] px-3 py-2.5 font-semibold">Follow-ups</th>}
+                    {optionalColumns.includes('familySessions') && <th className="w-[14%] px-3 py-2.5 font-semibold">Family Sessions</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {patients.map((p) => {
-                    const currentPhase = p.stages?.find(
-                      (phase) => Number(phase.number) === Number(p.currentStage || 1),
-                    );
                     return (
                       <tr
                       key={p.id}
@@ -363,9 +408,23 @@ const AllPatients = () => {
                       </td>
                       <td className="break-words px-3 py-3 text-charcoal/70">{p.alternateNumber || '—'}</td>
                       <td className="px-3 py-3 text-charcoal/55">
-                        {currentPhase?.consultationDate ? formatDate(currentPhase.consultationDate) : '—'}
+                        {p.consultationDate ? formatDate(p.consultationDate) : '—'}
                       </td>
                       <td className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>
+                      {optionalColumns.includes('followUps') && (
+                        <td className="px-3 py-3 text-charcoal/70">
+                          <span className="font-semibold text-charcoal">{p.followUpTotal || 0}</span>
+                          <span className="text-charcoal/45"> total</span>
+                          <span className="mt-0.5 block text-[10px] text-sage">{p.followUpCompleted || 0} complete</span>
+                        </td>
+                      )}
+                      {optionalColumns.includes('familySessions') && (
+                        <td className="px-3 py-3 text-charcoal/70">
+                          <span className="font-semibold text-charcoal">{p.familySessionTotal || 0}</span>
+                          <span className="text-charcoal/45"> total</span>
+                          <span className="mt-0.5 block text-[10px] text-sage">{p.familySessionCompleted || 0} complete</span>
+                        </td>
+                      )}
                       </tr>
                     );
                   })}
