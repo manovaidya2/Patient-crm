@@ -213,12 +213,12 @@ const listAppointments = asyncHandler(async (req, res) => {
 });
 
 const listManagedAppointments = asyncHandler(async (req, res) => {
-  if (!validDate(req.query.date)) return res.status(400).json({ success: false, message: 'Valid date is required' });
-  const accepted = await SalesAppointment.find({ appointmentDate: req.query.date, acceptedAt: { $ne: null }, status: { $ne: 'rescheduled' } }).lean();
+  const dateFilter = validDate(req.query.date) ? { appointmentDate: req.query.date } : {};
+  const accepted = await SalesAppointment.find({ ...dateFilter, acceptedAt: { $ne: null }, status: { $ne: 'rescheduled' } }).lean();
   if (accepted.length) {
     await AppointmentManagementEntry.bulkWrite(accepted.map((row) => ({ updateOne: { filter: { sourceAppointment: row._id }, update: { $setOnInsert: { appointmentDate: row.appointmentDate, sourceAppointment: row._id, appointmentCode: row.appointmentCode || `APT-${String(row._id).slice(-8).toUpperCase()}`, entryAt: row.createdAt, acceptedAt: row.acceptedAt, acceptedByName: row.acceptedByName || '', salesValues: row.values || {}, values: {}, createdBy: row.acceptedBy || row.createdBy, createdByName: row.createdByName } }, upsert: true } })));
   }
-  const rows = await AppointmentManagementEntry.find({ appointmentDate: req.query.date }).populate('sourceAppointment').sort({ createdAt: 1 });
+  const rows = await AppointmentManagementEntry.find(dateFilter).populate('sourceAppointment').sort({ createdAt: 1 });
   res.json({ success: true, appointments: rows.map((row) => serializeManagementEntry(row, req.user)) });
 });
 

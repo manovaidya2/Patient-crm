@@ -31,6 +31,8 @@ const ReceptionistDashboard = () => {
   const isAdmin = user?.role === ROLES.ADMIN;
   const isSalesTeam = user?.role === ROLES.SALES_TEAM;
   const [selectedDate, setSelectedDate] = useState(localIsoDate());
+  const [allDates, setAllDates] = useState(false);
+  const [filters, setFilters] = useState([{ id: 1, field: '', operator: 'contains', value: '' }]);
   const [salesColumns, setSalesColumns] = useState([]);
   const [columns, setColumns] = useState([]);
   const [rows, setRows] = useState([]);
@@ -54,9 +56,9 @@ const ReceptionistDashboard = () => {
     setColumnOrder((data.columns || []).sort((a, b) => a.order - b.order).map((item) => item.key));
   }, []);
   const loadRows = useCallback(async () => {
-    const { data } = await api.get('/sales-sheet/management', { params: { date: selectedDate }, skipCache: true });
+    const { data } = await api.get('/sales-sheet/management', { params: allDates ? {} : { date: selectedDate }, skipCache: true });
     setRows(data.appointments.map((row) => ({ ...row, salesValues: Object.fromEntries(salesColumns.map((column) => [column.id, column.type === 'checkbox' ? (row.salesValues?.[column.id] === 'true' ? '☑' : '☐') : (row.salesValues?.[column.id] || '')])), values: Object.fromEntries(columns.map((column) => [column.id, column.type === 'checkbox' ? (row.values?.[column.id] === 'true' ? '☑' : '☐') : (row.values?.[column.id] || '')])) })));
-  }, [selectedDate, salesColumns, columns]);
+  }, [selectedDate, allDates, salesColumns, columns]);
 
   useEffect(() => { loadColumns().catch(() => setError('Columns could not be loaded')); }, [loadColumns]);
   useEffect(() => { loadLayout().catch(() => {}); }, [loadLayout]);
@@ -110,6 +112,59 @@ const ReceptionistDashboard = () => {
     { key: 'addedBy', label: 'Added By', fixed: true },
     ...(!isSalesTeam ? [{ key: 'actions', label: 'Actions', fixed: true }] : []),
   ], [salesColumns, columns, isSalesTeam]);
+  const filterDescriptors = useMemo(() => [{ key: 'appointmentDate', label: 'Appointment Date', fixed: true }, ...descriptors.filter((descriptor) => descriptor.key !== 'index' && descriptor.key !== 'actions')], [descriptors]);
+  const dateFilterKeys = useMemo(() => new Set(filterDescriptors.filter((descriptor) => ['appointmentDate', 'entryDate', 'acceptedAt', 'lastUpdatedAt'].includes(descriptor.key) || descriptor.column?.type === 'date').map((descriptor) => descriptor.key)), [filterDescriptors]);
+  const timeFilterKeys = useMemo(() => new Set(filterDescriptors.filter((descriptor) => descriptor.key === 'entryTime' || descriptor.column?.type === 'time').map((descriptor) => descriptor.key)), [filterDescriptors]);
+  const filterDescriptor = (item) => filterDescriptors.find((descriptor) => descriptor.key === item.field);
+  const filterType = (item) => filterDescriptor(item)?.column?.type || (dateFilterKeys.has(item.field) ? 'date' : timeFilterKeys.has(item.field) ? 'time' : 'text');
+  const filterOperators = (item) => {
+    const type = filterType(item);
+    if (type === 'date' || type === 'time') return [['equals', type === 'time' ? 'At time' : 'On date'], ['notEquals', type === 'time' ? 'Not at time' : 'Not on date'], ['before', type === 'time' ? 'Before time' : 'Before date'], ['after', type === 'time' ? 'After time' : 'After date'], ['empty', 'Is empty'], ['notEmpty', 'Is not empty']];
+    if (type === 'number') return [['equals', 'Equals'], ['notEquals', 'Not equals'], ['greater', 'Greater than'], ['less', 'Less than'], ['greaterOrEqual', 'At least'], ['lessOrEqual', 'At most'], ['empty', 'Is empty'], ['notEmpty', 'Is not empty']];
+    if (type === 'select' || type === 'checkbox') return [['equals', 'Equals'], ['notEquals', 'Not equals'], ['empty', 'Is empty'], ['notEmpty', 'Is not empty']];
+    if (type === 'file') return [['empty', 'Is empty'], ['notEmpty', 'Is not empty']];
+    return [['contains', 'Contains'], ['equals', 'Equals'], ['notEquals', 'Not equals'], ['startsWith', 'Starts with'], ['endsWith', 'Ends with'], ['empty', 'Is empty'], ['notEmpty', 'Is not empty']];
+  };
+  const filterValue = (row, descriptor) => {
+    if (descriptor.key === 'appointmentDate') return row.appointmentDate || '';
+    if (descriptor.source) {
+      const rawValue = row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '';
+      return descriptor.column.type === 'checkbox' ? (rawValue === 'true' || rawValue === 'â˜‘' || rawValue.includes(String.fromCharCode(9745)) ? 'true' : 'false') : rawValue;
+    }
+    if (descriptor.key === 'appointmentCode') return row.appointmentCode || '';
+    if (descriptor.key === 'entryDate') return row.entryAt ? new Date(row.entryAt).toISOString().slice(0, 10) : '';
+    if (descriptor.key === 'entryTime') return row.entryAt ? `${String(new Date(row.entryAt).getHours()).padStart(2, '0')}:${String(new Date(row.entryAt).getMinutes()).padStart(2, '0')}` : '';
+    if (descriptor.key === 'acceptedAt') return row.acceptedAt ? new Date(row.acceptedAt).toISOString().slice(0, 10) : '';
+    if (descriptor.key === 'lastUpdatedAt') return row.lastEditedAt ? new Date(row.lastEditedAt).toISOString().slice(0, 10) : '';
+    if (descriptor.key === 'addedBy') return row.createdByName || '';
+    return '';
+  };
+  const filteredRows = useMemo(() => {
+    const activeFilters = filters.filter((item) => item.field);
+    if (!activeFilters.length) return rows;
+    return rows.filter((row) => activeFilters.every((filter) => {
+      const descriptor = filterDescriptors.find((item) => item.key === filter.field);
+      if (!descriptor) return true;
+      const value = String(filterValue(row, descriptor)).trim().toLowerCase();
+      const query = String(filter.value || '').trim().toLowerCase();
+      if (filter.operator === 'empty') return !value;
+      if (filter.operator === 'notEmpty') return Boolean(value);
+      if (filter.operator === 'equals') return value === query;
+      if (filter.operator === 'notEquals') return value !== query;
+      if (filter.operator === 'before') return value < query;
+      if (filter.operator === 'after') return value > query;
+      if (filter.operator === 'greater') return Number(value) > Number(query);
+      if (filter.operator === 'less') return Number(value) < Number(query);
+      if (filter.operator === 'greaterOrEqual') return Number(value) >= Number(query);
+      if (filter.operator === 'lessOrEqual') return Number(value) <= Number(query);
+      if (filter.operator === 'endsWith') return value.endsWith(query);
+      if (filter.operator === 'startsWith') return value.startsWith(query);
+      return value.includes(query);
+    }));
+  }, [filters, filterDescriptors, rows]);
+  const updateFilter = (id, changes) => setFilters((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
+  const addFilter = () => setFilters((current) => [...current, { id: Date.now(), field: '', operator: 'contains', value: '' }]);
+  const removeFilter = (id) => setFilters((current) => current.length === 1 ? [{ id: Date.now(), field: '', operator: 'contains', value: '' }] : current.filter((item) => item.id !== id));
   const orderedDescriptors = useMemo(() => {
     const byKey = new Map(descriptors.map((descriptor) => [descriptor.key, descriptor]));
     const saved = columnOrder.map((key) => byKey.get(key)).filter(Boolean);
@@ -134,21 +189,23 @@ const ReceptionistDashboard = () => {
   return (
     <div className="mx-auto max-w-[1800px]">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-cardline pb-5">
-        <div><p className="text-xs font-semibold uppercase text-charcoal/50">Receptionist Dashboard</p><h1 className="mt-1 font-display text-2xl font-bold text-charcoal">Appointment Management</h1><p className="mt-1 text-sm text-charcoal/55">{rows.length} appointments <span className={`ml-2 text-xs ${live ? 'text-sage' : 'text-charcoal/40'}`}>{live ? 'Live' : 'Connecting'}</span></p></div>
+        <div><p className="text-xs font-semibold uppercase text-charcoal/50">Receptionist Dashboard</p><h1 className="mt-1 font-display text-2xl font-bold text-charcoal">Appointment Management</h1><p className="mt-1 text-sm text-charcoal/55">{filteredRows.length}{filters.some((item) => item.field) ? ` of ${rows.length}` : ''} appointments <span className={`ml-2 text-xs ${live ? 'text-sage' : 'text-charcoal/40'}`}>{live ? 'Live' : 'Connecting'}</span></p></div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2"><CalendarDays size={16} className="text-sage" /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="bg-transparent text-sm outline-none" aria-label="Appointment date" /></label>
+          {!allDates && <label className="flex items-center gap-2 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2"><CalendarDays size={16} className="text-sage" /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="bg-transparent text-sm outline-none" aria-label="Appointment date" /></label>}
+          <label className="flex items-center gap-2 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2 text-sm"><input type="checkbox" checked={allDates} onChange={(event) => setAllDates(event.target.checked)} className="accent-sage" /> All dates</label>
           {isAdmin && <><Button variant="outline" onClick={() => setSettingsOpen(true)}><Columns3 size={16} /> Columns</Button><Button variant="outline" onClick={() => setArrangeOpen(true)}><Columns3 size={16} /> Arrange</Button></>}
           {!isSalesTeam && <Button disabled={Boolean(draft)} onClick={() => { setDraft(emptyValues(columns)); setSalesDraft(emptyValues(salesColumns)); setEditingId(null); }}><Plus size={16} /> Add appointment</Button>}
         </div>
       </div>
       {error && <div className="mb-3 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <div className="mb-4 space-y-2 rounded-lg border border-cardline bg-offwhite-100 p-3"><p className="text-xs font-semibold uppercase text-charcoal/55">Filter appointments (all conditions apply)</p>{filters.map((filter, index) => <div key={filter.id} className="grid gap-2 md:grid-cols-[1.2fr_160px_1fr_auto]"><select value={filter.field} onChange={(event) => { const nextField = event.target.value; updateFilter(filter.id, { field: nextField, operator: filterOperators({ field: nextField })[0][0], value: '' }); }} className="rounded border border-cardline bg-cream px-3 py-2 text-sm"><option value="">Filter by any column</option>{filterDescriptors.map((descriptor) => <option key={descriptor.key} value={descriptor.key}>{descriptor.label}</option>)}</select><select value={filter.operator} onChange={(event) => updateFilter(filter.id, { operator: event.target.value, value: '' })} className="rounded border border-cardline bg-cream px-3 py-2 text-sm">{filterOperators(filter).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>{filterType(filter) === 'select' ? <select value={filter.value} onChange={(event) => updateFilter(filter.id, { value: event.target.value })} disabled={['empty', 'notEmpty'].includes(filter.operator)} className="rounded border border-cardline bg-cream px-3 py-2 text-sm disabled:opacity-40"><option value="">Select value</option>{(filterDescriptor(filter)?.column?.options || []).map((option) => <option key={option} value={option}>{option}</option>)}</select> : filterType(filter) === 'checkbox' ? <select value={filter.value} onChange={(event) => updateFilter(filter.id, { value: event.target.value })} disabled={['empty', 'notEmpty'].includes(filter.operator)} className="rounded border border-cardline bg-cream px-3 py-2 text-sm disabled:opacity-40"><option value="">Select value</option><option value="true">Checked</option><option value="false">Unchecked</option></select> : <input type={filterType(filter) === 'date' ? 'date' : filterType(filter) === 'time' ? 'time' : filterType(filter) === 'number' ? 'number' : 'text'} disabled={['empty', 'notEmpty'].includes(filter.operator) || filterType(filter) === 'file'} value={filter.value} onChange={(event) => updateFilter(filter.id, { value: event.target.value })} placeholder={['date', 'time'].includes(filterType(filter)) ? '' : 'Enter value'} className="rounded border border-cardline bg-cream px-3 py-2 text-sm disabled:opacity-40" />}<div className="flex gap-1"><Button variant="outline" onClick={addFilter}>+ Add</Button>{(index > 0 || filters.length > 1) && <Button variant="outline" onClick={() => removeFilter(filter.id)}>Remove</Button>}</div></div>)}<Button variant="outline" onClick={() => setFilters([{ id: Date.now(), field: '', operator: 'contains', value: '' }])}>Clear all</Button></div>
       <div className="overflow-x-auto border border-cardline bg-offwhite-100">
         <table className="w-full min-w-max border-collapse text-left">
           <thead><tr className="bg-teal-950 text-xs uppercase text-offwhite-100">{orderedDescriptors.map((descriptor) => <th key={descriptor.key} className="min-w-[145px] border-r border-teal-800 px-3 py-3">{descriptor.label}{descriptor.column?.required && ' *'}</th>)}</tr></thead>
           <tbody>
             {draft && !editingId && <tr className="bg-sage/5">{orderedDescriptors.map((descriptor) => <td key={descriptor.key} className="border-r border-cardline p-0">{descriptor.source === 'custom' ? <CellInput column={descriptor.column} value={draft[descriptor.column.id]} onChange={(value) => setDraft((current) => ({ ...current, [descriptor.column.id]: value }))} /> : descriptor.key === 'actions' ? <div className="flex justify-center"><button onClick={saveRow} className="p-2 text-sage" title="Save"><Save size={17} /></button><button onClick={() => setDraft(null)} className="p-2 text-charcoal/50" title="Cancel"><X size={17} /></button></div> : <span className="px-3 text-xs text-charcoal/40">{descriptor.key === 'addedBy' ? user?.name : 'Auto'}</span>}</td>)}</tr>}
-            {!loading && rows.map((row, index) => editingId === row.id ? <tr key={row.id} className="bg-sage/5">{orderedDescriptors.map((descriptor) => <td key={descriptor.key} className="border-r border-cardline p-0">{descriptor.source === 'sales' ? <CellInput column={descriptor.column} value={salesDraft?.[descriptor.column.id]} onChange={(value) => setSalesDraft((current) => ({ ...current, [descriptor.column.id]: value }))} /> : descriptor.source === 'custom' ? <CellInput column={descriptor.column} value={draft[descriptor.column.id]} onChange={(value) => setDraft((current) => ({ ...current, [descriptor.column.id]: value }))} /> : descriptor.key === 'actions' ? <div className="flex justify-center"><button onClick={saveRow} className="p-2 text-sage" title="Save"><Save size={17} /></button><button onClick={() => { setDraft(null); setSalesDraft(null); setEditingId(null); }} className="p-2 text-charcoal/50" title="Cancel"><X size={17} /></button></div> : <span className="px-3 text-xs">{descriptor.key === 'index' ? index + 1 : descriptor.key === 'appointmentCode' ? row.appointmentCode : descriptor.key === 'entryDate' ? displayDate(row.entryAt) : descriptor.key === 'entryTime' ? displayTime(row.entryAt) : descriptor.key === 'acceptedAt' ? displayDateTime(row.acceptedAt) : descriptor.key === 'lastUpdatedAt' ? displayDateTime(row.lastEditedAt) : descriptor.key === 'addedBy' ? row.createdByName : '-'}</span>}</td>)}</tr> : <tr key={row.id} className={`border-t border-cardline ${rowIsHighlighted(row) ? 'bg-emerald-100/70' : ''}`}>{orderedDescriptors.map((descriptor) => <td key={descriptor.key} className="max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-cardline px-3 py-3 text-sm" title={descriptor.source ? String(row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '') : ''}>{descriptor.source ? (descriptor.column.type === 'file' && (String(row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '').startsWith('data:') || String(row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '').startsWith('/uploads/')) ? <a href={attachmentHref(row[descriptor.source === 'sales' ? 'salesValues' : 'values'][descriptor.column.id])} target="_blank" rel="noreferrer" className="text-sage underline">View attachment</a> : (row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '-')) : descriptor.key === 'actions' ? <div className="flex justify-center"><button onClick={() => { setEditingId(row.id); setDraft({ ...emptyValues(columns), ...row.values }); setSalesDraft({ ...emptyValues(salesColumns), ...row.salesValues }); }} className="p-2 text-sage" title="Edit"><Pencil size={16} /></button><button onClick={() => deleteRow(row)} className="p-2 text-red-700" title="Delete"><Trash2 size={16} /></button></div> : descriptor.key === 'index' ? index + 1 : descriptor.key === 'appointmentCode' ? row.appointmentCode : descriptor.key === 'entryDate' ? displayDate(row.entryAt) : descriptor.key === 'entryTime' ? displayTime(row.entryAt) : descriptor.key === 'acceptedAt' ? displayDateTime(row.acceptedAt) : descriptor.key === 'lastUpdatedAt' ? displayDateTime(row.lastEditedAt) : row.sourceAppointmentId ? row.salesCreatedByName : row.createdByName}</td>)}</tr>)}
-            {!loading && !rows.length && !draft && <tr><td colSpan={span} className="px-6 py-16 text-center text-sm text-charcoal/50">No appointments for this date.</td></tr>}{loading && <tr><td colSpan={span} className="px-6 py-16 text-center text-sm text-charcoal/50">Loading appointments...</td></tr>}
+            {!loading && filteredRows.map((row, index) => editingId === row.id ? <tr key={row.id} className="bg-sage/5">{orderedDescriptors.map((descriptor) => <td key={descriptor.key} className="border-r border-cardline p-0">{descriptor.source === 'sales' ? <CellInput column={descriptor.column} value={salesDraft?.[descriptor.column.id]} onChange={(value) => setSalesDraft((current) => ({ ...current, [descriptor.column.id]: value }))} /> : descriptor.source === 'custom' ? <CellInput column={descriptor.column} value={draft[descriptor.column.id]} onChange={(value) => setDraft((current) => ({ ...current, [descriptor.column.id]: value }))} /> : descriptor.key === 'actions' ? <div className="flex justify-center"><button onClick={saveRow} className="p-2 text-sage" title="Save"><Save size={17} /></button><button onClick={() => { setDraft(null); setSalesDraft(null); setEditingId(null); }} className="p-2 text-charcoal/50" title="Cancel"><X size={17} /></button></div> : <span className="px-3 text-xs">{descriptor.key === 'index' ? index + 1 : descriptor.key === 'appointmentCode' ? row.appointmentCode : descriptor.key === 'entryDate' ? displayDate(row.entryAt) : descriptor.key === 'entryTime' ? displayTime(row.entryAt) : descriptor.key === 'acceptedAt' ? displayDateTime(row.acceptedAt) : descriptor.key === 'lastUpdatedAt' ? displayDateTime(row.lastEditedAt) : descriptor.key === 'addedBy' ? row.createdByName : '-'}</span>}</td>)}</tr> : <tr key={row.id} className={`border-t border-cardline ${rowIsHighlighted(row) ? 'bg-emerald-100/70' : ''}`}>{orderedDescriptors.map((descriptor) => <td key={descriptor.key} className="max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-cardline px-3 py-3 text-sm" title={descriptor.source ? String(row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '') : ''}>{descriptor.source ? (descriptor.column.type === 'file' && (String(row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '').startsWith('data:') || String(row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '').startsWith('/uploads/')) ? <a href={attachmentHref(row[descriptor.source === 'sales' ? 'salesValues' : 'values'][descriptor.column.id])} target="_blank" rel="noreferrer" className="text-sage underline">View attachment</a> : (row[descriptor.source === 'sales' ? 'salesValues' : 'values']?.[descriptor.column.id] || '-')) : descriptor.key === 'actions' ? <div className="flex justify-center"><button onClick={() => { setEditingId(row.id); setDraft({ ...emptyValues(columns), ...row.values }); setSalesDraft({ ...emptyValues(salesColumns), ...row.salesValues }); }} className="p-2 text-sage" title="Edit"><Pencil size={16} /></button><button onClick={() => deleteRow(row)} className="p-2 text-red-700" title="Delete"><Trash2 size={16} /></button></div> : descriptor.key === 'index' ? index + 1 : descriptor.key === 'appointmentCode' ? row.appointmentCode : descriptor.key === 'entryDate' ? displayDate(row.entryAt) : descriptor.key === 'entryTime' ? displayTime(row.entryAt) : descriptor.key === 'acceptedAt' ? displayDateTime(row.acceptedAt) : descriptor.key === 'lastUpdatedAt' ? displayDateTime(row.lastUpdatedAt) : row.sourceAppointmentId ? row.salesCreatedByName : row.createdByName}</td>)}</tr>)}
+            {!loading && !filteredRows.length && !draft && <tr><td colSpan={span} className="px-6 py-16 text-center text-sm text-charcoal/50">{rows.length ? 'No appointments match this filter.' : 'No appointments for this date.'}</td></tr>}{loading && <tr><td colSpan={span} className="px-6 py-16 text-center text-sm text-charcoal/50">Loading appointments...</td></tr>}
           </tbody>
         </table>
       </div>
