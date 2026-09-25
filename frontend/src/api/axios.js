@@ -3,6 +3,7 @@ import axios from 'axios';
 const getCache = new Map();
 const getRequests = new Map();
 const GET_CACHE_VERSION = 'v2';
+const GET_CACHE_TTL_MS = 5000;
 const noCachePaths = ['/auth/me', '/advice/unread-count', '/schedule/reminders'];
 
 const clearGetCache = () => {
@@ -22,6 +23,8 @@ const isCacheableGet = (url = '') => !noCachePaths.some((path) => String(url).st
 if (typeof window !== 'undefined') {
   window.addEventListener('crm:logout', clearGetCache);
   window.addEventListener('crm:data-changed', clearGetCache);
+  window.addEventListener('focus', clearGetCache);
+  window.addEventListener('online', clearGetCache);
 }
 
 const api = axios.create({
@@ -64,16 +67,18 @@ api.interceptors.response.use(
 // after a patient/payment/schedule edit.
 const originalGet = api.get.bind(api);
 api.get = (url, config = {}) => {
-  if (!isCacheableGet(url)) return originalGet(url, config);
+  if (!isCacheableGet(url) || config.skipCache) return originalGet(url, config);
 
   const token = localStorage.getItem('crm_token') || '';
   const key = `${GET_CACHE_VERSION}:${token}:${url}?${stableParams(config.params)}`;
-  if (getCache.has(key)) return Promise.resolve(getCache.get(key));
+  const cached = getCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.response);
+  if (cached) getCache.delete(key);
   if (getRequests.has(key)) return getRequests.get(key);
 
   const request = originalGet(url, config)
     .then((response) => {
-      getCache.set(key, response);
+      getCache.set(key, { response, expiresAt: Date.now() + GET_CACHE_TTL_MS });
       return response;
     })
     .finally(() => getRequests.delete(key));

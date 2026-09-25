@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const SalesSheetColumn = require('../models/SalesSheetColumn');
 const SalesAppointment = require('../models/SalesAppointment');
 const AppointmentManagementColumn = require('../models/AppointmentManagementColumn');
@@ -9,8 +12,32 @@ const { dateRoom } = require('../realtime/salesSheetSocket');
 
 const emitColumnsChanged = (req) => req.app.get('io')?.to('sales-sheet').emit('sales-sheet:columns-changed');
 const emitDateChanged = (req, date) => req.app.get('io')?.to(dateRoom(date)).emit('sales-sheet:date-changed', { date });
+const uploadManagementAttachment = asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'Choose a file first' });
+  res.status(201).json({ success: true, file: { url: `/uploads/records/${req.file.filename}`, fileName: req.file.originalname } });
+});
 
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+const migrateLegacyAttachment = (value) => {
+  const match = String(value || '').match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const extension = ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'application/pdf': '.pdf' }[match[1]] || '.bin');
+  const fileName = `appointment-${Date.now()}-${crypto.randomBytes(5).toString('hex')}${extension}`;
+  const uploadDir = path.join(__dirname, '../../uploads/records');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, fileName), Buffer.from(match[2], 'base64'));
+  return `/uploads/records/${fileName}`;
+};
+const migrateLegacyFiles = async (row, columns, field = 'values') => {
+  const values = row[field];
+  let changed = false;
+  for (const column of columns.filter((item) => item.type === 'file')) {
+    const key = String(column._id);
+    const migrated = migrateLegacyAttachment(values?.get ? values.get(key) : values?.[key]);
+    if (migrated) { values.set(key, migrated); changed = true; }
+  }
+  if (changed) await row.save();
+};
 const createAppointmentCode = () => {
   const timestamp = Date.now().toString(36).toUpperCase();
   const suffix = Math.random().toString(36).slice(2, 4).toUpperCase();
@@ -19,6 +46,7 @@ const createAppointmentCode = () => {
 const serializeColumn = (column) => ({
   id: String(column._id), label: column.label, type: column.type, options: column.options || [],
   required: Boolean(column.required), order: column.order,
+  highlightValue: column.highlightValue || (column.label?.trim().toLowerCase() === 'package status' ? 'Package Purchased' : ''),
 });
 const serializeManagementEntry = (entry, user) => ({
   id: String(entry._id), appointmentDate: entry.appointmentDate,
@@ -91,7 +119,10 @@ const createManagementColumn = asyncHandler(async (req, res) => {
   const allowed = ['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'];
   if (!allowed.includes(type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
   const last = await AppointmentManagementColumn.findOne({ isActive: true }).sort({ order: -1 }).lean();
-  const column = await AppointmentManagementColumn.create({ label, type, required: Boolean(req.body.required), options: type === 'select' ? (req.body.options || []).map((v) => String(v).trim()).filter(Boolean) : [], order: (last?.order ?? -1) + 1, createdBy: req.user._id });
+  const isPackageStatus = label.toLowerCase() === 'package status';
+  const options = type === 'select' ? (req.body.options || []).map((v) => String(v).trim()).filter(Boolean) : [];
+  if (type === 'select' && isPackageStatus && !options.length) options.push('Package Purchased', 'Package Not Purchased');
+  const column = await AppointmentManagementColumn.create({ label, type, required: Boolean(req.body.required), options, highlightValue: type === 'select' ? String(req.body.highlightValue || (isPackageStatus ? 'Package Purchased' : '')).trim() : '', order: (last?.order ?? -1) + 1, createdBy: req.user._id });
   emitColumnsChanged(req);
   res.status(201).json({ success: true, column: serializeColumn(column) });
 });
@@ -101,6 +132,9 @@ const updateManagementColumn = asyncHandler(async (req, res) => {
   if (req.body.label !== undefined) column.label = String(req.body.label || '').trim();
   if (!column.label) return res.status(400).json({ success: false, message: 'Column name is required' });
   if (req.body.order !== undefined) column.order = Number(req.body.order);
+  if (req.body.options !== undefined) column.options = (req.body.options || []).map((v) => String(v).trim()).filter(Boolean);
+  if (req.body.highlightValue !== undefined) column.highlightValue = String(req.body.highlightValue || '').trim();
+  if (column.type !== 'select') column.highlightValue = '';
   await column.save(); emitColumnsChanged(req);
   res.json({ success: true, column: serializeColumn(column) });
 });
@@ -173,6 +207,8 @@ const deleteColumn = asyncHandler(async (req, res) => {
 const listAppointments = asyncHandler(async (req, res) => {
   if (!validDate(req.query.date)) return res.status(400).json({ success: false, message: 'Valid date is required' });
   const rows = await SalesAppointment.find({ appointmentDate: req.query.date }).sort({ createdAt: 1 });
+  const columns = await SalesSheetColumn.find({ isActive: true }).select('_id type').lean();
+  await Promise.all(rows.map((row) => migrateLegacyFiles(row, columns)));
   res.json({ success: true, appointments: rows.map((row) => serializeRow(row, req.user)) });
 });
 
@@ -284,4 +320,4 @@ const deleteAppointment = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, listAppointments, listManagedAppointments, acceptAppointment, rescheduleAppointment, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listManagedAppointments, acceptAppointment, rescheduleAppointment, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };

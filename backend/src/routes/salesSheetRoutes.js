@@ -2,6 +2,7 @@ const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const controller = require('../controllers/salesSheetController');
+const { uploadStageRecord } = require('../middleware/fileUploads');
 
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST));
@@ -14,6 +15,7 @@ router.delete('/columns/:id', authorize(ROLES.ADMIN), controller.deleteColumn);
 router.get('/appointments', controller.listAppointments);
 router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagedAppointments);
 router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagementColumns);
+router.post('/upload', uploadStageRecord.single('file'), controller.uploadManagementAttachment);
 router.post('/management-columns', authorize(ROLES.ADMIN), controller.createManagementColumn);
 router.patch('/management-columns/:id', authorize(ROLES.ADMIN), controller.updateManagementColumn);
 router.delete('/management-columns/:id', authorize(ROLES.ADMIN), controller.deleteManagementColumn);
