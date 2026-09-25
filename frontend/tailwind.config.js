@@ -4,9 +4,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Manrope"', 'sans-serif'],
-        body: ['"Manrope"', 'sans-serif'],
-        display: ['"Lora"', 'serif'],
+        display: ['"Manrope"', 'sans-serif'],
+        body: ['"Inter"', 'sans-serif'],
         serif: ['"Lora"', 'serif'],
       },
       colors: {
