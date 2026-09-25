@@ -576,6 +576,13 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
 const formatPatientListItem = (p, user = null) => {
   const currentStage = Number(p.currentStage || 1);
   const currentStageEntry = (p.stages || []).find((stage) => Number(stage.number) === currentStage);
+  const countSchedule = (entries = []) => {
+    const activeEntries = entries.filter((entry) => entry.status !== 'cancelled');
+    const completedEntries = activeEntries.filter((entry) => ['completed', 'done', 'done_late', 'sent'].includes(entry.status));
+    return { total: activeEntries.length, completed: completedEntries.length };
+  };
+  const followUps = countSchedule(currentStageEntry?.followUps);
+  const familySessions = countSchedule(currentStageEntry?.familySessions);
   return {
     id: p._id,
     patientCode: p.patientCode || `PT-${String(p._id).slice(-6).toUpperCase()}`,
@@ -589,6 +596,7 @@ const formatPatientListItem = (p, user = null) => {
     relativeName: p.relativeName || null,
     currentStage,
     currentStageLabel: STAGE_LABELS[currentStage],
+    consultationDate: currentStageEntry?.consultationDate || null,
     approvalStatus: p.approvalStatus || 'approved',
     canApprove: canReviewPatientApproval(user),
     isActive: p.isActive !== false,
@@ -597,6 +605,10 @@ const formatPatientListItem = (p, user = null) => {
     inactivatedAt: p.inactivatedAt || null,
     canToggleActive: canTogglePatientActive(user),
     hasDueMedicineConnect: Boolean(currentStageEntry && isMedicineConnectDue(currentStageEntry)),
+    followUpTotal: followUps.total,
+    followUpCompleted: followUps.completed,
+    familySessionTotal: familySessions.total,
+    familySessionCompleted: familySessions.completed,
     createdAt: p.createdAt,
   };
 };
@@ -694,7 +706,8 @@ const getPatients = asyncHandler(async (req, res) => {
   const listProjection = [
     'patientCode patientName category age number guardianName alternateNumber relativeName currentStage',
     'approvalStatus isActive inactiveReason inactivatedByName inactivatedAt createdAt',
-    'stages.number stages.medicineNextConnectDate stages.medicineConnectDone',
+    'stages.number stages.consultationDate stages.medicineNextConnectDate stages.medicineConnectDone',
+    'stages.followUps.status stages.familySessions.status',
   ].join(' ');
   const [patients, total] = await Promise.all([
     Patient.find(filter)
