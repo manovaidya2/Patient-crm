@@ -20,6 +20,7 @@ import ApprovedPayments from './pages/admin/ApprovedPayments.jsx';
 import MedicineRequests from './pages/admin/MedicineRequests.jsx';
 import MedicineMade from './pages/admin/MedicineMade.jsx';
 import MedicineInventory from './pages/admin/MedicineInventory.jsx';
+import ClinicInventory from './pages/admin/ClinicInventory.jsx';
 import CourierRequests from './pages/admin/CourierRequests.jsx';
 import CourierDelivered from './pages/admin/CourierDelivered.jsx';
 import RequestForAdvice from './pages/admin/RequestForAdvice.jsx';
@@ -191,6 +192,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="clinic-inventory" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ClinicInventory /></ProtectedRoute>} />
         <Route
           path="courier"
           element={
