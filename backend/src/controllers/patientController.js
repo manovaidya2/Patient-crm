@@ -255,6 +255,13 @@ const canSeeMedicineConnectReminder = (user, patient, stage) => {
   return false;
 };
 
+const canSeeMedicineDeliveryReminder = (user, patient) => {
+  if (user.role === ROLES.MANAGER) return true;
+  if (user.role === ROLES.ASSISTANT_DOCTOR) return isSameUser(patient.assignedDoctor, user._id);
+  if (user.role === ROLES.PSYCHOLOGIST) return isSameUser(patient.assignedPsychologist, user._id);
+  return false;
+};
+
 const canEditPackageStage = (user) =>
   [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
 
@@ -334,6 +341,28 @@ const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } 
           assignee: stage.postCounselor?.name || patient.assignedDoctor?.name || 'Unassigned',
         });
       }
+
+      stageMedicineRequests(stage).forEach((request) => {
+        const courier = request.courier || {};
+        if (courier.status !== COURIER_STATUSES.DELIVERED || !courier.deliveredAt || !canSeeMedicineDeliveryReminder(user, patient)) return;
+        reminders.push({
+          id: `medicine-delivery-${patient._id}-${stage.number}-${request.requestId || 'legacy'}`,
+          type: 'medicine_delivery',
+          reminderKind: 'late',
+          typeLabel: 'Medicine Delivered',
+          dateTime: courier.deliveredAt,
+          notes: 'Please explain the delivered medicines to the patient.',
+          patientId: patient._id,
+          patientName: patient.patientName,
+          patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
+          category: patient.category,
+          categoryLabel: CATEGORY_LABELS[patient.category],
+          stageNumber: stage.number,
+          stageLabel: STAGE_LABELS[stage.number],
+          assignee: patient.assignedDoctor?.name || patient.assignedPsychologist?.name || 'Unassigned',
+          deliveredBy: courier.deliveredByName || '',
+        });
+      });
     });
   });
 
@@ -3144,6 +3173,8 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
     .select(
       'patientName patientCode category stages.number stages.followUps stages.familySessions '
       + 'stages.medicineNextConnectDate stages.medicineConnectDone stages.medicineNextConnectNote stages.postCounselor '
+      + 'stages.medicineRequest.requestId stages.medicineRequest.courier.status stages.medicineRequest.courier.deliveredAt stages.medicineRequest.courier.deliveredByName '
+      + 'stages.medicineRequests.requestId stages.medicineRequests.courier.status stages.medicineRequests.courier.deliveredAt stages.medicineRequests.courier.deliveredByName '
       + 'assignedDoctor assignedPsychologist'
     )
     .populate('assignedDoctor', 'name')

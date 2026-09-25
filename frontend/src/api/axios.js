@@ -3,6 +3,8 @@ import axios from 'axios';
 const getCache = new Map();
 const getRequests = new Map();
 const GET_CACHE_VERSION = 'v2';
+const CACHE_TTL_MS = 60 * 1000;
+const BACKGROUND_REFRESH_MS = 2 * 60 * 1000;
 const noCachePaths = ['/auth/me', '/advice/unread-count', '/schedule/reminders'];
 
 const clearGetCache = () => {
@@ -64,16 +66,18 @@ api.interceptors.response.use(
 // after a patient/payment/schedule edit.
 const originalGet = api.get.bind(api);
 api.get = (url, config = {}) => {
-  if (!isCacheableGet(url)) return originalGet(url, config);
+  if (config.skipCache || !isCacheableGet(url)) return originalGet(url, config);
 
   const token = localStorage.getItem('crm_token') || '';
   const key = `${GET_CACHE_VERSION}:${token}:${url}?${stableParams(config.params)}`;
-  if (getCache.has(key)) return Promise.resolve(getCache.get(key));
+  const cached = getCache.get(key);
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) return Promise.resolve(cached.response);
+  if (cached) getCache.delete(key);
   if (getRequests.has(key)) return getRequests.get(key);
 
   const request = originalGet(url, config)
     .then((response) => {
-      getCache.set(key, response);
+      getCache.set(key, { response, cachedAt: Date.now(), url, config: { ...config, skipCache: false } });
       return response;
     })
     .finally(() => getRequests.delete(key));
@@ -82,5 +86,21 @@ api.get = (url, config = {}) => {
 };
 
 export const prefetchGet = (url, config = {}) => api.get(url, config).catch(() => null);
+
+const refreshCachedGets = () => {
+  if (document.visibilityState === 'hidden') return;
+  getCache.forEach((entry, key) => {
+    if (getRequests.has(key)) return;
+    const token = localStorage.getItem('crm_token') || '';
+    if (!key.startsWith(`${GET_CACHE_VERSION}:${token}:`)) return;
+    originalGet(entry.url, entry.config)
+      .then((response) => getCache.set(key, { ...entry, response, cachedAt: Date.now() }))
+      .catch(() => {});
+  });
+};
+
+if (typeof window !== 'undefined') {
+  window.setInterval(refreshCachedGets, BACKGROUND_REFRESH_MS);
+}
 
 export default api;

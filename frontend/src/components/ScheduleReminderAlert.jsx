@@ -42,7 +42,7 @@ const ScheduleReminderAlert = () => {
 
     let cancelled = false;
     const getListPath = (item) => {
-      if (item?.type === 'medicine_connect' || user?.role === ROLES.POST_COUNSELOR) return '/admin/patients';
+      if (item?.type === 'medicine_connect' || item?.type === 'medicine_delivery' || user?.role === ROLES.POST_COUNSELOR) return '/admin/patients';
       return user?.role === ROLES.PSYCHOLOGIST ? '/admin/family-sessions' : '/admin/followups';
     };
 
@@ -60,8 +60,10 @@ const ScheduleReminderAlert = () => {
         id: String(item.id),
         type: 'confirm',
         persist: true,
-        title: item.type === 'medicine_connect' ? 'Medicine connect due' : `${item.typeLabel} pending`,
-        message: item.type === 'medicine_connect'
+        title: item.type === 'medicine_delivery' ? 'Medicine delivered' : item.type === 'medicine_connect' ? 'Medicine connect due' : `${item.typeLabel} pending`,
+        message: item.type === 'medicine_delivery'
+          ? `${item.patientName} (${item.stageLabel}) ki medicines deliver ho gayi hain. Patient ko medicines explain karni hain.`
+          : item.type === 'medicine_connect'
           ? `${item.patientName} (${item.stageLabel}) needs medicine connect on ${formatDateOnly(item.dateTime)}.${
               user?.role === ROLES.MANAGER ? ` Assigned to ${item.assignee}.` : ''
             }${item.notes ? ` Issue: ${item.notes}` : ''}`
