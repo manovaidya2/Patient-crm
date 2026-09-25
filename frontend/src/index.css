@@ -4,7 +4,7 @@
 
 @layer base {
   html {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Manrope', sans-serif;
   }
 
   body {
@@ -16,7 +16,7 @@
   h2,
   h3,
   h4 {
-    font-family: 'Manrope', sans-serif;
+    font-family: 'Lora', serif;
   }
 
   /* Visible keyboard focus for accessibility */
