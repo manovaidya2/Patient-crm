@@ -13,6 +13,7 @@ router.post('/columns', authorize(ROLES.ADMIN), controller.createColumn);
 router.patch('/columns/:id', authorize(ROLES.ADMIN), controller.updateColumn);
 router.delete('/columns/:id', authorize(ROLES.ADMIN), controller.deleteColumn);
 router.get('/appointments', controller.listAppointments);
+router.get('/timeline/:sheet/:id', authorize(ROLES.ADMIN), controller.listTimeline);
 router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagedAppointments);
 router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagementColumns);
 router.post('/upload', uploadStageRecord.single('file'), controller.uploadManagementAttachment);

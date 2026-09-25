@@ -6,6 +6,7 @@ const SalesAppointment = require('../models/SalesAppointment');
 const AppointmentManagementColumn = require('../models/AppointmentManagementColumn');
 const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
 const SalesSheetLayout = require('../models/SalesSheetLayout');
+const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { dateRoom } = require('../realtime/salesSheetSocket');
@@ -43,6 +44,13 @@ const createAppointmentCode = () => {
   const suffix = Math.random().toString(36).slice(2, 4).toUpperCase();
   return `APT-${timestamp}-${suffix}`;
 };
+const recordAudit = async (req, { sheet, rowId, appointmentCode, action, details = '' }) => {
+  try {
+    await SalesSheetAudit.create({ sheet, rowId, appointmentCode: appointmentCode || '', action, details, changedBy: req.user._id, changedByName: req.user.name });
+  } catch (error) {
+    console.error('Sales sheet audit could not be saved:', error.message);
+  }
+};
 const serializeColumn = (column) => ({
   id: String(column._id), label: column.label, type: column.type, options: column.options || [],
   required: Boolean(column.required), order: column.order,
@@ -68,7 +76,7 @@ const serializeRow = (row, user) => ({
   appointmentCode: row.appointmentCode || `APT-${String(row._id).slice(-8).toUpperCase()}`,
   values: Object.fromEntries(row.values || []), createdBy: String(row.createdBy),
   createdByName: row.createdByName, updatedByName: row.updatedByName || '',
-  canEdit: row.status !== 'rescheduled' && (user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
+  canEdit: row.status !== 'rescheduled' && (user.role === ROLES.ADMIN || (user.role === ROLES.RECEPTIONIST && !row.acceptedAt) || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
   canDelete: user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id)),
   canReschedule: row.status !== 'rescheduled' && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
   canAccept: [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role),
@@ -205,11 +213,22 @@ const deleteColumn = asyncHandler(async (req, res) => {
 });
 
 const listAppointments = asyncHandler(async (req, res) => {
-  if (!validDate(req.query.date)) return res.status(400).json({ success: false, message: 'Valid date is required' });
-  const rows = await SalesAppointment.find({ appointmentDate: req.query.date }).sort({ createdAt: 1 });
+  if (req.query.date && !validDate(req.query.date)) return res.status(400).json({ success: false, message: 'Valid date is required' });
+  const rows = await SalesAppointment.find(req.query.date ? { appointmentDate: req.query.date } : {}).sort({ createdAt: 1 });
   const columns = await SalesSheetColumn.find({ isActive: true }).select('_id type').lean();
   await Promise.all(rows.map((row) => migrateLegacyFiles(row, columns)));
   res.json({ success: true, appointments: rows.map((row) => serializeRow(row, req.user)) });
+});
+
+const listTimeline = asyncHandler(async (req, res) => {
+  const sheet = req.params.sheet === 'management' ? 'management' : 'sales';
+  let timeline = await SalesSheetAudit.find({ sheet, rowId: req.params.id }).sort({ createdAt: -1 }).lean();
+  if (!timeline.length) {
+    const Model = sheet === 'management' ? AppointmentManagementEntry : SalesAppointment;
+    const row = await Model.findById(req.params.id).select('appointmentCode createdAt createdByName').lean();
+    if (row) timeline = [{ _id: `initial-${row._id}`, action: sheet === 'management' ? 'Management row created' : 'Appointment created', details: 'Initial row record', changedByName: row.createdByName || 'System', createdAt: row.createdAt }];
+  }
+  res.json({ success: true, timeline: timeline.map((item) => ({ id: String(item._id), action: item.action, details: item.details, changedByName: item.changedByName, createdAt: item.createdAt })) });
 });
 
 const listManagedAppointments = asyncHandler(async (req, res) => {
@@ -231,7 +250,9 @@ const acceptAppointment = asyncHandler(async (req, res) => {
     row.acceptedBy = req.user._id;
     row.acceptedByName = req.user.name;
     await row.save();
-    await AppointmentManagementEntry.findOneAndUpdate({ sourceAppointment: row._id }, { $setOnInsert: { appointmentDate: row.appointmentDate, sourceAppointment: row._id, appointmentCode: row.appointmentCode, entryAt: row.createdAt, acceptedAt: row.acceptedAt, acceptedByName: req.user.name, salesValues: Object.fromEntries(row.values || []), values: {}, createdBy: req.user._id, createdByName: row.createdByName } }, { upsert: true, new: true });
+    await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment accepted', details: 'Accepted into Appointment Management' });
+    const managementRow = await AppointmentManagementEntry.findOneAndUpdate({ sourceAppointment: row._id }, { $setOnInsert: { appointmentDate: row.appointmentDate, sourceAppointment: row._id, appointmentCode: row.appointmentCode, entryAt: row.createdAt, acceptedAt: row.acceptedAt, acceptedByName: req.user.name, salesValues: Object.fromEntries(row.values || []), values: {}, createdBy: req.user._id, createdByName: row.createdByName } }, { upsert: true, new: true });
+    await recordAudit(req, { sheet: 'management', rowId: managementRow._id, appointmentCode: row.appointmentCode, action: 'Appointment accepted', details: 'Sales appointment added to Appointment Management' });
     emitDateChanged(req, row.appointmentDate);
   }
   res.json({ success: true, appointment: serializeRow(row, req.user) });
@@ -255,6 +276,8 @@ const rescheduleAppointment = asyncHandler(async (req, res) => {
   row.rescheduledByName = req.user.name;
   row.rescheduledAppointment = replacement._id;
   await row.save();
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment rescheduled', details: `Moved to ${nextDate}; replacement ${replacement.appointmentCode}` });
+  await recordAudit(req, { sheet: 'sales', rowId: replacement._id, appointmentCode: replacement.appointmentCode, action: 'Rescheduled appointment created', details: `Created from ${row.appointmentCode}` });
   await AppointmentManagementEntry.deleteOne({ sourceAppointment: row._id });
   emitDateChanged(req, row.appointmentDate);
   emitDateChanged(req, nextDate);
@@ -266,6 +289,7 @@ const createManagedAppointment = asyncHandler(async (req, res) => {
   const values = await cleanManagementValues(req.body.values);
   const salesValues = await cleanValues(req.body.salesValues || {});
   const row = await AppointmentManagementEntry.create({ appointmentDate: req.body.appointmentDate, appointmentCode: createAppointmentCode(), entryAt: new Date(), salesValues, values, createdBy: req.user._id, createdByName: req.user.name });
+  await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Management row created', details: 'Appointment added directly to Appointment Management' });
   emitDateChanged(req, row.appointmentDate);
   res.status(201).json({ success: true });
 });
@@ -275,12 +299,13 @@ const updateManagedAppointment = asyncHandler(async (req, res) => {
   if (req.body.salesValues !== undefined) row.salesValues = await cleanValues(req.body.salesValues || {});
   row.values = await cleanManagementValues(req.body.values);
   row.updatedByName = req.user.name; row.lastEditedAt = new Date(); await row.save(); emitDateChanged(req, row.appointmentDate);
+  await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Management row updated', details: 'Appointment details edited' });
   res.json({ success: true });
 });
 const deleteManagedAppointment = asyncHandler(async (req, res) => {
   const row = await AppointmentManagementEntry.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Management appointment not found' });
-  const date = row.appointmentDate; await row.deleteOne(); emitDateChanged(req, date);
+  const date = row.appointmentDate; await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Management row deleted', details: 'Appointment removed from Appointment Management' }); await row.deleteOne(); emitDateChanged(req, date);
   res.json({ success: true });
 });
 
@@ -288,6 +313,7 @@ const createAppointment = asyncHandler(async (req, res) => {
   if (!validDate(req.body.appointmentDate)) return res.status(400).json({ success: false, message: 'Valid appointment date is required' });
   const values = await cleanValues(req.body.values);
   const row = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: req.body.appointmentDate, values, createdBy: req.user._id, createdByName: req.user.name });
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment created', details: 'Appointment added to Sales Appointment Sheet' });
   emitDateChanged(req, row.appointmentDate);
   res.status(201).json({ success: true, appointment: serializeRow(row, req.user) });
 });
@@ -296,13 +322,14 @@ const updateAppointment = asyncHandler(async (req, res) => {
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (row.acceptedAt && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Accepted appointments can only be edited in Appointment Management' });
-  if (req.user.role !== ROLES.ADMIN && String(row.createdBy) !== String(req.user._id)) {
+  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role) && String(row.createdBy) !== String(req.user._id)) {
     return res.status(403).json({ success: false, message: 'Only the member who added this appointment can edit it' });
   }
   row.values = await cleanValues(req.body.values);
   row.updatedByName = req.user.name;
   row.lastEditedAt = new Date();
   await row.save();
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment updated', details: 'Appointment details edited' });
   emitDateChanged(req, row.appointmentDate);
   res.json({ success: true, appointment: serializeRow(row, req.user) });
 });
@@ -315,9 +342,10 @@ const deleteAppointment = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Only the member who added this appointment can delete it' });
   }
   const appointmentDate = row.appointmentDate;
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment deleted', details: 'Appointment removed from Sales Appointment Sheet' });
   await row.deleteOne();
   emitDateChanged(req, appointmentDate);
   res.json({ success: true });
 });
 
-module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listManagedAppointments, acceptAppointment, rescheduleAppointment, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, rescheduleAppointment, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
