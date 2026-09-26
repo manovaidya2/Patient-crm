@@ -20,6 +20,7 @@ import ApprovedPayments from './pages/admin/ApprovedPayments.jsx';
 import MedicineRequests from './pages/admin/MedicineRequests.jsx';
 import MedicineMade from './pages/admin/MedicineMade.jsx';
 import MedicineInventory from './pages/admin/MedicineInventory.jsx';
+import ClinicInventory from './pages/admin/ClinicInventory.jsx';
 import CourierRequests from './pages/admin/CourierRequests.jsx';
 import CourierDelivered from './pages/admin/CourierDelivered.jsx';
 import RequestForAdvice from './pages/admin/RequestForAdvice.jsx';
@@ -30,6 +31,13 @@ import DigitalMarketing from './pages/admin/DigitalMarketing.jsx';
 import PackageNotBought from './pages/admin/PackageNotBought.jsx';
 import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
 import PaymentSettings from './pages/admin/PaymentSettings.jsx';
+import SalesWorkspace from './pages/SalesWorkspace.jsx';
+import ReceptionistDashboard from './pages/admin/ReceptionistDashboard.jsx';
+import ReceptionistHomeDashboard from './pages/admin/ReceptionistHomeDashboard.jsx';
+import ReceptionistChecklist from './pages/admin/ReceptionistChecklist.jsx';
+import PatientQueries from './pages/admin/PatientQueries.jsx';
+import KnowledgeLibrary from './pages/admin/KnowledgeLibrary.jsx';
+import RecordRoom from './pages/admin/RecordRoom.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -37,7 +45,7 @@ import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
-const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
 const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT];
 const INACTIVE_PATIENTS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR];
@@ -73,7 +81,11 @@ function App() {
           index
           element={
             <ProtectedRoute roles={DASHBOARD_ACCESS_ROLES}>
-              {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) ? <Dashboard /> : <StaffDashboard />}
+              {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)
+                ? <Dashboard />
+                : user?.role === ROLES.RECEPTIONIST
+                  ? <ReceptionistHomeDashboard />
+                  : <StaffDashboard />}
             </ProtectedRoute>
           }
         />
@@ -181,6 +193,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="clinic-inventory" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ClinicInventory /></ProtectedRoute>} />
         <Route
           path="courier"
           element={
@@ -256,7 +269,7 @@ function App() {
         <Route
           path="patients/:id"
           element={
-            <ProtectedRoute roles={PATIENT_ACCESS_ROLES}>
+            <ProtectedRoute roles={[...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST]}>
               <PatientDetails />
             </ProtectedRoute>
           }
@@ -286,6 +299,54 @@ function App() {
           }
         />
         <Route
+          path="appointment-management"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
+              <ReceptionistDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="receptionist-checklist"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <ReceptionistChecklist />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="patient-queries"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <PatientQueries />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="knowledge-library"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <KnowledgeLibrary />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="knowledge-library/:categoryId"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <KnowledgeLibrary />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="record-room/*"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <RecordRoom />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="family-sessions"
           element={
             <ProtectedRoute roles={FAMILY_SESSION_ACCESS_ROLES}>
@@ -294,6 +355,15 @@ function App() {
           }
         />
       </Route>
+
+      <Route
+        path="/sales"
+        element={
+          <ProtectedRoute roles={[ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST]}>
+            <SalesWorkspace />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/dashboard"

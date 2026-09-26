@@ -3,6 +3,8 @@ const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 
 dotenv.config();
 
@@ -24,10 +26,26 @@ const speechRoutes = require('./src/routes/speechRoutes');
 const digitalMarketingRoutes = require('./src/routes/digitalMarketingRoutes');
 const packageNotBoughtRoutes = require('./src/routes/packageNotBoughtRoutes');
 const bankRoutes = require('./src/routes/bankRoutes');
+const salesSheetRoutes = require('./src/routes/salesSheetRoutes');
+const helpDeskRoutes = require('./src/routes/helpDeskRoutes');
+const knowledgeRoutes = require('./src/routes/knowledgeRoutes');
+const receptionistChecklistRoutes = require('./src/routes/receptionistChecklistRoutes');
+const clinicInventoryRoutes = require('./src/routes/clinicInventoryRoutes');
+const recordRoomRoutes = require('./src/routes/recordRoomRoutes');
+const { registerSalesSheetSocket } = require('./src/realtime/salesSheetSocket');
 
 connectDB();
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    credentials: true,
+  },
+});
+app.set('io', io);
+registerSalesSheetSocket(io);
 
 app.use(
   cors({
@@ -72,6 +90,12 @@ app.use('/api/speech', speechRoutes);
 app.use('/api/digital-marketing', digitalMarketingRoutes);
 app.use('/api/package-not-bought', packageNotBoughtRoutes);
 app.use('/api/banks', bankRoutes);
+app.use('/api/sales-sheet', salesSheetRoutes);
+app.use('/api/help-desk', helpDeskRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
+app.use('/api/receptionist-checklist', receptionistChecklistRoutes);
+app.use('/api/clinic-inventory', clinicInventoryRoutes);
+app.use('/api/record-room', recordRoomRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res) => {
@@ -81,6 +105,6 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

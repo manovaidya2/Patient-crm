@@ -4,10 +4,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-  display: ['"Manrope"', 'sans-serif'],
-  body: ['"Inter"', 'sans-serif'],
-  serif: ['"Lora"', 'serif'],
-},
+        display: ['"Manrope"', 'sans-serif'],
+        body: ['"Inter"', 'sans-serif'],
+        serif: ['"Lora"', 'serif'],
+      },
       colors: {
         // Sidebar — dark teal with shaded button states
         teal: {

@@ -27,6 +27,10 @@ import {
   X,
   Settings,
   UserX,
+  MessageCircleQuestion,
+  BookOpen,
+  FileArchive,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -36,6 +40,12 @@ import BrandLogo from './BrandLogo.jsx';
 
 export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
+  { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
+  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
+  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Receptionist Checklist', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/patient-queries', icon: MessageCircleQuestion, label: 'Help Desk / Patient Queries', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR] },
@@ -48,6 +58,7 @@ export const navItems = [
   { to: '/admin/medicine-requests', icon: PackageCheck, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
   { to: '/admin/medicine-made', icon: ClipboardCheck, label: 'Medicine Made', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
   { to: '/admin/medicine-inventory', icon: PackageOpen, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
+  { to: '/admin/clinic-inventory', icon: PackageOpen, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/courier', icon: Truck, label: 'Courier Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER] },
   { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER] },
   { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
@@ -60,6 +71,7 @@ export const navItems = [
   
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
   { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true },
+  { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
   { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   
 ];
