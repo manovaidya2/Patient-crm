@@ -6,6 +6,7 @@ import api from '../api/axios.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import Button from '../components/ui/Button.jsx';
 import Modal from '../components/ui/Modal.jsx';
+import SheetColumnEditor from '../components/SheetColumnEditor.jsx';
 import Drawer from '../components/ui/Drawer.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
@@ -51,6 +52,7 @@ const SalesWorkspace = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [columnToEdit, setColumnToEdit] = useState(null);
   const [rescheduleRow, setRescheduleRow] = useState(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [liveConnected, setLiveConnected] = useState(false);
@@ -133,11 +135,7 @@ const SalesWorkspace = () => {
       setNewColumn({ label: '', type: 'text', required: false, options: '' }); await loadColumns();
     } catch (err) { setError(err.response?.data?.message || 'Column could not be added'); }
   };
-  const renameColumn = async (column) => {
-    const label = window.prompt('Column name', column.label);
-    if (!label || label === column.label) return;
-    await api.patch(`/sales-sheet/columns/${column.id}`, { label }); await loadColumns();
-  };
+  const editColumn = (column) => { setSettingsOpen(false); setColumnToEdit(column); };
   const removeColumn = async (column) => {
     if (!window.confirm(`Remove the ${column.label} column? Existing row data will be kept in history but hidden.`)) return;
     await api.delete(`/sales-sheet/columns/${column.id}`); await loadColumns();
@@ -267,8 +265,9 @@ const SalesWorkspace = () => {
           <Button type="submit"><Plus size={16} /> Add</Button>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={newColumn.required} onChange={(e) => setNewColumn({ ...newColumn, required: e.target.checked })} /> Required field</label>
         </form>
-        <div className="divide-y divide-tan-300">{columns.map((column, index) => <div key={column.id} className="flex items-center gap-2 py-3"><div className="flex min-w-0 flex-1 items-center gap-3"><span className="w-5 text-xs text-charcoal/40">{index + 1}</span><div><p className="font-semibold">{column.label}{column.required && ' *'}</p><p className="text-xs text-charcoal/50">{column.type}{column.options.length ? ` · ${column.options.join(', ')}` : ''}</p></div></div><div className="flex"><button disabled={!index} onClick={() => moveColumn(column, -1)} className="p-1 text-sage disabled:opacity-25" title="Move up"><ChevronUp size={16} /></button><button disabled={index === columns.length - 1} onClick={() => moveColumn(column, 1)} className="p-1 text-sage disabled:opacity-25" title="Move down"><ChevronDown size={16} /></button></div><button onClick={() => renameColumn(column)} className="p-2 text-sage" title="Rename"><Pencil size={16} /></button><button onClick={() => removeColumn(column)} className="p-2 text-red-700" title="Remove"><Trash2 size={16} /></button></div>)}{!columns.length && <p className="py-8 text-center text-sm text-charcoal/50">No columns configured.</p>}</div>
+        <div className="divide-y divide-tan-300">{columns.map((column, index) => <div key={column.id} className="flex items-center gap-2 py-3"><div className="flex min-w-0 flex-1 items-center gap-3"><span className="w-5 text-xs text-charcoal/40">{index + 1}</span><div><p className="font-semibold">{column.label}{column.required && ' *'}</p><p className="text-xs text-charcoal/50">{column.type}{column.options.length ? ` · ${column.options.join(', ')}` : ''}</p></div></div><div className="flex"><button disabled={!index} onClick={() => moveColumn(column, -1)} className="p-1 text-sage disabled:opacity-25" title="Move up"><ChevronUp size={16} /></button><button disabled={index === columns.length - 1} onClick={() => moveColumn(column, 1)} className="p-1 text-sage disabled:opacity-25" title="Move down"><ChevronDown size={16} /></button></div><button onClick={() => editColumn(column)} className="p-2 text-sage" title="Edit column"><Pencil size={16} /></button><button onClick={() => removeColumn(column)} className="p-2 text-red-700" title="Remove"><Trash2 size={16} /></button></div>)}{!columns.length && <p className="py-8 text-center text-sm text-charcoal/50">No columns configured.</p>}</div>
       </Modal>
+      {columnToEdit && <SheetColumnEditor key={columnToEdit.id} column={columnToEdit} endpoint="/sales-sheet/columns" onClose={() => { setColumnToEdit(null); setSettingsOpen(true); }} onSaved={loadColumns} />}
       <Drawer open={Boolean(timelineRow)} onClose={() => setTimelineRow(null)} title={`Row timeline${timelineRow?.appointmentCode ? ` · ${timelineRow.appointmentCode}` : ''}`}>
         {timelineLoading ? <p className="text-sm text-charcoal/55">Loading timeline...</p> : !timeline.length ? <p className="text-sm text-charcoal/55">No history recorded for this row.</p> : <div className="relative space-y-4 border-l border-sage/40 pl-4">{timeline.map((item) => <div key={item.id} className="relative"><span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-sage" /><p className="text-sm font-semibold text-charcoal">{item.action}</p>{item.details && <p className="mt-1 text-xs text-charcoal/60">{item.details}</p>}<p className="mt-1 text-[11px] text-charcoal/45">{item.changedByName} · {timelineStamp(item.createdAt)}</p></div>)}</div>}
       </Drawer>

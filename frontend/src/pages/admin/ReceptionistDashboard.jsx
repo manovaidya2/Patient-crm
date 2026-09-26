@@ -4,6 +4,7 @@ import { io } from 'socket.io-client';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import SheetColumnEditor from '../../components/SheetColumnEditor.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
@@ -45,6 +46,7 @@ const ReceptionistDashboard = () => {
   const [live, setLive] = useState(false);
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [columnToEdit, setColumnToEdit] = useState(null);
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const [columnOrder, setColumnOrder] = useState([]);
   const [newColumn, setNewColumn] = useState({ label: '', type: 'text', required: false, options: '', highlightValue: '' });
@@ -96,11 +98,7 @@ const ReceptionistDashboard = () => {
       setNewColumn({ label: '', type: 'text', required: false, options: '', highlightValue: '' }); await loadColumns();
     } catch (err) { setError(err.response?.data?.message || 'Column could not be added'); }
   };
-  const renameColumn = async (column) => {
-    const label = window.prompt('Column name', column.label);
-    if (!label || label === column.label) return;
-    await api.patch(`/sales-sheet/management-columns/${column.id}`, { label }); await loadColumns();
-  };
+  const editColumn = (column) => { setSettingsOpen(false); setColumnToEdit(column); };
   const deleteColumn = async (column) => {
     if (!window.confirm(`Remove ${column.label} column?`)) return;
     await api.delete(`/sales-sheet/management-columns/${column.id}`); await loadColumns();
@@ -224,12 +222,13 @@ const ReceptionistDashboard = () => {
       </div>
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Appointment management columns" className="max-w-4xl">
         <form onSubmit={addColumn} className="grid gap-3 border-b border-cardline pb-5 sm:grid-cols-[1fr_150px_1fr_auto]"><input required placeholder="Column name" value={newColumn.label} onChange={(e) => setNewColumn({ ...newColumn, label: e.target.value })} className="rounded border border-cardline bg-cream px-3 py-2 text-sm" /><select value={newColumn.type} onChange={(e) => setNewColumn({ ...newColumn, type: e.target.value, highlightValue: '' })} className="rounded border border-cardline bg-cream px-3 py-2 text-sm"><option value="text">Text</option><option value="phone">Phone</option><option value="number">Number</option><option value="date">Date</option><option value="time">Time</option><option value="select">Dropdown</option><option value="textarea">Long text</option><option value="checkbox">Checkbox</option><option value="file">Attachment</option></select><input disabled={newColumn.type !== 'select'} placeholder="Dropdown options, comma separated" value={newColumn.options} onChange={(e) => setNewColumn({ ...newColumn, options: e.target.value })} className="rounded border border-cardline bg-cream px-3 py-2 text-sm disabled:opacity-40" /><Button type="submit"><Plus size={16} /> Add</Button><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={newColumn.required} onChange={(e) => setNewColumn({ ...newColumn, required: e.target.checked })} /> Required</label><label className="flex items-center gap-2 text-sm sm:col-span-2"><span className="whitespace-nowrap">Green row when value is</span><select disabled={newColumn.type !== 'select'} value={newColumn.highlightValue} onChange={(e) => setNewColumn({ ...newColumn, highlightValue: e.target.value })} className="min-w-0 flex-1 rounded border border-cardline bg-cream px-3 py-2 text-sm disabled:opacity-40"><option value="">No highlight</option>{newColumn.options.split(',').map((option) => option.trim()).filter(Boolean).map((option) => <option key={option} value={option}>{option}</option>)}</select></label></form>
-        <div className="divide-y divide-cardline">{columns.map((column) => <div key={column.id} className="flex items-center gap-3 py-3"><div className="flex-1"><p className="font-semibold">{column.label}{column.required && ' *'}</p><p className="text-xs text-charcoal/50">{column.type}</p></div><button onClick={() => renameColumn(column)} className="p-2 text-sage"><Pencil size={16} /></button><button onClick={() => deleteColumn(column)} className="p-2 text-red-700"><Trash2 size={16} /></button></div>)}</div>
+        <div className="divide-y divide-cardline">{columns.map((column) => <div key={column.id} className="flex items-center gap-3 py-3"><div className="flex-1"><p className="font-semibold">{column.label}{column.required && ' *'}</p><p className="text-xs text-charcoal/50">{column.type}</p></div><button onClick={() => editColumn(column)} className="p-2 text-sage"><Pencil size={16} /></button><button onClick={() => deleteColumn(column)} className="p-2 text-red-700"><Trash2 size={16} /></button></div>)}</div>
       </Modal>
       {isAdmin && <Modal open={arrangeOpen} onClose={() => setArrangeOpen(false)} title="Arrange Appointment Management columns" className="max-w-3xl">
         <div className="divide-y divide-cardline">{orderedDescriptors.filter((descriptor) => descriptor.key !== 'timeline').map((descriptor, index) => <div key={descriptor.key} className="flex items-center gap-3 py-3"><span className="w-6 text-xs text-charcoal/40">{index + 1}</span><span className="flex-1 font-semibold">{descriptor.label}</span><button disabled={!index} onClick={() => moveDescriptor(index, -1)} className="p-1 text-sage disabled:opacity-25" title="Move up"><ArrowUp size={16} /></button><button disabled={index === orderedDescriptors.length - 2} onClick={() => moveDescriptor(index, 1)} className="p-1 text-sage disabled:opacity-25" title="Move down"><ArrowDown size={16} /></button></div>)}</div>
         <Button onClick={saveLayout} className="mt-4">Save arrangement</Button>
       </Modal>}
+      {columnToEdit && <SheetColumnEditor key={columnToEdit.id} column={columnToEdit} endpoint="/sales-sheet/management-columns" management onClose={() => { setColumnToEdit(null); setSettingsOpen(true); }} onSaved={loadColumns} />}
       <Drawer open={Boolean(timelineRow)} onClose={() => setTimelineRow(null)} title={`Row timeline${timelineRow?.appointmentCode ? ` · ${timelineRow.appointmentCode}` : ''}`}>
         {timelineLoading ? <p className="text-sm text-charcoal/55">Loading timeline...</p> : !timeline.length ? <p className="text-sm text-charcoal/55">No history recorded for this row.</p> : <div className="relative space-y-4 border-l border-sage/40 pl-4">{timeline.map((item) => <div key={item.id} className="relative"><span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-sage" /><p className="text-sm font-semibold text-charcoal">{item.action}</p>{item.details && <p className="mt-1 text-xs text-charcoal/60">{item.details}</p>}<p className="mt-1 text-[11px] text-charcoal/45">{item.changedByName} · {timelineStamp(item.createdAt)}</p></div>)}</div>}
       </Drawer>

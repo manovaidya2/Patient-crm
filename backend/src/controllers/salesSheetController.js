@@ -139,10 +139,17 @@ const updateManagementColumn = asyncHandler(async (req, res) => {
   if (!column) return res.status(404).json({ success: false, message: 'Column not found' });
   if (req.body.label !== undefined) column.label = String(req.body.label || '').trim();
   if (!column.label) return res.status(400).json({ success: false, message: 'Column name is required' });
+  if (req.body.type !== undefined) {
+    if (!['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'].includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
+    column.type = req.body.type;
+  }
+  if (req.body.required !== undefined) column.required = Boolean(req.body.required);
+  if (req.body.options !== undefined && !Array.isArray(req.body.options)) return res.status(400).json({ success: false, message: 'Options must be a list' });
   if (req.body.order !== undefined) column.order = Number(req.body.order);
   if (req.body.options !== undefined) column.options = (req.body.options || []).map((v) => String(v).trim()).filter(Boolean);
   if (req.body.highlightValue !== undefined) column.highlightValue = String(req.body.highlightValue || '').trim();
-  if (column.type !== 'select') column.highlightValue = '';
+  if (column.type !== 'select') { column.options = []; column.highlightValue = ''; }
+  else if (!column.options.includes(column.highlightValue)) column.highlightValue = '';
   await column.save(); emitColumnsChanged(req);
   res.json({ success: true, column: serializeColumn(column) });
 });
@@ -194,10 +201,15 @@ const updateColumn = asyncHandler(async (req, res) => {
     if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
     column.label = label;
   }
-  if (req.body.type !== undefined) column.type = req.body.type;
+  if (req.body.type !== undefined) {
+    if (!['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'].includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
+    column.type = req.body.type;
+  }
   if (req.body.required !== undefined) column.required = Boolean(req.body.required);
+  if (req.body.options !== undefined && !Array.isArray(req.body.options)) return res.status(400).json({ success: false, message: 'Options must be a list' });
   if (req.body.order !== undefined) column.order = Number(req.body.order);
   if (req.body.options !== undefined) column.options = (req.body.options || []).map((v) => String(v).trim()).filter(Boolean);
+  if (column.type !== 'select') column.options = [];
   await column.save();
   emitColumnsChanged(req);
   res.json({ success: true, column: serializeColumn(column) });
