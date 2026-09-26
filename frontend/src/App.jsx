@@ -330,6 +330,14 @@ function App() {
           }
         />
         <Route
+          path="knowledge-library/:categoryId"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <KnowledgeLibrary />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="family-sessions"
           element={
             <ProtectedRoute roles={FAMILY_SESSION_ACCESS_ROLES}>

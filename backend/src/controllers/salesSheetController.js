@@ -77,7 +77,7 @@ const serializeRow = (row, user) => ({
   values: Object.fromEntries(row.values || []), createdBy: String(row.createdBy),
   createdByName: row.createdByName, updatedByName: row.updatedByName || '',
   canEdit: row.status !== 'rescheduled' && (user.role === ROLES.ADMIN || (user.role === ROLES.RECEPTIONIST && !row.acceptedAt) || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
-  canDelete: user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id)),
+  canDelete: user.role !== ROLES.SALES_TEAM && (user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
   canReschedule: row.status !== 'rescheduled' && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
   canAccept: [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role),
   acceptedAt: row.acceptedAt || null, acceptedByName: row.acceptedByName || '',
@@ -335,6 +335,7 @@ const updateAppointment = asyncHandler(async (req, res) => {
 });
 
 const deleteAppointment = asyncHandler(async (req, res) => {
+  if (req.user.role === ROLES.SALES_TEAM) return res.status(403).json({ success: false, message: 'Sales Team members cannot delete appointments' });
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (row.acceptedAt && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Accepted appointments cannot be deleted by Sales Team' });

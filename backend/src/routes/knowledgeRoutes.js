@@ -6,8 +6,11 @@ const controller = require('../controllers/knowledgeController');
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.RECEPTIONIST));
 router.get('/', controller.list);
-router.post('/', controller.create);
-router.patch('/:id', controller.update);
-router.delete('/:id', controller.remove);
+router.get('/categories', controller.listCategories);
+router.post('/', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.create);
+router.post('/categories', authorize(ROLES.ADMIN), controller.createCategory);
+router.delete('/categories/:id', authorize(ROLES.ADMIN), controller.removeCategory);
+router.patch('/:id', authorize(ROLES.ADMIN), controller.update);
+router.delete('/:id', authorize(ROLES.ADMIN), controller.remove);
 
 module.exports = router;

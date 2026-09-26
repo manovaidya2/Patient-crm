@@ -27,5 +27,5 @@ router.post('/appointments', controller.createAppointment);
 router.post('/appointments/:id/accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.acceptAppointment);
 router.post('/appointments/:id/reschedule', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.rescheduleAppointment);
 router.patch('/appointments/:id', controller.updateAppointment);
-router.delete('/appointments/:id', controller.deleteAppointment);
+router.delete('/appointments/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteAppointment);
 module.exports = router;
