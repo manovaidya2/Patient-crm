@@ -31,6 +31,7 @@ const helpDeskRoutes = require('./src/routes/helpDeskRoutes');
 const knowledgeRoutes = require('./src/routes/knowledgeRoutes');
 const receptionistChecklistRoutes = require('./src/routes/receptionistChecklistRoutes');
 const clinicInventoryRoutes = require('./src/routes/clinicInventoryRoutes');
+const recordRoomRoutes = require('./src/routes/recordRoomRoutes');
 const { registerSalesSheetSocket } = require('./src/realtime/salesSheetSocket');
 
 connectDB();
@@ -94,6 +95,7 @@ app.use('/api/help-desk', helpDeskRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/receptionist-checklist', receptionistChecklistRoutes);
 app.use('/api/clinic-inventory', clinicInventoryRoutes);
+app.use('/api/record-room', recordRoomRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res) => {

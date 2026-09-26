@@ -29,6 +29,7 @@ import {
   UserX,
   MessageCircleQuestion,
   BookOpen,
+  FileArchive,
   CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -44,6 +45,7 @@ export const navItems = [
   { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Receptionist Checklist', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/patient-queries', icon: MessageCircleQuestion, label: 'Help Desk / Patient Queries', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR] },

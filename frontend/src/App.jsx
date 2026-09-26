@@ -37,6 +37,7 @@ import ReceptionistHomeDashboard from './pages/admin/ReceptionistHomeDashboard.j
 import ReceptionistChecklist from './pages/admin/ReceptionistChecklist.jsx';
 import PatientQueries from './pages/admin/PatientQueries.jsx';
 import KnowledgeLibrary from './pages/admin/KnowledgeLibrary.jsx';
+import RecordRoom from './pages/admin/RecordRoom.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -334,6 +335,14 @@ function App() {
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
               <KnowledgeLibrary />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="record-room/*"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+              <RecordRoom />
             </ProtectedRoute>
           }
         />
