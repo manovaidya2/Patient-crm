@@ -76,13 +76,15 @@ const serializeRow = (row, user) => ({
   appointmentCode: row.appointmentCode || `APT-${String(row._id).slice(-8).toUpperCase()}`,
   values: Object.fromEntries(row.values || []), createdBy: String(row.createdBy),
   createdByName: row.createdByName, updatedByName: row.updatedByName || '',
-  canEdit: row.status !== 'rescheduled' && (user.role === ROLES.ADMIN || (user.role === ROLES.RECEPTIONIST && !row.acceptedAt) || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
+  canEdit: row.status === 'active' && (user.role === ROLES.ADMIN || (user.role === ROLES.RECEPTIONIST && !row.acceptedAt) || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
   canDelete: user.role !== ROLES.SALES_TEAM && (user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
-  canReschedule: row.status !== 'rescheduled' && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
+  canReschedule: row.status === 'active' && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
+  canMarkNotComing: !row.acceptedAt && (row.status === 'active' || row.status === 'not_coming') && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || String(row.createdBy) === String(user._id)),
   canAccept: [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role),
   acceptedAt: row.acceptedAt || null, acceptedByName: row.acceptedByName || '',
   entryAt: row.createdAt, lastEditedAt: row.lastEditedAt || null,
-  status: row.status || 'active', rescheduledTo: row.rescheduledTo || '',
+  status: row.status || 'active', notComingReason: row.notComingReason || '', notComingAt: row.notComingAt || null, notComingByName: row.notComingByName || '', rescheduledTo: row.rescheduledTo || '',
+  ...([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) ? { lastCallAt: row.lastCallAt || null, numberOfCalls: row.numberOfCalls || 0, callStatus: row.callStatus || 'pending' } : {}),
   rescheduledAt: row.rescheduledAt || null, rescheduledByName: row.rescheduledByName || '',
   createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
@@ -256,7 +258,7 @@ const listManagedAppointments = asyncHandler(async (req, res) => {
 const acceptAppointment = asyncHandler(async (req, res) => {
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
-  if (row.status === 'rescheduled') return res.status(400).json({ success: false, message: 'A rescheduled appointment cannot be accepted' });
+  if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be accepted' });
   if (!row.acceptedAt) {
     row.acceptedAt = new Date();
     row.acceptedBy = req.user._id;
@@ -275,13 +277,13 @@ const rescheduleAppointment = asyncHandler(async (req, res) => {
   if (!validDate(nextDate)) return res.status(400).json({ success: false, message: 'Valid reschedule date is required' });
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
-  if (row.status === 'rescheduled') return res.status(400).json({ success: false, message: 'This appointment is already rescheduled' });
+  if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be rescheduled' });
   if (row.acceptedAt && req.user.role === ROLES.SALES_TEAM) return res.status(403).json({ success: false, message: 'Accepted appointments cannot be rescheduled by Sales Team' });
   const allowed = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role) || (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(req.user._id));
   if (!allowed) return res.status(403).json({ success: false, message: 'You cannot reschedule this appointment' });
   if (nextDate === row.appointmentDate) return res.status(400).json({ success: false, message: 'Choose a different appointment date' });
 
-  const replacement = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: nextDate, values: Object.fromEntries(row.values || []), createdBy: row.createdBy, createdByName: row.createdByName, updatedByName: req.user.name });
+  const replacement = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: nextDate, values: Object.fromEntries(row.values || []), createdBy: row.createdBy, createdByName: row.createdByName, updatedByName: req.user.name, lastCallAt: row.lastCallAt, numberOfCalls: row.numberOfCalls, callStatus: row.callStatus });
   row.status = 'rescheduled';
   row.rescheduledTo = nextDate;
   row.rescheduledAt = new Date();
@@ -294,6 +296,47 @@ const rescheduleAppointment = asyncHandler(async (req, res) => {
   emitDateChanged(req, row.appointmentDate);
   emitDateChanged(req, nextDate);
   res.status(201).json({ success: true, appointment: serializeRow(replacement, req.user) });
+});
+
+const markNotComing = asyncHandler(async (req, res) => {
+  const reason = String(req.body.reason || '').trim();
+  if (!reason) return res.status(400).json({ success: false, message: 'Not coming reason is required' });
+  if (reason.length > 2000) return res.status(400).json({ success: false, message: 'Reason is too long' });
+  const filter = { _id: req.params.id, status: { $in: ['active', 'not_coming'] }, acceptedAt: null };
+  if (req.user.role === ROLES.SALES_TEAM) filter.createdBy = req.user._id;
+  const row = await SalesAppointment.findOneAndUpdate(filter, { $set: { status: 'not_coming', notComingReason: reason, notComingAt: new Date(), notComingByName: req.user.name, updatedByName: req.user.name, lastEditedAt: new Date() } }, { new: true });
+  if (!row) return res.status(409).json({ success: false, message: 'Appointment is unavailable or you cannot update it' });
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Marked not coming', details: reason });
+  emitDateChanged(req, row.appointmentDate);
+  res.json({ success: true, appointment: serializeRow(row, req.user) });
+});
+
+const clearNotComing = asyncHandler(async (req, res) => {
+  const filter = { _id: req.params.id, status: 'not_coming', acceptedAt: null };
+  if (req.user.role === ROLES.SALES_TEAM) filter.createdBy = req.user._id;
+  const row = await SalesAppointment.findOneAndUpdate(filter, { $set: { status: 'active', notComingReason: '', notComingAt: null, notComingByName: '', updatedByName: req.user.name, lastEditedAt: new Date() } }, { new: true });
+  if (!row) return res.status(409).json({ success: false, message: 'Appointment is unavailable or you cannot update it' });
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Not coming cleared' });
+  emitDateChanged(req, row.appointmentDate);
+  res.json({ success: true, appointment: serializeRow(row, req.user) });
+});
+
+const logCall = asyncHandler(async (req, res) => {
+  const row = await SalesAppointment.findOneAndUpdate({ _id: req.params.id, status: 'active' }, { $inc: { numberOfCalls: 1 }, $set: { lastCallAt: new Date() } }, { new: true });
+  if (!row) return res.status(409).json({ success: false, message: 'Only active appointments can log calls' });
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Call logged', details: `Call ${row.numberOfCalls}` });
+  emitDateChanged(req, row.appointmentDate);
+  res.json({ success: true, appointment: serializeRow(row, req.user) });
+});
+
+const updateCallStatus = asyncHandler(async (req, res) => {
+  const status = String(req.body.status || '');
+  if (!['pending', 'connected', 'no_answer', 'follow_up'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid call status' });
+  const row = await SalesAppointment.findOneAndUpdate({ _id: req.params.id, status: 'active' }, { $set: { callStatus: status } }, { new: true });
+  if (!row) return res.status(409).json({ success: false, message: 'Only active appointments can change call status' });
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Call status changed', details: status.replace('_', ' ') });
+  emitDateChanged(req, row.appointmentDate);
+  res.json({ success: true, appointment: serializeRow(row, req.user) });
 });
 
 const createManagedAppointment = asyncHandler(async (req, res) => {
@@ -333,6 +376,7 @@ const createAppointment = asyncHandler(async (req, res) => {
 const updateAppointment = asyncHandler(async (req, res) => {
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
+  if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be edited' });
   if (row.acceptedAt && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Accepted appointments can only be edited in Appointment Management' });
   if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role) && String(row.createdBy) !== String(req.user._id)) {
     return res.status(403).json({ success: false, message: 'Only the member who added this appointment can edit it' });
@@ -361,4 +405,4 @@ const deleteAppointment = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, rescheduleAppointment, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, rescheduleAppointment, markNotComing, clearNotComing, logCall, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
