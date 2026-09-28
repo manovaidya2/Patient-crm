@@ -378,5 +378,9 @@ patientSchema.index({ currentStage: 1, isActive: 1, createdAt: -1 });
 patientSchema.index({ category: 1, isActive: 1, createdAt: -1 });
 patientSchema.index({ assignedDoctor: 1, isActive: 1 });
 patientSchema.index({ assignedPsychologist: 1, isActive: 1 });
+patientSchema.index({ 'stages.medicineRequest.status': 1 });
+patientSchema.index({ 'stages.medicineRequests.status': 1 });
+patientSchema.index({ 'stages.followUps.dateTime': 1 });
+patientSchema.index({ 'stages.familySessions.dateTime': 1 });
 
 module.exports = mongoose.model('Patient', patientSchema);

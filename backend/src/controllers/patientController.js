@@ -1475,8 +1475,7 @@ const getPendingApprovals = asyncHandler(async (req, res) => {
   const patients = await Patient.find({
     $or: [{ approvalStatus: 'pending' }, { 'stages.payments.approvalStatus': 'pending' }],
   })
-    .populate('assignedDoctor', 'name')
-    .populate('assignedPsychologist', 'name')
+    .select('patientName patientCode category currentStage approvalStatus createdAt stages.number stages.totalAmount stages.postCounselor stages.payments')
     .populate('stages.postCounselor', 'name')
     .sort({ createdAt: -1 })
     .lean();
@@ -1484,10 +1483,24 @@ const getPendingApprovals = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     count: patients.length,
-    patients: patients.map((patient) => ({
-      ...formatPatient(patient, req.user),
-      pendingPayments: pendingPaymentsOf(patient),
-    })),
+    patients: patients.map((patient) => {
+      const formatted = formatPatient(patient, req.user);
+      return {
+        id: formatted.id,
+        patientCode: formatted.patientCode,
+        patientName: formatted.patientName,
+        category: formatted.category,
+        categoryLabel: formatted.categoryLabel,
+        currentStage: formatted.currentStage,
+        currentStageLabel: formatted.currentStageLabel,
+        approvalStatus: formatted.approvalStatus,
+        createdAt: formatted.createdAt,
+        stages: formatted.stages.map(({ number, postCounselor, totalAmount, amountPaid, remainingAmount, payments }) => ({
+          number, postCounselor, totalAmount, amountPaid, remainingAmount, payments,
+        })),
+        pendingPayments: pendingPaymentsOf(patient),
+      };
+    }),
   });
 });
 
@@ -2430,7 +2443,12 @@ const listMedicineRequests = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid medicine status filter' });
   }
 
-  const patients = await Patient.find({}).select('patientName number category stages');
+  const patients = await Patient.find({
+    $or: [
+      { 'stages.medicineRequest.status': { $in: statuses } },
+      { 'stages.medicineRequests.status': { $in: statuses } },
+    ],
+  }).select('patientName number category stages.number stages.medicineRequest stages.medicineRequests').lean();
   const rows = [];
 
   patients.forEach((patient) => {
@@ -2569,14 +2587,19 @@ const listCourierRequests = asyncHandler(async (req, res) => {
     .split(',')
     .map((status) => status.trim())
     .filter(Boolean);
-  const patients = await Patient.find({}).select('patientName number category stages');
+  const patients = await Patient.find({
+    $or: [
+      { 'stages.medicineRequest.status': MEDICINE_STATUSES.SENT_TO_COURIER },
+      { 'stages.medicineRequests.status': MEDICINE_STATUSES.SENT_TO_COURIER },
+    ],
+  }).select('patientName number category stages.number stages.medicineRequest stages.medicineRequests').lean();
   const rows = [];
 
   patients.forEach((patient) => {
     normalizeStages(patient.stages).forEach((stage) => {
       stageMedicineRequests(stage).forEach((request) => {
         if (request.status !== MEDICINE_STATUSES.SENT_TO_COURIER) return;
-        if (!statusFilter.includes('all') && !statusFilter.includes(request.courier.status)) return;
+        if (!statusFilter.includes('all') && !statusFilter.includes(request.courier?.status || COURIER_STATUSES.PENDING)) return;
         rows.push(formatMedicineListItem(patient, stage, request));
       });
     });
@@ -3075,6 +3098,12 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
     const rangeStart = req.query.from ? new Date(req.query.from) : null;
     const rangeEnd = req.query.to ? new Date(req.query.to) : null;
     const hasRange = rangeStart && rangeEnd && !Number.isNaN(rangeStart.getTime()) && !Number.isNaN(rangeEnd.getTime());
+
+    if (hasRange) {
+      filter[`stages.${fieldKey}`] = { $elemMatch: { dateTime: { $gte: rangeStart, $lte: rangeEnd } } };
+    } else {
+      filter[`stages.${fieldKey}.0`] = { $exists: true };
+    }
 
     // Only this one schedule field is ever read here — selecting the whole "stages" tree
     // (payments, medicine/courier data, record files) made this scan very slow at scale.

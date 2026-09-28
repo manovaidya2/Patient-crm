@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { LogOut, Menu } from 'lucide-react';
 import Sidebar from '../../components/Sidebar.jsx';
@@ -63,13 +63,17 @@ const BackgroundPrefetch = ({ role }) => {
 
     const runNext = () => {
       if (stopped || index >= plan.length) return;
+      if (document.visibilityState === 'hidden' || navigator.connection?.saveData) {
+        timer = window.setTimeout(runNext, 5000);
+        return;
+      }
       const task = plan[index++];
       prefetchGet(task.url, { params: task.params }).finally(() => {
-        timer = window.setTimeout(runNext, 350);
+        if (!stopped) timer = window.setTimeout(runNext, 1500);
       });
     };
 
-    const start = () => runNext();
+    const start = () => { timer = window.setTimeout(runNext, 3000); };
     if (window.requestIdleCallback) {
       const idleId = window.requestIdleCallback(start, { timeout: 2500 });
       return () => {
@@ -120,7 +124,9 @@ const AdminLayout = () => {
 
         <main className="flex-1 p-4 sm:p-8">
           <ScheduleReminderAlert />
-          <Outlet />
+          <Suspense fallback={<div className="py-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

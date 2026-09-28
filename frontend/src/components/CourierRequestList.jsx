@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Ban, CalendarDays, Inbox, PackageCheck, RefreshCw, Trash2, Truck } from 'lucide-react';
 import api from '../api/axios.js';
+import useApiQuery from '../api/useApiQuery.js';
 import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
 import Badge from './ui/Badge.jsx';
@@ -86,15 +87,12 @@ const statusTone = {
 const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [dateMode, setDateMode] = useState('month');
   const [dateValue, setDateValue] = useState(() => toDateInputValue(new Date()));
   const [weekValue, setWeekValue] = useState(() => toWeekInputValue(new Date()));
   const [monthValue, setMonthValue] = useState(() => toMonthInputValue(new Date()));
-  const [reloadKey, setReloadKey] = useState(0);
   const [dispatchRow, setDispatchRow] = useState(null);
   const [deliverRow, setDeliverRow] = useState(null);
   const [form, setForm] = useState(emptyDispatchForm);
@@ -103,21 +101,14 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
 
+  const { data, loading, error: queryError, refresh } = useApiQuery('/courier/requests', {
+    params: { status: statuses.join(',') },
+  });
+  const rows = data?.rows || [];
   useEffect(() => {
-    const fetchRows = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const { data } = await api.get('/courier/requests', { params: { status: statuses.join(',') } });
-        setRows(data.rows || []);
-      } catch (err) {
-        setError(err.response?.data?.message || 'Could not load courier records.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchRows();
-  }, [statuses, reloadKey]);
+    if (queryError && !data) setError(queryError.response?.data?.message || 'Could not load records.');
+    else setError('');
+  }, [queryError, data]);
 
   const activeValue = dateMode === 'week' ? weekValue : dateMode === 'month' ? monthValue : dateValue;
   const activeRange = useMemo(() => getDateRange(dateMode, activeValue), [dateMode, activeValue]);
@@ -191,7 +182,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       files.forEach((file) => formData.append('courierImage', file));
       await api.patch(`/courier/requests/${dispatchRow.patientId}/stages/${dispatchRow.stage}`, formData);
       setDispatchRow(null);
-      setReloadKey((value) => value + 1);
+      refresh();
     } catch (err) {
       setModalError(err.response?.data?.message || 'Could not dispatch courier.');
     } finally {
@@ -222,7 +213,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       files.forEach((file) => formData.append('courierImage', file));
       await api.patch(`/courier/requests/${deliverRow.patientId}/stages/${deliverRow.stage}`, formData);
       setDeliverRow(null);
-      setReloadKey((value) => value + 1);
+      refresh();
     } catch (err) {
       setModalError(err.response?.data?.message || 'Could not mark delivered.');
     } finally {
@@ -242,7 +233,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       } else {
         await api.delete(`/courier/requests/${row.patientId}/stages/${row.stage}`, { data: { requestId: row.requestId } });
       }
-      setReloadKey((value) => value + 1);
+      refresh();
     } catch (err) {
       setError(err.response?.data?.message || `Could not ${action} courier request.`);
     } finally {
@@ -257,7 +248,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
           <h1 className="font-display text-2xl font-bold text-charcoal">{title}</h1>
           <p className="mt-1 text-sm text-charcoal/60">{subtitle}</p>
         </div>
-        <Button variant="outline" onClick={() => setReloadKey((value) => value + 1)}>
+        <Button variant="outline" onClick={() => refresh()}>
           <RefreshCw size={15} /> Refresh
         </Button>
       </div>

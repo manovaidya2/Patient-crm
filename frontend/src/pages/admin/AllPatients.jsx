@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus, Calendar, X, SlidersHorizontal } from 'lucide-react';
 import api from '../../api/axios.js';
+import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -41,9 +42,6 @@ const AllPatients = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [patients, setPatients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
 
   // Restored from the URL on mount so the browser/router "back" button (from a
   // patient's details page) lands on the same page/search/filter, not a reset list.
@@ -55,8 +53,6 @@ const AllPatients = () => {
     () => searchParams.get('consultationDate') || '',
   );
   const [page, setPage] = useState(() => Number(searchParams.get('page')) || 1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyPatientForm);
   const [addSaving, setAddSaving] = useState(false);
@@ -117,32 +113,19 @@ const AllPatients = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter]);
 
-  useEffect(() => {
-    const fetchPatients = async () => {
-      setLoading(true);
-      setLoadError('');
-      try {
-        const { data } = await api.get('/patients', {
-          params: {
-            page,
-            limit: PAGE_SIZE,
-            search: debouncedSearch || undefined,
-            category: categoryFilter || undefined,
-            receivedDate: dateFilter || undefined,
-            consultationDate: consultationDateFilter || undefined,
-          },
-        });
-        setPatients(data.patients);
-        setPages(data.pages);
-        setTotal(data.total);
-      } catch (err) {
-        setLoadError(err.response?.data?.message || 'Could not load patients.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchPatients();
-  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter]);
+  const { data, loading, error } = useApiQuery('/patients', {
+    params: {
+      page, limit: PAGE_SIZE,
+      search: debouncedSearch || undefined,
+      category: categoryFilter || undefined,
+      receivedDate: dateFilter || undefined,
+      consultationDate: consultationDateFilter || undefined,
+    },
+  });
+  const patients = data?.patients || [];
+  const pages = data?.pages || 1;
+  const total = data?.total || 0;
+  const loadError = error && !data ? error.response?.data?.message || 'Could not load patients.' : '';
 
   useEffect(() => {
     const fetchPostCounselors = async () => {
@@ -153,8 +136,8 @@ const AllPatients = () => {
         setPostCounselorOptions([]);
       }
     };
-    fetchPostCounselors();
-  }, []);
+    if (addOpen) fetchPostCounselors();
+  }, [addOpen]);
 
   useEffect(() => {
     if (!addOpen) return;

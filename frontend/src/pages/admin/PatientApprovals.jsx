@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Check, Clock, IndianRupee, Inbox, Paperclip, RefreshCw } from 'lucide-react';
 import api from '../../api/axios.js';
+import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -34,29 +35,13 @@ const DetailItem = ({ label, value }) => (
 //  - it's already live, but a later payment on some stage still needs sign-off —
 //    the patient itself stays visible everywhere, only that payment is flagged.
 const PatientApprovals = () => {
-  const [patients, setPatients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const { data, loading, error, refresh: fetchPending, setData } = useApiQuery('/patients/pending-approvals');
+  const patients = data?.patients || [];
+  const loadError = error && !data ? error.response?.data?.message || 'Could not load pending approvals.' : '';
+  const setPatients = (updater) => setData((current) => ({ ...current, patients: updater(current.patients || []) }));
   const [approvingId, setApprovingId] = useState(null);
   const [approvingPaymentId, setApprovingPaymentId] = useState(null);
   const [rowError, setRowError] = useState({});
-
-  const fetchPending = async () => {
-    setLoading(true);
-    setLoadError('');
-    try {
-      const { data } = await api.get('/patients/pending-approvals');
-      setPatients(data.patients || []);
-    } catch (err) {
-      setLoadError(err.response?.data?.message || 'Could not load pending approvals.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchPending();
-  }, []);
 
   const handleApprovePatient = async (patientId) => {
     setApprovingId(patientId);

@@ -1,25 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Search, Inbox, AlertTriangle } from 'lucide-react';
-import api from '../api/axios.js';
+import useApiQuery from '../api/useApiQuery.js';
 import Card from './ui/Card.jsx';
 import Drawer from './ui/Drawer.jsx';
 import Badge from './ui/Badge.jsx';
 import { DISPLAY_STATUS_BADGE_TONE } from '../constants/scheduleStatuses.js';
-import { useAuth } from '../context/AuthContext.jsx';
-
-const scheduleCache = new Map();
-const scheduleRequests = new Map();
-
-const clearScheduleCache = () => {
-  scheduleCache.clear();
-  scheduleRequests.clear();
-};
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('crm:logout', clearScheduleCache);
-  window.addEventListener('crm:data-changed', clearScheduleCache);
-}
 
 const getInitials = (name) =>
   name
@@ -117,16 +103,12 @@ const formatDateTime = (iso) =>
 // opens a drawer listing exactly those entries (patient, stage, date & time).
 const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = false, showFamilySessionTypeFilter = false }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
   const [followUpTypeFilter, setFollowUpTypeFilter] = useState('all');
   const [dateMode, setDateMode] = useState('today');
   const [dateValue, setDateValue] = useState(() => toDateInputValue(new Date()));
   const [weekValue, setWeekValue] = useState(() => toWeekInputValue(new Date()));
   const [monthValue, setMonthValue] = useState(() => toMonthInputValue(new Date()));
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTitle, setDrawerTitle] = useState('');
@@ -135,53 +117,11 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
   const activeDateValue =
     dateMode === 'week' ? weekValue : dateMode === 'month' ? monthValue : dateValue;
   const activeRange = useMemo(() => getDateRange(dateMode, activeDateValue), [dateMode, activeDateValue]);
-  const scheduleCacheKey = useMemo(() => {
-    const scope = String(user?._id || user?.id || 'guest');
-    const from = activeRange?.start?.toISOString() || 'all';
-    const to = activeRange?.end?.toISOString() || 'all';
-    return `${scope}:${apiPath}:${from}:${to}`;
-  }, [activeRange, apiPath, user?._id, user?.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const cachedRows = scheduleCache.get(scheduleCacheKey);
-    if (cachedRows) {
-      setRows(cachedRows);
-      setLoadError('');
-      setLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const fetchData = async () => {
-      setLoading(true);
-      setLoadError('');
-      try {
-        const params = activeRange
-          ? { from: activeRange.start.toISOString(), to: activeRange.end.toISOString() }
-          : {};
-        let request = scheduleRequests.get(scheduleCacheKey);
-        if (!request) {
-          request = api.get(apiPath, { params });
-          scheduleRequests.set(scheduleCacheKey, request);
-        }
-        const { data } = await request;
-        const nextRows = data.rows || [];
-        scheduleCache.set(scheduleCacheKey, nextRows);
-        if (!cancelled) setRows(nextRows);
-      } catch (err) {
-        if (!cancelled) setLoadError(err.response?.data?.message || 'Could not load.');
-      } finally {
-        scheduleRequests.delete(scheduleCacheKey);
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchData();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiPath, activeRange, scheduleCacheKey]);
+  const { data, loading, error } = useApiQuery(apiPath, {
+    params: activeRange ? { from: activeRange.start.toISOString(), to: activeRange.end.toISOString() } : {},
+  });
+  const rows = data?.rows || [];
+  const loadError = error && !data ? error.response?.data?.message || 'Could not load.' : '';
 
   const filteredRows = useMemo(() => {
     const emptyCounts = () => ({ upcoming: 0, late: 0, done: 0, done_late: 0, cancelled: 0 });

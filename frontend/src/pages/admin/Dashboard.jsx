@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Users, UserCheck, UserX, ArrowRight, ChevronLeft, ChevronRight, Layers, WalletCards, PackageCheck, Truck, AlertTriangle, CalendarDays } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios.js';
+import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
 import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
 import { CREATABLE_ROLES, ROLE_LABELS, ROLES } from '../../constants/roles.js';
@@ -151,36 +152,19 @@ const StageDonutChart = ({ rows = [], loading }) => {
 const Dashboard = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
-  const [users, setUsers] = useState([]);
-  const [stats, setStats] = useState(null);
   const [emergencyAdvice, setEmergencyAdvice] = useState({ count: 0, latest: null });
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [followUpFilterMode, setFollowUpFilterMode] = useState('date');
   const [followUpDate, setFollowUpDate] = useState(() => toDateInputValue(new Date()));
   const [followUpMonth, setFollowUpMonth] = useState(() => toMonthInputValue(new Date()));
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      setLoading(true);
-      try {
-        const usersPromise = isAdmin ? api.get('/users') : Promise.resolve({ data: { users: [] } });
-        const [usersRes, statsRes] = await Promise.all([
-          usersPromise,
-          api.get('/patients/dashboard-stats', {
-            params: followUpFilterMode === 'month' ? { followUpMonth } : { followUpDate },
-          }),
-        ]);
-        setUsers(usersRes.data.users || []);
-        setStats(statsRes.data);
-      } catch (err) {
-        // Dashboard fails silently to a zero-state; Team Members page surfaces the real error
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchDashboardData();
-  }, [isAdmin, followUpDate, followUpMonth, followUpFilterMode]);
+  const usersQuery = useApiQuery('/users', {}, { enabled: isAdmin });
+  const statsQuery = useApiQuery('/patients/dashboard-stats', {
+    params: followUpFilterMode === 'month' ? { followUpMonth } : { followUpDate },
+  });
+  const users = usersQuery.data?.users || [];
+  const stats = statsQuery.data;
+  const loading = usersQuery.loading || statsQuery.loading;
 
   useEffect(() => {
     if (![ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)) return undefined;

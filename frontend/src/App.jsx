@@ -1,46 +1,48 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login.jsx';
-import GenericDashboard from './pages/GenericDashboard.jsx';
 import AdminLayout from './pages/admin/AdminLayout.jsx';
-import Dashboard from './pages/admin/Dashboard.jsx';
-import StaffDashboard from './pages/admin/StaffDashboard.jsx';
-import TeamMembers from './pages/admin/TeamMembers.jsx';
-import AllPatients from './pages/admin/AllPatients.jsx';
-import InactivePatients from './pages/admin/InactivePatients.jsx';
-import PatientApprovals from './pages/admin/PatientApprovals.jsx';
-import PatientDetails from './pages/admin/PatientDetails.jsx';
-import PatientsByStage from './pages/admin/PatientsByStage.jsx';
-import Accounts from './pages/admin/Accounts.jsx';
-import Income from './pages/admin/Income.jsx';
-import Expenses from './pages/admin/Expenses.jsx';
-import FollowUps from './pages/admin/FollowUps.jsx';
-import FamilySessions from './pages/admin/FamilySessions.jsx';
-import Payments from './pages/admin/Payments.jsx';
-import ApprovedPayments from './pages/admin/ApprovedPayments.jsx';
-import MedicineRequests from './pages/admin/MedicineRequests.jsx';
-import MedicineMade from './pages/admin/MedicineMade.jsx';
-import MedicineInventory from './pages/admin/MedicineInventory.jsx';
-import ClinicInventory from './pages/admin/ClinicInventory.jsx';
-import CourierRequests from './pages/admin/CourierRequests.jsx';
-import CourierDelivered from './pages/admin/CourierDelivered.jsx';
-import RequestForAdvice from './pages/admin/RequestForAdvice.jsx';
-import AdviceGiven from './pages/admin/AdviceGiven.jsx';
-import Worksheet from './pages/admin/Worksheet.jsx';
-import CrmChatGPT from './pages/admin/CrmChatGPT.jsx';
-import DigitalMarketing from './pages/admin/DigitalMarketing.jsx';
-import PackageNotBought from './pages/admin/PackageNotBought.jsx';
-import PackageNotBoughtDetails from './pages/admin/PackageNotBoughtDetails.jsx';
-import PaymentSettings from './pages/admin/PaymentSettings.jsx';
-import SalesWorkspace from './pages/SalesWorkspace.jsx';
-import ReceptionistDashboard from './pages/admin/ReceptionistDashboard.jsx';
-import ReceptionistHomeDashboard from './pages/admin/ReceptionistHomeDashboard.jsx';
-import ReceptionistChecklist from './pages/admin/ReceptionistChecklist.jsx';
-import PatientQueries from './pages/admin/PatientQueries.jsx';
-import KnowledgeLibrary from './pages/admin/KnowledgeLibrary.jsx';
-import RecordRoom from './pages/admin/RecordRoom.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
+
+const GenericDashboard = lazy(() => import('./pages/GenericDashboard.jsx'));
+const Dashboard = lazy(() => import('./pages/admin/Dashboard.jsx'));
+const StaffDashboard = lazy(() => import('./pages/admin/StaffDashboard.jsx'));
+const TeamMembers = lazy(() => import('./pages/admin/TeamMembers.jsx'));
+const AllPatients = lazy(() => import('./pages/admin/AllPatients.jsx'));
+const InactivePatients = lazy(() => import('./pages/admin/InactivePatients.jsx'));
+const PatientApprovals = lazy(() => import('./pages/admin/PatientApprovals.jsx'));
+const PatientDetails = lazy(() => import('./pages/admin/PatientDetails.jsx'));
+const PatientsByStage = lazy(() => import('./pages/admin/PatientsByStage.jsx'));
+const Accounts = lazy(() => import('./pages/admin/Accounts.jsx'));
+const Income = lazy(() => import('./pages/admin/Income.jsx'));
+const Expenses = lazy(() => import('./pages/admin/Expenses.jsx'));
+const FollowUps = lazy(() => import('./pages/admin/FollowUps.jsx'));
+const FamilySessions = lazy(() => import('./pages/admin/FamilySessions.jsx'));
+const Payments = lazy(() => import('./pages/admin/Payments.jsx'));
+const ApprovedPayments = lazy(() => import('./pages/admin/ApprovedPayments.jsx'));
+const MedicineRequests = lazy(() => import('./pages/admin/MedicineRequests.jsx'));
+const MedicineMade = lazy(() => import('./pages/admin/MedicineMade.jsx'));
+const MedicineInventory = lazy(() => import('./pages/admin/MedicineInventory.jsx'));
+const ClinicInventory = lazy(() => import('./pages/admin/ClinicInventory.jsx'));
+const CourierRequests = lazy(() => import('./pages/admin/CourierRequests.jsx'));
+const CourierDelivered = lazy(() => import('./pages/admin/CourierDelivered.jsx'));
+const RequestForAdvice = lazy(() => import('./pages/admin/RequestForAdvice.jsx'));
+const AdviceGiven = lazy(() => import('./pages/admin/AdviceGiven.jsx'));
+const Worksheet = lazy(() => import('./pages/admin/Worksheet.jsx'));
+const CrmChatGPT = lazy(() => import('./pages/admin/CrmChatGPT.jsx'));
+const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx'));
+const PackageNotBought = lazy(() => import('./pages/admin/PackageNotBought.jsx'));
+const PackageNotBoughtDetails = lazy(() => import('./pages/admin/PackageNotBoughtDetails.jsx'));
+const PaymentSettings = lazy(() => import('./pages/admin/PaymentSettings.jsx'));
+const SalesWorkspace = lazy(() => import('./pages/SalesWorkspace.jsx'));
+const ReceptionistDashboard = lazy(() => import('./pages/admin/ReceptionistDashboard.jsx'));
+const ReceptionistHomeDashboard = lazy(() => import('./pages/admin/ReceptionistHomeDashboard.jsx'));
+const ReceptionistChecklist = lazy(() => import('./pages/admin/ReceptionistChecklist.jsx'));
+const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
+const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
+const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
 
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
@@ -63,6 +65,7 @@ function App() {
   }
 
   return (
+    <Suspense fallback={<div className="p-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
     <Routes>
       <Route
         path="/login"
@@ -377,6 +380,7 @@ function App() {
       <Route path="/" element={<Navigate to={user ? getDefaultRoute(user.role) : '/login'} replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 }
 

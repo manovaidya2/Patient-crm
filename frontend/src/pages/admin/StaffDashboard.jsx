@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Clock, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import api from '../../api/axios.js';
+import useApiQuery from '../../api/useApiQuery.js';
 import ReminderDropdown from '../../components/ReminderDropdown.jsx';
 import Card from '../../components/ui/Card.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -47,30 +47,8 @@ const StatCard = ({ icon: Icon, label, value, tone = 'sage' }) => {
 
 const StaffDashboard = () => {
   const { user } = useAuth();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { data, loading } = useApiQuery('/patients/staff-dashboard-stats');
   const [recentPage, setRecentPage] = useState(1);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchDashboard = async () => {
-      try {
-        const { data: response } = await api.get('/patients/staff-dashboard-stats');
-        if (!cancelled) setData(response);
-      } catch {
-        if (!cancelled) setData(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    fetchDashboard();
-    const intervalId = window.setInterval(fetchDashboard, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, []);
 
   const summary = data?.summary || {};
   const reminders = data?.reminders || [];

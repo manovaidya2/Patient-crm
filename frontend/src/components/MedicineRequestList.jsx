@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, Inbox, PackageCheck, RefreshCw, Ban, Trash2 } from 'lucide-react';
 import api from '../api/axios.js';
+import useApiQuery from '../api/useApiQuery.js';
 import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
 import Badge from './ui/Badge.jsx';
@@ -76,11 +77,8 @@ const formatDateTime = (iso) =>
 const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [] }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState('');
-  const [reloadKey, setReloadKey] = useState(0);
   const [dateMode, setDateMode] = useState('month');
   const [dateValue, setDateValue] = useState(() => toDateInputValue(new Date()));
   const [weekValue, setWeekValue] = useState(() => toWeekInputValue(new Date()));
@@ -92,21 +90,14 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   const [courierForm, setCourierForm] = useState({ packagedByName: '', chitsWrittenByName: '', lastMedicineCheckedByName: '' });
   const [courierError, setCourierError] = useState('');
 
+  const { data, loading, error: queryError, refresh } = useApiQuery('/medicine/requests', {
+    params: { status: statuses.join(',') },
+  });
+  const rows = data?.rows || [];
   useEffect(() => {
-    const fetchRows = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const { data } = await api.get('/medicine/requests', { params: { status: statuses.join(',') } });
-        setRows(data.rows || []);
-      } catch (err) {
-        setError(err.response?.data?.message || 'Could not load medicine requests.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchRows();
-  }, [statuses, reloadKey]);
+    if (queryError && !data) setError(queryError.response?.data?.message || 'Could not load records.');
+    else setError('');
+  }, [queryError, data]);
 
   const updateStatus = async (row, status, files = []) => {
     const key = `${row.patientId}-${row.stage}-${row.requestId}-${status}`;
@@ -121,7 +112,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
       } else {
         await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { status, requestId: row.requestId });
       }
-      setReloadKey((value) => value + 1);
+      refresh();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not update medicine status.');
     } finally {
@@ -141,7 +132,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     setBusyKey(key);
     try {
       await api.delete(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { data: { requestId: row.requestId } });
-      setReloadKey((value) => value + 1);
+      refresh();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not delete medicine request.');
     } finally {
@@ -160,7 +151,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
         chitsWrittenByName: values.chitsWrittenByName,
         lastMedicineCheckedByName: values.lastMedicineCheckedByName,
       });
-      setReloadKey((value) => value + 1);
+      refresh();
       return true;
     } catch (err) {
       setCourierError(err.response?.data?.message || 'Could not send to courier.');
@@ -250,7 +241,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
               className="w-44 rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-3.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-50"
             />
           </div>
-          <Button variant="outline" onClick={() => setReloadKey((value) => value + 1)}>
+          <Button variant="outline" onClick={() => refresh()}>
             <RefreshCw size={15} /> Refresh
           </Button>
         </div>
