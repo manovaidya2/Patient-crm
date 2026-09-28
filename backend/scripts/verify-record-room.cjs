@@ -5,7 +5,14 @@ const path = require('node:path');
 
 // Isolated UI fixtures: no patient data or database writes are used.
 async function main() {
-  const browser = await puppeteer.launch({ headless: true, executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' });
+  const appUrl = process.argv[2] || process.env.RECORD_ROOM_UI_URL;
+  if (!appUrl) throw new Error('Pass the app URL: node backend/scripts/verify-record-room.cjs https://your-crm.example.com');
+  const targetUrl = new URL('/admin/record-room', appUrl);
+  if (!['http:', 'https:'].includes(targetUrl.protocol)) throw new Error('App URL must use http or https');
+  const browser = await puppeteer.launch({
+    headless: true,
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+  });
   try {
     const page = await browser.newPage();
     const errors = [];
@@ -35,7 +42,7 @@ async function main() {
     const output = path.resolve(__dirname, '../../artifacts/record-room');
     fs.mkdirSync(output, { recursive: true });
     await page.setViewport({ width: 1440, height: 1000 });
-    await page.goto(`${process.env.RECORD_ROOM_UI_URL || 'http://127.0.0.1:5174'}/admin/record-room`);
+    await page.goto(targetUrl.href);
     await page.waitForSelector('.rr-table tbody .rr-link');
     assert.equal(await page.$$eval('.rr-stat', (cards) => cards.length), 3);
     assert.equal(await page.$$eval('.rr-stat', (cards) => cards.some((card) => card.textContent.includes('Collected'))), false);

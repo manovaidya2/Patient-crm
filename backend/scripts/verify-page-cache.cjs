@@ -3,7 +3,14 @@ const assert = require('node:assert/strict');
 
 // All API calls are intercepted: this test never reads or changes real patients.
 async function main() {
-  const browser = await puppeteer.launch({ headless: true, executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' });
+  const appUrl = process.argv[2] || process.env.CACHE_UI_URL;
+  if (!appUrl) throw new Error('Pass the app URL: node backend/scripts/verify-page-cache.cjs https://your-crm.example.com');
+  const targetUrl = new URL('/admin/medicine-requests', appUrl);
+  if (!['http:', 'https:'].includes(targetUrl.protocol)) throw new Error('App URL must use http or https');
+  const browser = await puppeteer.launch({
+    headless: true,
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+  });
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000 });
@@ -32,7 +39,7 @@ async function main() {
       if (request.method() === 'GET' && route !== '/auth/me') await new Promise((resolve) => setTimeout(resolve, 250));
       await request.respond({ status: 200, contentType: 'application/json', headers, body: JSON.stringify(data) });
     });
-    await page.goto(`${process.env.CACHE_UI_URL || 'http://127.0.0.1:5174'}/admin/medicine-requests`);
+    await page.goto(targetUrl.href);
     await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('Medicine Patient 1'));
     const navigate = async (path, text, heading) => {
       await page.click(`a[href="${path}"]`);
