@@ -19,6 +19,36 @@ const uploadManagementAttachment = asyncHandler(async (req, res) => {
 });
 
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+const OPTION_TYPES = ['select', 'multi_select'];
+const COLUMN_TYPES = ['text', 'number', 'phone', 'date', 'time', ...OPTION_TYPES, 'textarea', 'checkbox', 'file'];
+const normalizeOptions = (rawOptions, type) => {
+  if (!OPTION_TYPES.includes(type)) return [];
+  if (!Array.isArray(rawOptions)) {
+    const error = new Error('Options must be a list');
+    error.statusCode = 400;
+    throw error;
+  }
+  const options = [...new Set(rawOptions.map((option) => String(option).trim()).filter(Boolean))];
+  if (type === 'multi_select' && (!options.length || options.some((option) => option.includes(',')))) {
+    const error = new Error('Multiple choice needs options without commas');
+    error.statusCode = 400;
+    throw error;
+  }
+  return options;
+};
+const cleanColumnValue = (column, rawValue) => {
+  const value = String(rawValue ?? '').trim();
+  if (column.type === 'checkbox') return value === '☑' ? 'true' : value;
+  if (column.type !== 'multi_select' || !value) return value;
+  const selected = value.split(',').map((option) => option.trim()).filter(Boolean);
+  const allowed = column.options || [];
+  if (selected.some((option) => !allowed.includes(option))) {
+    const error = new Error(`${column.label} has an invalid choice`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return allowed.filter((option) => selected.includes(option)).join(', ');
+};
 const migrateLegacyAttachment = (value) => {
   const match = String(value || '').match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;
@@ -54,7 +84,7 @@ const recordAudit = async (req, { sheet, rowId, appointmentCode, action, details
 const serializeColumn = (column) => ({
   id: String(column._id), label: column.label, type: column.type, options: column.options || [],
   required: Boolean(column.required), order: column.order,
-  highlightValue: column.highlightValue || (column.label?.trim().toLowerCase() === 'package status' ? 'Package Purchased' : ''),
+  highlightValue: column.highlightValue || (column.type === 'select' && column.label?.trim().toLowerCase() === 'package status' ? 'Package Purchased' : ''),
 });
 const serializeManagementEntry = (entry, user) => ({
   id: String(entry._id), appointmentDate: entry.appointmentDate,
@@ -93,7 +123,7 @@ const cleanValues = async (rawValues, requireComplete = true) => {
   const columns = await SalesSheetColumn.find({ isActive: true }).sort({ order: 1 }).lean();
   const values = {};
   for (const column of columns) {
-    const value = column.type === 'checkbox' ? (String(rawValues?.[String(column._id)] ?? '') === '☑' ? 'true' : String(rawValues?.[String(column._id)] ?? '').trim()) : String(rawValues?.[String(column._id)] ?? '').trim();
+    const value = cleanColumnValue(column, rawValues?.[String(column._id)]);
     if (requireComplete && column.required && !value) {
       const error = new Error(`${column.label} is required`);
       error.statusCode = 400;
@@ -107,7 +137,7 @@ const cleanManagementValues = async (rawValues) => {
   const columns = await AppointmentManagementColumn.find({ isActive: true }).sort({ order: 1 }).lean();
   const values = {};
   for (const column of columns) {
-    const value = column.type === 'checkbox' ? (String(rawValues?.[String(column._id)] ?? '') === '☑' ? 'true' : String(rawValues?.[String(column._id)] ?? '').trim()) : String(rawValues?.[String(column._id)] ?? '').trim();
+    const value = cleanColumnValue(column, rawValues?.[String(column._id)]);
     if (column.required && !value) {
       const error = new Error(`${column.label} is required`);
       error.statusCode = 400;
@@ -126,13 +156,13 @@ const createManagementColumn = asyncHandler(async (req, res) => {
   const label = String(req.body.label || '').trim();
   if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
   const type = String(req.body.type || 'text');
-  const allowed = ['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'];
+  const allowed = COLUMN_TYPES;
   if (!allowed.includes(type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
   const last = await AppointmentManagementColumn.findOne({ isActive: true }).sort({ order: -1 }).lean();
   const isPackageStatus = label.toLowerCase() === 'package status';
-  const options = type === 'select' ? (req.body.options || []).map((v) => String(v).trim()).filter(Boolean) : [];
+  const options = normalizeOptions(req.body.options || [], type);
   if (type === 'select' && isPackageStatus && !options.length) options.push('Package Purchased', 'Package Not Purchased');
-  const column = await AppointmentManagementColumn.create({ label, type, required: Boolean(req.body.required), options, highlightValue: type === 'select' ? String(req.body.highlightValue || (isPackageStatus ? 'Package Purchased' : '')).trim() : '', order: (last?.order ?? -1) + 1, createdBy: req.user._id });
+  const column = await AppointmentManagementColumn.create({ label, type, required: Boolean(req.body.required), options, highlightValue: OPTION_TYPES.includes(type) ? String(req.body.highlightValue || (isPackageStatus && type === 'select' ? 'Package Purchased' : '')).trim() : '', order: (last?.order ?? -1) + 1, createdBy: req.user._id });
   emitColumnsChanged(req);
   res.status(201).json({ success: true, column: serializeColumn(column) });
 });
@@ -142,16 +172,17 @@ const updateManagementColumn = asyncHandler(async (req, res) => {
   if (req.body.label !== undefined) column.label = String(req.body.label || '').trim();
   if (!column.label) return res.status(400).json({ success: false, message: 'Column name is required' });
   if (req.body.type !== undefined) {
-    if (!['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'].includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
+    if (!COLUMN_TYPES.includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
     column.type = req.body.type;
   }
   if (req.body.required !== undefined) column.required = Boolean(req.body.required);
   if (req.body.options !== undefined && !Array.isArray(req.body.options)) return res.status(400).json({ success: false, message: 'Options must be a list' });
   if (req.body.order !== undefined) column.order = Number(req.body.order);
-  if (req.body.options !== undefined) column.options = (req.body.options || []).map((v) => String(v).trim()).filter(Boolean);
+  if (req.body.options !== undefined) column.options = normalizeOptions(req.body.options, column.type);
   if (req.body.highlightValue !== undefined) column.highlightValue = String(req.body.highlightValue || '').trim();
-  if (column.type !== 'select') { column.options = []; column.highlightValue = ''; }
-  else if (!column.options.includes(column.highlightValue)) column.highlightValue = '';
+  if (!OPTION_TYPES.includes(column.type)) { column.options = []; column.highlightValue = ''; }
+  else if (column.type === 'multi_select') column.options = normalizeOptions(column.options, column.type);
+  if (OPTION_TYPES.includes(column.type) && !column.options.includes(column.highlightValue)) column.highlightValue = '';
   await column.save(); emitColumnsChanged(req);
   res.json({ success: true, column: serializeColumn(column) });
 });
@@ -183,12 +214,12 @@ const createColumn = asyncHandler(async (req, res) => {
   const label = String(req.body.label || '').trim();
   if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
   const type = String(req.body.type || 'text');
-  const allowed = ['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'];
+  const allowed = COLUMN_TYPES;
   if (!allowed.includes(type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
   const last = await SalesSheetColumn.findOne({ isActive: true }).sort({ order: -1 }).lean();
   const column = await SalesSheetColumn.create({
     label, type, required: Boolean(req.body.required),
-    options: type === 'select' ? (req.body.options || []).map((v) => String(v).trim()).filter(Boolean) : [],
+    options: normalizeOptions(req.body.options || [], type),
     order: (last?.order ?? -1) + 1, createdBy: req.user._id,
   });
   emitColumnsChanged(req);
@@ -204,14 +235,15 @@ const updateColumn = asyncHandler(async (req, res) => {
     column.label = label;
   }
   if (req.body.type !== undefined) {
-    if (!['text', 'number', 'phone', 'date', 'time', 'select', 'textarea', 'checkbox', 'file'].includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
+    if (!COLUMN_TYPES.includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
     column.type = req.body.type;
   }
   if (req.body.required !== undefined) column.required = Boolean(req.body.required);
   if (req.body.options !== undefined && !Array.isArray(req.body.options)) return res.status(400).json({ success: false, message: 'Options must be a list' });
   if (req.body.order !== undefined) column.order = Number(req.body.order);
-  if (req.body.options !== undefined) column.options = (req.body.options || []).map((v) => String(v).trim()).filter(Boolean);
-  if (column.type !== 'select') column.options = [];
+  if (req.body.options !== undefined) column.options = normalizeOptions(req.body.options, column.type);
+  if (!OPTION_TYPES.includes(column.type)) column.options = [];
+  else if (column.type === 'multi_select') column.options = normalizeOptions(column.options, column.type);
   await column.save();
   emitColumnsChanged(req);
   res.json({ success: true, column: serializeColumn(column) });

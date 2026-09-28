@@ -22,6 +22,10 @@ for (const [Model, handler] of [[SalesColumn, controllers.updateColumn], [Manage
       assert.deepEqual([...column.options], ['Waiting', 'Done']);
       if (Model === ManagementColumn) assert.equal(column.highlightValue, 'Done');
       assert.equal(String(column._id), id);
+      await invoke({ type: 'multi_select', options: ['Call', 'Message', 'Call'], highlightValue: 'Message' });
+      assert.equal(column.type, 'multi_select');
+      assert.deepEqual([...column.options], ['Call', 'Message']);
+      if (Model === ManagementColumn) assert.equal(column.highlightValue, 'Message');
       await invoke({ type: 'checkbox', required: false });
       assert.equal(column.type, 'checkbox');
       assert.equal(column.required, false);
@@ -29,10 +33,10 @@ for (const [Model, handler] of [[SalesColumn, controllers.updateColumn], [Manage
       if (Model === ManagementColumn) assert.equal(column.highlightValue, '');
       await invoke({ type: 'invalid' });
       assert.equal(response.statusCode, 400);
-      assert.equal(saves, 2);
+      assert.equal(saves, 3);
       await invoke({ options: 'not an array' });
       assert.equal(response.statusCode, 400);
-      assert.equal(saves, 2);
+      assert.equal(saves, 3);
     } finally { Model.findOne = original; }
   });
 }
