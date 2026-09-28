@@ -25,6 +25,8 @@ const schema = new mongoose.Schema({
   patientId: { type: String, trim: true, default: '' },
   patientName: { type: String, required: true, trim: true },
   appointmentId: { type: String, trim: true, default: '' },
+  shelfNumber: { type: String, trim: true, maxlength: 60, default: '' },
+  fileNumber: { type: String, trim: true, maxlength: 60, default: '' },
   documents: { type: [documentSchema], default: [] },
   pdfUrl: { type: String, default: '' },
   pdfName: { type: String, default: '' },

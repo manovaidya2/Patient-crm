@@ -15,6 +15,7 @@ const filePath = (url) => {
 const removeFile = async (url) => { const target = filePath(url); if (target) { try { await fs.promises.unlink(target); } catch (error) { if (error.code !== 'ENOENT') console.warn(error.message); } } };
 const serialize = (record) => ({
   id: String(record._id), patientId: record.patientId, patientName: record.patientName, appointmentId: record.appointmentId,
+  shelfNumber: record.shelfNumber || '', fileNumber: record.fileNumber || '',
   documents: (record.documents || []).map((item) => ({ id: String(item._id), url: item.url, fileName: item.fileName, uploadedAt: item.uploadedAt, uploadedByName: item.uploadedByName })),
   pdfUrl: record.pdfUrl, pdfName: record.pdfName, pdfPageCount: record.pdfPageCount, pdfUpdatedAt: record.pdfUpdatedAt,
   issueHistory: (record.issueHistory || []).map((item) => ({ id: String(item._id), paperName: item.paperName || 'Patient file', issuedAt: item.issuedAt, issuedByName: item.issuedByName, givenTo: item.givenTo, reason: item.reason, returnedAt: item.returnedAt, returnedByName: item.returnedByName, returnNotes: item.returnNotes, returnCondition: item.returnCondition || '', problemDetails: item.problemDetails || '' })),
@@ -24,7 +25,7 @@ const serialize = (record) => ({
 const list = asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const regex = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const filter = search ? { $or: ['patientName', 'patientId', 'appointmentId'].map((key) => ({ [key]: { $regex: regex, $options: 'i' } })) } : {};
+  const filter = search ? { $or: ['patientName', 'patientId', 'appointmentId', 'shelfNumber', 'fileNumber'].map((key) => ({ [key]: { $regex: regex, $options: 'i' } })) } : {};
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const [records, total] = await Promise.all([
     RecordRoom.find(filter).select('-documents').sort({ updatedAt: -1, _id: -1 }).skip((page - 1) * 25).limit(25).lean(),
@@ -89,16 +90,58 @@ const lookup = asyncHandler(async (req, res) => {
   ] });
 });
 
+const findLinkedPatient = async (patientKey) => {
+  if (!patientKey) return null;
+  const patient = await Patient.findOne({ patientCode: patientKey }).select('_id patientCode patientName').lean();
+  if (patient || !mongoose.isValidObjectId(patientKey)) return patient;
+  return Patient.findById(patientKey).select('_id patientCode patientName').lean();
+};
+
 const create = asyncHandler(async (req, res) => {
   const patientName = String(req.body.patientName || '').trim();
   if (!patientName) return res.status(400).json({ success: false, message: 'Patient name is required' });
   const patientKey = String(req.body.patientId || '').trim();
-  let patient = patientKey ? await Patient.findOne({ patientCode: patientKey }).select('_id patientCode patientName').lean() : null;
-  if (!patient && patientKey && mongoose.isValidObjectId(patientKey)) {
-    patient = await Patient.findById(patientKey).select('_id patientCode patientName').lean();
-  }
-  const record = await RecordRoom.create({ patient: patient?._id || null, patientId: patient?.patientCode || String(req.body.patientId || '').trim(), patientName: patient?.patientName || patientName, appointmentId: String(req.body.appointmentId || '').trim(), createdByName: req.user.name });
+  const patient = await findLinkedPatient(patientKey);
+  const record = await RecordRoom.create({
+    patient: patient?._id || null,
+    patientId: patient?.patientCode || String(req.body.patientId || '').trim(),
+    patientName: patient?.patientName || patientName,
+    appointmentId: String(req.body.appointmentId || '').trim(),
+    shelfNumber: String(req.body.shelfNumber || '').trim(),
+    fileNumber: String(req.body.fileNumber || '').trim(),
+    createdByName: req.user.name,
+  });
   res.status(201).json({ success: true, record: serialize(record) });
+});
+
+const update = asyncHandler(async (req, res) => {
+  const record = await RecordRoom.findById(req.params.id);
+  if (!record) return res.status(404).json({ success: false, message: 'Record not found' });
+  const patientName = String(req.body.patientName || '').trim();
+  if (!patientName) return res.status(400).json({ success: false, message: 'Patient name is required' });
+  const patientId = String(req.body.patientId || '').trim();
+  const patient = await findLinkedPatient(patientId);
+  record.patient = patient?._id || null;
+  record.patientId = patient?.patientCode || patientId;
+  record.patientName = patient?.patientName || patientName;
+  record.appointmentId = String(req.body.appointmentId || '').trim();
+  record.shelfNumber = String(req.body.shelfNumber || '').trim();
+  record.fileNumber = String(req.body.fileNumber || '').trim();
+  if (record.pdfUrl) record.pdfName = `${record.patientName} record room (${record.documents.length} pages).pdf`;
+  await record.save();
+  res.json({ success: true, record: serialize(record) });
+});
+
+const remove = asyncHandler(async (req, res) => {
+  const record = await RecordRoom.findById(req.params.id);
+  if (!record) return res.status(404).json({ success: false, message: 'Record not found' });
+  if (record.issueHistory.some((entry) => !entry.returnedAt)) {
+    return res.status(409).json({ success: false, message: 'Collect the issued paper before deleting this record' });
+  }
+  const files = [...record.documents.map((document) => document.url), record.pdfUrl].filter(Boolean);
+  await record.deleteOne();
+  await Promise.all(files.map(removeFile));
+  res.json({ success: true });
 });
 
 const rebuildPdf = async (record) => {
@@ -152,4 +195,4 @@ const collect = asyncHandler(async (req, res) => {
   await record.save(); res.json({ success: true, record: serialize(record) });
 });
 
-module.exports = { list, detail, summary, movements, lookup, create, uploadDocuments, issue, collect };
+module.exports = { list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, issue, collect };

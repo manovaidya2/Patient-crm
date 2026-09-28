@@ -4,7 +4,9 @@ const RecordRoom = require('../models/RecordRoom');
 const controller = require('./recordRoomController');
 
 const originalFind = RecordRoom.findById;
+const originalCreate = RecordRoom.create;
 afterEach(() => { RecordRoom.findById = originalFind; });
+afterEach(() => { RecordRoom.create = originalCreate; });
 
 async function request(handler, body, record) {
   let saved = false;
@@ -69,4 +71,48 @@ test('a repeated collection cannot overwrite the original history', async () => 
   assert.equal(result.response.statusCode, 409);
   assert.equal(result.saved, false);
   assert.deepEqual(patient.issueHistory[0].returnedAt, originalDate);
+});
+
+test('create stores shelf and file numbers', async () => {
+  RecordRoom.create = async (values) => new RecordRoom(values);
+  const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(data) { this.data = data; } };
+  await controller.create({ body: { patientName: 'Test Patient', shelfNumber: ' S-2 ', fileNumber: ' F-14 ' }, user: { name: 'Admin' } }, response, (error) => { throw error; });
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.data.record.shelfNumber, 'S-2');
+  assert.equal(response.data.record.fileNumber, 'F-14');
+});
+
+test('editing record location preserves documents and movement history', async () => {
+  const patient = record();
+  patient.issueHistory[0].returnedAt = new Date();
+  patient.documents.push({ url: '/uploads/records/test.jpg', fileName: 'test.jpg' });
+  patient.pdfUrl = '/uploads/records/test.pdf';
+  const result = await request(controller.update, { patientName: 'Updated Patient', shelfNumber: 'S-3', fileNumber: 'F-5' }, patient);
+  assert.equal(result.saved, true);
+  assert.equal(result.response.data.record.patientName, 'Updated Patient');
+  assert.equal(result.response.data.record.shelfNumber, 'S-3');
+  assert.equal(result.response.data.record.fileNumber, 'F-5');
+  assert.equal(result.response.data.record.documents.length, 1);
+  assert.equal(result.response.data.record.issueHistory.length, 1);
+  assert.match(result.response.data.record.pdfName, /Updated Patient/);
+});
+
+test('delete refuses records with unreturned paper', async () => {
+  const patient = record();
+  let deleted = false;
+  patient.deleteOne = async () => { deleted = true; };
+  const result = await request(controller.remove, {}, patient);
+  assert.equal(result.response.statusCode, 409);
+  assert.equal(deleted, false);
+});
+
+test('delete removes records whose paper has been returned', async () => {
+  const patient = record();
+  patient.issueHistory[0].returnedAt = new Date();
+  let deleted = false;
+  patient.deleteOne = async () => { deleted = true; };
+  const result = await request(controller.remove, {}, patient);
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.response.data.success, true);
+  assert.equal(deleted, true);
 });

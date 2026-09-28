@@ -12,6 +12,8 @@ router.get('/summary', controller.summary);
 router.get('/movements', controller.movements);
 router.get('/:id', controller.detail);
 router.post('/', controller.create);
+router.patch('/:id', authorize(ROLES.ADMIN), controller.update);
+router.delete('/:id', authorize(ROLES.ADMIN), controller.remove);
 router.post('/:id/documents', uploadRecordRoomImages.array('documents', 30), controller.uploadDocuments);
 router.post('/:id/issue', controller.issue);
 router.post('/:id/collect/:issueId', controller.collect);
