@@ -10,13 +10,13 @@ const Modal = ({ open, onClose, title, children, className = 'max-w-md' }) => {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className={`relative w-full bg-offwhite-100 border border-cardline rounded-xl2 shadow-card p-4 sm:p-6 max-h-[92vh] overflow-y-auto ${className}`}>
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-display text-lg font-bold text-charcoal">{title}</h2>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`app-dialog relative min-w-0 w-full bg-offwhite-100 border border-cardline rounded-xl2 shadow-card p-3.5 sm:p-6 max-h-[92dvh] overflow-y-auto ${className}`}>
+        <div className="flex items-start justify-between gap-3 mb-4 sm:mb-5">
+          <h2 className="min-w-0 break-words font-display text-base sm:text-lg font-bold text-charcoal">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="text-charcoal/55 hover:text-charcoal hover:bg-sage-muted/20 rounded-md p-1 transition"
+            className="shrink-0 text-charcoal/55 hover:text-charcoal hover:bg-sage-muted/20 rounded-md p-1 transition"
           >
             <X size={18} />
           </button>

@@ -109,20 +109,20 @@ const AdminLayout = () => {
 
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile top bar */}
-        <div className="md:hidden flex h-14 items-center justify-between px-4 bg-teal-950 text-offwhite-100">
-          <button onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" className="-ml-2 p-2 text-teal-100/80 hover:text-offwhite-100">
+        <div className="md:hidden flex min-h-14 items-center justify-between gap-2 px-3 py-2 bg-teal-950 text-offwhite-100">
+          <button onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" className="shrink-0 -ml-1 p-2 text-teal-100/80 hover:text-offwhite-100">
             <Menu size={20} />
           </button>
-          <span className="flex min-w-0 items-center gap-2">
-            <BrandLogo size="sm" />
-            <span className="max-w-[190px] truncate font-display text-sm font-bold">Manovaidya Operation System</span>
+          <span className="flex min-w-0 flex-1 items-center justify-center gap-2">
+            <BrandLogo size="sm" className="!h-7 !w-7" />
+            <span className="font-display text-[11px] font-bold leading-4">Manovaidya<span className="block font-medium">Operation System</span></span>
           </span>
-          <button onClick={logout} aria-label="Log out" className="-mr-2 p-2 text-teal-100/80 hover:text-offwhite-100">
+          <button onClick={logout} aria-label="Log out" className="shrink-0 -mr-1 p-2 text-teal-100/80 hover:text-offwhite-100">
             <LogOut size={18} />
           </button>
         </div>
 
-        <main className="flex-1 p-4 sm:p-8">
+        <main className="app-content min-w-0 w-full flex-1 p-3 sm:p-8">
           <ScheduleReminderAlert />
           <Suspense fallback={<div className="py-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
             <Outlet />

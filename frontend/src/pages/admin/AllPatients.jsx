@@ -346,7 +346,7 @@ const AllPatients = () => {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-center text-xs">
+              <table className="patient-list-table w-full table-fixed text-center text-xs">
                 <thead>
                   <tr className="border-b border-[#56695D] bg-[#56695D] text-center text-[10px] font-bold uppercase text-white">
                     <th className="w-[8%] px-3 py-2.5 font-semibold">Patient ID</th>
@@ -374,9 +374,9 @@ const AllPatients = () => {
                           : 'hover:bg-offwhite-300/25'
                       }`}
                     >
-                      <td className="break-words px-3 py-3 font-mono text-[10px] font-bold text-charcoal/45">{p.patientCode}</td>
-                      <td className="break-words px-3 py-3 font-medium text-charcoal">{p.patientName}</td>
-                      <td className="px-3 py-3">
+                      <td data-label="Patient ID" className="break-words px-3 py-3 font-mono text-[10px] font-bold text-charcoal/45">{p.patientCode}</td>
+                      <td data-label="Patient name" className="break-words px-3 py-3 font-medium text-charcoal">{p.patientName}</td>
+                      <td data-label="Category" className="px-3 py-3">
                         <div className="flex flex-wrap items-center justify-center gap-1.5">
                           <Badge tone={categoryTone(p.category)}>{p.categoryLabel}</Badge>
                           {p.approvalStatus === 'pending' && (
@@ -386,25 +386,25 @@ const AllPatients = () => {
                           )}
                         </div>
                       </td>
-                      <td className="break-words px-3 py-3 text-charcoal/70">{p.age}</td>
-                      <td className="break-words px-3 py-3 text-charcoal/70">{p.number}</td>
-                      <td className="break-words px-3 py-3 text-charcoal/70">
+                      <td data-label="Age" className="break-words px-3 py-3 text-charcoal/70">{p.age}</td>
+                      <td data-label="Phone / Father's number" className="break-words px-3 py-3 text-charcoal/70">{p.number}</td>
+                      <td data-label="Guardian / Relative" className="break-words px-3 py-3 text-charcoal/70">
                         {p.guardianName || p.relativeName || '—'}
                       </td>
-                      <td className="break-words px-3 py-3 text-charcoal/70">{p.alternateNumber || '—'}</td>
-                      <td className="px-3 py-3 text-charcoal/55">
+                      <td data-label="Mother's / Relative number" className="break-words px-3 py-3 text-charcoal/70">{p.alternateNumber || '—'}</td>
+                      <td data-label="Consultation date" className="px-3 py-3 text-charcoal/55">
                         {p.consultationDate ? formatDate(p.consultationDate) : '—'}
                       </td>
-                      {optionalColumns.includes('receivedDate') && <td className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>}
+                      {optionalColumns.includes('receivedDate') && <td data-label="Received" className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>}
                       {optionalColumns.includes('followUps') && (
-                        <td className="px-3 py-3 text-charcoal/70">
+                        <td data-label="Follow-ups" className="px-3 py-3 text-charcoal/70">
                           <span className="font-semibold text-charcoal">{p.followUpTotal || 0}</span>
                           <span className="text-charcoal/45"> total</span>
                           <span className="mt-0.5 block text-[10px] text-sage">{p.followUpCompleted || 0} complete</span>
                         </td>
                       )}
                       {optionalColumns.includes('familySessions') && (
-                        <td className="px-3 py-3 text-charcoal/70">
+                        <td data-label="Family sessions" className="px-3 py-3 text-charcoal/70">
                           <span className="font-semibold text-charcoal">{p.familySessionTotal || 0}</span>
                           <span className="text-charcoal/45"> total</span>
                           <span className="mt-0.5 block text-[10px] text-sage">{p.familySessionCompleted || 0} complete</span>

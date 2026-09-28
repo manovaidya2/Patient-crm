@@ -298,7 +298,7 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="mt-6 flex items-end justify-between gap-4">
+          <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="font-display text-4xl font-bold text-charcoal">
                 {loading ? '...' : activeStage?.activePatients || 0}
@@ -325,7 +325,7 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 max-sm:[&>div]:flex max-sm:[&>div]:items-center max-sm:[&>div]:justify-between max-sm:[&>div]:gap-3">
             <div>
               <p className="text-xs font-semibold text-charcoal/55">Package Total</p>
               <p className="mt-1 font-display text-lg font-bold text-charcoal">
@@ -388,7 +388,7 @@ const Dashboard = () => {
             <div className="rounded-lg border border-cardline bg-offwhite-200 p-5 text-sm font-semibold text-sage">All package amounts are fully paid.</div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-cardline bg-offwhite-100">
-              <div className="grid grid-cols-[1.15fr_0.72fr_1.35fr_0.76fr_0.76fr_0.86fr_1.28fr] gap-x-6 border-b border-cardline-soft bg-offwhite-200 px-4 py-2 text-center text-[11px] font-bold uppercase tracking-wide text-charcoal/55">
+              <div className="hidden sm:grid grid-cols-[1.15fr_0.72fr_1.35fr_0.76fr_0.76fr_0.86fr_1.28fr] gap-x-6 border-b border-cardline-soft bg-offwhite-200 px-4 py-2 text-center text-[11px] font-bold uppercase tracking-wide text-charcoal/55">
                 <span className="min-w-0">Patient</span>
                 <span className="min-w-0">Phase</span>
                 <span className="min-w-0">Package</span>
@@ -398,16 +398,16 @@ const Dashboard = () => {
                 <span className="min-w-0">Team</span>
               </div>
               {paymentDueLedger.rows.map((row) => (
-                <div key={`${row.patientId}-${row.phase}`} className="grid grid-cols-[1.15fr_0.72fr_1.35fr_0.76fr_0.76fr_0.86fr_1.28fr] gap-x-6 border-b border-cardline-soft px-4 py-3 text-center text-sm last:border-0">
+                <div key={`${row.patientId}-${row.phase}`} className="mobile-ledger-row grid grid-cols-2 sm:grid-cols-[1.15fr_0.72fr_1.35fr_0.76fr_0.76fr_0.86fr_1.28fr] gap-3 sm:gap-y-0 sm:gap-x-6 border-b border-cardline-soft px-4 py-3 text-left sm:text-center text-sm last:border-0">
                   <Link to={`/admin/patients/${row.patientId}`} className="min-w-0 font-bold text-charcoal hover:text-sage">
                     <span className="block truncate">{row.patientName}</span>
                     <span className="mt-0.5 block font-mono text-[11px] tracking-widest text-charcoal/45">{row.patientCode}</span>
                   </Link>
                   <span className="min-w-0 truncate font-semibold text-charcoal">{row.phaseLabel || `Phase ${row.phase}`}</span>
-                  <span className="truncate text-charcoal/70">{row.packageName || '-'}</span>
-                  <span className="min-w-0 truncate font-semibold tabular-nums text-charcoal">{formatMoney(row.totalAmount)}</span>
-                  <span className="min-w-0 truncate font-semibold tabular-nums text-sage">{formatMoney(row.paidAmount)}</span>
-                  <span className="min-w-0 truncate font-bold tabular-nums text-[#8C3B2E]">{formatMoney(row.dueAmount)}</span>
+                  <span data-label="Package" className="truncate text-charcoal/70">{row.packageName || '-'}</span>
+                  <span data-label="Total" className="min-w-0 truncate font-semibold tabular-nums text-charcoal">{formatMoney(row.totalAmount)}</span>
+                  <span data-label="Paid" className="min-w-0 truncate font-semibold tabular-nums text-sage">{formatMoney(row.paidAmount)}</span>
+                  <span data-label="Due" className="min-w-0 truncate font-bold tabular-nums text-[#8C3B2E]">{formatMoney(row.dueAmount)}</span>
                   <span className="min-w-0 text-xs text-charcoal/55">
                     {row.assignedDoctor ? `Doctor: ${row.assignedDoctor}` : 'Doctor: -'}
                     {row.postCounselor ? <span className="block truncate">PC: {row.postCounselor}</span> : null}
@@ -451,7 +451,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
             <p className="text-xs font-semibold text-charcoal/55">Total Follow-ups</p>
             <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.total}</p>
@@ -506,10 +506,10 @@ const Dashboard = () => {
           ) : lossPoints.rows.length === 0 ? (
             <div className="rounded-lg border border-cardline bg-offwhite-200 p-5 text-sm font-semibold text-sage">No late work right now.</div>
           ) : (
-            <div className="min-w-[720px] divide-y divide-cardline-soft rounded-lg border border-cardline bg-offwhite-100">
+            <div className="sm:min-w-[720px] divide-y divide-cardline-soft rounded-lg border border-cardline bg-offwhite-100">
               {lossPoints.rows.map((row) => (
-                <div key={row.key} className="grid grid-cols-[1.2fr_90px_90px_110px_1.8fr] gap-3 px-4 py-3 text-sm">
-                  <div>
+                <div key={row.key} className="grid grid-cols-3 sm:grid-cols-[1.2fr_90px_90px_110px_1.8fr] gap-3 px-4 py-3 text-sm">
+                  <div className="col-span-3 sm:col-span-1">
                     <p className="font-bold text-charcoal">{row.name}</p>
                     <p className="mt-0.5 text-xs text-charcoal/45">Total mistakes: {row.total}</p>
                   </div>
@@ -525,7 +525,7 @@ const Dashboard = () => {
                     <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Medicine</p>
                     <p className="font-display text-lg font-bold text-charcoal">{row.medicine}</p>
                   </div>
-                  <div className="space-y-1">
+                  <div className="col-span-3 sm:col-span-1 space-y-1">
                     {(row.latest || []).map((item, index) => (
                       <p key={`${row.key}-${index}`} className="truncate text-xs text-charcoal/60">
                         <span className="font-semibold text-charcoal">{item.type}</span> - {item.patientName} ({item.patientCode}), Phase {item.stage}, {formatShortDateTime(item.at)}
@@ -616,9 +616,9 @@ const Dashboard = () => {
         </Link>
       </div>}
 
-      {isAdmin && <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {isAdmin && <div className="mt-3 grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {roleCounts.map(({ role, label, count }) => (
-          <Card key={role} className="flex items-center justify-between">
+          <Card key={role} className="flex max-sm:flex-col max-sm:items-start max-sm:gap-2 items-center justify-between">
             <span className="text-sm font-medium text-charcoal">{label}</span>
             <span className="text-lg font-display font-bold text-sage">{loading ? '—' : count}</span>
           </Card>

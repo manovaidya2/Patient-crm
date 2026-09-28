@@ -65,11 +65,11 @@ const BankCollectionsSection = ({
                   <Wrapper
                     type={clickable ? 'button' : undefined}
                     onClick={clickable ? () => setSelectedBank(bank) : undefined}
-                    className={`flex w-full items-center gap-3 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-left ${
+                    className={`flex w-full flex-col items-start sm:flex-row sm:items-center gap-3 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-left ${
                       clickable ? 'transition hover:border-sage hover:bg-sage-muted/10' : ''
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 max-w-full flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <p className="truncate text-sm font-bold text-charcoal">{row.bankName}</p>
                         {bank && !bank.isActive && <Badge tone="inactive">Inactive</Badge>}

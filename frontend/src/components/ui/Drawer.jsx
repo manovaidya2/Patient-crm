@@ -10,13 +10,13 @@ const Drawer = ({ open, onClose, title, children }) => {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative w-full max-w-sm bg-offwhite-100 border-l border-cardline shadow-card h-full overflow-y-auto p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-display text-lg font-bold text-charcoal">{title}</h2>
+      <div role="dialog" aria-modal="true" aria-label={title} className="app-dialog relative min-w-0 w-full max-w-sm bg-offwhite-100 border-l border-cardline shadow-card h-full overflow-y-auto p-3.5 sm:p-6">
+        <div className="flex items-start justify-between gap-3 mb-4 sm:mb-5">
+          <h2 className="min-w-0 break-words font-display text-base sm:text-lg font-bold text-charcoal">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="text-charcoal/55 hover:text-charcoal hover:bg-sage-muted/20 rounded-md p-1 transition"
+            className="shrink-0 text-charcoal/55 hover:text-charcoal hover:bg-sage-muted/20 rounded-md p-1 transition"
           >
             <X size={18} />
           </button>

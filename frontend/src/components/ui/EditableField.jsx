@@ -52,7 +52,7 @@ const EditableField = ({
 
   if (editing) {
     return (
-      <div className={`${panelClass} p-4`}>
+      <div className={`${panelClass} min-w-0 p-3 sm:p-4`}>
         <p className={`text-[11px] uppercase tracking-wide font-semibold ${labelClass}`}>{label}</p>
         <div className="mt-1 flex items-center gap-1">
           {type === 'select' ? (
@@ -118,14 +118,14 @@ const EditableField = ({
   const displayValue = type === 'select' ? options.find((o) => String(o.value) === String(value))?.label : value;
 
   return (
-    <div className={`${panelClass} p-4 group`}>
+    <div className={`${panelClass} min-w-0 p-3 sm:p-4 group`}>
       <div className="flex items-center justify-between gap-2">
         <p className={`text-[11px] uppercase tracking-wide font-semibold ${labelClass}`}>{label}</p>
         {!readOnly && (
           <button
             onClick={startEdit}
             aria-label={`Edit ${label}`}
-            className="shrink-0 rounded p-0.5 text-sage opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-sage-muted/20 transition-opacity"
+            className="shrink-0 rounded p-0.5 text-sage sm:opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-sage-muted/20 transition-opacity"
           >
             <Pencil size={12} />
           </button>

@@ -160,8 +160,8 @@ const PatientApprovals = () => {
                       </p>
                     </div>
 
-                    <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-                      <div className="flex items-center gap-4 text-sm">
+                    <div className="flex max-w-full sm:shrink-0 flex-col items-start gap-2 sm:items-end">
+                      <div className="grid grid-cols-2 sm:flex items-center gap-3 sm:gap-4 text-sm">
                         <div className="text-right">
                           <p className="text-[11px] uppercase tracking-wide text-charcoal/45">Package</p>
                           <p className="font-display font-bold text-charcoal">{formatMoney(stage.totalAmount)}</p>
@@ -181,7 +181,7 @@ const PatientApprovals = () => {
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Link to={`/admin/patients/${patient.id}`}>
                           <Button size="sm" variant="outline">
                             View Details

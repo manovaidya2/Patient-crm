@@ -185,7 +185,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
 
   return (
     <aside
-      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 shadow-2xl' : `hidden md:flex ${isCollapsed ? 'w-20' : 'w-64'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
+      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `hidden md:flex ${isCollapsed ? 'w-20' : 'w-64'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
     >
       {/* Collapse / expand toggle */}
       {!mobile && <button

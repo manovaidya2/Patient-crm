@@ -208,7 +208,7 @@ const AddPaymentField = ({ onAdd }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               id="paymentAmount"
               type="number"
@@ -260,7 +260,7 @@ const AddPaymentField = ({ onAdd }) => {
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input
                   id="utr"
                   label="UTR"
@@ -419,7 +419,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               id={`editPaymentAmount-${payment.id}`}
               type="number"
@@ -471,7 +471,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input
                   id={`editUtr-${payment.id}`}
                   label="UTR"
@@ -975,18 +975,18 @@ const MedicineRequestRow = ({ request, label, canRequest, onRequest }) => {
 
   return (
     <div className="rounded-lg border border-cardline bg-offwhite-100">
-      <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+      <div className="flex flex-col items-start sm:flex-row sm:items-center justify-between gap-3 px-3.5 py-2.5">
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          className="flex min-w-0 w-full sm:w-auto flex-1 items-center gap-2 sm:gap-3 text-left"
           aria-expanded={open}
         >
           <ChevronDown size={16} className={`shrink-0 text-sage transition-transform ${open ? 'rotate-180' : ''}`} />
           <div className="min-w-0">
             <p className="text-sm font-bold text-charcoal">
               {label}
-              <span className="ml-2 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</span>
+              <span className="block sm:inline sm:ml-2 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</span>
             </p>
             <p className="mt-0.5 truncate text-xs text-charcoal/55">
               {request?.requestedAt ? formatDateTime(request.requestedAt) : '-'}
@@ -1461,11 +1461,11 @@ const ScheduleCard = ({
 
   return (
     <Card className="mt-5">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
         <h2 className="font-display text-base font-bold text-charcoal flex items-center gap-2">
           <Icon size={17} className="text-sage" /> {title}
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {!collapsed && (
             <Button size="sm" variant="outline" onClick={openNotesDrawer}>
               <MessageSquareText size={14} /> Notes
@@ -1499,7 +1499,7 @@ const ScheduleCard = ({
             const canMarkSentTrackerDone = canUpdate && isTracker && e.status === 'sent';
             return (
               <li key={e.id} className="rounded-lg border border-cardline bg-offwhite-200 p-3">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col items-stretch sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-charcoal">{formatDateTime(e.dateTime)}</p>
                     {(formType === 'followup_full' || allowShortFollowUp) && e.followUpType !== 'normal' && (
@@ -1510,7 +1510,7 @@ const ScheduleCard = ({
                     {e.notes && <p className="mt-0.5 text-xs text-charcoal/60 truncate">{e.notes}</p>}
                     <p className="mt-0.5 text-[11px] text-charcoal/40">By {e.createdByName || 'Unknown'}</p>
                   </div>
-                  <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5">
+                  <div className="max-w-full sm:shrink-0 flex flex-wrap items-center sm:justify-end gap-1.5">
                     <Badge tone={DISPLAY_STATUS_BADGE_TONE[e.displayStatus]}>{e.displayStatusLabel}</Badge>
                     {canEditEntries && (
                       <Button size="sm" variant="outline" onClick={() => openEditModal(e)}>
@@ -2741,7 +2741,7 @@ const PatientDetails = () => {
   ];
 
   return (
-    <div>
+    <div className="patient-details">
       <button
         type="button"
         onClick={() => {
@@ -2772,8 +2772,8 @@ const PatientDetails = () => {
         </Card>
       ) : (
         <Card padded={false} className="overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-start justify-between gap-3">
+          <div className="p-3.5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-1">
                 <span className="truncate font-mono text-xs tracking-widest text-charcoal/40 font-semibold">
                   {patient.patientCode || `PT-${String(patient.id).slice(-6).toUpperCase()}`}
@@ -2883,7 +2883,7 @@ const PatientDetails = () => {
           )}
 
                     {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
             <EditableField
               label="Age"
               value={patient.age ?? ''}
@@ -2959,7 +2959,7 @@ const PatientDetails = () => {
 
       {!loading && !loadError && patient && (
         <Card className="mt-5" padded={false}>
-          <div className="p-6 pb-0 flex items-center justify-between">
+          <div className="p-3.5 sm:p-6 pb-0 sm:pb-0 flex flex-wrap gap-3 items-center justify-between">
             <div>
               <h2 className="font-display text-base font-bold text-charcoal">Treatment Phase</h2>
               <p className="mt-0.5 text-xs text-charcoal/55">Select a phase to view or edit its details.</p>
@@ -2969,7 +2969,7 @@ const PatientDetails = () => {
           </div>
 
           {/* Phase tabs */}
-          <div className="p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          <div className="p-3.5 sm:p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             {patient.stages.map((s) => {
               const isCurrent = patient.currentStage === s.number;
               const isActiveTab = activeStageTab === s.number;
@@ -3083,7 +3083,7 @@ const PatientDetails = () => {
 
           {/* Tab content — details for the selected phase, shown inline below the tabs */}
           {activeStage && (
-            <div className="px-6 pb-6">
+            <div className="px-3.5 pb-3.5 sm:px-6 sm:pb-6">
               <div className="mb-4 grid grid-cols-1 gap-px border border-cardline bg-cardline sm:grid-cols-2">
                 <EditableField
                   label={`Patient History By - Phase ${activeStage.number}`}
@@ -3103,7 +3103,7 @@ const PatientDetails = () => {
               </div>
               {/* Package card — compact, same small-field style as Age/Phone/etc above */}
               <div className="rounded-lg border border-cardline bg-offwhite-100 overflow-hidden">
-                <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">
+                <div className="flex flex-wrap gap-2 items-center justify-between px-4 pt-3.5 pb-2.5">
                   <h3 className="text-sm font-bold text-charcoal">Package - Phase {activeStage.number}</h3>
                   <button
                     type="button"
@@ -3113,7 +3113,7 @@ const PatientDetails = () => {
                     <History size={13} /> Timeline
                   </button>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
+                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
                   <EditableField
                     label="Package Name"
                     value={activeStage.packageName}
@@ -3202,7 +3202,7 @@ const PatientDetails = () => {
                   <PackageCheck size={18} className={activeMedicineConnectDue ? 'text-[#B42318]' : 'text-sage'} />
                 </div>
                 <div
-                  className={`grid grid-cols-2 sm:grid-cols-6 gap-px border-t ${
+                  className={`grid grid-cols-1 sm:grid-cols-6 gap-px border-t ${
                     activeMedicineConnectDue ? 'border-[#B42318]/25 bg-[#B42318]/20' : 'border-cardline bg-cardline'
                   }`}
                 >

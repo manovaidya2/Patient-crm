@@ -352,7 +352,7 @@ const PaperCompletionForm = ({ formType, formData, onChange, patientMeta }) => {
 
   return (
     <div className="pdf-paper-scroll max-h-[62vh] overflow-auto rounded-sm border border-charcoal/45 bg-[#FFFDF8] p-2 sm:p-3 text-charcoal shadow-inner">
-      <div className="pdf-sheet min-w-[700px] border border-charcoal/55 sm:min-w-0">
+      <div className="pdf-sheet min-w-0 border border-charcoal/55">
         <div className="pdf-title-bar bg-charcoal px-3 py-2 text-offwhite-100">
           <p className="pdf-title-brand text-center text-[10px] font-semibold tracking-[0.18em]">MANOVAIDYA</p>
           <h3 className="pdf-title-main mt-1 text-center font-display text-sm font-bold uppercase tracking-wide">
@@ -409,21 +409,21 @@ const PaperCompletionForm = ({ formType, formData, onChange, patientMeta }) => {
                     return (
                     <tr key={label}>
                       <td className="pdf-point-label border border-charcoal/25 px-2 py-1.5 align-top font-semibold">{label}</td>
-                      <td className="border border-charcoal/25 px-2 py-1.5 align-top text-charcoal/70">
+                      <td data-label="सब सेक्शन / मात्रा" className="border border-charcoal/25 px-2 py-1.5 align-top text-charcoal/70">
                         <PaperFillableTemplate
                           text={cells.method}
                           value={paperValue.method}
                           onChange={(nextValue) => setValue(section, label, { ...paperValue, method: nextValue })}
                         />
                       </td>
-                      <td className="border border-charcoal/25 px-2 py-1.5 align-top text-charcoal/60">
+                      <td data-label="पालन" className="border border-charcoal/25 px-2 py-1.5 align-top text-charcoal/60">
                         <PaperFillableTemplate
                           text={cells.compliance}
                           value={paperValue.compliance}
                           onChange={(nextValue) => setValue(section, label, { ...paperValue, compliance: nextValue })}
                         />
                       </td>
-                      <td className="border border-charcoal/25 px-2 py-1.5 align-top">
+                      <td data-label="Miss / बाधा / नोट" className="border border-charcoal/25 px-2 py-1.5 align-top">
                         <PaperFillableTemplate
                           text={cells.note}
                           value={paperValue.note}
