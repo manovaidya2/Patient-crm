@@ -644,6 +644,7 @@ const formatPatientListItem = (p, user = null) => {
     currentStage,
     currentStageLabel: STAGE_LABELS[currentStage],
     consultationDate: currentStageEntry?.consultationDate || null,
+    totalAmount: Number(currentStageEntry?.totalAmount || 0),
     approvalStatus: p.approvalStatus || 'approved',
     canApprove: canReviewPatientApproval(user),
     isActive: p.isActive !== false,
@@ -664,7 +665,7 @@ const formatPatientListItem = (p, user = null) => {
 // @route   GET /api/patients
 // @access  Private/Admin, Doctor, Accountant, Post Counselor
 const getPatients = asyncHandler(async (req, res) => {
-  const { search = '', category, stage, receivedDate, consultationDate, status, page = 1, limit = 10 } = req.query;
+  const { search = '', category, stage, receivedDate, consultationDate, amountStatus, status, page = 1, limit = 10 } = req.query;
 
   const filter = {};
 
@@ -726,6 +727,23 @@ const getPatients = asyncHandler(async (req, res) => {
     };
   }
 
+  if (amountStatus) {
+    if (!['missing', 'added'].includes(amountStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid total amount filter' });
+    }
+    const currentAmount = {
+      $let: {
+        vars: { phase: { $arrayElemAt: [{ $filter: {
+          input: { $ifNull: ['$stages', []] }, as: 'phase',
+          cond: { $eq: ['$$phase.number', { $ifNull: ['$currentStage', 1] }] },
+        } }, 0] } },
+        in: { $ifNull: ['$$phase.totalAmount', 0] },
+      },
+    };
+    const amountCondition = { [amountStatus === 'missing' ? '$lte' : '$gt']: [currentAmount, 0] };
+    filter.$expr = filter.$expr ? { $and: [filter.$expr, amountCondition] } : amountCondition;
+  }
+
   if (search) {
     filter.$or = [
       { patientName: { $regex: search, $options: 'i' } },
@@ -753,7 +771,7 @@ const getPatients = asyncHandler(async (req, res) => {
   const listProjection = [
     'patientCode patientName category age number guardianName alternateNumber relativeName currentStage',
     'approvalStatus isActive inactiveReason inactivatedByName inactivatedAt createdAt',
-    'stages.number stages.consultationDate stages.medicineNextConnectDate stages.medicineConnectDone',
+    'stages.number stages.totalAmount stages.consultationDate stages.medicineNextConnectDate stages.medicineConnectDone',
     'stages.followUps.status stages.familySessions.status',
   ].join(' ');
   const [patients, total] = await Promise.all([

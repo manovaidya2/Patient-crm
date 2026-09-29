@@ -16,6 +16,7 @@ const OPTIONAL_PATIENT_COLUMNS = [
   { key: 'receivedDate', label: 'Received' },
   { key: 'followUps', label: 'Follow-ups' },
   { key: 'familySessions', label: 'Family Sessions' },
+  { key: 'totalAmount', label: 'Total Amount (Current Phase)' },
 ];
 
 const emptyPatientForm = {
@@ -48,6 +49,7 @@ const AllPatients = () => {
   const [search, setSearch] = useState(() => searchParams.get('search') || '');
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || '');
+  const [amountStatus, setAmountStatus] = useState(() => searchParams.get('amountStatus') || '');
   const [dateFilter, setDateFilter] = useState(() => searchParams.get('date') || '');
   const [consultationDateFilter, setConsultationDateFilter] = useState(
     () => searchParams.get('consultationDate') || '',
@@ -72,7 +74,7 @@ const AllPatients = () => {
   // Track the previous filter values (not just "have we mounted") so React 18 StrictMode's
   // dev-only double-invoke of this effect — same values, twice — can't misread its own
   // second pass as a real change and reset the restored page back to 1.
-  const prevFiltersRef = useRef({ categoryFilter, dateFilter, consultationDateFilter });
+  const prevFiltersRef = useRef({ categoryFilter, dateFilter, consultationDateFilter, amountStatus });
 
   useEffect(() => {
     localStorage.setItem(optionalColumnsStorageKey, JSON.stringify(optionalColumns));
@@ -92,13 +94,14 @@ const AllPatients = () => {
     const prev = prevFiltersRef.current;
     if (
       prev.categoryFilter !== categoryFilter ||
+      prev.amountStatus !== amountStatus ||
       prev.dateFilter !== dateFilter ||
       prev.consultationDateFilter !== consultationDateFilter
     ) {
       setPage(1);
     }
-    prevFiltersRef.current = { categoryFilter, dateFilter, consultationDateFilter };
-  }, [categoryFilter, dateFilter, consultationDateFilter]);
+    prevFiltersRef.current = { categoryFilter, dateFilter, consultationDateFilter, amountStatus };
+  }, [categoryFilter, dateFilter, consultationDateFilter, amountStatus]);
 
   // Keep the URL in sync (replace, not push) so it always reflects the current
   // page/search/filters without spamming browser history on every keystroke/click.
@@ -107,17 +110,19 @@ const AllPatients = () => {
     if (page > 1) params.page = String(page);
     if (debouncedSearch) params.search = debouncedSearch;
     if (categoryFilter) params.category = categoryFilter;
+    if (amountStatus) params.amountStatus = amountStatus;
     if (dateFilter) params.date = dateFilter;
     if (consultationDateFilter) params.consultationDate = consultationDateFilter;
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter]);
+  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter, amountStatus]);
 
   const { data, loading, error } = useApiQuery('/patients', {
     params: {
       page, limit: PAGE_SIZE,
       search: debouncedSearch || undefined,
       category: categoryFilter || undefined,
+      amountStatus: amountStatus || undefined,
       receivedDate: dateFilter || undefined,
       consultationDate: consultationDateFilter || undefined,
     },
@@ -125,6 +130,7 @@ const AllPatients = () => {
   const patients = data?.patients || [];
   const pages = data?.pages || 1;
   const total = data?.total || 0;
+  const hasFilters = Boolean(debouncedSearch || categoryFilter || dateFilter || consultationDateFilter || amountStatus);
   const loadError = error && !data ? error.response?.data?.message || 'Could not load patients.' : '';
 
   useEffect(() => {
@@ -249,7 +255,7 @@ const AllPatients = () => {
       </Modal>
 
       <Card className="mt-6" padded={false}>
-        <div className="grid gap-3 border-b border-cardline-soft p-4 lg:grid-cols-[minmax(260px,1.5fr)_minmax(165px,0.75fr)_minmax(165px,0.75fr)_minmax(180px,0.8fr)]">
+        <div className="grid gap-3 border-b border-cardline-soft p-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(140px,1fr))]">
           <div className="relative self-end">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
             <input
@@ -321,6 +327,12 @@ const AllPatients = () => {
               </option>
             ))}
           </select>
+          <div className="self-end">
+            <label htmlFor="package-amount-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">Total Amount (Current Phase)</label>
+            <select id="package-amount-filter" value={amountStatus} onChange={(event) => setAmountStatus(event.target.value)} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
+              <option value="">All amounts</option><option value="missing">Amount not added</option><option value="added">Amount added</option>
+            </select>
+          </div>
         </div>
 
         {loading ? (
@@ -336,9 +348,9 @@ const AllPatients = () => {
         ) : patients.length === 0 ? (
           <div className="p-10 flex flex-col items-center text-center gap-2">
             <Inbox size={22} className="text-charcoal/35" />
-            <p className="text-sm text-charcoal font-medium">No patients yet</p>
+            <p className="text-sm text-charcoal font-medium">{hasFilters ? 'No patients match these filters' : 'No patients yet'}</p>
             <p className="text-xs text-charcoal/55">
-              {total === 0
+              {!hasFilters && total === 0
                 ? 'Patients sent from the CRM webhook will appear here automatically.'
                 : 'Try a different search or filter.'}
             </p>
@@ -358,6 +370,7 @@ const AllPatients = () => {
                     <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's / Relative Number</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
                     {optionalColumns.includes('receivedDate') && <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>}
+                    {optionalColumns.includes('totalAmount') && <th className="w-[12%] px-3 py-2.5 font-semibold">Total Amount</th>}
                     {optionalColumns.includes('followUps') && <th className="w-[12%] px-3 py-2.5 font-semibold">Follow-ups</th>}
                     {optionalColumns.includes('familySessions') && <th className="w-[14%] px-3 py-2.5 font-semibold">Family Sessions</th>}
                   </tr>
@@ -396,6 +409,10 @@ const AllPatients = () => {
                         {p.consultationDate ? formatDate(p.consultationDate) : '—'}
                       </td>
                       {optionalColumns.includes('receivedDate') && <td data-label="Received" className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>}
+                      {optionalColumns.includes('totalAmount') && <td data-label="Total amount" className="px-3 py-3 text-charcoal">
+                        <span className="font-semibold">{Number(p.totalAmount) > 0 ? `Rs ${Number(p.totalAmount).toLocaleString('en-IN')}` : 'Not added'}</span>
+                        <span className="mt-1 block text-[10px] text-charcoal/60">Phase {p.currentStage}</span>
+                      </td>}
                       {optionalColumns.includes('followUps') && (
                         <td data-label="Follow-ups" className="px-3 py-3 text-charcoal/70">
                           <span className="font-semibold text-charcoal">{p.followUpTotal || 0}</span>

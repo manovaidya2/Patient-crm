@@ -6,13 +6,17 @@ const { ROLES } = require('../constants/roles');
 
 async function invoke(handler, { query = {}, role = ROLES.ADMIN, patients = [] } = {}) {
   const original = Patient.find;
+  const originalCount = Patient.countDocuments;
   const captured = {};
+  Patient.countDocuments = async (filter) => { captured.countFilter = filter; return patients.length; };
   Patient.find = (filter) => {
     captured.filter = filter;
     const result = {
       select(fields) { captured.fields = fields; return this; },
       populate() { return this; },
       sort() { return this; },
+      skip(value) { captured.skip = value; return this; },
+      limit(value) { captured.limit = value; return this; },
       lean() { captured.lean = true; return this; },
       then(resolve, reject) { return Promise.resolve(patients).then(resolve, reject); },
     };
@@ -22,7 +26,7 @@ async function invoke(handler, { query = {}, role = ROLES.ADMIN, patients = [] }
   try {
     await handler({ query, user: { _id: 'staff-1', role } }, response, (error) => { throw error; });
     return { ...captured, response };
-  } finally { Patient.find = original; }
+  } finally { Patient.find = original; Patient.countDocuments = originalCount; }
 }
 
 test('medicine reads filter legacy and multiple requests in Mongo and exclude unrelated stages data', async () => {
@@ -124,4 +128,31 @@ test('bank detail matches dashboard count and amount for the selected paid date'
   assert.equal(all.response.data.bankPaymentSummary.range, 'all');
   assert.equal(all.response.data.bankPaymentSummary.rows[0].count, 2);
   assert.equal(all.response.data.bankPaymentSummary.rows[0].amount, 300);
+});
+
+test('missing amount filter combines with consultation date and staff scope before pagination', async () => {
+  const result = await invoke(controller.getPatients, {
+    role: ROLES.ASSISTANT_DOCTOR,
+    query: { amountStatus: 'missing', consultationDate: '2026-09-29', search: 'Patient', page: 2, limit: 10 },
+    patients: [{ _id: 'p1', patientName: 'Patient', currentStage: 2, stages: [{ number: 1, totalAmount: 49000 }, { number: 2 }] }],
+  });
+  assert.equal(result.filter.assignedDoctor, 'staff-1');
+  assert.equal(result.filter.$expr.$and.length, 2);
+  assert.ok(result.filter.$expr.$and[1].$lte);
+  assert.ok(result.filter.$or);
+  assert.deepEqual(result.countFilter, result.filter);
+  assert.equal(result.skip, 10);
+  assert.ok(result.fields.includes('stages.totalAmount'));
+  assert.equal(result.response.data.patients[0].totalAmount, 0);
+});
+
+test('amount column uses current phase and invalid amount filters are rejected', async () => {
+  const result = await invoke(controller.getPatients, {
+    query: { amountStatus: 'added' },
+    patients: [{ _id: 'p1', currentStage: 2, stages: [{ number: 1, totalAmount: 100 }, { number: 2, totalAmount: 49000 }] }],
+  });
+  assert.ok(result.filter.$expr.$gt);
+  assert.equal(result.response.data.patients[0].totalAmount, 49000);
+  const invalid = await invoke(controller.getPatients, { query: { amountStatus: 'bad' } });
+  assert.equal(invalid.response.code, 400);
 });
