@@ -30,6 +30,7 @@ async function main() {
   const defaults = { success: true, rows: [], patients: [], users: [], reminders: [], banks: [], items: [], entries: [], payments: [], categories: [], articles: [], queries: [], records: [], appointments: [], columns: [], reviews: [], doctors: [], psychologists: [], postCounselors: [], callLogs: [], total: 0, pages: 1 };
   const fixtures = {
     '/auth/me': { user }, '/users': { users: [user] },
+    '/banks': { banks: [{ id: 'bank1', name: 'Sample Bank', displayName: 'Sample Bank', isActive: true }] },
     '/patients': { patients: [patient], total: 1, pages: 1 }, '/patients/p1': { patient },
     '/patients/pending-approvals': { patients: [patient] },
     '/patients/dashboard-stats': {
@@ -122,6 +123,18 @@ async function main() {
       await page.click('button[aria-label="Edit Age"]');
       await page.waitForSelector('button[aria-label="Save Age"]');
       await page.click('button[aria-label="Cancel editing Age"]');
+      await page.evaluate(() => {
+        const button = [...document.querySelectorAll('button')].find((element) => element.textContent.trim() === 'Add' && element.closest('.patient-details'));
+        if (!button) throw new Error('Add Payment button missing');
+        button.click();
+      });
+      await page.waitForSelector('[role="dialog"]');
+      const bankOptional = await page.$eval('[role="dialog"]', (dialog) => {
+        const label = [...dialog.querySelectorAll('label')].find((element) => element.textContent.includes('Pay to Bank'));
+        return Boolean(label && !label.parentElement.querySelector('select').required);
+      });
+      assert.ok(bankOptional, 'Pay to Bank must be optional even when active banks exist');
+      await page.click('[role="dialog"] button[aria-label="Close"]');
       await page.click('button[aria-label="Open navigation"]');
       await page.waitForSelector('button[aria-label="Close navigation"]');
       const navigation = await page.$('aside.fixed');

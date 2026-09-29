@@ -174,15 +174,7 @@ const sameValue = (left, right) => String(left ?? '') === String(right ?? '');
 const resolvePayToBank = async (paymentMode, bankId) => {
   if (paymentMode !== PAYMENT_MODES.ONLINE) return { payToBank: null, payToBankName: '' };
   const normalizedBankId = String(bankId || '').trim();
-  const activeBanks = await BankAccount.countDocuments({ isActive: true });
-  if (!normalizedBankId) {
-    if (activeBanks > 0) {
-      const error = new Error('Pay to Bank is required for online payment');
-      error.statusCode = 400;
-      throw error;
-    }
-    return { payToBank: null, payToBankName: '' };
-  }
+  if (!normalizedBankId) return { payToBank: null, payToBankName: '' };
   const bank = await BankAccount.findOne({ _id: normalizedBankId, isActive: true }).lean();
   if (!bank) {
     const error = new Error('Select a valid active bank');

@@ -249,14 +249,13 @@ const AddPaymentField = ({ onAdd }) => {
           {form.paymentMode === PAYMENT_MODES.ONLINE ? (
             <>
               <div>
-                <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank</label>
+                <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank (optional)</label>
                 <select
                   value={form.payToBank}
                   onChange={(e) => setForm({ ...form, payToBank: e.target.value })}
                   className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-                  required={banks.length > 0}
                 >
-                  <option value="">{banks.length ? 'Select bank' : 'No active bank added'}</option>
+                  <option value="">{banks.length ? 'Select bank (optional)' : 'No active bank added'}</option>
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
@@ -460,14 +459,13 @@ const EditPaymentButton = ({ payment, onSave }) => {
           {form.paymentMode === PAYMENT_MODES.ONLINE ? (
             <>
               <div>
-                <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank</label>
+                <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank (optional)</label>
                 <select
                   value={form.payToBank}
                   onChange={(e) => setForm({ ...form, payToBank: e.target.value })}
                   className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-                  required={banks.length > 0}
                 >
-                  <option value="">{banks.length ? 'Select bank' : 'No active bank added'}</option>
+                  <option value="">{banks.length ? 'Select bank (optional)' : 'No active bank added'}</option>
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
