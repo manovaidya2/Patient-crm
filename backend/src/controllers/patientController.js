@@ -826,6 +826,24 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     followUpRangeLabel = `${followUpRangeStart.getFullYear()}-${String(followUpRangeStart.getMonth() + 1).padStart(2, '0')}-${String(followUpRangeStart.getDate()).padStart(2, '0')}`;
   }
 
+  const bankFilter = ['date', 'month'].includes(req.query.bankFilter) ? req.query.bankFilter : 'all';
+  const bankDate = String(req.query.bankDate || '');
+  const bankMonth = String(req.query.bankMonth || '');
+  let bankFrom = null;
+  let bankTo = null;
+  if (bankFilter === 'date') {
+    bankFrom = new Date(`${bankDate}T00:00:00`);
+    bankTo = new Date(bankFrom);
+    bankTo.setDate(bankTo.getDate() + 1);
+  } else if (bankFilter === 'month') {
+    const [year, month] = bankMonth.split('-').map(Number);
+    bankFrom = new Date(year, month - 1, 1);
+    bankTo = new Date(year, month, 1);
+  }
+  if (bankFrom && (!Number.isFinite(bankFrom.getTime()) || !Number.isFinite(bankTo.getTime()))) {
+    return res.status(400).json({ success: false, message: 'Select a valid bank payment date or month' });
+  }
+
   const stageCounts = STAGES.map((stage) => ({
     stage,
     label: STAGE_LABELS[stage],
@@ -892,7 +910,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
           .filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE)
           .forEach((payment) => {
             const paidDate = payment.date ? new Date(payment.date) : null;
-            if (!paidDate || paidDate < followUpRangeStart || paidDate > followUpRangeEnd) return;
+            if (bankFrom && (!paidDate || paidDate < bankFrom || paidDate >= bankTo)) return;
             const key = payment.payToBank ? String(payment.payToBank) : 'unassigned';
             const row = bankSummaryRows.get(key) || {
               bankId: key,
@@ -1042,8 +1060,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     paymentSummary,
     paymentDueLedger,
     bankPaymentSummary: {
-      range: followUpSummary.range,
-      date: followUpSummary.date,
+      range: bankFilter,
+      date: bankFilter === 'date' ? bankDate : bankFilter === 'month' ? bankMonth : '',
       rows: Array.from(bankSummaryRows.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName)),
     },
     workflowSummary,
@@ -1282,7 +1300,8 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
     });
 
   const scopedPayments = bankId
-    ? payments.filter((payment) => (payment.payToBank ? String(payment.payToBank) : 'unassigned') === bankId)
+    ? payments.filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE
+      && (payment.payToBank ? String(payment.payToBank) : 'unassigned') === bankId)
     : payments;
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);

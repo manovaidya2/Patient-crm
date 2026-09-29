@@ -157,10 +157,15 @@ const Dashboard = () => {
   const [followUpFilterMode, setFollowUpFilterMode] = useState('date');
   const [followUpDate, setFollowUpDate] = useState(() => toDateInputValue(new Date()));
   const [followUpMonth, setFollowUpMonth] = useState(() => toMonthInputValue(new Date()));
+  const [bankFilter, setBankFilter] = useState('all');
+  const [bankDate, setBankDate] = useState(() => toDateInputValue(new Date()));
+  const [bankMonth, setBankMonth] = useState(() => toMonthInputValue(new Date()));
 
   const usersQuery = useApiQuery('/users', {}, { enabled: isAdmin });
   const statsQuery = useApiQuery('/patients/dashboard-stats', {
-    params: followUpFilterMode === 'month' ? { followUpMonth } : { followUpDate },
+    params: { ...(followUpFilterMode === 'month' ? { followUpMonth } : { followUpDate }), bankFilter,
+      bankDate: bankFilter === 'date' ? bankDate : undefined,
+      bankMonth: bankFilter === 'month' ? bankMonth : undefined },
   });
   const users = usersQuery.data?.users || [];
   const stats = statsQuery.data;
@@ -349,10 +354,18 @@ const Dashboard = () => {
       </div>
 
       <Card className="mt-6">
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          <select aria-label="Bank payment date filter" value={bankFilter} onChange={(event) => setBankFilter(event.target.value)} className="rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal">
+            <option value="all">All dates</option><option value="date">Select date</option><option value="month">Select month</option>
+          </select>
+          {bankFilter === 'date' && <input aria-label="Bank payment date" type="date" value={bankDate} onChange={(event) => setBankDate(event.target.value)} className="rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal" />}
+          {bankFilter === 'month' && <input aria-label="Bank payment month" type="month" value={bankMonth} onChange={(event) => setBankMonth(event.target.value)} className="rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal" />}
+        </div>
         <BankCollectionsSection
           rows={bankPaymentSummary.rows}
+          paymentFilter={{ filter: bankPaymentSummary.range, date: bankPaymentSummary.date, month: bankPaymentSummary.date }}
           loading={loading}
-          caption="Uses selected follow-up date/month filter above for payment paid date."
+          caption={bankFilter === 'all' ? 'All-time collections' : 'Collections by payment date'}
           icon={WalletCards}
         />
       </Card>

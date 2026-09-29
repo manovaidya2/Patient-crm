@@ -155,6 +155,7 @@ const Accounts = () => {
         <Card>
           <BankCollectionsSection
             rows={bankSummary}
+            paymentFilter={params}
             loading={loading}
             caption="Uses the date/month filter selected above."
             icon={CreditCard}

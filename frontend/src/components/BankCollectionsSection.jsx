@@ -16,6 +16,7 @@ const BankCollectionsSection = ({
   caption = '',
   icon: Icon,
   emptyText = 'No online bank payments in this period.',
+  paymentFilter = { filter: 'all' },
 }) => {
   const [banks, setBanks] = useState([]);
   const [selectedBank, setSelectedBank] = useState(null);
@@ -57,7 +58,9 @@ const BankCollectionsSection = ({
         ) : (
           <ul className="space-y-2">
             {rows.map((row) => {
-              const bank = banksById[row.bankId];
+              const bank = banksById[row.bankId] || (row.bankId === 'unassigned'
+                ? { id: 'unassigned', name: 'Unassigned Bank', displayName: 'Unassigned Bank', isActive: true }
+                : null);
               const clickable = Boolean(bank);
               const Wrapper = clickable ? 'button' : 'div';
               return (
@@ -90,7 +93,7 @@ const BankCollectionsSection = ({
         )}
       </div>
 
-      {selectedBank && <BankDetailModal bank={selectedBank} onClose={() => setSelectedBank(null)} />}
+      {selectedBank && <BankDetailModal bank={selectedBank} initialFilter={paymentFilter} onClose={() => setSelectedBank(null)} />}
     </>
   );
 };

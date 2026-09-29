@@ -4,6 +4,7 @@ import { AlertTriangle, Download, IndianRupee, Inbox, X } from 'lucide-react';
 import api from '../api/axios.js';
 import Button from './ui/Button.jsx';
 import Badge from './ui/Badge.jsx';
+import { bankPaymentRange } from '../utils/bankPaymentRange.js';
 
 const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -38,9 +39,9 @@ const downloadCsv = (bank, transactions) => {
 // Drill-down for one bank account — from/to range, live totals for that range, and
 // every matching transaction. Opened as an overlay from wherever a bank row is clicked
 // (Dashboard, Accounts) so there's no separate "bank details" page to navigate to.
-const BankDetailModal = ({ bank, onClose }) => {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+const BankDetailModal = ({ bank, onClose, initialFilter }) => {
+  const [from, setFrom] = useState(() => bankPaymentRange(initialFilter).from);
+  const [to, setTo] = useState(() => bankPaymentRange(initialFilter).to);
   const [transactions, setTransactions] = useState([]);
   const [totalAmount, setTotalAmount] = useState(0);
   const [total, setTotal] = useState(0);
@@ -78,7 +79,7 @@ const BankDetailModal = ({ bank, onClose }) => {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-display text-lg font-bold text-charcoal">{bank.displayName || bank.name}</h2>
-                <Badge tone="teal">Bank Transfer</Badge>
+                <Badge tone={bank.id === 'unassigned' ? 'amber' : 'teal'}>{bank.id === 'unassigned' ? 'Bank not selected' : 'Bank Transfer'}</Badge>
               </div>
               <p className="mt-0.5 truncate text-xs text-charcoal/55">
                 {[bank.accountNumber && `A/C: ${bank.accountNumber}`, bank.ifsc, bank.branch].filter(Boolean).join(' · ') || bank.name}

@@ -106,3 +106,22 @@ test('payment ledger reports gross, refunded and net amounts separately', async 
   assert.equal(result.response.data.totalNet, 800);
   assert.equal(result.response.data.payments.length, 1);
 });
+
+test('bank detail matches dashboard count and amount for the selected paid date', async () => {
+  const patients = [{ _id: 'p1', patientName: 'Test', stages: [{ number: 1, payments: [
+    { _id: 'a', amount: 100, paymentMode: 'online', payToBank: 'bank-1', date: new Date('2026-09-29T12:00:00'), approvalStatus: 'approved' },
+    { _id: 'b', amount: 200, paymentMode: 'online', payToBank: 'bank-1', date: new Date('2026-09-28T12:00:00'), approvalStatus: 'approved' },
+    { _id: 'c', amount: 300, paymentMode: 'online', payToBank: 'bank-1', date: new Date('2026-09-29T12:00:00'), approvalStatus: 'pending' },
+    { _id: 'd', amount: 400, paymentMode: 'cash', payToBank: 'bank-1', date: new Date('2026-09-29T12:00:00'), approvalStatus: 'approved' },
+  ] }] }];
+  const dashboard = await invoke(controller.getDashboardStats, { patients, query: { followUpDate: '2026-09-29', bankFilter: 'date', bankDate: '2026-09-29' } });
+  const detail = await invoke(controller.getPaymentsLedger, { patients, query: { bankId: 'bank-1', from: '2026-09-29', to: '2026-09-29' } });
+  const bank = dashboard.response.data.bankPaymentSummary.rows.find((row) => row.bankId === 'bank-1');
+  assert.equal(detail.response.data.total, bank.count);
+  assert.equal(detail.response.data.totalAmount, bank.amount);
+  assert.equal(bank.count, 1);
+  const all = await invoke(controller.getDashboardStats, { patients, query: { followUpDate: '2026-09-29' } });
+  assert.equal(all.response.data.bankPaymentSummary.range, 'all');
+  assert.equal(all.response.data.bankPaymentSummary.rows[0].count, 2);
+  assert.equal(all.response.data.bankPaymentSummary.rows[0].amount, 300);
+});
