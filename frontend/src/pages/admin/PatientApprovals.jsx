@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Check, Clock, IndianRupee, Inbox, Paperclip, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Check, Clock, IndianRupee, Inbox, Paperclip, RefreshCw, Search, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
@@ -42,6 +42,10 @@ const PatientApprovals = () => {
   const [approvingId, setApprovingId] = useState(null);
   const [approvingPaymentId, setApprovingPaymentId] = useState(null);
   const [rowError, setRowError] = useState({});
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const filteredPatients = patients.filter((patient) => !query || [patient.patientName, patient.patientCode]
+    .some((value) => String(value || '').toLowerCase().includes(query)));
 
   const handleApprovePatient = async (patientId) => {
     setApprovingId(patientId);
@@ -108,6 +112,14 @@ const PatientApprovals = () => {
       </div>
 
       <Card className="mt-6" padded={false}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cardline-soft p-4">
+          <div className="relative w-full sm:max-w-md">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/50" />
+            <input type="search" aria-label="Search approvals by patient name or ID" placeholder="Search patient name or Patient ID" value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" style={{ paddingLeft: '2.5rem', paddingRight: '2.5rem' }} />
+            {search && <button type="button" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-charcoal/60"><X size={16} /></button>}
+          </div>
+          {!loading && !loadError && <p className="text-xs text-charcoal/65" aria-live="polite">{filteredPatients.length} of {patients.length} patients</p>}
+        </div>
         {loading ? (
           <div className="p-10 text-center text-sm text-charcoal/55">Loading…</div>
         ) : loadError ? (
@@ -115,15 +127,15 @@ const PatientApprovals = () => {
             <AlertTriangle size={22} className="text-[#8C3B2E]" />
             <p className="text-sm font-medium text-charcoal">{loadError}</p>
           </div>
-        ) : patients.length === 0 ? (
+        ) : filteredPatients.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-10 text-center">
             <Inbox size={22} className="text-charcoal/35" />
-            <p className="text-sm font-medium text-charcoal">Nothing pending</p>
-            <p className="text-xs text-charcoal/55">Every patient and payment added so far has been approved.</p>
+            <p className="text-sm font-medium text-charcoal">{query ? 'No matching patients' : 'Nothing pending'}</p>
+            <p className="text-xs text-charcoal/55">{query ? 'Try another patient name or Patient ID.' : 'Every patient and payment added so far has been approved.'}</p>
           </div>
         ) : (
           <ul className="divide-y divide-cardline-soft">
-            {patients.map((patient) => {
+            {filteredPatients.map((patient) => {
               const stage = currentStageOf(patient);
               const screenshots = screenshotCount(stage);
               const isNewPatient = patient.approvalStatus === 'pending';
@@ -224,6 +236,13 @@ const PatientApprovals = () => {
                             {payment.receivedBy && <DetailItem label="Received By" value={payment.receivedBy} />}
                             {payment.recordedByName && <DetailItem label="Recorded By" value={payment.recordedByName} />}
                           </div>
+
+                          {payment.notes?.trim() && (
+                            <div className="mt-3.5 border-t border-cardline-soft pt-3.5">
+                              <p className="text-[10px] font-semibold uppercase text-charcoal/60">Payment notes</p>
+                              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-charcoal [overflow-wrap:anywhere]">{payment.notes}</p>
+                            </div>
+                          )}
 
                           {payment.screenshotFiles?.length > 0 && (
                             <div className="mt-3.5 border-t border-cardline-soft pt-3.5">
