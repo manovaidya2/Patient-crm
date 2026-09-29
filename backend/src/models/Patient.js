@@ -42,6 +42,24 @@ const scheduleEntrySchema = new mongoose.Schema(
 // paid amount always equals the sum of individual payments.
 // "date" is the user-entered paid date (date only, no time).
 // "createdAt" (from timestamps below) is the real moment the record was saved.
+const refundEntrySchema = new mongoose.Schema(
+  {
+    amount: { type: Number, required: true, min: 0.01 },
+    reason: { type: String, required: true, trim: true, maxlength: 2000 },
+    status: { type: String, enum: ['initiated', 'paid', 'settled'], default: 'initiated' },
+    initiatedByName: { type: String, trim: true, default: '' },
+    paidByName: { type: String, trim: true, default: '' },
+    paidAt: { type: Date, default: null },
+    paymentMode: { type: String, enum: ['cash', 'online'], default: 'online' },
+    referenceNumber: { type: String, trim: true, default: '' },
+    proofFiles: { type: [{ url: String, fileName: String }], default: [] },
+    payoutNote: { type: String, trim: true, default: '', maxlength: 2000 },
+    settledByName: { type: String, trim: true, default: '' },
+    settledAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
 const paymentEntrySchema = new mongoose.Schema(
   {
     amount: { type: Number, required: true, min: 0 },
@@ -67,12 +85,16 @@ const paymentEntrySchema = new mongoose.Schema(
     // patient doesn't get hidden just because a later payment came in.
     approvalStatus: {
       type: String,
-      enum: ['pending', 'approved'],
+      enum: ['pending', 'approved', 'cancelled'],
       default: 'approved',
       index: true,
     },
     approvedByName: { type: String, trim: true, default: '' },
     approvedAt: { type: Date, default: null },
+    cancelledByName: { type: String, trim: true, default: '' },
+    cancelledAt: { type: Date, default: null },
+    cancellationReason: { type: String, trim: true, default: '' },
+    refunds: { type: [refundEntrySchema], default: [] },
   },
   { timestamps: true }
 );

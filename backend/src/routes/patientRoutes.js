@@ -5,6 +5,7 @@ const {
   getDashboardStats,
   getStaffDashboardStats,
   getPaymentsLedger,
+  getRefundsLedger,
   getPatientById,
   deletePatient,
   getPatientCallLogs,
@@ -18,6 +19,9 @@ const {
   updateStagePayment,
   deleteStagePayment,
   approveStagePayment,
+  cancelStagePayment,
+  initiatePaymentRefund,
+  updatePaymentRefund,
   uploadStageRecord,
   deleteStageRecordScan,
   requestStageMedicine,
@@ -53,6 +57,7 @@ router.post('/', authorize(...PATIENT_CREATE_ROLES), createPatient);
 router.get('/dashboard-stats', authorize(ROLES.ADMIN, ROLES.DOCTOR), getDashboardStats);
 router.get('/staff-dashboard-stats', authorize(ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST), getStaffDashboardStats);
 router.get('/payments-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getPaymentsLedger);
+router.get('/refunds-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getRefundsLedger);
 router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getPendingApprovals);
 router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id', getPatientById);
@@ -65,6 +70,10 @@ router.post('/:id/stages/:number/payments', authorize(...PAYMENT_ADD_ROLES), upl
 router.patch('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
 router.delete('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN), deleteStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approveStagePayment);
+router.patch('/:id/stages/:number/payments/:paymentId/cancel', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), cancelStagePayment);
+router.post('/:id/stages/:number/payments/:paymentId/refunds', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), uploadPaymentScreenshot.array('screenshot', 10), initiatePaymentRefund);
+router.post('/:id/refunds', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), uploadPaymentScreenshot.array('screenshot', 10), initiatePaymentRefund);
+router.patch('/:id/stages/:number/payments/:paymentId/refunds/:refundId', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), uploadPaymentScreenshot.array('screenshot', 10), updatePaymentRefund);
 router.post('/:id/stages/:number/record', authorize(...PATIENT_RECORD_EDIT_ROLES), uploadRecordMiddleware.array('record', 30), uploadStageRecord);
 router.delete('/:id/stages/:number/record-scans/:scanId', authorize(...PATIENT_RECORD_EDIT_ROLES), deleteStageRecordScan);
 router.post('/:id/stages/:number/medicine-request', authorize(...PATIENT_WRITE_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);

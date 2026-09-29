@@ -130,6 +130,11 @@ const canAccessPatient = (user, patient) => {
 const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
 const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
+const paidRefundAmount = (payment = {}) => (payment.refunds || [])
+  .filter((refund) => ['paid', 'settled'].includes(refund.status))
+  .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
+const netPaymentAmount = (payment = {}) => isApprovedPayment(payment)
+  ? Number(payment.amount || 0) - paidRefundAmount(payment) : 0;
 
 const formatAssignedUser = (assignedUser) => {
   if (!assignedUser) return null;
@@ -514,7 +519,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   stages: normalizeStages(p.stages).map((s) => {
     const amountPaid = (s.payments || [])
       .filter(isApprovedPayment)
-      .reduce((sum, pay) => sum + (pay.amount || 0), 0);
+      .reduce((sum, pay) => sum + netPaymentAmount(pay), 0);
     return {
       number: s.number,
       status: s.status,
@@ -577,6 +582,27 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
           approvalStatus: pay.approvalStatus || 'approved',
           approvedByName: pay.approvedByName || '',
           approvedAt: pay.approvedAt || null,
+          cancelledByName: pay.cancelledByName || '',
+          cancelledAt: pay.cancelledAt || null,
+          cancellationReason: pay.cancellationReason || '',
+          refundedAmount: paidRefundAmount(pay),
+          netAmount: netPaymentAmount(pay),
+          refunds: (pay.refunds || []).map((refund) => ({
+            id: refund._id,
+            amount: refund.amount,
+            reason: refund.reason,
+            status: refund.status,
+            initiatedAt: refund.createdAt,
+            initiatedByName: refund.initiatedByName,
+            paidAt: refund.paidAt,
+            paidByName: refund.paidByName,
+            paymentMode: refund.paymentMode,
+            referenceNumber: refund.referenceNumber,
+            proofFiles: refund.proofFiles || [],
+            payoutNote: refund.payoutNote,
+            settledByName: refund.settledByName,
+            settledAt: refund.settledAt,
+          })),
         }))
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     };
@@ -860,7 +886,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const totalAmount = Number(stage.totalAmount || 0);
         const amountPaid = (stage.payments || [])
           .filter(isApprovedPayment)
-          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+          .reduce((sum, payment) => sum + netPaymentAmount(payment), 0);
         (stage.payments || [])
           .filter(isApprovedPayment)
           .filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE)
@@ -883,7 +909,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const dueAmount = Math.max(totalAmount - amountPaid, 0);
         if (totalAmount > 0 && dueAmount > 0) {
           const pendingAmount = (stage.payments || [])
-            .filter((payment) => !isApprovedPayment(payment))
+            .filter((payment) => payment.approvalStatus === 'pending')
             .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
           paymentDueRows.push({
             patientId: patient._id,
@@ -1210,6 +1236,8 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
           categoryLabel: CATEGORY_LABELS[patient.category],
           stage: stage.number,
           amount: Number(payment.amount || 0),
+          refundedAmount: paidRefundAmount(payment),
+          netAmount: netPaymentAmount(payment),
           paidAt,
           addedAt,
           updatedAt,
@@ -1261,6 +1289,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 2000);
   const total = scopedPayments.length;
   const totalAmount = scopedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const totalRefunded = scopedPayments.reduce((sum, payment) => sum + payment.refundedAmount, 0);
   const paginatedPayments = scopedPayments.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
   res.status(200).json({
@@ -1270,9 +1299,57 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
     page: pageNum,
     pages: Math.max(Math.ceil(total / limitNum), 1),
     totalAmount,
+    totalRefunded,
+    totalNet: totalAmount - totalRefunded,
     bankSummary: Array.from(bankSummaryMap.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName)),
     payments: paginatedPayments,
   });
+});
+
+const getRefundsLedger = asyncHandler(async (req, res) => {
+  const status = ['initiated', 'paid', 'settled'].includes(req.query.status) ? req.query.status : '';
+  const search = String(req.query.search || '').trim().toLowerCase();
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+  const patients = await Patient.find({})
+    .select('patientName patientCode number stages.number stages.payments._id stages.payments.amount stages.payments.refunds')
+    .lean();
+  const refunds = [];
+  patients.filter((patient) => !search || [patient.patientName, patient.patientCode, patient.number]
+    .some((value) => String(value || '').toLowerCase().includes(search)))
+    .forEach((patient) => (patient.stages || []).forEach((stage) =>
+    (stage.payments || []).forEach((payment) => (payment.refunds || []).forEach((refund) => {
+      refunds.push({
+        id: refund._id,
+        patientId: patient._id,
+        patientName: patient.patientName,
+        patientNumber: patient.number,
+        stage: stage.number,
+        paymentId: payment._id,
+        originalAmount: payment.amount,
+        patientCode: patient.patientCode || '',
+        amount: refund.amount,
+        reason: refund.reason,
+        status: refund.status,
+        initiatedAt: refund.createdAt,
+        initiatedByName: refund.initiatedByName,
+        paidAt: refund.paidAt,
+        paidByName: refund.paidByName,
+        paymentMode: refund.paymentMode,
+        referenceNumber: refund.referenceNumber,
+        proofFiles: refund.proofFiles || [],
+        payoutNote: refund.payoutNote,
+        settledAt: refund.settledAt,
+        settledByName: refund.settledByName,
+      });
+    }))));
+  refunds.sort((a, b) => new Date(b.initiatedAt || 0) - new Date(a.initiatedAt || 0));
+  const totals = refunds.reduce((sum, refund) => {
+    sum[refund.status] += Number(refund.amount || 0);
+    return sum;
+  }, { initiated: 0, paid: 0, settled: 0 });
+  const filtered = status ? refunds.filter((refund) => refund.status === status) : refunds;
+  res.json({ success: true, total: filtered.length, pages: Math.max(Math.ceil(filtered.length / limit), 1), totals, refunds: filtered.slice((page - 1) * limit, page * limit) });
 });
 
 // @desc    Get a single patient by id
@@ -1431,7 +1508,7 @@ const pendingPaymentsOf = (patient) => {
   const rows = [];
   (patient.stages || []).forEach((stage) => {
     (stage.payments || []).forEach((payment) => {
-      if ((payment.approvalStatus || 'approved') === 'approved') return;
+      if (payment.approvalStatus !== 'pending') return;
       rows.push({
         paymentId: payment._id,
         stage: stage.number,
@@ -2011,6 +2088,10 @@ const updateStagePayment = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Payment not found' });
   }
 
+  if (payment.approvalStatus !== 'pending') {
+    return res.status(409).json({ success: false, message: 'Approved or cancelled payments cannot be edited. Use cancellation or refund.' });
+  }
+
   const amountNum = Number(req.body.amount);
   if (!amountNum || amountNum <= 0) {
     return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
@@ -2073,6 +2154,10 @@ const deleteStagePayment = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Payment not found' });
   }
 
+  if (payment.approvalStatus !== 'pending') {
+    return res.status(409).json({ success: false, message: 'Approved or cancelled payments cannot be deleted. Use cancellation or refund.' });
+  }
+
   const details = `${payment.amount} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode} (payment ID: ${payment._id})`;
   const screenshotUrls = [payment.screenshotUrl, ...(payment.screenshotFiles || []).map((file) => file.url)].filter(Boolean);
   payment.deleteOne();
@@ -2114,8 +2199,8 @@ const approveStagePayment = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Payment not found' });
   }
 
-  if (payment.approvalStatus === 'approved') {
-    return res.status(400).json({ success: false, message: 'This payment is already approved' });
+  if (payment.approvalStatus !== 'pending') {
+    return res.status(400).json({ success: false, message: 'Only pending payments can be approved' });
   }
 
   payment.approvalStatus = 'approved';
@@ -2133,6 +2218,132 @@ const approveStagePayment = asyncHandler(async (req, res) => {
   await patient.populate('stages.postCounselor', 'name');
 
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+const findPaymentForFinancialAction = async (req, res) => {
+  const stageNum = Number(req.params.number);
+  if (!STAGES.includes(stageNum)) {
+    res.status(400).json({ success: false, message: 'Invalid phase number' });
+    return null;
+  }
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) {
+    res.status(404).json({ success: false, message: 'Patient not found' });
+    return null;
+  }
+  const payment = patient.stages?.find((stage) => stage.number === stageNum)?.payments.id(req.params.paymentId);
+  if (!payment) {
+    res.status(404).json({ success: false, message: 'Payment not found' });
+    return null;
+  }
+  return { patient, payment, stageNum };
+};
+
+const saveFinancialPatient = async (patient, res) => {
+  // Force a version check for scalar status updates as well as refund array changes.
+  patient.increment();
+  try {
+    await patient.save();
+    return true;
+  } catch (error) {
+    if (error.name !== 'VersionError') throw error;
+    res.status(409).json({ success: false, message: 'This payment changed while you were working. Refresh before retrying.' });
+    return false;
+  }
+};
+
+const cancelStagePayment = asyncHandler(async (req, res) => {
+  const found = await findPaymentForFinancialAction(req, res);
+  if (!found) return;
+  const { patient, payment, stageNum } = found;
+  const reason = String(req.body.reason || '').trim();
+  if (!reason) return res.status(400).json({ success: false, message: 'Cancellation reason is required' });
+  if (payment.approvalStatus === 'cancelled') return res.status(409).json({ success: false, message: 'Payment is already cancelled' });
+  if (payment.refunds?.length) return res.status(409).json({ success: false, message: 'Payment with a refund cannot be cancelled' });
+  payment.approvalStatus = 'cancelled';
+  payment.cancelledByName = req.user.name;
+  payment.cancelledAt = new Date();
+  payment.cancellationReason = reason;
+  addActivity(patient, req.user, `Payment cancelled for Phase ${stageNum}`, `${payment.amount} | Reason: ${reason}`);
+  if (!await saveFinancialPatient(patient, res)) return;
+  await populateAssignments(patient);
+  res.json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+const initiatePaymentRefund = asyncHandler(async (req, res) => {
+  let patient;
+  let candidates;
+  if (req.params.paymentId) {
+    const found = await findPaymentForFinancialAction(req, res);
+    if (!found) return;
+    patient = found.patient;
+    if (!isApprovedPayment(found.payment)) return res.status(409).json({ success: false, message: 'Only approved payments can be refunded' });
+    candidates = [{ payment: found.payment, stageNum: found.stageNum }];
+  } else {
+    patient = await Patient.findById(req.params.id);
+    if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+    candidates = (patient.stages || []).flatMap((stage) => (stage.payments || [])
+      .filter(isApprovedPayment).map((payment) => ({ payment, stageNum: stage.number })));
+  }
+  const amount = Number(req.body.amount);
+  const reason = String(req.body.reason || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(Math.round(amount * 100) - amount * 100) > 0.000001) {
+    return res.status(400).json({ success: false, message: 'Enter a valid refund amount with at most two decimal places' });
+  }
+  if (!reason) return res.status(400).json({ success: false, message: 'Refund reason is required' });
+  const available = candidates.map((entry) => ({ ...entry, cents: Math.max(0,
+    Math.round(Number(entry.payment.amount) * 100) - (entry.payment.refunds || []).reduce((sum, refund) => sum + Math.round(Number(refund.amount) * 100), 0)) }));
+  const totalCents = available.reduce((sum, entry) => sum + entry.cents, 0);
+  let remainingCents = Math.round(amount * 100);
+  if (remainingCents > totalCents) {
+    return res.status(409).json({ success: false, message: 'Refund exceeds the remaining refundable amount' });
+  }
+  if (req.body.refundMode === 'full' && remainingCents !== totalCents) {
+    return res.status(409).json({ success: false, message: 'Available refund amount changed. Refresh and try again.' });
+  }
+  const proofFiles = toFileItems(filesFromRequest(req), 'payments');
+  for (const { payment, stageNum, cents } of available) {
+    const allocated = Math.min(remainingCents, cents);
+    if (allocated <= 0) continue;
+    payment.refunds.push({ amount: allocated / 100, reason, initiatedByName: req.user.name, proofFiles });
+    addActivity(patient, req.user, `Refund initiated for Phase ${stageNum}`, `${allocated / 100} against payment ${payment._id} | Reason: ${reason}`);
+    remainingCents -= allocated;
+  }
+  if (!await saveFinancialPatient(patient, res)) return;
+  await populateAssignments(patient);
+  res.json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+const updatePaymentRefund = asyncHandler(async (req, res) => {
+  const found = await findPaymentForFinancialAction(req, res);
+  if (!found) return;
+  const { patient, payment, stageNum } = found;
+  const refund = payment.refunds.id(req.params.refundId);
+  if (!refund) return res.status(404).json({ success: false, message: 'Refund not found' });
+  const action = req.body.action;
+  if (action === 'pay' && refund.status === 'initiated') {
+    const mode = req.body.paymentMode;
+    const reference = String(req.body.referenceNumber || '').trim();
+    if (!['cash', 'online'].includes(mode)) return res.status(400).json({ success: false, message: 'Select a payout mode' });
+    refund.status = 'paid';
+    refund.paymentMode = mode;
+    refund.referenceNumber = reference;
+    refund.proofFiles = mergeFileItems(refund.proofFiles || [], toFileItems(filesFromRequest(req), 'payments'));
+    refund.payoutNote = String(req.body.payoutNote || '').trim();
+    refund.paidAt = new Date();
+    refund.paidByName = req.user.name;
+    addActivity(patient, req.user, `Refund paid for Phase ${stageNum}`, `${refund.amount} against payment ${payment._id} | ${mode}${reference ? ` | ${reference}` : ''}`);
+  } else if (action === 'settle' && refund.status === 'paid') {
+    refund.status = 'settled';
+    refund.settledAt = new Date();
+    refund.settledByName = req.user.name;
+    addActivity(patient, req.user, `Refund settled for Phase ${stageNum}`, `${refund.amount} against payment ${payment._id}`);
+  } else {
+    return res.status(409).json({ success: false, message: 'Invalid refund action for its current status' });
+  }
+  if (!await saveFinancialPatient(patient, res)) return;
+  await populateAssignments(patient);
+  res.json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
 // @desc    Upload (or replace) the patient-record file for a stage
@@ -3222,6 +3433,7 @@ module.exports = {
   getDashboardStats,
   getStaffDashboardStats,
   getPaymentsLedger,
+  getRefundsLedger,
   getPatientById,
   deletePatient,
   getPatientCallLogs,
@@ -3235,6 +3447,9 @@ module.exports = {
   updateStagePayment,
   deleteStagePayment,
   approveStagePayment,
+  cancelStagePayment,
+  initiatePaymentRefund,
+  updatePaymentRefund,
   uploadStageRecord,
   deleteStageRecordScan,
   requestStageMedicine,

@@ -21,6 +21,7 @@ const Expenses = lazy(() => import('./pages/admin/Expenses.jsx'));
 const FollowUps = lazy(() => import('./pages/admin/FollowUps.jsx'));
 const FamilySessions = lazy(() => import('./pages/admin/FamilySessions.jsx'));
 const Payments = lazy(() => import('./pages/admin/Payments.jsx'));
+const Refunds = lazy(() => import('./pages/admin/Refunds.jsx'));
 const ApprovedPayments = lazy(() => import('./pages/admin/ApprovedPayments.jsx'));
 const MedicineRequests = lazy(() => import('./pages/admin/MedicineRequests.jsx'));
 const MedicineMade = lazy(() => import('./pages/admin/MedicineMade.jsx'));
@@ -140,6 +141,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="accounts/refunds" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><Refunds /></ProtectedRoute>} />
         <Route
           path="approved-payments"
           element={

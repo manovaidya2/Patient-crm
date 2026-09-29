@@ -64,6 +64,9 @@ const toTime = (value) => {
 };
 
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
+const netPaymentAmount = (payment = {}) => Number(payment.amount || 0) - (payment.refunds || [])
+  .filter((refund) => ['paid', 'settled'].includes(refund.status))
+  .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
 
 const startOfToday = () => {
   const date = new Date();
@@ -206,7 +209,7 @@ const buildPatientWorkSummary = (patient, callCounts = {}, adviceCounts = {}) =>
     (stage.payments || []).forEach((payment) => {
       if (!isApprovedPayment(payment)) return;
       summary.payments.count += 1;
-      summary.payments.amount += Number(payment.amount || 0);
+      summary.payments.amount += netPaymentAmount(payment);
     });
 
     [stage.medicineRequest || {}, ...(stage.medicineRequests || [])].forEach((medicine) => {
@@ -442,7 +445,7 @@ const summarizeStage = (stage) => {
     patientHistoryBy: stage.patientHistoryBy || '',
     packageName: stage.packageName || '',
     totalAmount: stage.totalAmount || 0,
-    paidAmount: payments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0),
+    paidAmount: payments.reduce((sum, pay) => sum + netPaymentAmount(pay), 0),
     payments: payments.length,
     followUps: {
       total: followUps.length,
@@ -796,6 +799,7 @@ const buildCrmContext = async (message) => {
           patientCode: formatPatientCode(patient),
           stage: stage.number,
           amount: Number(payment.amount || 0),
+          netAmount: netPaymentAmount(payment),
           paidOn: formatDate(payment.date),
           recordedOn: formatDate(payment.createdAt),
           paymentMode: payment.paymentMode || '',
@@ -855,7 +859,7 @@ const buildCrmContext = async (message) => {
       medicineConnectDue: medicineSupplyList.filter((row) => row.connectDue).length,
       medicineConnectDone: medicineSupplyList.filter((row) => row.connected).length,
       paymentsTotal: paymentsList.length,
-      paymentsAmount: paymentsList.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+      paymentsAmount: paymentsList.reduce((sum, row) => sum + Number(row.netAmount || 0), 0),
       followUpsTotal: followUpList.length,
       familySessionsTotal: familySessionList.length,
     },

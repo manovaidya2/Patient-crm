@@ -106,10 +106,23 @@ const listCourierClinicExpenses = async ({ from, to } = {}) => {
 const listBankPaymentSummary = async ({ from, to } = {}) => {
   const patients = await Patient.find({}).select('stages.payments').lean();
   const rows = new Map();
+  const refundSummary = { paid: 0, settled: 0, awaitingPayout: 0 };
 
   patients.forEach((patient) => {
     (patient.stages || []).forEach((stage) => {
       (stage.payments || []).forEach((payment) => {
+        (payment.refunds || []).forEach((refund) => {
+          if (refund.status === 'initiated') {
+            const initiatedAt = refund.createdAt ? new Date(refund.createdAt) : null;
+            if (from && to && (!initiatedAt || initiatedAt < from || initiatedAt >= to)) return;
+            refundSummary.awaitingPayout += Number(refund.amount || 0);
+            return;
+          }
+          const paidAt = refund.paidAt ? new Date(refund.paidAt) : null;
+          if (from && to && (!paidAt || paidAt < from || paidAt >= to)) return;
+          refundSummary.paid += Number(refund.amount || 0);
+          if (refund.status === 'settled') refundSummary.settled += Number(refund.amount || 0);
+        });
         if ((payment.approvalStatus || 'approved') !== 'approved') return;
         if (payment.paymentMode !== 'online') return;
         const date = payment.date ? new Date(payment.date) : null;
@@ -128,14 +141,14 @@ const listBankPaymentSummary = async ({ from, to } = {}) => {
     });
   });
 
-  return Array.from(rows.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName));
+  return { bankSummary: Array.from(rows.values()).sort((a, b) => b.amount - a.amount || a.bankName.localeCompare(b.bankName)), refundSummary };
 };
 
 const getAccountsOverview = asyncHandler(async (req, res) => {
   const range = buildDateRange(req.query);
   const dateFilter = range.from && range.to ? { date: { $gte: range.from, $lt: range.to } } : {};
   const typeFilter = TYPES.includes(req.query.type) ? { type: req.query.type } : {};
-  const [manualEntries, courierExpenses, bankSummary] = await Promise.all([
+  const [manualEntries, courierExpenses, paymentSummary] = await Promise.all([
     AccountEntry.find({ ...dateFilter, ...typeFilter }).sort({ date: -1, createdAt: -1 }),
     req.query.type === 'income' ? [] : listCourierClinicExpenses(range),
     listBankPaymentSummary(range),
@@ -158,7 +171,8 @@ const getAccountsOverview = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     totals,
-    bankSummary,
+    bankSummary: paymentSummary.bankSummary,
+    refundSummary: paymentSummary.refundSummary,
     count: rows.length,
     entries: rows,
     categories: CATEGORIES.map((value) => ({ value, label: CATEGORY_LABELS[value] })),

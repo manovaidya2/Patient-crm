@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Calendar, CreditCard, IndianRupee, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Calendar, CreditCard, IndianRupee, RefreshCw, RotateCcw, TrendingDown, TrendingUp } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Card from '../../components/ui/Card.jsx';
@@ -21,6 +21,7 @@ const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}
 const Accounts = () => {
   const [totals, setTotals] = useState({ income: 0, expense: 0, balance: 0, courierExpense: 0, byCategory: {} });
   const [bankSummary, setBankSummary] = useState([]);
+  const [refundSummary, setRefundSummary] = useState({ paid: 0, settled: 0, awaitingPayout: 0 });
   const [count, setCount] = useState(0);
   const [filter, setFilter] = useState('month');
   const [date, setDate] = useState(todayValue());
@@ -46,6 +47,7 @@ const Accounts = () => {
         const { data } = await api.get('/accounts/overview', { params });
         setTotals(data.totals || { income: 0, expense: 0, balance: 0, courierExpense: 0, byCategory: {} });
         setBankSummary(data.bankSummary || []);
+        setRefundSummary(data.refundSummary || { paid: 0, settled: 0, awaitingPayout: 0 });
         setCount(data.count || 0);
       } catch (err) {
         setError(err.response?.data?.message || 'Could not load accounts dashboard.');
@@ -142,6 +144,11 @@ const Accounts = () => {
           </div>
           <p className="mt-5 text-sm text-charcoal/55">Auto added from courier records</p>
         </Card>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-cardline bg-offwhite-200 px-4 py-3 text-sm text-charcoal">
+        <div className="flex items-center gap-2"><RotateCcw size={17} className="text-sage" /><strong>Patient refunds</strong><span>Paid: {loading ? '...' : formatMoney(refundSummary.paid)}</span><span>Awaiting payout: {loading ? '...' : formatMoney(refundSummary.awaitingPayout)}</span><span>Settled: {loading ? '...' : formatMoney(refundSummary.settled)}</span></div>
+        <Link to="/admin/accounts/refunds" className="inline-flex items-center gap-1 font-semibold text-sage hover:text-charcoal">Refund register <ArrowRight size={14} /></Link>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">

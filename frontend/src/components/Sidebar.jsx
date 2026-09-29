@@ -31,6 +31,7 @@ import {
   BookOpen,
   FileArchive,
   CheckSquare,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -66,6 +67,7 @@ export const navItems = [
   { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/income', icon: TrendingUp, label: 'Income', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
+  { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING] },
   

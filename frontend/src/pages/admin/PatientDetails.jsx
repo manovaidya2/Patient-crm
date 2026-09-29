@@ -10,6 +10,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import EditableField from '../../components/ui/EditableField.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
+import RefundImages from '../../components/RefundImages.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
@@ -2334,6 +2335,12 @@ const PatientDetails = () => {
   const [reactivateError, setReactivateError] = useState('');
   const [approvingPaymentId, setApprovingPaymentId] = useState(null);
   const [paymentApproveError, setPaymentApproveError] = useState('');
+  const [financialAction, setFinancialAction] = useState(null);
+  const [financialForm, setFinancialForm] = useState({ amount: '', reason: '', paymentMode: 'online', referenceNumber: '', payoutNote: '' });
+  const [financialSaving, setFinancialSaving] = useState(false);
+  const [financialError, setFinancialError] = useState('');
+  const [refundFiles, setRefundFiles] = useState([]);
+  const [refundMode, setRefundMode] = useState('full');
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
   const [deletingPatient, setDeletingPatient] = useState(false);
   const [deletePatientError, setDeletePatientError] = useState('');
@@ -2573,6 +2580,40 @@ const PatientDetails = () => {
     }
   };
 
+  const openFinancialAction = (type, payment, refund = null) => {
+    setRefundMode('full');
+    setFinancialAction({ type, payment, refund, stageNumber: activeStageTab });
+    setFinancialForm({ amount: '', reason: '', paymentMode: 'online', referenceNumber: '', payoutNote: '' });
+    setFinancialError('');
+    setRefundFiles([]);
+  };
+
+  const submitFinancialAction = async (event) => {
+    event.preventDefault();
+    const { type, payment, refund, stageNumber } = financialAction;
+    const base = `/patients/${id}/stages/${stageNumber}/payments/${payment?.id}`;
+    setFinancialSaving(true);
+    setFinancialError('');
+    try {
+      let response;
+      if (type === 'cancel') response = await api.patch(`${base}/cancel`, { reason: financialForm.reason });
+      if (type === 'initiate' || type === 'pay') {
+        const body = new FormData();
+        const values = type === 'initiate' ? { amount: refundMode === 'full' ? totalRefundable : financialForm.amount, refundMode, reason: financialForm.reason } : { action: 'pay', paymentMode: financialForm.paymentMode, referenceNumber: financialForm.referenceNumber, payoutNote: financialForm.payoutNote };
+        Object.entries(values).forEach(([key, value]) => body.append(key, value));
+        refundFiles.forEach((file) => body.append('screenshot', file));
+        response = type === 'initiate' ? await api.post(`/patients/${id}/refunds`, body) : await api.patch(`${base}/refunds/${refund.id}`, body);
+      }
+      if (type === 'settle') response = await api.patch(`${base}/refunds/${refund.id}`, { action: 'settle' });
+      setPatient(response.data.patient);
+      setFinancialAction(null);
+    } catch (err) {
+      setFinancialError(err.response?.data?.message || 'Could not update payment');
+    } finally {
+      setFinancialSaving(false);
+    }
+  };
+
   const handleUploadRecord = async (files) => {
     const formData = new FormData();
     (Array.isArray(files) ? files : [files]).forEach((file) => {
@@ -2725,6 +2766,14 @@ const PatientDetails = () => {
 
   // Live view of the open tab's stage (reflects payments as they're added)
   const activeStage = patient?.stages?.find((s) => s.number === activeStageTab);
+  const refundablePayments = (patient?.stages || []).flatMap((stage) => (stage.payments || []).map((pay) => ({ ...pay, stageNumber: stage.number })))
+    .filter((pay) => pay.approvalStatus === 'approved')
+    .map((pay) => ({ ...pay, availableCents: Math.max(0, Math.round(Number(pay.amount) * 100) - (pay.refunds || []).reduce((sum, refund) => sum + Math.round(Number(refund.amount) * 100), 0)) }))
+    .filter((pay) => pay.availableCents > 0);
+  const totalRefundable = refundablePayments.reduce((sum, pay) => sum + pay.availableCents, 0) / 100;
+  const patientRefunds = (patient?.stages || []).flatMap((stage) => stage.payments || []).flatMap((pay) => pay.refunds || []);
+  const hasPendingRefund = patientRefunds.some((refund) => refund.status === 'initiated');
+  const hasPaidRefund = patientRefunds.some((refund) => ['paid', 'settled'].includes(refund.status));
   const activeMedicineConnectDue = activeStage
     && !activeStage.medicineConnectDone
     && isDateTodayOrPast(activeStage.medicineNextConnectDate);
@@ -2796,6 +2845,10 @@ const PatientDetails = () => {
               </div>
             </div>
 
+            {(hasPendingRefund || hasPaidRefund) && <div className="mt-3 flex flex-wrap gap-2">
+              {hasPendingRefund && <Badge tone="amber">Refund initiated</Badge>}
+              {hasPaidRefund && <Badge tone="teal">Refunded</Badge>}
+            </div>}
             <div className="mt-3 flex min-w-0 items-start gap-2">
               <h1 className="min-w-0 break-words font-serif text-3xl font-semibold leading-tight text-charcoal">{patient.patientName}</h1>
               <HeaderEditButton
@@ -3108,7 +3161,7 @@ const PatientDetails = () => {
                     onClick={() => setTimelineOpen(true)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-sage hover:text-sage"
                   >
-                    <History size={13} /> Timeline
+                    <History size={13} /> Payments &amp; refunds
                   </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
@@ -3136,8 +3189,13 @@ const PatientDetails = () => {
                     readOnly={!canEditStageDetails}
                   />
                   <div className="bg-offwhite-100 p-4">
-                    <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Amount Paid</p>
+                    <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Net paid</p>
                     <p className="mt-1 text-sm font-bold text-charcoal">{formatMoney(activeStage.amountPaid)}</p>
+                    {activeStage.payments.some((pay) => pay.refunds?.length) && <div className="mt-1 space-y-1 text-[11px] text-charcoal">
+                      <p>Received: {formatMoney(activeStage.payments.filter((pay) => pay.approvalStatus === 'approved').reduce((sum, pay) => sum + Number(pay.amount || 0), 0))}</p>
+                      <p>Refunded: {formatMoney(activeStage.payments.reduce((sum, pay) => sum + Number(pay.refundedAmount || 0), 0))}</p>
+                      <p>Refund pending: {formatMoney(activeStage.payments.flatMap((pay) => pay.refunds || []).filter((refund) => refund.status === 'initiated').reduce((sum, refund) => sum + Number(refund.amount || 0), 0))}</p>
+                    </div>}
                     {activeStage.payments.some((pay) => pay.approvalStatus === 'pending') && (
                       <p className="mt-1 text-[11px] font-semibold text-[#9C6B2E]">
                         {activeStage.payments.filter((pay) => pay.approvalStatus === 'pending').length} payment(s) pending accounts approval
@@ -3160,7 +3218,12 @@ const PatientDetails = () => {
                     <p className="mt-1 text-sm font-bold text-charcoal">{formatMoney(activeStage.remainingAmount)}</p>
                   </div>
                   {canAddPayment ? (
-                    <AddPaymentField onAdd={handleAddPayment} />
+                    <div className="bg-offwhite-100">
+                      <AddPaymentField onAdd={handleAddPayment} />
+                      {patient.canApprove && <div className="px-4 pb-3">
+                        <Button size="sm" variant="outline" disabled={!refundablePayments.length} onClick={() => openFinancialAction('initiate', refundablePayments[0])}><RotateCcw size={14} />Refund payment</Button>
+                      </div>}
+                    </div>
                   ) : (
                     <div className="bg-offwhite-100 p-4">
                       <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Add Payment</p>
@@ -3342,7 +3405,7 @@ const PatientDetails = () => {
       <Drawer
         open={timelineOpen}
         onClose={() => setTimelineOpen(false)}
-        title={activeStage ? `Payment Timeline - Phase ${activeStage.number}` : 'Payment Timeline'}
+        title={activeStage ? `Payments & refunds - Phase ${activeStage.number}` : 'Payments & refunds'}
       >
         {paymentApproveError && (
           <div className="mb-3 rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{paymentApproveError}</div>
@@ -3362,8 +3425,8 @@ const PatientDetails = () => {
                     <IndianRupee size={12} /> {Number(pay.amount).toLocaleString('en-IN')}
                   </span>
                   <div className="flex items-center gap-1.5">
-                     {canEditPayments && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
-                     {isAdmin && (
+                     {canEditPayments && pay.approvalStatus === 'pending' && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
+                     {isAdmin && pay.approvalStatus === 'pending' && (
                        <button
                          type="button"
                          title="Delete payment"
@@ -3377,6 +3440,7 @@ const PatientDetails = () => {
                      )}
                     <Badge tone={pay.paymentMode === 'cash' ? 'amber' : 'teal'}>{pay.paymentModeLabel}</Badge>
                     {pay.approvalStatus === 'pending' && <Badge tone="amber">Pending Approval</Badge>}
+                    {pay.approvalStatus === 'cancelled' && <Badge tone="danger">Cancelled</Badge>}
                   </div>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-charcoal/55">
@@ -3412,7 +3476,31 @@ const PatientDetails = () => {
                     Approved by {pay.approvedByName}{pay.approvedAt ? ` · ${formatDateTime(pay.approvedAt)}` : ''}
                   </p>
                 )}
+                {pay.approvalStatus === 'cancelled' && (
+                  <p className="mt-2 text-xs text-[#8C3B2E]">Cancelled by {pay.cancelledByName} on {formatDateTime(pay.cancelledAt)}. Reason: {pay.cancellationReason}</p>
+                )}
+                {pay.approvalStatus === 'approved' && (
+                  <div className="mt-2 rounded-md border border-cardline-soft bg-offwhite-100 px-3 py-2 text-xs text-charcoal">
+                    <div className="flex flex-wrap justify-between gap-2"><span>Received: <strong>{Number(pay.amount).toLocaleString('en-IN')}</strong></span><span>Refunded: <strong>{Number(pay.refundedAmount || 0).toLocaleString('en-IN')}</strong></span><span>Net paid: <strong>{Number(pay.netAmount ?? pay.amount).toLocaleString('en-IN')}</strong></span></div>
+                  </div>
+                )}
+                {(pay.refunds || []).map((refund) => (
+                  <div key={refund.id} className="mt-2 border-l-2 border-sage pl-3 text-xs text-charcoal">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><strong>{formatMoney(refund.amount)} - {{ initiated: 'Refund pending', paid: 'Refund paid', settled: 'Settled' }[refund.status]}</strong>{patient.canApprove && refund.status === 'initiated' && <Button size="sm" variant="outline" onClick={() => openFinancialAction('pay', pay, refund)}>Record refund paid</Button>}{patient.canApprove && refund.status === 'paid' && <Button size="sm" variant="outline" onClick={() => openFinancialAction('settle', pay, refund)}>Settle refund</Button>}</div>
+                    <p>Reason: {refund.reason}</p>
+                    <p>Initiated by {refund.initiatedByName} on {formatDateTime(refund.initiatedAt)}</p>
+                    {refund.paidAt && <p>Paid by {refund.paidByName} on {formatDateTime(refund.paidAt)} via {refund.paymentMode}{refund.referenceNumber ? ` | Ref: ${refund.referenceNumber}` : ''}</p>}
+                    {refund.payoutNote && <p>Note: {refund.payoutNote}</p>}
+                    {refund.settledAt && <p>Settled by {refund.settledByName} on {formatDateTime(refund.settledAt)}</p>}
+                    <CompactAttachments files={refund.proofFiles || []} label="Refund images" />
+                  </div>
+                ))}
                 <FileLinks files={pay.screenshotFiles} fallbackUrl={pay.screenshotUrl} fallbackName="Payment screenshot" label="Screenshots" />
+                {patient.canApprove && pay.approvalStatus !== 'cancelled' && (
+                  <div className="mt-2 flex flex-wrap gap-2 border-t border-cardline-soft pt-2">
+                    {(pay.refunds || []).length === 0 && <Button size="sm" variant="outline" onClick={() => openFinancialAction('cancel', pay)}>Cancel payment</Button>}
+                  </div>
+                )}
                 {pay.approvalStatus === 'pending' && patient.canApprove && (
                   <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-cardline-soft pt-2.5">
                     <p className="text-[11px] font-semibold text-[#9C6B2E]">Verify and approve this payment</p>
@@ -3430,6 +3518,28 @@ const PatientDetails = () => {
           </ul>
         )}
       </Drawer>
+
+      <Modal open={Boolean(financialAction)} onClose={() => !financialSaving && setFinancialAction(null)} title={{ cancel: 'Cancel payment', initiate: 'Initiate refund', pay: 'Record refund payout', settle: 'Confirm refund settlement' }[financialAction?.type] || ''}>
+        <form onSubmit={submitFinancialAction} className="space-y-4">
+          {financialError && <p className="text-sm text-[#8C3B2E]">{financialError}</p>}
+          {financialAction?.type === 'initiate' && <div className="space-y-3 text-sm text-charcoal">
+            <div><p className="font-semibold">Total available to refund</p><p className="mt-1 text-xl font-bold">{formatMoney(totalRefundable)}</p><p className="mt-1 text-xs text-charcoal/70">{refundablePayments.length} approved payments across all phases</p></div>
+            <fieldset className="flex flex-wrap gap-4"><legend className="mb-2 font-medium">Refund amount</legend>
+              <label className="flex items-center gap-2"><input type="radio" name="refundMode" value="full" checked={refundMode === 'full'} onChange={() => setRefundMode('full')} disabled={financialSaving} />Full refund</label>
+              <label className="flex items-center gap-2"><input type="radio" name="refundMode" value="custom" checked={refundMode === 'custom'} onChange={() => setRefundMode('custom')} disabled={financialSaving} />Custom amount</label>
+            </fieldset>
+            <label className="block">Amount to refund<input type="number" min="0.01" max={totalRefundable} step="0.01" required readOnly={refundMode === 'full'} value={refundMode === 'full' ? totalRefundable : financialForm.amount} onChange={(event) => setFinancialForm({ ...financialForm, amount: event.target.value })} className="mt-1 w-full rounded-md border border-cardline bg-offwhite-100 px-3 py-2" /></label>
+          </div>}
+          {financialAction?.type !== 'initiate' && <p className="text-sm text-charcoal">Original payment: {Number(financialAction?.payment?.amount || 0).toLocaleString('en-IN')}</p>}
+          {financialAction?.refund && <p className="text-base font-bold text-charcoal">Refund: {formatMoney(financialAction.refund.amount)}</p>}
+          {financialAction?.type === 'cancel' && <p className="text-sm text-charcoal/70">Use cancellation only for an incorrect payment entry. If money was received and later returned, record a refund instead.</p>}
+          {['cancel', 'initiate'].includes(financialAction?.type) && <label className="block text-sm text-charcoal">Reason<textarea required rows={3} value={financialForm.reason} onChange={(event) => setFinancialForm({ ...financialForm, reason: event.target.value })} className="mt-1 w-full rounded-md border border-cardline bg-offwhite-100 px-3 py-2" /></label>}
+          {financialAction?.type === 'pay' && <><label className="block text-sm text-charcoal">Payout mode<select value={financialForm.paymentMode} onChange={(event) => setFinancialForm({ ...financialForm, paymentMode: event.target.value })} className="mt-1 w-full rounded-md border border-cardline bg-offwhite-100 px-3 py-2"><option value="online">Online</option><option value="cash">Cash</option></select></label><label className="block text-sm text-charcoal">UTR / transaction reference (optional)<input value={financialForm.referenceNumber} onChange={(event) => setFinancialForm({ ...financialForm, referenceNumber: event.target.value })} className="mt-1 w-full rounded-md border border-cardline bg-offwhite-100 px-3 py-2" /></label><label className="block text-sm text-charcoal">Payout note<input value={financialForm.payoutNote} onChange={(event) => setFinancialForm({ ...financialForm, payoutNote: event.target.value })} className="mt-1 w-full rounded-md border border-cardline bg-offwhite-100 px-3 py-2" /></label></>}
+          {['initiate', 'pay'].includes(financialAction?.type) && <><CompactAttachments files={financialAction?.refund?.proofFiles || []} label="Saved images" /><RefundImages files={refundFiles} onChange={setRefundFiles} disabled={financialSaving} /></>}
+          {financialAction?.type === 'settle' && <p className="text-sm text-charcoal/70">Confirm that this payout matches the bank or cash record.</p>}
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={financialSaving} onClick={() => setFinancialAction(null)}>Back</Button><Button type="submit" disabled={financialSaving}>{financialSaving ? 'Saving...' : { cancel: 'Cancel payment', initiate: 'Save pending refund', pay: 'Confirm refund paid', settle: 'Confirm settlement' }[financialAction?.type]}</Button></div>
+        </form>
+      </Modal>
 
       <Modal open={closeModalOpen} onClose={() => setCloseModalOpen(false)} title="Close Patient">
         <form onSubmit={handleClosePatient} className="space-y-4">

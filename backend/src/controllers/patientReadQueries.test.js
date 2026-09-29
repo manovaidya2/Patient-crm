@@ -76,3 +76,33 @@ test('approval queue selects only approval fields and retains totals', async () 
   assert.equal(patient.pendingPayments.length, 1);
   assert.equal(patient.stages[0].medicineRequest, undefined);
 });
+
+test('refund register keeps payout history and status totals across filters', async () => {
+  const patients = [{
+    _id: 'patient-1', patientName: 'Patient One', number: '9876543210',
+    stages: [{ number: 1, payments: [{ _id: 'payment-1', amount: 1000, refunds: [
+      { _id: 'refund-1', amount: 200, reason: 'Duplicate charge', status: 'paid', createdAt: new Date('2026-09-01'), paidAt: new Date('2026-09-02'), paidByName: 'Accounts' },
+      { _id: 'refund-2', amount: 100, reason: 'Package change', status: 'initiated', createdAt: new Date('2026-09-03') },
+    ] }] }],
+  }];
+  const result = await invoke(controller.getRefundsLedger, { patients, query: { status: 'paid' } });
+  assert.equal(result.response.data.total, 1);
+  assert.equal(result.response.data.refunds[0].reason, 'Duplicate charge');
+  assert.equal(result.response.data.refunds[0].paidByName, 'Accounts');
+  assert.deepEqual(result.response.data.totals, { initiated: 100, paid: 200, settled: 0 });
+  assert.equal(result.fields.includes('stages.familySessions'), false);
+});
+
+test('payment ledger reports gross, refunded and net amounts separately', async () => {
+  const patients = [{ _id: 'patient-1', patientName: 'Patient One', stages: [{ number: 1, payments: [
+    { _id: 'payment-1', amount: 1000, approvalStatus: 'approved', date: new Date('2026-09-01'), refunds: [
+      { amount: 200, status: 'paid' }, { amount: 100, status: 'initiated' },
+    ] },
+    { _id: 'payment-2', amount: 500, approvalStatus: 'cancelled', date: new Date('2026-09-01') },
+  ] }] }];
+  const result = await invoke(controller.getPaymentsLedger, { patients });
+  assert.equal(result.response.data.totalAmount, 1000);
+  assert.equal(result.response.data.totalRefunded, 200);
+  assert.equal(result.response.data.totalNet, 800);
+  assert.equal(result.response.data.payments.length, 1);
+});
