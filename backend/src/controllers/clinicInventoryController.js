@@ -1,5 +1,6 @@
 const ClinicInventory = require('../models/ClinicInventory');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { ROLES } = require('../constants/roles');
 
 const formatItem = (item) => ({
   id: String(item._id), name: item.name, category: item.category || 'General', unit: item.unit || 'piece',
@@ -12,6 +13,7 @@ const formatItem = (item) => ({
 const listClinicInventory = asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const filter = search ? { $or: [{ name: { $regex: search, $options: 'i' } }, { category: { $regex: search, $options: 'i' } }] } : {};
+  filter.deletedAt = null;
   const items = (await ClinicInventory.find(filter).sort({ updatedAt: -1, createdAt: -1 })).map(formatItem);
   const totals = items.reduce((acc, item) => ({ items: acc.items + 1, lowStock: acc.lowStock + (item.lowStockAt > 0 && item.currentStock <= item.lowStockAt ? 1 : 0) }), { items: 0, lowStock: 0 });
   res.json({ success: true, items, totals });
@@ -20,15 +22,15 @@ const listClinicInventory = asyncHandler(async (req, res) => {
 const createClinicInventoryItem = asyncHandler(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ success: false, message: 'Item name is required' });
-  const existing = await ClinicInventory.findOne({ name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
-  if (existing) return res.status(400).json({ success: false, message: 'This clinic item already exists' });
+  const existing = await ClinicInventory.findOne({ deletedAt: null, name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
+  if (existing && !existing.deletedAt) return res.status(400).json({ success: false, message: 'This clinic item already exists' });
   const openingStock = Math.max(Number(req.body.openingStock || 0), 0);
   const item = await ClinicInventory.create({ name, category: String(req.body.category || 'General').trim(), unit: String(req.body.unit || 'piece').trim(), currentStock: openingStock, lowStockAt: Math.max(Number(req.body.lowStockAt || 0), 0), notes: String(req.body.notes || '').trim(), createdByName: req.user.name, transactions: openingStock ? [{ type: 'add', quantity: openingStock, previousStock: 0, newStock: openingStock, reason: 'Opening stock', notes: String(req.body.notes || '').trim(), recordedByName: req.user.name }] : [] });
   res.status(201).json({ success: true, item: formatItem(item) });
 });
 
 const updateClinicInventoryItem = asyncHandler(async (req, res) => {
-  const item = await ClinicInventory.findById(req.params.id);
+  const item = await ClinicInventory.findOne({ _id: req.params.id, deletedAt: null });
   if (!item) return res.status(404).json({ success: false, message: 'Clinic inventory item not found' });
   if (req.body.name !== undefined) item.name = String(req.body.name || '').trim();
   if (req.body.category !== undefined) item.category = String(req.body.category || 'General').trim();
@@ -40,7 +42,7 @@ const updateClinicInventoryItem = asyncHandler(async (req, res) => {
 });
 
 const addClinicInventoryTransaction = asyncHandler(async (req, res) => {
-  const item = await ClinicInventory.findById(req.params.id);
+  const item = await ClinicInventory.findOne({ _id: req.params.id, deletedAt: null });
   if (!item) return res.status(404).json({ success: false, message: 'Clinic inventory item not found' });
   const type = String(req.body.type || '');
   const quantity = Number(req.body.quantity);
@@ -53,4 +55,13 @@ const addClinicInventoryTransaction = asyncHandler(async (req, res) => {
   await item.save(); res.json({ success: true, item: formatItem(item) });
 });
 
-module.exports = { listClinicInventory, createClinicInventoryItem, updateClinicInventoryItem, addClinicInventoryTransaction };
+const deleteClinicInventoryItem = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN) return res.status(403).json({ message: 'Only Admin can delete clinic items' });
+  const item = await ClinicInventory.findOneAndUpdate({ _id: req.params.id, deletedAt: null }, {
+    $set: { deletedAt: new Date(), deletedByName: req.user.name }, $inc: { __v: 1 },
+  });
+  if (!item) return res.status(404).json({ message: 'Clinic inventory item not found' });
+  res.json({ success: true });
+});
+
+module.exports = { listClinicInventory, createClinicInventoryItem, updateClinicInventoryItem, addClinicInventoryTransaction, deleteClinicInventoryItem };

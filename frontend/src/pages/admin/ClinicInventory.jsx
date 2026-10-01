@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, History, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, History, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 import api from '../../api/axios.js';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -16,6 +18,8 @@ const number = (value) => Number(value || 0).toLocaleString('en-IN');
 const IconAction = ({ label, children, onClick, primary = false }) => <button type="button" title={label} aria-label={label} onClick={onClick} className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${primary ? 'border-sage bg-sage text-white hover:bg-[#4C5D52]' : 'border-cardline bg-offwhite-100 text-charcoal/65 hover:border-sage hover:bg-sage-muted/15 hover:text-charcoal'}`}>{children}</button>;
 
 const ClinicInventory = () => {
+  const { user } = useAuth();
+  const [deleteItem, setDeleteItem] = useState(null);
   const [items, setItems] = useState([]);
   const [totals, setTotals] = useState({ items: 0, lowStock: 0 });
   const [search, setSearch] = useState('');
@@ -29,6 +33,15 @@ const ClinicInventory = () => {
   const [historyItem, setHistoryItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
+  const confirmDelete = async () => {
+    if (saving) return;
+    setSaving(true); setModalError('');
+    try {
+      await api.delete(`/clinic-inventory/${deleteItem.id}`);
+      setDeleteItem(null); setHistoryItem(null); setRefresh((value) => value + 1);
+    } catch (err) { setModalError(err.response?.data?.message || 'Could not delete item.'); }
+    finally { setSaving(false); }
+  };
 
   const load = async () => {
     setLoading(true); setError('');
@@ -292,6 +305,7 @@ const ClinicInventory = () => {
                           >
                             <Pencil size={15} />
                           </IconAction>
+                          {user?.role === ROLES.ADMIN && <IconAction label="Delete item" onClick={() => { setDeleteItem(item); setModalError(''); }}><Trash2 size={15} className="text-red-700" /></IconAction>}
                         </div>
                       </td>
                     </tr>
@@ -302,6 +316,15 @@ const ClinicInventory = () => {
         </div>
       </Card>
 
+      <Modal
+        open={!!deleteItem}
+        onClose={() => !saving && setDeleteItem(null)}
+        title="Delete clinic item"
+      >
+        <p className="text-sm">Remove <strong>{deleteItem?.name}</strong> from inventory? Current stock: {number(deleteItem?.currentStock)} {deleteItem?.unit}. Stock history will be retained.</p>
+        {modalError && <p role="alert" className="mt-3 text-sm text-red-700">{modalError}</p>}
+        <div className="mt-4 flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setDeleteItem(null)}>Cancel</Button><Button disabled={saving} onClick={confirmDelete}><Trash2 size={16} />{saving ? 'Deleting...' : 'Delete item'}</Button></div>
+      </Modal>
       <Modal
         open={!!itemModal}
         onClose={() => setItemModal(null)}

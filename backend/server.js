@@ -96,6 +96,7 @@ app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/receptionist-checklist', receptionistChecklistRoutes);
 app.use('/api/clinic-inventory', clinicInventoryRoutes);
 app.use('/api/record-room', recordRoomRoutes);
+app.use('/api/reception-registers', require('./src/routes/receptionRegisterRoutes'));
 
 // 404 handler for unknown routes
 app.use((req, res) => {

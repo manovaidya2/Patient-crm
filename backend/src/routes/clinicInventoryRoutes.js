@@ -8,6 +8,7 @@ router.use(protect, authorize(ROLES.ADMIN, ROLES.RECEPTIONIST));
 router.get('/', controller.listClinicInventory);
 router.post('/', controller.createClinicInventoryItem);
 router.patch('/:id', controller.updateClinicInventoryItem);
+router.delete('/:id', authorize(ROLES.ADMIN), controller.deleteClinicInventoryItem);
 router.post('/:id/transactions', controller.addClinicInventoryTransaction);
 
 module.exports = router;

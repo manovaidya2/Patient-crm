@@ -20,8 +20,10 @@ const clinicInventorySchema = new mongoose.Schema({
   createdByName: { type: String, trim: true, default: '' },
   editedByName: { type: String, trim: true, default: '' },
   editedAt: { type: Date, default: null },
+  deletedAt: { type: Date, default: null },
+  deletedByName: { type: String, default: '' },
   transactions: { type: [clinicInventoryTransactionSchema], default: [] },
-}, { timestamps: true });
+}, { timestamps: true, optimisticConcurrency: true });
 
 clinicInventorySchema.index({ name: 1 });
 

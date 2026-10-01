@@ -1,0 +1,11 @@
+const router = require('express').Router();
+const { protect, authorize } = require('../middleware/auth');
+const { ROLES } = require('../constants/roles');
+const controller = require('../controllers/receptionRegisterController');
+router.use(protect, authorize(ROLES.ADMIN, ROLES.RECEPTIONIST));
+router.param('kind', (req, res, next, kind) => ['visitors', 'incoming-couriers'].includes(kind) ? next() : res.status(404).json({ message: 'Register not found' }));
+router.get('/:kind', controller.list);
+router.post('/:kind/columns', controller.addColumn);
+router.post('/:kind/entries', controller.save);
+router.patch('/:kind/entries/:id', controller.save);
+module.exports = router;

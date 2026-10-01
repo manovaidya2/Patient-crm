@@ -44,6 +44,7 @@ const ReceptionistChecklist = lazy(() => import('./pages/admin/ReceptionistCheck
 const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
 const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
 const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
+const ReceptionRegister = lazy(() => import('./pages/admin/ReceptionRegister.jsx'));
 
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
@@ -199,6 +200,8 @@ function App() {
           }
         />
         <Route path="clinic-inventory" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ClinicInventory /></ProtectedRoute>} />
+        <Route path="visitors" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ReceptionRegister key="visitors" kind="visitors" /></ProtectedRoute>} />
+        <Route path="incoming-couriers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ReceptionRegister key="incoming-couriers" kind="incoming-couriers" /></ProtectedRoute>} />
         <Route
           path="courier"
           element={
