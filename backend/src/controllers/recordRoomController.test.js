@@ -82,6 +82,25 @@ test('create stores shelf and file numbers', async () => {
   assert.equal(response.data.record.fileNumber, 'F-14');
 });
 
+test('first receipt is stored separately and survives paper return and unrelated edits', async () => {
+  const patient = record();
+  const firstReceivedAt = '2026-01-01T10:00:00.000Z';
+  const result = await request(controller.update, { patientName: 'Test Patient', firstReceivedAt }, patient);
+  assert.equal(result.response.data.record.firstReceivedAt.toISOString(), firstReceivedAt);
+  await request(controller.collect, { returnCondition: 'intact' }, patient);
+  await request(controller.update, { patientName: 'Test Patient' }, patient);
+  assert.equal(patient.firstReceivedAt.toISOString(), firstReceivedAt);
+});
+
+test('invalid or future receipt dates are rejected; legacy records have no invented date', async () => {
+  assert.equal(record().firstReceivedAt, null);
+  for (const firstReceivedAt of ['invalid', '2999-01-01T00:00:00Z']) {
+    const result = await request(controller.update, { patientName: 'Test Patient', firstReceivedAt }, record());
+    assert.equal(result.response.statusCode, 400);
+    assert.equal(result.saved, false);
+  }
+});
+
 test('editing record location preserves documents and movement history', async () => {
   const patient = record();
   patient.issueHistory[0].returnedAt = new Date();

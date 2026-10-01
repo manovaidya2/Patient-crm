@@ -16,6 +16,7 @@ const removeFile = async (url) => { const target = filePath(url); if (target) { 
 const serialize = (record) => ({
   id: String(record._id), patientId: record.patientId, patientName: record.patientName, appointmentId: record.appointmentId,
   shelfNumber: record.shelfNumber || '', fileNumber: record.fileNumber || '',
+  firstReceivedAt: record.firstReceivedAt || null,
   documents: (record.documents || []).map((item) => ({ id: String(item._id), url: item.url, fileName: item.fileName, uploadedAt: item.uploadedAt, uploadedByName: item.uploadedByName })),
   pdfUrl: record.pdfUrl, pdfName: record.pdfName, pdfPageCount: record.pdfPageCount, pdfUpdatedAt: record.pdfUpdatedAt,
   issueHistory: (record.issueHistory || []).map((item) => ({ id: String(item._id), paperName: item.paperName || 'Patient file', issuedAt: item.issuedAt, issuedByName: item.issuedByName, givenTo: item.givenTo, reason: item.reason, returnedAt: item.returnedAt, returnedByName: item.returnedByName, returnNotes: item.returnNotes, returnCondition: item.returnCondition || '', problemDetails: item.problemDetails || '' })),
@@ -98,6 +99,8 @@ const findLinkedPatient = async (patientKey) => {
 };
 
 const create = asyncHandler(async (req, res) => {
+  const firstReceivedAt = req.body.firstReceivedAt ? new Date(req.body.firstReceivedAt) : null;
+  if (firstReceivedAt && (Number.isNaN(firstReceivedAt.getTime()) || firstReceivedAt > new Date())) return res.status(400).json({ message: 'Enter a valid first received date/time, not in the future' });
   const patientName = String(req.body.patientName || '').trim();
   if (!patientName) return res.status(400).json({ success: false, message: 'Patient name is required' });
   const patientKey = String(req.body.patientId || '').trim();
@@ -110,11 +113,14 @@ const create = asyncHandler(async (req, res) => {
     shelfNumber: String(req.body.shelfNumber || '').trim(),
     fileNumber: String(req.body.fileNumber || '').trim(),
     createdByName: req.user.name,
+    firstReceivedAt,
   });
   res.status(201).json({ success: true, record: serialize(record) });
 });
 
 const update = asyncHandler(async (req, res) => {
+  const firstReceivedAt = req.body.firstReceivedAt ? new Date(req.body.firstReceivedAt) : null;
+  if (firstReceivedAt && (Number.isNaN(firstReceivedAt.getTime()) || firstReceivedAt > new Date())) return res.status(400).json({ message: 'Enter a valid first received date/time, not in the future' });
   const record = await RecordRoom.findById(req.params.id);
   if (!record) return res.status(404).json({ success: false, message: 'Record not found' });
   const patientName = String(req.body.patientName || '').trim();
@@ -127,6 +133,7 @@ const update = asyncHandler(async (req, res) => {
   record.appointmentId = String(req.body.appointmentId || '').trim();
   record.shelfNumber = String(req.body.shelfNumber || '').trim();
   record.fileNumber = String(req.body.fileNumber || '').trim();
+  if (req.body.firstReceivedAt !== undefined) record.firstReceivedAt = firstReceivedAt;
   if (record.pdfUrl) record.pdfName = `${record.patientName} record room (${record.documents.length} pages).pdf`;
   await record.save();
   res.json({ success: true, record: serialize(record) });

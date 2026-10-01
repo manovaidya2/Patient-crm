@@ -27,6 +27,7 @@ const schema = new mongoose.Schema({
   appointmentId: { type: String, trim: true, default: '' },
   shelfNumber: { type: String, trim: true, maxlength: 60, default: '' },
   fileNumber: { type: String, trim: true, maxlength: 60, default: '' },
+  firstReceivedAt: { type: Date, default: null },
   documents: { type: [documentSchema], default: [] },
   pdfUrl: { type: String, default: '' },
   pdfName: { type: String, default: '' },
