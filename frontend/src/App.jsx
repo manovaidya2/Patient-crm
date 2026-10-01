@@ -333,7 +333,7 @@ function App() {
         <Route
           path="knowledge-library"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={ADMIN_LAYOUT_ROLES}>
               <KnowledgeLibrary />
             </ProtectedRoute>
           }
@@ -341,7 +341,7 @@ function App() {
         <Route
           path="knowledge-library/:categoryId"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={ADMIN_LAYOUT_ROLES}>
               <KnowledgeLibrary />
             </ProtectedRoute>
           }
