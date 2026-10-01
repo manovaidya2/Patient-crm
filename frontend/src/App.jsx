@@ -42,7 +42,6 @@ const SalesWorkspace = lazy(() => import('./pages/SalesWorkspace.jsx'));
 const ReceptionistDashboard = lazy(() => import('./pages/admin/ReceptionistDashboard.jsx'));
 const ReceptionistHomeDashboard = lazy(() => import('./pages/admin/ReceptionistHomeDashboard.jsx'));
 const ReceptionistChecklist = lazy(() => import('./pages/admin/ReceptionistChecklist.jsx'));
-const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
 const Enquiries = lazy(() => import('./pages/admin/Enquiries.jsx'));
 const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
 const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
@@ -329,7 +328,7 @@ function App() {
           path="patient-queries"
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
-              {user?.role === ROLES.ADMIN ? <PatientQueries /> : <Navigate to="/admin/enquiries" replace />}
+              <Navigate to="/admin/enquiries" replace />
             </ProtectedRoute>
           }
         />
