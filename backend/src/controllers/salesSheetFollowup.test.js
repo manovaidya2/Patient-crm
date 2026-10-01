@@ -23,6 +23,7 @@ async function invoke(handler, { role = ROLES.SALES_TEAM, body = {}, row = sampl
     if (query.acceptedAt === null && row.acceptedAt) return null;
     for (const [key, value] of Object.entries(update.$set || {})) row[key] = value;
     for (const [key, value] of Object.entries(update.$inc || {})) row[key] = (row[key] || 0) + value;
+    for (const [key, value] of Object.entries(update.$push || {})) row[key].push(value);
     return row;
   };
   SalesSheetAudit.create = async () => ({});
@@ -44,6 +45,8 @@ test('not coming keeps the same lead, requires reason, and hides call fields fro
   assert.equal(response.data.appointment.lastCallAt, undefined);
   assert.equal(response.data.appointment.numberOfCalls, undefined);
   assert.equal(response.data.appointment.callStatus, undefined);
+  assert.equal(response.data.appointment.lastCallNotes, undefined);
+  assert.equal(response.data.appointment.callHistory, undefined);
 });
 
 test('pending lead can be reopened and original date stays intact', async () => {
@@ -57,11 +60,48 @@ test('pending lead can be reopened and original date stays intact', async () => 
 });
 
 test('a call increments count and records its time only for Reception/Admin', async () => {
-  const { row, response } = await invoke(controller.logCall, { role: ROLES.RECEPTIONIST });
+  const { row, response } = await invoke(controller.logCall, { role: ROLES.RECEPTIONIST, body: { status: 'connected', notes: 'Confirmed appointment' } });
   assert.equal(row.numberOfCalls, 1);
   assert.ok(row.lastCallAt instanceof Date);
   assert.equal(response.data.appointment.numberOfCalls, 1);
-  assert.equal(response.data.appointment.callStatus, 'pending');
+  assert.equal(response.data.appointment.callStatus, 'connected');
+  assert.equal(row.callHistory.length, 1);
+  assert.equal(row.callHistory[0].notes, 'Confirmed appointment');
+  assert.equal(String(row.callHistory[0].calledBy), String(ownerId));
+  assert.equal(row.callHistory[0].calledAt.getTime(), row.lastCallAt.getTime());
+  await invoke(controller.logCall, { row, role: ROLES.ADMIN, body: { status: 'no_answer', notes: 'No response' } });
+  assert.equal(row.numberOfCalls, 2);
+  assert.equal(row.callHistory.length, 2);
+  assert.equal(row.callHistory[0].notes, 'Confirmed appointment');
+  assert.equal(row.lastCallNotes, 'No response');
+});
+
+test('invalid calls and unauthorized callers never increment the count', async () => {
+  for (const body of [{}, { status: 'pending', notes: 'Test' }, { status: 'connected', notes: ' ' }, { status: 'connected', notes: 'x'.repeat(2001) }]) {
+    const result = await invoke(controller.logCall, { role: ROLES.RECEPTIONIST, body });
+    assert.equal(result.response.statusCode, 400);
+    assert.equal(result.row.numberOfCalls, 0);
+  }
+  const body = { status: 'connected', notes: 'Test' };
+  assert.equal((await invoke(controller.logCall, { body })).response.statusCode, 403);
+  const row = sample(); row.status = 'rescheduled';
+  assert.equal((await invoke(controller.logCall, { role: ROLES.ADMIN, row, body })).response.statusCode, 409);
+  assert.equal(row.numberOfCalls, 0);
+});
+
+test('call history preserves legacy counts and is private to Reception/Admin', async () => {
+  const original = SalesAppointment.findById;
+  const row = sample();
+  row.numberOfCalls = 3;
+  row.callHistory.push({ status: 'connected', notes: 'Confirmed', calledAt: new Date(), calledBy: ownerId, calledByName: 'Reception' });
+  SalesAppointment.findById = () => ({ select: () => ({ lean: async () => row.toObject() }) });
+  try {
+    const result = await invoke(controller.listCalls, { role: ROLES.RECEPTIONIST });
+    assert.equal(result.response.data.legacyCount, 2);
+    assert.equal(result.response.data.calls[0].number, 3);
+    assert.equal(result.response.data.calls[0].calledByName, 'Reception');
+    assert.equal((await invoke(controller.listCalls)).response.statusCode, 403);
+  } finally { SalesAppointment.findById = original; }
 });
 
 test('call status rejects unexpected values', async () => {

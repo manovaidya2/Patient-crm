@@ -422,7 +422,7 @@ const Dashboard = () => {
                   <span data-label="Paid" className="min-w-0 truncate font-semibold tabular-nums text-sage">{formatMoney(row.paidAmount)}</span>
                   <span data-label="Due" className="min-w-0 truncate font-bold tabular-nums text-[#8C3B2E]">{formatMoney(row.dueAmount)}</span>
                   <span className="min-w-0 text-xs text-charcoal/55">
-                    {row.assignedDoctor ? `Doctor: ${row.assignedDoctor}` : 'Doctor: -'}
+                    {row.assignedDoctor ? `AD: ${row.assignedDoctor}` : 'Assistant Doctor: -'}
                     {row.postCounselor ? <span className="block truncate">PC: {row.postCounselor}</span> : null}
                     {row.pendingApprovalAmount > 0 ? <span className="block font-semibold text-[#9C6B2E]">Pending approval: {formatMoney(row.pendingApprovalAmount)}</span> : null}
                   </span>

@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 
+const callEntrySchema = new mongoose.Schema({
+  status: { type: String, enum: ['connected', 'no_answer', 'follow_up'], required: true },
+  notes: { type: String, trim: true, required: true, maxlength: 2000 },
+  calledAt: { type: Date, required: true },
+  calledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  calledByName: { type: String, required: true },
+});
+
 const salesAppointmentSchema = new mongoose.Schema(
   {
     appointmentCode: { type: String, unique: true, sparse: true, index: true },
@@ -15,6 +23,8 @@ const salesAppointmentSchema = new mongoose.Schema(
     notComingByName: { type: String, trim: true, default: '' },
     lastCallAt: { type: Date, default: null },
     numberOfCalls: { type: Number, default: 0, min: 0 },
+    lastCallNotes: { type: String, trim: true, default: '', maxlength: 2000 },
+    callHistory: { type: [callEntrySchema], default: [] },
     callStatus: { type: String, enum: ['pending', 'connected', 'no_answer', 'follow_up'], default: 'pending' },
     rescheduledTo: { type: String, default: '' },
     rescheduledAt: { type: Date, default: null },

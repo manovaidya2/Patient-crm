@@ -29,6 +29,7 @@ router.post('/appointments/:id/reschedule', authorize(ROLES.ADMIN, ROLES.SALES_T
 router.post('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.markNotComing);
 router.delete('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.clearNotComing);
 router.post('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.logCall);
+router.get('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.listCalls);
 router.patch('/appointments/:id/call-status', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.updateCallStatus);
 router.patch('/appointments/:id', controller.updateAppointment);
 router.delete('/appointments/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteAppointment);

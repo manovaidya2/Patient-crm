@@ -114,7 +114,7 @@ const serializeRow = (row, user) => ({
   acceptedAt: row.acceptedAt || null, acceptedByName: row.acceptedByName || '',
   entryAt: row.createdAt, lastEditedAt: row.lastEditedAt || null,
   status: row.status || 'active', notComingReason: row.notComingReason || '', notComingAt: row.notComingAt || null, notComingByName: row.notComingByName || '', rescheduledTo: row.rescheduledTo || '',
-  ...([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) ? { lastCallAt: row.lastCallAt || null, numberOfCalls: row.numberOfCalls || 0, callStatus: row.callStatus || 'pending' } : {}),
+  ...([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) ? { lastCallAt: row.lastCallAt || null, numberOfCalls: row.numberOfCalls || 0, callStatus: row.callStatus || 'pending', lastCallNotes: row.lastCallNotes || '' } : {}),
   rescheduledAt: row.rescheduledAt || null, rescheduledByName: row.rescheduledByName || '',
   createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
@@ -260,7 +260,7 @@ const deleteColumn = asyncHandler(async (req, res) => {
 
 const listAppointments = asyncHandler(async (req, res) => {
   if (req.query.date && !validDate(req.query.date)) return res.status(400).json({ success: false, message: 'Valid date is required' });
-  const rows = await SalesAppointment.find(req.query.date ? { appointmentDate: req.query.date } : {}).sort({ createdAt: 1 });
+  const rows = await SalesAppointment.find(req.query.date ? { appointmentDate: req.query.date } : {}).select('-callHistory').sort({ createdAt: 1 });
   const columns = await SalesSheetColumn.find({ isActive: true }).select('_id type').lean();
   await Promise.all(rows.map((row) => migrateLegacyFiles(row, columns)));
   res.json({ success: true, appointments: rows.map((row) => serializeRow(row, req.user)) });
@@ -315,7 +315,7 @@ const rescheduleAppointment = asyncHandler(async (req, res) => {
   if (!allowed) return res.status(403).json({ success: false, message: 'You cannot reschedule this appointment' });
   if (nextDate === row.appointmentDate) return res.status(400).json({ success: false, message: 'Choose a different appointment date' });
 
-  const replacement = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: nextDate, values: Object.fromEntries(row.values || []), createdBy: row.createdBy, createdByName: row.createdByName, updatedByName: req.user.name, lastCallAt: row.lastCallAt, numberOfCalls: row.numberOfCalls, callStatus: row.callStatus });
+  const replacement = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: nextDate, values: Object.fromEntries(row.values || []), createdBy: row.createdBy, createdByName: row.createdByName, updatedByName: req.user.name, lastCallAt: row.lastCallAt, numberOfCalls: row.numberOfCalls, callStatus: row.callStatus, lastCallNotes: row.lastCallNotes, callHistory: row.callHistory || [] });
   row.status = 'rescheduled';
   row.rescheduledTo = nextDate;
   row.rescheduledAt = new Date();
@@ -354,11 +354,35 @@ const clearNotComing = asyncHandler(async (req, res) => {
 });
 
 const logCall = asyncHandler(async (req, res) => {
-  const row = await SalesAppointment.findOneAndUpdate({ _id: req.params.id, status: 'active' }, { $inc: { numberOfCalls: 1 }, $set: { lastCallAt: new Date() } }, { new: true });
+  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can record calls' });
+  const status = req.body?.status;
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
+  if (!['connected', 'no_answer', 'follow_up'].includes(status)) return res.status(400).json({ success: false, message: 'Select the call outcome' });
+  if (!notes || notes.length > 2000) return res.status(400).json({ success: false, message: 'Enter call details (up to 2000 characters)' });
+  const calledAt = new Date();
+  const row = await SalesAppointment.findOneAndUpdate({ _id: req.params.id, status: 'active' }, {
+    $inc: { numberOfCalls: 1 },
+    $set: { lastCallAt: calledAt, callStatus: status, lastCallNotes: notes },
+    $push: { callHistory: { status, notes, calledAt, calledBy: req.user._id, calledByName: req.user.name } },
+  }, { new: true, runValidators: true });
   if (!row) return res.status(409).json({ success: false, message: 'Only active appointments can log calls' });
-  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Call logged', details: `Call ${row.numberOfCalls}` });
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Call logged', details: `Call ${row.numberOfCalls} | ${status.replace('_', ' ')} | ${notes}` });
   emitDateChanged(req, row.appointmentDate);
   res.json({ success: true, appointment: serializeRow(row, req.user) });
+});
+
+const listCalls = asyncHandler(async (req, res) => {
+  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can view call history' });
+  const row = await SalesAppointment.findById(req.params.id).select('appointmentCode status numberOfCalls callStatus lastCallAt callHistory').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
+  const calls = (row.callHistory || []).map((call, index) => ({
+    id: String(call._id), number: Math.max(0, (row.numberOfCalls || 0) - (row.callHistory || []).length) + index + 1,
+    status: call.status, notes: call.notes, calledAt: call.calledAt,
+    calledBy: String(call.calledBy), calledByName: call.calledByName,
+  })).reverse();
+  res.json({ success: true, calls, numberOfCalls: row.numberOfCalls || 0,
+    legacyCount: Math.max(0, (row.numberOfCalls || 0) - calls.length),
+    callStatus: row.callStatus || 'pending', lastCallAt: row.lastCallAt || null, canLog: row.status === 'active' });
 });
 
 const updateCallStatus = asyncHandler(async (req, res) => {
@@ -437,4 +461,4 @@ const deleteAppointment = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, rescheduleAppointment, markNotComing, clearNotComing, logCall, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, rescheduleAppointment, markNotComing, clearNotComing, logCall, listCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
