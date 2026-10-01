@@ -24,6 +24,7 @@ const schema = new mongoose.Schema({
   patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null, index: true },
   patientId: { type: String, trim: true, default: '' },
   patientName: { type: String, required: true, trim: true },
+  treatmentStatus: { type: String, enum: ['bought', 'not_bought'], default: 'bought', index: true },
   appointmentId: { type: String, trim: true, default: '' },
   shelfNumber: { type: String, trim: true, maxlength: 60, default: '' },
   fileNumber: { type: String, trim: true, maxlength: 60, default: '' },

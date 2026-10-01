@@ -82,6 +82,41 @@ test('create stores shelf and file numbers', async () => {
   assert.equal(response.data.record.fileNumber, 'F-14');
 });
 
+test('treatment classification defaults to bought and moving preserves documents/history', async () => {
+  const patient = record();
+  assert.equal(patient.treatmentStatus, 'bought');
+  patient.documents.push({ url: '/uploads/records/test.jpg' });
+  const result = await request(controller.update, { patientName: 'Test Patient', treatmentStatus: 'not_bought' }, patient);
+  assert.equal(result.response.data.record.treatmentStatus, 'not_bought');
+  assert.equal(patient.documents.length, 1);
+  assert.equal(patient.issueHistory.length, 1);
+  await request(controller.update, { patientName: 'Test Patient' }, patient);
+  assert.equal(patient.treatmentStatus, 'not_bought');
+  await assert.rejects(request(controller.update, { patientName: 'Test Patient', treatmentStatus: 'invalid' }, patient), { statusCode: 400 });
+});
+
+test('summary and movement queries are scoped to the selected treatment tab', async () => {
+  const originalCount = RecordRoom.countDocuments;
+  const originalAggregate = RecordRoom.aggregate;
+  const filters = [];
+  RecordRoom.countDocuments = async (filter) => { filters.push(filter); return 0; };
+  RecordRoom.aggregate = async (pipeline) => {
+    filters.push(pipeline.find((stage) => stage.$match).$match);
+    return pipeline.some((stage) => stage.$facet) ? [{ entries: [], count: [] }] : [];
+  };
+  try {
+    for (const status of ['bought', 'not_bought']) {
+      filters.length = 0;
+      const req = { query: { treatmentStatus: status } };
+      const res = { json() {} };
+      await controller.summary(req, res, (err) => { throw err; });
+      await controller.movements(req, res, (err) => { throw err; });
+      assert.equal(filters.length, 3);
+      for (const filter of filters) assert.deepEqual(filter.treatmentStatus, status === 'bought' ? { $ne: 'not_bought' } : 'not_bought');
+    }
+  } finally { RecordRoom.countDocuments = originalCount; RecordRoom.aggregate = originalAggregate; }
+});
+
 test('first receipt is stored separately and survives paper return and unrelated edits', async () => {
   const patient = record();
   const firstReceivedAt = '2026-01-01T10:00:00.000Z';

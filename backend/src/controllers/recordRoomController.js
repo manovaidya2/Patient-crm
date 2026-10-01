@@ -8,6 +8,12 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { writeImagesPdf } = require('../utils/simplePdf');
 
 const uploadsRoot = path.resolve(__dirname, '../../uploads');
+const treatmentStatus = (value = 'bought') => {
+  if (!['bought', 'not_bought'].includes(value)) { const error = new Error('Invalid treatment status'); error.statusCode = 400; throw error; }
+  return value;
+};
+// Older records belong to the original treatment-bought register.
+const treatmentFilter = (value) => ({ treatmentStatus: treatmentStatus(value) === 'not_bought' ? 'not_bought' : { $ne: 'not_bought' } });
 const filePath = (url) => {
   const resolved = path.resolve(__dirname, '../..', String(url || '').replace(/^\//, ''));
   return resolved.toLowerCase().startsWith(`${uploadsRoot.toLowerCase()}${path.sep}`) ? resolved : null;
@@ -17,6 +23,7 @@ const serialize = (record) => ({
   id: String(record._id), patientId: record.patientId, patientName: record.patientName, appointmentId: record.appointmentId,
   shelfNumber: record.shelfNumber || '', fileNumber: record.fileNumber || '',
   firstReceivedAt: record.firstReceivedAt || null,
+  treatmentStatus: record.treatmentStatus || 'bought',
   documents: (record.documents || []).map((item) => ({ id: String(item._id), url: item.url, fileName: item.fileName, uploadedAt: item.uploadedAt, uploadedByName: item.uploadedByName })),
   pdfUrl: record.pdfUrl, pdfName: record.pdfName, pdfPageCount: record.pdfPageCount, pdfUpdatedAt: record.pdfUpdatedAt,
   issueHistory: (record.issueHistory || []).map((item) => ({ id: String(item._id), paperName: item.paperName || 'Patient file', issuedAt: item.issuedAt, issuedByName: item.issuedByName, givenTo: item.givenTo, reason: item.reason, returnedAt: item.returnedAt, returnedByName: item.returnedByName, returnNotes: item.returnNotes, returnCondition: item.returnCondition || '', problemDetails: item.problemDetails || '' })),
@@ -28,6 +35,7 @@ const list = asyncHandler(async (req, res) => {
   const regex = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const filter = search ? { $or: ['patientName', 'patientId', 'appointmentId', 'shelfNumber', 'fileNumber'].map((key) => ({ [key]: { $regex: regex, $options: 'i' } })) } : {};
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  Object.assign(filter, treatmentFilter(req.query.treatmentStatus));
   const [records, total] = await Promise.all([
     RecordRoom.find(filter).select('-documents').sort({ updatedAt: -1, _id: -1 }).skip((page - 1) * 25).limit(25).lean(),
     RecordRoom.countDocuments(filter),
@@ -42,9 +50,11 @@ const detail = asyncHandler(async (req, res) => {
 });
 
 const summary = asyncHandler(async (req, res) => {
+  const filter = treatmentFilter(req.query.treatmentStatus);
   const [total, movements] = await Promise.all([
-    RecordRoom.countDocuments(),
+    RecordRoom.countDocuments(filter),
     RecordRoom.aggregate([
+      { $match: filter },
       { $unwind: '$issueHistory' },
       { $group: { _id: null,
         pending: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$issueHistory.returnedAt', null] }, null] }, 1, 0] } },
@@ -58,7 +68,7 @@ const summary = asyncHandler(async (req, res) => {
 
 const movements = asyncHandler(async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const match = {};
+  const match = treatmentFilter(req.query.treatmentStatus);
   if (req.query.status === 'pending') match['issueHistory.returnedAt'] = null;
   if (req.query.status === 'returned') match['issueHistory.returnedAt'] = { $ne: null };
   if (req.query.status === 'problem') match['issueHistory.returnCondition'] = 'problem';
@@ -99,6 +109,7 @@ const findLinkedPatient = async (patientKey) => {
 };
 
 const create = asyncHandler(async (req, res) => {
+  const status = treatmentStatus(req.body.treatmentStatus);
   const firstReceivedAt = req.body.firstReceivedAt ? new Date(req.body.firstReceivedAt) : null;
   if (firstReceivedAt && (Number.isNaN(firstReceivedAt.getTime()) || firstReceivedAt > new Date())) return res.status(400).json({ message: 'Enter a valid first received date/time, not in the future' });
   const patientName = String(req.body.patientName || '').trim();
@@ -113,12 +124,14 @@ const create = asyncHandler(async (req, res) => {
     shelfNumber: String(req.body.shelfNumber || '').trim(),
     fileNumber: String(req.body.fileNumber || '').trim(),
     createdByName: req.user.name,
+    treatmentStatus: status,
     firstReceivedAt,
   });
   res.status(201).json({ success: true, record: serialize(record) });
 });
 
 const update = asyncHandler(async (req, res) => {
+  const status = req.body.treatmentStatus === undefined ? undefined : treatmentStatus(req.body.treatmentStatus);
   const firstReceivedAt = req.body.firstReceivedAt ? new Date(req.body.firstReceivedAt) : null;
   if (firstReceivedAt && (Number.isNaN(firstReceivedAt.getTime()) || firstReceivedAt > new Date())) return res.status(400).json({ message: 'Enter a valid first received date/time, not in the future' });
   const record = await RecordRoom.findById(req.params.id);
@@ -133,6 +146,7 @@ const update = asyncHandler(async (req, res) => {
   record.appointmentId = String(req.body.appointmentId || '').trim();
   record.shelfNumber = String(req.body.shelfNumber || '').trim();
   record.fileNumber = String(req.body.fileNumber || '').trim();
+  if (status !== undefined) record.treatmentStatus = status;
   if (req.body.firstReceivedAt !== undefined) record.firstReceivedAt = firstReceivedAt;
   if (record.pdfUrl) record.pdfName = `${record.patientName} record room (${record.documents.length} pages).pdf`;
   await record.save();
