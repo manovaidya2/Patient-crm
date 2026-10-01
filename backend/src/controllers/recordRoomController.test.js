@@ -73,13 +73,24 @@ test('a repeated collection cannot overwrite the original history', async () => 
   assert.deepEqual(patient.issueHistory[0].returnedAt, originalDate);
 });
 
-test('create stores shelf and file numbers', async () => {
+test('create stores shelf, file and index numbers', async () => {
   RecordRoom.create = async (values) => new RecordRoom(values);
   const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(data) { this.data = data; } };
-  await controller.create({ body: { patientName: 'Test Patient', shelfNumber: ' S-2 ', fileNumber: ' F-14 ' }, user: { name: 'Admin' } }, response, (error) => { throw error; });
+  await controller.create({ body: { patientName: 'Test Patient', shelfNumber: ' S-2 ', fileNumber: ' F-14 ', indexNumber: ' 001-A ' }, user: { name: 'Admin' } }, response, (error) => { throw error; });
   assert.equal(response.statusCode, 201);
   assert.equal(response.data.record.shelfNumber, 'S-2');
   assert.equal(response.data.record.fileNumber, 'F-14');
+  assert.equal(response.data.record.indexNumber, '001-A');
+});
+
+test('index number can be edited, preserved when omitted and cleared explicitly', async () => {
+  const patient = record();
+  let result = await request(controller.update, { patientName: 'Test Patient', indexNumber: ' 002 ' }, patient);
+  assert.equal(result.response.data.record.indexNumber, '002');
+  await request(controller.update, { patientName: 'Test Patient' }, patient);
+  assert.equal(patient.indexNumber, '002');
+  await request(controller.update, { patientName: 'Test Patient', indexNumber: '' }, patient);
+  assert.equal(patient.indexNumber, '');
 });
 
 test('treatment classification defaults to bought and moving preserves documents/history', async () => {

@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import AdminLayout from './pages/admin/AdminLayout.jsx';
+import EnquiryNotifications from './components/EnquiryNotifications.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
@@ -42,6 +43,7 @@ const ReceptionistDashboard = lazy(() => import('./pages/admin/ReceptionistDashb
 const ReceptionistHomeDashboard = lazy(() => import('./pages/admin/ReceptionistHomeDashboard.jsx'));
 const ReceptionistChecklist = lazy(() => import('./pages/admin/ReceptionistChecklist.jsx'));
 const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
+const Enquiries = lazy(() => import('./pages/admin/Enquiries.jsx'));
 const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
 const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
 const ReceptionRegister = lazy(() => import('./pages/admin/ReceptionRegister.jsx'));
@@ -68,6 +70,7 @@ function App() {
 
   return (
     <Suspense fallback={<div className="p-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
+    <EnquiryNotifications />
     <Routes>
       <Route
         path="/login"
@@ -326,9 +329,13 @@ function App() {
           path="patient-queries"
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
-              <PatientQueries />
+              {user?.role === ROLES.ADMIN ? <PatientQueries /> : <Navigate to="/admin/enquiries" replace />}
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="enquiries"
+          element={<ProtectedRoute roles={ADMIN_LAYOUT_ROLES}><Enquiries /></ProtectedRoute>}
         />
         <Route
           path="knowledge-library"

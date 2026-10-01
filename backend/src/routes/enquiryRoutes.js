@@ -1,0 +1,15 @@
+const router = require('express').Router();
+const { protect, authorize } = require('../middleware/auth');
+const { ALL_ROLES, ROLES } = require('../constants/roles');
+const controller = require('../controllers/enquiryController');
+router.use(protect, authorize(...ALL_ROLES));
+router.get('/staff', controller.staff);
+router.get('/notifications', controller.notifications);
+router.get('/', controller.list);
+router.post('/', controller.create);
+router.get('/:id', controller.detail);
+router.patch('/:id', authorize(ROLES.ADMIN), controller.edit);
+router.delete('/:id', authorize(ROLES.ADMIN), controller.remove);
+router.post('/:id/actions', controller.update);
+router.post('/:id/read', controller.markRead);
+module.exports = router;

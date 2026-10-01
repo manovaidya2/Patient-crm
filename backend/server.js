@@ -92,6 +92,7 @@ app.use('/api/package-not-bought', packageNotBoughtRoutes);
 app.use('/api/banks', bankRoutes);
 app.use('/api/sales-sheet', salesSheetRoutes);
 app.use('/api/help-desk', helpDeskRoutes);
+app.use('/api/enquiries', require('./src/routes/enquiryRoutes'));
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/receptionist-checklist', receptionistChecklistRoutes);
 app.use('/api/clinic-inventory', clinicInventoryRoutes);

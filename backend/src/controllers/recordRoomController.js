@@ -22,6 +22,7 @@ const removeFile = async (url) => { const target = filePath(url); if (target) { 
 const serialize = (record) => ({
   id: String(record._id), patientId: record.patientId, patientName: record.patientName, appointmentId: record.appointmentId,
   shelfNumber: record.shelfNumber || '', fileNumber: record.fileNumber || '',
+  indexNumber: record.indexNumber || '',
   firstReceivedAt: record.firstReceivedAt || null,
   treatmentStatus: record.treatmentStatus || 'bought',
   documents: (record.documents || []).map((item) => ({ id: String(item._id), url: item.url, fileName: item.fileName, uploadedAt: item.uploadedAt, uploadedByName: item.uploadedByName })),
@@ -33,7 +34,7 @@ const serialize = (record) => ({
 const list = asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const regex = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const filter = search ? { $or: ['patientName', 'patientId', 'appointmentId', 'shelfNumber', 'fileNumber'].map((key) => ({ [key]: { $regex: regex, $options: 'i' } })) } : {};
+  const filter = search ? { $or: ['patientName', 'patientId', 'appointmentId', 'shelfNumber', 'fileNumber', 'indexNumber'].map((key) => ({ [key]: { $regex: regex, $options: 'i' } })) } : {};
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   Object.assign(filter, treatmentFilter(req.query.treatmentStatus));
   const [records, total] = await Promise.all([
@@ -123,6 +124,7 @@ const create = asyncHandler(async (req, res) => {
     appointmentId: String(req.body.appointmentId || '').trim(),
     shelfNumber: String(req.body.shelfNumber || '').trim(),
     fileNumber: String(req.body.fileNumber || '').trim(),
+    indexNumber: String(req.body.indexNumber ?? '').trim(),
     createdByName: req.user.name,
     treatmentStatus: status,
     firstReceivedAt,
@@ -146,6 +148,7 @@ const update = asyncHandler(async (req, res) => {
   record.appointmentId = String(req.body.appointmentId || '').trim();
   record.shelfNumber = String(req.body.shelfNumber || '').trim();
   record.fileNumber = String(req.body.fileNumber || '').trim();
+  if (req.body.indexNumber !== undefined) record.indexNumber = String(req.body.indexNumber ?? '').trim();
   if (status !== undefined) record.treatmentStatus = status;
   if (req.body.firstReceivedAt !== undefined) record.firstReceivedAt = firstReceivedAt;
   if (record.pdfUrl) record.pdfName = `${record.patientName} record room (${record.documents.length} pages).pdf`;
