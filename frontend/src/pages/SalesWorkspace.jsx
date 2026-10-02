@@ -77,7 +77,7 @@ const SalesWorkspace = () => {
   }, []);
   const loadRows = useCallback(async () => {
     const { data } = await api.get('/sales-sheet/appointments', { params: allDates ? {} : { date: selectedDate }, skipCache: true });
-    setRows(data.appointments.map((row) => ({ ...row, values: Object.fromEntries(columns.map((column) => [column.id, column.type === 'checkbox' ? (row.values?.[column.id] === 'true' ? '☑' : '☐') : (row.values?.[column.id] || '')])) })));
+    setRows(data.appointments.map((row) => ({ ...row, values: Object.fromEntries(columns.map((column) => [column.id, column.type === 'checkbox' ? String([true, 'true', '\u2611'].includes(row.values?.[column.id])) : (row.values?.[column.id] || '')])) })));
   }, [selectedDate, allDates, columns]);
 
   useEffect(() => { loadColumns().catch((err) => setError(err.response?.data?.message || 'Could not load columns')); }, [loadColumns]);
