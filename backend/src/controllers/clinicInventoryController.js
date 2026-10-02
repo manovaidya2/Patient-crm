@@ -7,6 +7,7 @@ const formatItem = (item) => ({
   currentStock: item.currentStock || 0, lowStockAt: item.lowStockAt || 0, notes: item.notes || '',
   createdByName: item.createdByName || '', editedByName: item.editedByName || '', editedAt: item.editedAt || null,
   createdAt: item.createdAt, updatedAt: item.updatedAt,
+  softCopy: item.softCopy?.filename ? { fileName: item.softCopy.originalName, mimeType: item.softCopy.mimeType, uploadedAt: item.softCopy.uploadedAt, uploadedByName: item.softCopy.uploadedByName } : null,
   transactions: (item.transactions || []).map((entry) => ({ id: String(entry._id), type: entry.type, quantity: entry.quantity, previousStock: entry.previousStock, newStock: entry.newStock, reason: entry.reason || '', notes: entry.notes || '', recordedByName: entry.recordedByName || '', createdAt: entry.createdAt })).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
 });
 

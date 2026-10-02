@@ -8,6 +8,7 @@ import Button from '../../components/ui/Button.jsx';
 import Card from '../../components/ui/Card.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import InventorySoftCopy from '../../components/InventorySoftCopy.jsx';
 
 const emptyItem = { name: '', category: '', unit: 'piece', openingStock: '', lowStockAt: '', notes: '' };
 const emptyMovement = { type: 'add', quantity: '', reason: '', notes: '' };
@@ -158,18 +159,19 @@ const ClinicInventory = () => {
           <table className="w-full min-w-[1040px] border-collapse text-center text-sm">
             <thead className="bg-[#56695D] text-[11px] font-bold uppercase tracking-[0.12em] text-white">
               <tr>
-                <th className="w-[25%] px-5 py-3.5">Item</th>
-                <th className="w-[16%] px-4 py-3.5">Category / unit</th>
-                <th className="w-[17%] px-4 py-3.5">Available stock</th>
-                <th className="w-[25%] px-4 py-3.5">Latest movement</th>
-                <th className="w-[17%] px-5 py-3.5">Actions</th>
+                <th className="w-[20%] px-5 py-3.5">Item</th>
+                <th className="w-[13%] px-4 py-3.5">Category / unit</th>
+                <th className="w-[13%] px-4 py-3.5">Available stock</th>
+                <th className="w-[20%] px-4 py-3.5">Latest movement</th>
+                <th className="w-[18%] px-4 py-3.5">Soft copy</th>
+                <th className="w-[16%] px-5 py-3.5">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cardline-soft">
               {loading && (
                 <tr>
                   <td
-                    colSpan="5"
+                    colSpan="6"
                     className="px-5 py-14 text-center text-charcoal/55"
                   >
                     Loading inventory...
@@ -179,7 +181,7 @@ const ClinicInventory = () => {
               {!loading && error && (
                 <tr>
                   <td
-                    colSpan="5"
+                    colSpan="6"
                     className="px-5 py-14 text-center text-[#8C3B2E]"
                   >
                     {error}
@@ -188,7 +190,7 @@ const ClinicInventory = () => {
               )}
               {!loading && !error && !items.length && (
                 <tr>
-                  <td colSpan="5" className="px-5 py-16 text-center">
+                  <td colSpan="6" className="px-5 py-16 text-center">
                     <PackageOpen
                       size={28}
                       className="mx-auto text-charcoal/30"
@@ -278,6 +280,7 @@ const ClinicInventory = () => {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-4 align-middle"><InventorySoftCopy item={item} onSaved={() => setRefresh((value) => value + 1)} /></td>
                       <td className="px-5 py-4 align-middle">
                         <div className="flex justify-center gap-1.5">
                           <IconAction

@@ -22,6 +22,10 @@ const clinicInventorySchema = new mongoose.Schema({
   editedAt: { type: Date, default: null },
   deletedAt: { type: Date, default: null },
   deletedByName: { type: String, default: '' },
+  softCopy: {
+    filename: String, originalName: String, mimeType: String,
+    uploadedAt: Date, uploadedByName: String,
+  },
   transactions: { type: [clinicInventoryTransactionSchema], default: [] },
 }, { timestamps: true, optimisticConcurrency: true });
 

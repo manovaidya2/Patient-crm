@@ -72,6 +72,8 @@ app.get('/api/health/pdf', async (req, res) => {
 });
 
 // Uploaded payment screenshots — served at http://<host>/uploads/payments/<file>
+// Inventory templates are served by the authenticated soft-copy endpoint only.
+app.use('/uploads/clinic-inventory', (req, res) => res.status(404).end());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/auth', authRoutes);
