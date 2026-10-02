@@ -80,6 +80,18 @@ export const navItems = [
 ];
 
 const STORAGE_KEY = 'crm_sidebar_collapsed';
+const accountantNavOrder = [
+  '/admin/accounts',
+  '/admin/patient-approvals',
+  '/admin/payments',
+  '/admin/approved-payments',
+  '/admin/accounts/income',
+  '/admin/accounts/expenses',
+  '/admin/accounts/refunds',
+  '/admin/patients',
+  '/admin/enquiries',
+  '/admin/knowledge-library',
+];
 
 // "Patients by Phase" nav item expands into the 6 phase links instead of linking directly.
 export const StageMenu = ({ collapsed, onNavigate }) => {
@@ -152,6 +164,13 @@ const Sidebar = ({ mobile = false, onClose }) => {
   const visibleNavItems = navItems.filter(
     (item) => (!item.adminOnly || isAdmin) && (!item.roles || item.roles.includes(user?.role)) && !item.hiddenFor?.includes(user?.role)
   );
+  if (user?.role === ROLES.ACCOUNTANT) {
+    const rank = (item) => {
+      const index = accountantNavOrder.indexOf(item.to);
+      return index < 0 ? accountantNavOrder.length : index;
+    };
+    visibleNavItems.sort((a, b) => rank(a) - rank(b));
+  }
 
   useEffect(() => {
     if (!canSeeAdviceCount) {
