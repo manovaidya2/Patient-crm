@@ -23,7 +23,8 @@ const Accounts = () => {
   const [bankSummary, setBankSummary] = useState([]);
   const [refundSummary, setRefundSummary] = useState({ paid: 0, settled: 0, awaitingPayout: 0 });
   const [count, setCount] = useState(0);
-  const [filter, setFilter] = useState('month');
+  const [collections, setCollections] = useState([]);
+  const [filter, setFilter] = useState('today');
   const [date, setDate] = useState(todayValue());
   const [month, setMonth] = useState(monthValue());
   const [loading, setLoading] = useState(true);
@@ -49,6 +50,7 @@ const Accounts = () => {
         setBankSummary(data.bankSummary || []);
         setRefundSummary(data.refundSummary || { paid: 0, settled: 0, awaitingPayout: 0 });
         setCount(data.count || 0);
+        setCollections(data.collections || []);
       } catch (err) {
         setError(err.response?.data?.message || 'Could not load accounts dashboard.');
       } finally {
@@ -59,6 +61,19 @@ const Accounts = () => {
   }, [params, reloadKey]);
 
   const netPositive = Number(totals.balance || 0) >= 0;
+  const ledgerUrl = (href, kind, status) => {
+    const query = new URLSearchParams({ kind, status });
+    if (filter === 'all') query.set('period', 'all');
+    else if (filter === 'month') {
+      const [year, selectedMonth] = month.split('-').map(Number);
+      query.set('from', `${month}-01`);
+      query.set('to', `${month}-${new Date(year, selectedMonth, 0).getDate()}`);
+    } else {
+      query.set('from', filter === 'today' ? todayValue() : date);
+      query.set('to', filter === 'today' ? todayValue() : date);
+    }
+    return `${href}?${query}`;
+  };
 
   return (
     <div>
@@ -88,6 +103,17 @@ const Accounts = () => {
         </div>
       )}
 
+      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['Consultation approved', 'consultation', 'approved', '/admin/accounts/consultations'],
+          ['Treatment approved', 'treatment', 'approved', '/admin/accounts/treatment'],
+          ['Consultation pending', 'consultation', 'pending', '/admin/payments'],
+          ['Treatment pending', 'treatment', 'pending', '/admin/payments'],
+        ].map(([label, kind, status, href]) => {
+          const total = collections.find((row) => row._id.kind === kind && row._id.status === status);
+          return <Link key={label} to={ledgerUrl(href, kind, status)} className="rounded-lg border border-cardline bg-white/60 p-3 text-charcoal hover:border-sage"><p className="text-xs font-semibold">{label}</p><p className="mt-1 text-lg font-bold">{loading ? '...' : formatMoney(total?.amount)}</p><p className="mt-1 text-xs">{total?.count || 0} receipts</p></Link>;
+        })}
+      </div>
       <div className="mt-6 grid gap-4 xl:grid-cols-4">
         <Card>
           <div className="flex items-center gap-3">
@@ -95,7 +121,7 @@ const Accounts = () => {
               <TrendingUp size={21} />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-charcoal/55">Total Income</p>
+              <p className="text-xs font-semibold uppercase text-charcoal/55">Manual Income Register</p>
               <p className="mt-1 font-display text-2xl font-bold text-sage">{loading ? '...' : formatMoney(totals.income)}</p>
             </div>
           </div>
@@ -125,7 +151,7 @@ const Accounts = () => {
               <IndianRupee size={21} />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-charcoal/55">Net Balance</p>
+              <p className="text-xs font-semibold uppercase text-charcoal/55">Manual Income Less Expenses</p>
               <p className={`mt-1 font-display text-2xl font-bold ${netPositive ? 'text-sage' : 'text-[#8C3B2E]'}`}>{loading ? '...' : formatMoney(totals.balance)}</p>
             </div>
           </div>
@@ -155,6 +181,7 @@ const Accounts = () => {
         <Card>
           <BankCollectionsSection
             rows={bankSummary}
+            title="Treatment bank collections"
             paymentFilter={params}
             loading={loading}
             caption="Uses the date/month filter selected above."
@@ -166,7 +193,7 @@ const Accounts = () => {
         <Card className="bg-[#E8D5B5]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase text-charcoal/55">Income Categories</p>
+              <p className="text-xs font-semibold uppercase text-charcoal/55">Manual Income Categories</p>
               <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Appointment + medicine + other income</h2>
             </div>
             <Calendar size={22} className="text-sage" />

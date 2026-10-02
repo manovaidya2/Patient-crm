@@ -1,6 +1,7 @@
 const AccountEntry = require('../models/AccountEntry');
 const Patient = require('../models/Patient');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { ledgerPipeline } = require('./financialLedgerController');
 
 const TYPES = ['income', 'expense'];
 const CATEGORIES = [
@@ -153,6 +154,11 @@ const getAccountsOverview = asyncHandler(async (req, res) => {
     req.query.type === 'income' ? [] : listCourierClinicExpenses(range),
     listBankPaymentSummary(range),
   ]);
+  const collections = req.query.type ? [] : await Patient.aggregate([
+    ...ledgerPipeline(),
+    { $match: { ...dateFilter, status: { $in: ['pending', 'approved'] } } },
+    { $group: { _id: { kind: '$kind', status: '$status' }, amount: { $sum: '$amount' }, count: { $sum: 1 } } },
+  ]);
 
   const manualRows = manualEntries.map((entry) => ({ ...formatEntry(entry), source: 'manual' }));
   const rows = [...manualRows, ...courierExpenses].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
@@ -173,6 +179,7 @@ const getAccountsOverview = asyncHandler(async (req, res) => {
     totals,
     bankSummary: paymentSummary.bankSummary,
     refundSummary: paymentSummary.refundSummary,
+    collections,
     count: rows.length,
     entries: rows,
     categories: CATEGORIES.map((value) => ({ value, label: CATEGORY_LABELS[value] })),

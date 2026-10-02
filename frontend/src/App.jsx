@@ -22,6 +22,7 @@ const Expenses = lazy(() => import('./pages/admin/Expenses.jsx'));
 const FollowUps = lazy(() => import('./pages/admin/FollowUps.jsx'));
 const FamilySessions = lazy(() => import('./pages/admin/FamilySessions.jsx'));
 const Payments = lazy(() => import('./pages/admin/Payments.jsx'));
+const FinancialLedger = lazy(() => import('./pages/admin/FinancialLedger.jsx'));
 const Refunds = lazy(() => import('./pages/admin/Refunds.jsx'));
 const ApprovedPayments = lazy(() => import('./pages/admin/ApprovedPayments.jsx'));
 const MedicineRequests = lazy(() => import('./pages/admin/MedicineRequests.jsx'));
@@ -145,6 +146,8 @@ function App() {
           }
         />
         <Route path="accounts/refunds" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><Refunds /></ProtectedRoute>} />
+        <Route path="accounts/consultations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><FinancialLedger key="consultation" kind="consultation" /></ProtectedRoute>} />
+        <Route path="accounts/treatment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><FinancialLedger key="treatment" kind="treatment" /></ProtectedRoute>} />
         <Route
           path="approved-payments"
           element={
@@ -311,7 +314,7 @@ function App() {
         <Route
           path="appointment-management"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT]}>
               <ReceptionistDashboard />
             </ProtectedRoute>
           }

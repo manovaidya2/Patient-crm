@@ -5,7 +5,13 @@ const controller = require('../controllers/salesSheetController');
 const { uploadStageRecord } = require('../middleware/fileUploads');
 
 const router = express.Router();
-router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST));
+router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST, ROLES.ACCOUNTANT));
+router.use((req, res, next) => {
+  if (req.user.role === ROLES.ACCOUNTANT && (req.method !== 'GET' || !['/columns', '/layout', '/management', '/management-columns'].includes(req.path))) {
+    return res.status(403).json({ message: 'Accountant access to the appointment sheet is read-only' });
+  }
+  next();
+});
 router.get('/columns', controller.listColumns);
 router.get('/layout', controller.listLayout);
 router.put('/layout', authorize(ROLES.ADMIN), controller.updateLayout);
@@ -14,8 +20,8 @@ router.patch('/columns/:id', authorize(ROLES.ADMIN), controller.updateColumn);
 router.delete('/columns/:id', authorize(ROLES.ADMIN), controller.deleteColumn);
 router.get('/appointments', controller.listAppointments);
 router.get('/timeline/:sheet/:id', authorize(ROLES.ADMIN), controller.listTimeline);
-router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagedAppointments);
-router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagementColumns);
+router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT), controller.listManagedAppointments);
+router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT), controller.listManagementColumns);
 router.post('/upload', uploadStageRecord.single('file'), controller.uploadManagementAttachment);
 router.post('/management-columns', authorize(ROLES.ADMIN), controller.createManagementColumn);
 router.patch('/management-columns/:id', authorize(ROLES.ADMIN), controller.updateManagementColumn);

@@ -24,13 +24,15 @@ const formatDateTime = (iso) =>
     ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : '-';
 
-const defaultCategory = (type) => (type === 'income' ? 'appointment_fee' : 'other');
+const defaultCategory = () => 'other';
 const incomeCategoryValues = ['appointment_fee', 'medicine_fee', 'patient_payment', 'other'];
 const expenseCategoryValues = ['courier', 'medicine_purchase', 'salary', 'rent', 'utility', 'office', 'other'];
 
 const AccountLedger = ({ type }) => {
   const isIncome = type === 'income';
   const [entries, setEntries] = useState([]);
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [categories, setCategories] = useState([]);
   const [totals, setTotals] = useState({ income: 0, expense: 0, courierExpense: 0 });
   const [filter, setFilter] = useState('month');
@@ -130,8 +132,10 @@ const AccountLedger = ({ type }) => {
     }
   };
 
-  const totalAmount = isIncome ? totals.income : totals.expense;
-  const pageTitle = isIncome ? 'Income' : 'Expenses';
+  const pageTitle = isIncome ? 'Manual Income' : 'Expenses';
+  const visibleEntries = entries.filter((entry) => (!categoryFilter || entry.category === categoryFilter)
+    && [entry.partyName, entry.referenceNumber, entry.notes, entry.recordedByName, entry.categoryLabel].some((value) => String(value || '').toLowerCase().includes(search.trim().toLowerCase())));
+  const totalAmount = visibleEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const icon = isIncome ? <TrendingUp size={19} /> : <TrendingDown size={19} />;
   const visibleCategories = categories.filter((category) =>
     (isIncome ? incomeCategoryValues : expenseCategoryValues).includes(category.value)
@@ -168,7 +172,7 @@ const AccountLedger = ({ type }) => {
         </Card>
         <Card>
           <p className="text-xs font-semibold uppercase text-charcoal/55">Records</p>
-          <p className="mt-1 font-display text-2xl font-bold text-charcoal">{loading ? '...' : entries.length}</p>
+          <p className="mt-1 font-display text-2xl font-bold text-charcoal">{loading ? '...' : visibleEntries.length}</p>
         </Card>
         {!isIncome && (
           <Card>
@@ -182,6 +186,8 @@ const AccountLedger = ({ type }) => {
         <div className="flex flex-col gap-3 border-b border-cardline-soft p-4 lg:flex-row lg:items-center lg:justify-between">
           <h2 className="font-display text-base font-bold text-charcoal">{pageTitle} Ledger</h2>
           <div className="flex flex-wrap items-center gap-2">
+            <input aria-label="Search account entries" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Party, reference or notes" className="rounded-lg border border-cardline bg-white px-3 py-2 text-sm text-charcoal" />
+            <select aria-label="Account category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="rounded-lg border border-cardline bg-white px-3 py-2 text-sm text-charcoal"><option value="">All categories</option>{visibleCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
             <select value={filter} onChange={(e) => setFilter(e.target.value)} className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
               <option value="all">All</option>
               <option value="today">Today</option>
@@ -216,7 +222,7 @@ const AccountLedger = ({ type }) => {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry) => (
+                {visibleEntries.map((entry) => (
                   <tr key={entry.id} className="border-b border-cardline-soft last:border-0 hover:bg-offwhite-300/25">
                     <td className="px-5 py-3.5 text-charcoal/70">{formatDate(entry.date)}</td>
                     <td className="px-5 py-3.5">
@@ -244,7 +250,7 @@ const AccountLedger = ({ type }) => {
                     </td>
                   </tr>
                 ))}
-                {!entries.length && (
+                {!visibleEntries.length && (
                   <tr>
                     <td colSpan="8" className="px-5 py-10 text-center text-charcoal/55">No {pageTitle.toLowerCase()} records found.</td>
                   </tr>

@@ -34,7 +34,7 @@ const CellInput = ({ column, value, onChange }) => {
 const ReceptionistDashboard = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
-  const isSalesTeam = user?.role === ROLES.SALES_TEAM;
+  const isSalesTeam = [ROLES.SALES_TEAM, ROLES.ACCOUNTANT].includes(user?.role);
   const [selectedDate, setSelectedDate] = useState(localIsoDate());
   const [allDates, setAllDates] = useState(false);
   const [filters, setFilters] = useState([{ id: 1, field: '', operator: 'contains', value: '' }]);
@@ -73,6 +73,10 @@ const ReceptionistDashboard = () => {
   useEffect(() => { loadLayout().catch(() => {}); }, [loadLayout]);
   useEffect(() => { setLoading(true); setDraft(null); setEditingId(null); loadRows().catch(() => setError('Appointments could not be loaded')).finally(() => setLoading(false)); }, [loadRows]);
   useEffect(() => {
+    if (user?.role === ROLES.ACCOUNTANT) {
+      const timer = setInterval(() => { loadRows().catch(() => {}); loadColumns().catch(() => {}); }, 60000);
+      return () => clearInterval(timer);
+    }
     const socket = io(socketUrl, { auth: { token: localStorage.getItem('crm_token') }, transports: ['websocket', 'polling'] });
     socket.on('connect', () => { setLive(true); socket.emit('sales-sheet:watch-date', selectedDate); });
     socket.on('disconnect', () => setLive(false));
