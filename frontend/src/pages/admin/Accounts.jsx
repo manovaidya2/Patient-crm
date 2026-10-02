@@ -125,9 +125,6 @@ const Accounts = () => {
               <p className="mt-1 font-display text-2xl font-bold text-sage">{loading ? '...' : formatMoney(totals.income)}</p>
             </div>
           </div>
-          <Link to="/admin/accounts/income" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-sage hover:text-charcoal">
-            Income page <ArrowRight size={14} />
-          </Link>
         </Card>
 
         <Card>
