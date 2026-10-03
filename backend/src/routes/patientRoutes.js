@@ -49,7 +49,14 @@ const PACKAGE_STAGE_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, R
 const PATIENT_RECORD_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const PAYMENT_ADD_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 
-router.use(protect, authorize(...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST));
+router.use(protect, authorize(...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST, ROLES.SALES_TEAM));
+router.use(function patientViewerAccess(req, res, next) {
+  if ([ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(req.user.role)
+    && !(req.method === 'GET' && (req.path === '/' || /^\/[a-f\d]{24}$/i.test(req.path)))) {
+    return res.status(403).json({ success: false, message: 'Patient access is view-only' });
+  }
+  next();
+});
 
 router.get('/', getPatients);
 router.get('/check-code', authorize(...PATIENT_CREATE_ROLES), checkPatientCode);

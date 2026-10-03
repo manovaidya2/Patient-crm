@@ -241,7 +241,7 @@ function App() {
         <Route
           path="patients"
           element={
-            <ProtectedRoute roles={PATIENT_ACCESS_ROLES}>
+            <ProtectedRoute roles={[...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
               <AllPatients />
             </ProtectedRoute>
           }
@@ -281,7 +281,7 @@ function App() {
         <Route
           path="patients/:id"
           element={
-            <ProtectedRoute roles={[...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
               <PatientDetails />
             </ProtectedRoute>
           }

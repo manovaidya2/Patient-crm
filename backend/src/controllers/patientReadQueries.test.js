@@ -4,6 +4,47 @@ const Patient = require('../models/Patient');
 const controller = require('./patientController');
 const { ROLES } = require('../constants/roles');
 
+test('patient viewer routes allow only list and details reads', () => {
+  const router = require('../routes/patientRoutes');
+  const gate = router.stack.find((layer) => layer.handle.name === 'patientViewerAccess').handle;
+  for (const role of [ROLES.RECEPTIONIST, ROLES.SALES_TEAM]) {
+    for (const [method, path, allowed] of [
+      ['GET', '/', true], ['GET', '/507f1f77bcf86cd799439011', true],
+      ['PATCH', '/507f1f77bcf86cd799439011', false], ['POST', '/', false],
+      ['DELETE', '/507f1f77bcf86cd799439011', false],
+      ['GET', '/507f1f77bcf86cd799439011/calls', false],
+      ['POST', '/507f1f77bcf86cd799439011/stages/1/payments', false],
+    ]) {
+      let nextCalled = false, status;
+      gate({ method, path, user: { role } }, { status(code) { status = code; return this; }, json() {} }, () => { nextCalled = true; });
+      assert.equal(nextCalled, allowed, `${role} ${method} ${path}`);
+      if (!allowed) assert.equal(status, 403);
+    }
+  }
+});
+
+test('reception and sales patient details omit schedules and activity while keeping medicine status', async () => {
+  const original = Patient.findById;
+  Patient.findById = () => ({ populate() { return this; }, lean: async () => ({
+    _id: '507f1f77bcf86cd799439011', patientName: 'Test', category: 'autism_adhd', currentStage: 1,
+    stages: [{ number: 1, totalAmount: 599, payments: [], followUps: [{ _id: 'private-followup' }], familySessions: [{ _id: 'private-session' }] }],
+    activityLog: [{ action: 'Private activity' }],
+  }) });
+  try {
+    for (const role of [ROLES.RECEPTIONIST, ROLES.SALES_TEAM]) {
+      let body;
+      await controller.getPatientById({ params: { id: '507f1f77bcf86cd799439011' }, user: { role } }, { status() { return this; }, json(value) { body = value; } }, (err) => { throw err; });
+      assert.equal(body.patient.patientName, 'Test');
+      assert.equal(body.patient.canApprove, false);
+      assert.equal(body.patient.canToggleActive, false);
+      assert.equal(body.patient.activityLog, undefined);
+      assert.deepEqual(body.patient.stages[0].followUps, []);
+      assert.deepEqual(body.patient.stages[0].familySessions, []);
+      assert.ok(Array.isArray(body.patient.stages[0].medicineRequests));
+    }
+  } finally { Patient.findById = original; }
+});
+
 async function invoke(handler, { query = {}, role = ROLES.ADMIN, patients = [] } = {}) {
   const original = Patient.find;
   const originalCount = Patient.countDocuments;

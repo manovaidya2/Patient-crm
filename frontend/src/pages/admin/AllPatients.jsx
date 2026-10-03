@@ -42,6 +42,7 @@ const formatDate = (iso) =>
 const AllPatients = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isLimitedViewer = ['receptionist', 'sales_team'].includes(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Restored from the URL on mount so the browser/router "back" button (from a
@@ -226,16 +227,16 @@ const AllPatients = () => {
           <Button variant="outline" onClick={() => setColumnsOpen(true)}>
             <SlidersHorizontal size={15} /> Columns
           </Button>
-          <Button onClick={openAddModal}>
+          {!isLimitedViewer && <Button onClick={openAddModal}>
             <Plus size={16} /> Add Patient
-          </Button>
+          </Button>}
         </div>
       </div>
 
       <Modal open={columnsOpen} onClose={() => setColumnsOpen(false)} title="Patient list columns">
         <div className="space-y-3">
           <p className="text-sm text-charcoal/60">Choose optional columns for your own patient list view.</p>
-          {OPTIONAL_PATIENT_COLUMNS.map((column) => (
+          {OPTIONAL_PATIENT_COLUMNS.filter((column) => !isLimitedViewer || !['followUps', 'familySessions'].includes(column.key)).map((column) => (
             <label key={column.key} className="flex cursor-pointer items-center justify-between rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-sm font-semibold text-charcoal">
               <span>{column.label}</span>
               <input
@@ -371,8 +372,8 @@ const AllPatients = () => {
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
                     {optionalColumns.includes('receivedDate') && <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>}
                     {optionalColumns.includes('totalAmount') && <th className="w-[12%] px-3 py-2.5 font-semibold">Total Amount</th>}
-                    {optionalColumns.includes('followUps') && <th className="w-[12%] px-3 py-2.5 font-semibold">Follow-ups</th>}
-                    {optionalColumns.includes('familySessions') && <th className="w-[14%] px-3 py-2.5 font-semibold">Family Sessions</th>}
+                    {!isLimitedViewer && optionalColumns.includes('followUps') && <th className="w-[12%] px-3 py-2.5 font-semibold">Follow-ups</th>}
+                    {!isLimitedViewer && optionalColumns.includes('familySessions') && <th className="w-[14%] px-3 py-2.5 font-semibold">Family Sessions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -413,14 +414,14 @@ const AllPatients = () => {
                         <span className="font-semibold">{Number(p.totalAmount) > 0 ? `Rs ${Number(p.totalAmount).toLocaleString('en-IN')}` : 'Not added'}</span>
                         <span className="mt-1 block text-[10px] text-charcoal/60">Phase {p.currentStage}</span>
                       </td>}
-                      {optionalColumns.includes('followUps') && (
+                      {!isLimitedViewer && optionalColumns.includes('followUps') && (
                         <td data-label="Follow-ups" className="px-3 py-3 text-charcoal/70">
                           <span className="font-semibold text-charcoal">{p.followUpTotal || 0}</span>
                           <span className="text-charcoal/45"> total</span>
                           <span className="mt-0.5 block text-[10px] text-sage">{p.followUpCompleted || 0} complete</span>
                         </td>
                       )}
-                      {optionalColumns.includes('familySessions') && (
+                      {!isLimitedViewer && optionalColumns.includes('familySessions') && (
                         <td data-label="Family sessions" className="px-3 py-3 text-charcoal/70">
                           <span className="font-semibold text-charcoal">{p.familySessionTotal || 0}</span>
                           <span className="text-charcoal/45"> total</span>

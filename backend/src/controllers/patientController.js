@@ -477,10 +477,10 @@ const normalizeStages = (existing = []) => {
 };
 
 const shouldShowFollowUps = (user) =>
-  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user.role);
 
 const shouldShowFamilySessions = (user) =>
-  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user.role);
 
 const cannotSeeScheduleType = (user, fieldKey) =>
   fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST;
@@ -607,7 +607,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     };
   }),
-  ...(includeActivity
+  ...(includeActivity && ![ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user?.role)
     ? {
         activityLog: (p.activityLog || [])
           .map(formatActivityEntry)
@@ -628,8 +628,8 @@ const formatPatientListItem = (p, user = null) => {
     const completedEntries = activeEntries.filter((entry) => ['completed', 'done', 'done_late', 'sent'].includes(entry.status));
     return { total: activeEntries.length, completed: completedEntries.length };
   };
-  const followUps = countSchedule(currentStageEntry?.followUps);
-  const familySessions = countSchedule(currentStageEntry?.familySessions);
+  const followUps = countSchedule(shouldShowFollowUps(user) ? currentStageEntry?.followUps : []);
+  const familySessions = countSchedule(shouldShowFamilySessions(user) ? currentStageEntry?.familySessions : []);
   return {
     id: p._id,
     patientCode: p.patientCode || `PT-${String(p._id).slice(-6).toUpperCase()}`,

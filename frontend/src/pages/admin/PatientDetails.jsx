@@ -2307,6 +2307,7 @@ const PatientDetails = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canAssignDoctor = ASSIGN_DOCTOR_ROLES.includes(user?.role);
+  const isLimitedViewer = [ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user?.role);
   const [patient, setPatient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -2354,8 +2355,8 @@ const PatientDetails = () => {
       try {
         const [patientRes, callsRes, adviceRes] = await Promise.all([
           api.get(`/patients/${id}`),
-          api.get(`/patients/${id}/calls`),
-          api.get(`/advice/patients/${id}`),
+          isLimitedViewer ? Promise.resolve({ data: { callLogs: [] } }) : api.get(`/patients/${id}/calls`),
+          isLimitedViewer ? Promise.resolve({ data: { rows: [] } }) : api.get(`/advice/patients/${id}`),
         ]);
         setPatient(patientRes.data.patient);
         setCallLogs(callsRes.data.callLogs || []);
@@ -2367,7 +2368,7 @@ const PatientDetails = () => {
         if (!silent) setLoading(false);
       }
     },
-    [id]
+    [id, isLimitedViewer]
   );
 
   useEffect(() => {
@@ -2442,7 +2443,7 @@ const PatientDetails = () => {
   const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
-  const canEditPatientDetails = !isPsychologist && !isAccountant;
+  const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isAccountant;
   const canEditPostCounselor = isAdmin || isPostCounselor;
   const canEditPayments = isAdmin || isPostCounselor;
 
@@ -3354,6 +3355,7 @@ const PatientDetails = () => {
                 onUpdateRequest={(request, payload) => handleRequestMedicine({ ...payload, requestId: request.id })}
               />
 
+              {!isLimitedViewer && <>
               <ScheduleCard
                 icon={CalendarClock}
                 title="Follow-ups"
@@ -3395,12 +3397,13 @@ const PatientDetails = () => {
                 onEditRequest={handleEditAdviceRequest}
                 stageNumber={activeStage.number}
               />
+              </>}
             </div>
           )}
         </Card>
       )}
 
-      {!loading && !loadError && patient && <ActivityTimeline entries={patient.activityLog || []} callLogs={callLogs} />}
+      {!isLimitedViewer && !loading && !loadError && patient && <ActivityTimeline entries={patient.activityLog || []} callLogs={callLogs} />}
 
       <Drawer
         open={timelineOpen}
