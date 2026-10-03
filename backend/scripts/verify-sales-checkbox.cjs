@@ -25,41 +25,39 @@ async function main() {
       if (target.pathname === '/api/enquiries/notifications') data = { items: [], total: 0 };
       if (target.pathname === '/api/sales-sheet/columns') data = { columns };
       if (target.pathname === '/api/sales-sheet/appointments') data = { appointments: [row] };
+      if (target.pathname === '/api/sales-sheet/forms/sales/row1') data = { ...row, canEdit: true, salesColumns: columns, columns: [], salesValues: row.values, values: {}, receipts: [], banks: [] };
       if (request.method() === 'PATCH') {
-        row = { ...row, values: JSON.parse(request.postData()).values };
+        const body = JSON.parse(request.postData());
+        row = { ...row, values: { ...row.values, [body.columnId]: body.value } };
         saved.push(row.values.reports); data = { appointment: row };
       }
       request.respond({ status: 200, headers, contentType: 'application/json', body: JSON.stringify(data) });
     });
     await page.goto(new URL('/sales', url).href);
-    const waitForCell = async (checked) => {
-      await page.waitForSelector('tbody button[title="Edit"]');
-      await page.waitForFunction((checked) => {
-        const cell = document.querySelector('tbody tr td:nth-child(6)');
-        return cell && cell.textContent.includes('\u2713') === checked;
-      }, {}, checked);
+    const openForm = async () => {
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].some((el) => el.textContent.trim() === 'Open appointment'));
+      await page.evaluate(() => [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Open appointment').click());
+      await page.waitForSelector('button[aria-label="Edit Previous reports available"]');
     };
-    await waitForCell(true);
-    await page.click('tbody button[title="Edit"]');
-    assert.equal(await page.$eval('tbody input[type="checkbox"]', (el) => el.checked), true);
-    await page.click('tbody button[title="Save"]');
-    await waitForCell(true);
-    assert.equal(saved.at(-1), 'true');
-    for (const checked of [false, true]) {
-      await page.click('tbody button[title="Edit"]');
-      await page.click('tbody input[type="checkbox"]');
-      await page.click('tbody button[title="Save"]');
-      await waitForCell(checked);
+    await openForm();
+    for (const checked of [true, false, true]) {
+      await page.evaluate(() => [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Edit all details').click());
+      const current = await page.$eval('[role="dialog"] input[type="checkbox"]', (el) => el.checked);
+      if (current !== checked) await page.click('[role="dialog"] input[type="checkbox"]');
+      await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] button')].find((el) => el.textContent.trim() === 'Save details').click());
+      await page.waitForSelector('button[aria-label="Edit Previous reports available"]');
       assert.equal(saved.at(-1), String(checked));
     }
-    await page.reload(); await waitForCell(true);
+    await page.click('button[aria-label="Close"]');
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('tbody')?.textContent.includes('APT-CHECK'));
     await page.select('select:has(option[value="custom:reports"])', 'custom:reports');
     await page.select('select:has(option[value="true"])', 'true');
-    await waitForCell(true);
+    await page.waitForFunction(() => document.querySelector('tbody')?.textContent.includes('APT-CHECK'));
     await page.select('select:has(option[value="true"])', 'false');
     await page.waitForFunction(() => document.querySelector('tbody')?.textContent.includes('No appointments match this filter'));
     assert.deepEqual(errors, []);
-    console.log('Sales checkbox: display, edit/save, uncheck, recheck, reload and checked/unchecked filters passed (mock API).');
+    console.log('Sales checkbox: form edit/save, uncheck, recheck, reload and checked/unchecked filters passed (mock API).');
   } finally { await browser.close(); }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

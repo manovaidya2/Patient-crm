@@ -64,6 +64,21 @@ test('cancelled payment remains in history but stops counting as paid', async ()
   assert.equal(result.data.patient.stages[0].payments[0].cancellationReason, 'Wrong entry');
 });
 
+test('admin can delete an approved treatment payment and the patient balance updates', async () => {
+  const patient = makePatient();
+  const result = await invoke(controller.deleteStagePayment, patient);
+  assert.equal(result.data.success, true);
+  assert.equal(result.data.patient.stages[0].amountPaid, 0);
+  assert.equal(patient.stages[0].payments.length, 0);
+});
+
+test('treatment payment with refund history cannot be deleted', async () => {
+  const patient = makePatient([{ amount: 100, reason: 'Adjustment' }]);
+  const result = await invoke(controller.deleteStagePayment, patient);
+  assert.equal(result.code, 409);
+  assert.equal(patient.stages[0].payments.length, 1);
+});
+
 test('full patient refund covers payments across phases and excludes existing refund reservations', async () => {
   const patient = makePatient([{ amount: 200, reason: 'Earlier request', status: 'initiated' }]);
   patient.stages.push({ number: 2, payments: [{ amount: 500, approvalStatus: 'approved' }, { amount: 900, approvalStatus: 'pending' }] });

@@ -7,7 +7,7 @@ import Button from './ui/Button.jsx';
 const statusLabels = { pending: 'Pending', connected: 'Connected', no_answer: 'No answer', follow_up: 'Follow up' };
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
 
-export default function SalesCallHistory({ row, onClose, onSaved }) {
+export default function SalesCallHistory({ row, onClose, onSaved, embedded = false, title = 'Reception call record', endpoint = `/sales-sheet/appointments/${row.id}/calls` }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -18,14 +18,14 @@ export default function SalesCallHistory({ row, onClose, onSaved }) {
   const load = useCallback(async (signal) => {
     setLoading(true);
     try {
-      const response = await api.get(`/sales-sheet/appointments/${row.id}/calls`, { skipCache: true, signal });
+      const response = await api.get(endpoint, { skipCache: true, signal });
       setData(response.data);
     } catch (err) {
       if (!signal?.aborted) setError(err.response?.data?.message || 'Could not load call history.');
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [row.id]);
+  }, [endpoint]);
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
@@ -37,9 +37,9 @@ export default function SalesCallHistory({ row, onClose, onSaved }) {
     if (saving || !notes.trim()) return;
     setSaving(true); setError(''); setSaved(false);
     try {
-      const response = await api.post(`/sales-sheet/appointments/${row.id}/calls`, { status, notes: notes.trim() });
+      const response = await api.post(endpoint, { status, notes: notes.trim() });
       setNotes(''); setSaved(true);
-      onSaved(response.data.appointment);
+      onSaved?.(response.data.appointment);
       await load();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not save this call.');
@@ -51,7 +51,7 @@ export default function SalesCallHistory({ row, onClose, onSaved }) {
     staff.count += 1; staffCounts.set(call.calledBy, staff);
   });
 
-  return <Drawer open onClose={() => !saving && onClose()} title="Reception call record">
+  const content = <>
     <p className="text-sm font-semibold text-charcoal">{row.appointmentCode}</p>
     <div className="my-4 grid grid-cols-2 gap-3 border-y border-cardline py-3 text-sm text-charcoal">
       <div><p className="text-xs text-charcoal/65">Total calls</p><p className="mt-1 text-xl font-bold">{data?.numberOfCalls ?? row.numberOfCalls ?? 0}</p></div>
@@ -83,5 +83,6 @@ export default function SalesCallHistory({ row, onClose, onSaved }) {
         <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{call.notes}</p>
       </li>)}</ol>
     </>}
-  </Drawer>;
+  </>;
+  return embedded ? <section className="space-y-3">{content}</section> : <Drawer open onClose={() => !saving && onClose()} title={title}>{content}</Drawer>;
 }

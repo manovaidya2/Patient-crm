@@ -2191,8 +2191,8 @@ const deleteStagePayment = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Payment not found' });
   }
 
-  if (payment.approvalStatus !== 'pending') {
-    return res.status(409).json({ success: false, message: 'Approved or cancelled payments cannot be deleted. Use cancellation or refund.' });
+  if (payment.refunds?.length) {
+    return res.status(409).json({ success: false, message: 'Payments with refund history cannot be deleted.' });
   }
 
   const details = `${payment.amount} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode} (payment ID: ${payment._id})`;

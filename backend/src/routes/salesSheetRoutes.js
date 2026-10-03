@@ -2,16 +2,26 @@ const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const controller = require('../controllers/salesSheetController');
-const { uploadStageRecord } = require('../middleware/fileUploads');
+const appointmentForm = require('../controllers/appointmentFormController');
+const financialLedger = require('../controllers/financialLedgerController');
+const { uploadStageRecord, uploadConsultationFeeProof } = require('../middleware/fileUploads');
 
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST, ROLES.ACCOUNTANT));
 router.use((req, res, next) => {
-  if (req.user.role === ROLES.ACCOUNTANT && (req.method !== 'GET' || !['/columns', '/layout', '/management', '/management-columns'].includes(req.path))) {
+  if (req.user.role === ROLES.ACCOUNTANT && (req.method !== 'GET' || (!['/columns', '/layout', '/management', '/management-columns'].includes(req.path) && !/^\/forms\/management\/[a-f\d]{24}$/i.test(req.path)))) {
     return res.status(403).json({ message: 'Accountant access to the appointment sheet is read-only' });
   }
   next();
 });
+router.get('/forms/:sheet/:id', appointmentForm.getForm);
+router.get('/forms/management/:id/calls', controller.listManagementCalls);
+router.post('/forms/management/:id/calls', controller.logManagementCall);
+router.get('/banks', appointmentForm.listBanks);
+router.patch('/forms/:sheet/:id/field', appointmentForm.updateField);
+router.patch('/forms/:sheet/:id/fee', appointmentForm.updateFee);
+router.post('/forms/:sheet/:id/receipts', appointmentForm.prepareReceipt, uploadConsultationFeeProof.array('proof', 5), financialLedger.createReceipt);
+router.patch('/forms/sales/:id/receipts/:receiptId', authorize(ROLES.ADMIN, ROLES.SALES_TEAM), appointmentForm.updateSalesReceipt);
 router.get('/columns', controller.listColumns);
 router.get('/layout', controller.listLayout);
 router.put('/layout', authorize(ROLES.ADMIN), controller.updateLayout);
@@ -23,6 +33,7 @@ router.get('/timeline/:sheet/:id', authorize(ROLES.ADMIN), controller.listTimeli
 router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT), controller.listManagedAppointments);
 router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT), controller.listManagementColumns);
 router.post('/upload', uploadStageRecord.single('file'), controller.uploadManagementAttachment);
+router.post('/consultation-upload', uploadConsultationFeeProof.single('file'), controller.uploadConsultationFeeProof);
 router.post('/management-columns', authorize(ROLES.ADMIN), controller.createManagementColumn);
 router.patch('/management-columns/:id', authorize(ROLES.ADMIN), controller.updateManagementColumn);
 router.delete('/management-columns/:id', authorize(ROLES.ADMIN), controller.deleteManagementColumn);
@@ -31,11 +42,14 @@ router.patch('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), cont
 router.delete('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteManagedAppointment);
 router.post('/appointments', controller.createAppointment);
 router.post('/appointments/:id/accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.acceptAppointment);
+router.post('/management/:id/cancel-accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.cancelAcceptance);
 router.post('/appointments/:id/reschedule', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.rescheduleAppointment);
 router.post('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.markNotComing);
 router.delete('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.clearNotComing);
 router.post('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.logCall);
-router.get('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.listCalls);
+router.get('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listCalls);
+router.post('/appointments/:id/sales-calls', authorize(ROLES.ADMIN, ROLES.SALES_TEAM), controller.logSalesCall);
+router.get('/appointments/:id/sales-calls', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.listSalesCalls);
 router.patch('/appointments/:id/call-status', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.updateCallStatus);
 router.patch('/appointments/:id', controller.updateAppointment);
 router.delete('/appointments/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteAppointment);

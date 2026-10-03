@@ -5,6 +5,7 @@ const salesSheetColumnSchema = new mongoose.Schema(
     label: { type: String, required: true, trim: true },
     type: { type: String, enum: ['text', 'number', 'phone', 'date', 'time', 'select', 'multi_select', 'textarea', 'checkbox', 'file'], default: 'text' },
     options: [{ type: String, trim: true }],
+    section: { type: String, enum: ['details', 'confirmation', 'payments'], default: undefined },
     required: { type: Boolean, default: false },
     order: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },

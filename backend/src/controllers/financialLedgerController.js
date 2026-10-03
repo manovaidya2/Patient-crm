@@ -4,6 +4,9 @@ const Patient = require('../models/Patient');
 const Appointment = require('../models/AppointmentManagementEntry');
 const Bank = require('../models/BankAccount');
 const Receipt = require('../models/ConsultationReceipt');
+const Sales = require('../models/SalesAppointment');
+const SalesColumn = require('../models/SalesSheetColumn');
+const ManagementColumn = require('../models/AppointmentManagementColumn');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const badRequest = (message) => Object.assign(new Error(message), { statusCode: 400 });
@@ -72,8 +75,8 @@ const ledgerPipeline = (kind = 'all') => [
     { $lookup: { from: Patient.collection.name, localField: 'patient', foreignField: '_id', as: 'linkedPatient', pipeline: [{ $project: { approvalStatus: 1 } }] } },
     { $project: { patientId: '$patient', patientName: 1, patientCode: 1, appointmentCode: 1, appointment: 1,
       patientApproval: { $ifNull: [{ $arrayElemAt: ['$linkedPatient.approvalStatus', 0] }, 'unlinked'] },
-      kind: { $literal: 'consultation' }, amount: 1, date: 1, status: 1, paymentMode: 1, bankName: 1,
-      reference: 1, notes: 1, files: 1, recordedByName: 1, approvedByName: 1, approvedAt: 1,
+      kind: { $literal: 'consultation' }, collectionStage: 1, amount: 1, date: 1, status: 1, paymentMode: 1, bankName: 1,
+      reference: 1, notes: 1, files: 1, recordedByName: 1, editedByName: 1, editedAt: 1, approvedByName: 1, approvedAt: 1,
       cancelledAt: 1, cancelledByName: 1, cancellationReason: 1, createdAt: 1, refunded: { $literal: 0 }, refunds: { $literal: [] } } },
   ] } }]),
 ];
@@ -109,9 +112,30 @@ const createReceipt = asyncHandler(async (req, res) => {
   let saved = false;
   try {
     const body = req.body;
-    if (!validId(body.appointment)) throw badRequest('Select an appointment');
-    if (!/^[\w-]{16,100}$/.test(body.submissionKey || '')) throw badRequest('Missing submission reference');
-    const existing = await Receipt.findOne({ submissionKey: body.submissionKey, recordedBy: req.user._id });
+    const target = req.consultationTarget;
+    if (!target && !validId(body.appointment)) throw badRequest('Select an appointment');
+    let importedFrom = '', legacyProof = null;
+    if (body.legacyColumnId) {
+      if (body.confirmReceived !== 'true') throw badRequest('Confirm this amount was actually received, not an outstanding fee');
+      if (!target || !validId(body.legacyColumnId) || !['sales', 'reception'].includes(body.legacySource) || (target.sheet === 'sales' && body.legacySource !== 'sales')) throw badRequest('Invalid source field');
+      const Column = body.legacySource === 'sales' ? SalesColumn : ManagementColumn;
+      const column = await Column.findOne({ _id: body.legacyColumnId, isActive: true });
+      if (!column || !['number', 'text'].includes(column.type)) throw badRequest('Select an amount field');
+      if (!/\b(advance|payment|paid|received|collected)\b/i.test(column.label || '') || /\b(due|outstanding|balance)\b/i.test(column.label || '')) throw badRequest('Select a received payment amount field');
+      const values = target.sheet === 'sales' || body.legacySource === 'reception' ? target.row.values : target.row.salesValues;
+      body.amount = String(values.get(body.legacyColumnId) || '').replaceAll(',', '').trim();
+      importedFrom = `${body.legacySource}:${body.legacyColumnId}`;
+      body.submissionKey = `sheet-import:${target.root || target.row._id}:${importedFrom}`;
+      if (body.legacyProofColumnId) {
+        if (!validId(body.legacyProofColumnId)) throw badRequest('Invalid proof field');
+        const proofColumn = await Column.findOne({ _id: body.legacyProofColumnId, type: 'file', isActive: true });
+        const proofUrl = values.get(body.legacyProofColumnId);
+        if (!proofColumn || !/^\/uploads\/[a-zA-Z0-9/_\-.]+$/.test(proofUrl || '')) throw badRequest('Select an uploaded proof from this section');
+        legacyProof = { url: proofUrl, fileName: proofColumn.label };
+      }
+    }
+    if (!/^[\w:-]{16,140}$/.test(body.submissionKey || '')) throw badRequest('Missing submission reference');
+    const existing = await Receipt.findOne({ submissionKey: body.submissionKey, ...(importedFrom ? {} : { recordedBy: req.user._id }) });
     if (existing) return res.json({ receipt: existing });
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) throw badRequest('Enter a positive amount with up to two decimal places');
@@ -119,13 +143,23 @@ const createReceipt = asyncHandler(async (req, res) => {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     if (body.date > today) throw badRequest('Payment date cannot be in the future');
     if (!['cash', 'online'].includes(body.paymentMode)) throw badRequest('Select a payment mode');
-    const appointment = await Appointment.findById(body.appointment).select('appointmentCode');
+    const reference = String(body.reference || '').trim();
+    const cashReceivedByName = String(body.cashReceivedByName || '').trim();
+    if (reference.length > 200 || cashReceivedByName.length > 200) throw badRequest('Payment detail is too long');
+    if (target && !body.legacyColumnId && body.paymentMode === 'online' && (!reference || !(req.files || []).length)) throw badRequest('Online payment needs UTR/reference and payment proof');
+    if (target && !body.legacyColumnId && body.paymentMode === 'cash' && !cashReceivedByName) throw badRequest('Enter who received the cash payment');
+    const appointment = target?.row || await Appointment.findById(body.appointment).select('appointmentCode sourceAppointment');
     if (!appointment) throw badRequest('Appointment no longer exists');
+    const source = !target && appointment.sourceAppointment ? await Sales.findById(appointment.sourceAppointment).select('consultationAccount') : null;
+    const salesAccount = target?.root || source?.consultationAccount || source?._id || null;
     let patient = null;
     if (body.patient) {
       if (!validId(body.patient)) throw badRequest('Invalid patient');
       patient = await Patient.findById(body.patient).select('patientName patientCode');
       if (!patient) throw badRequest('Patient no longer exists');
+    } else if (body.patientCode) {
+      patient = await Patient.findOne({ patientCode: String(body.patientCode).trim() }).select('patientName patientCode');
+      if (!patient) throw badRequest('Patient ID not found. Check the ID or leave it empty for a visitor.');
     }
     let bank = null;
     if (body.bank && body.paymentMode === 'online') {
@@ -136,18 +170,20 @@ const createReceipt = asyncHandler(async (req, res) => {
     const patientName = patient?.patientName || String(body.patientName || '').trim();
     if (!patientName || patientName.length > 200) throw badRequest('Enter patient or visitor name');
     const receipt = await Receipt.create({
-      appointment: appointment._id, appointmentCode: appointment.appointmentCode,
+      appointment: target?.sheet === 'sales' ? null : appointment._id, appointmentCode: appointment.appointmentCode,
+      salesAppointment: salesAccount, collectionStage: body.legacyColumnId ? (body.legacySource === 'sales' ? 'advance' : 'reception') : target?.sheet === 'sales' ? 'advance' : 'reception', importedFrom,
       patient: patient?._id || null, patientName, patientCode: patient?.patientCode || '', amount, date,
       paymentMode: body.paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '',
-      reference: body.reference || '', notes: body.notes || '', submissionKey: body.submissionKey,
+      reference: body.paymentMode === 'online' ? reference : '', cashReceivedByName: body.paymentMode === 'cash' ? cashReceivedByName : '',
+      notes: body.notes || '', submissionKey: body.submissionKey,
       recordedBy: req.user._id, recordedByName: req.user.name,
-      files: (req.files || []).map((file) => ({ url: `/uploads/records/${file.filename}`, fileName: file.originalname })),
+      files: [...(legacyProof ? [legacyProof] : []), ...(req.files || []).map((file) => ({ url: `/uploads/consultation-fees/${file.filename}`, fileName: file.originalname }))],
     });
     saved = true;
     res.status(201).json({ receipt });
   } catch (error) {
     if (error.code === 11000) {
-      const receipt = await Receipt.findOne({ submissionKey: req.body.submissionKey, recordedBy: req.user._id });
+      const receipt = await Receipt.findOne({ submissionKey: req.body.submissionKey, ...(req.consultationTarget && req.body.legacyColumnId ? {} : { recordedBy: req.user._id }) });
       if (receipt) return res.json({ receipt });
     }
     throw error;
@@ -169,4 +205,11 @@ const reviewReceipt = asyncHandler(async (req, res) => {
   res.json({ receipt });
 });
 
-module.exports = { getLedger, references, banks, createReceipt, reviewReceipt, ledgerMatch, ledgerPipeline, day };
+const deleteReceipt = asyncHandler(async (req, res) => {
+  if (!validId(req.params.id)) throw badRequest('Invalid receipt');
+  const receipt = await Receipt.findByIdAndDelete(req.params.id);
+  if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+  res.json({ success: true });
+});
+
+module.exports = { getLedger, references, banks, createReceipt, reviewReceipt, deleteReceipt, ledgerMatch, ledgerPipeline, day };

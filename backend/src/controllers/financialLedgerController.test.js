@@ -4,7 +4,7 @@ const { mock } = require('node:test');
 const Receipt = require('../models/ConsultationReceipt');
 const Appointment = require('../models/AppointmentManagementEntry');
 const Patient = require('../models/Patient');
-const { day, ledgerMatch, ledgerPipeline, createReceipt, reviewReceipt, getLedger } = require('./financialLedgerController');
+const { day, ledgerMatch, ledgerPipeline, createReceipt, reviewReceipt, deleteReceipt, getLedger } = require('./financialLedgerController');
 const id = '507f1f77bcf86cd799439011';
 const user = { _id: id, name: 'Accountant' };
 const invoke = async (handler, body = {}, extra = {}) => {
@@ -103,4 +103,19 @@ test('cancellation requires a reason and records actor and timestamp', async () 
     return update.$set;
   });
   assert.equal((await invoke(reviewReceipt, { action: 'cancel', reason: 'Duplicate receipt' })).data.receipt.status, 'cancelled');
+});
+
+test('admin deletion removes approved consultation receipts', async () => {
+  mock.method(Receipt, 'findByIdAndDelete', async (receiptId) => {
+    assert.equal(receiptId, id);
+    return { _id: id, status: 'approved' };
+  });
+  const result = await invoke(deleteReceipt);
+  assert.equal(result.data.success, true);
+});
+
+test('deleting a missing consultation receipt returns not found', async () => {
+  mock.method(Receipt, 'findByIdAndDelete', async () => null);
+  const result = await invoke(deleteReceipt);
+  assert.equal(result.status, 404);
 });

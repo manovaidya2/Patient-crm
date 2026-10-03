@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Check, ChevronLeft, ChevronRight, Download, Eye, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Eye, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import api from '../../api/axios.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
@@ -79,6 +81,8 @@ function ReceiptForm({ onClose, onSaved }) {
 }
 
 export default function FinancialLedger({ kind = 'all', title, initialStatus = 'all', fixedStatus }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === ROLES.ADMIN;
   const [url, setUrl] = useSearchParams();
   const patientId = url.get('patientId') || '';
   const [status, setStatus] = useState(fixedStatus || url.get('status') || initialStatus);
@@ -123,6 +127,17 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
       else await api.patch(`/patients/${selected.patientId}/stages/${selected.stage}/payments/${selected._id}/${action}`, { reason });
       setAction(null); setSelected(null); setReload((old) => old + 1);
     } catch (err) { setActionError(err.response?.data?.message || 'Payment could not be updated'); }
+    finally { setSaving(false); }
+  };
+  const deletePayment = async () => {
+    setSaving(true); setActionError('');
+    try {
+      if (selected.kind === 'consultation') await api.delete(`/accounts/consultation-receipts/${selected._id}`);
+      else await api.delete(`/patients/${selected.patientId}/stages/${selected.stage}/payments/${selected._id}`);
+      setAction(null); setSelected(null);
+      if (data.rows.length === 1 && page > 1) setPage((old) => old - 1);
+      else setReload((old) => old + 1);
+    } catch (err) { setActionError(err.response?.data?.message || 'Payment could not be deleted'); }
     finally { setSaving(false); }
   };
   const exportCsv = async () => {
@@ -187,8 +202,9 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
       <CompactAttachments files={selected.files || []} label="Payment proofs" />
       {selected.refunds?.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Refund history</h3>{selected.refunds.map((refund, index) => <div key={refund._id || index} className="border-t border-cardline py-2 text-sm"><p>{money(refund.amount)} | {refund.status} | {stamp(refund.paidAt || refund.createdAt)}</p><p className="break-words text-xs">{refund.reason}</p></div>)}</div>}
       {selected.patientId && <Link className="inline-block text-sm font-semibold text-sage underline" to={`/admin/patients/${selected.patientId}`}>Open patient details</Link>}
-      {selected.status === 'pending' && !action && <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => { setAction('cancel'); setReason(''); }}><X size={15} />Cancel payment</Button><Button onClick={() => setAction('approve')}><Check size={15} />Approve payment</Button></div>}
-      {action && <div className="space-y-3 border-t border-cardline pt-3"><p className="text-sm font-semibold">{action === 'approve' ? 'Confirm this payment has been verified?' : 'Cancellation reason'}</p>{action === 'cancel' && <textarea aria-label="Cancellation reason" className={field} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />}{actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setAction(null)}>Back</Button><Button disabled={saving || (action === 'cancel' && !reason.trim())} onClick={review}>{saving ? 'Saving...' : 'Confirm'}</Button></div></div>}
+      {isAdmin && selected.refunds?.length > 0 && <p className="text-xs text-charcoal/70">This payment has refund history and cannot be deleted.</p>}
+      {!action && <div className="flex flex-wrap justify-end gap-2">{isAdmin && !(selected.refunds?.length > 0) && <Button variant="outline" onClick={() => setAction('delete')}><Trash2 size={15} />Delete payment</Button>}{selected.status === 'pending' && <><Button variant="outline" onClick={() => { setAction('cancel'); setReason(''); }}><X size={15} />Cancel payment</Button><Button onClick={() => setAction('approve')}><Check size={15} />Approve payment</Button></>}</div>}
+      {action && <div className="space-y-3 border-t border-cardline pt-3"><p className="text-sm font-semibold">{action === 'approve' ? 'Confirm this payment has been verified?' : action === 'delete' ? `Permanently delete this ${selected.status} ${selected.kind} payment of ${money(selected.amount)}? This will remove it from the patient balance and ledger.` : 'Cancellation reason'}</p>{action === 'cancel' && <textarea aria-label="Cancellation reason" className={field} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />}{actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setAction(null)}>Back</Button><Button disabled={saving || (action === 'cancel' && !reason.trim())} onClick={action === 'delete' ? deletePayment : review}>{saving ? 'Saving...' : action === 'delete' ? 'Delete payment' : 'Confirm'}</Button></div></div>}
     </div>}</Modal>
   </div>;
 }

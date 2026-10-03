@@ -69,6 +69,7 @@ const createUpload = (folder, { imagesOnly = false, allowedTypes = null, maxFile
 
 module.exports = {
   uploadStageRecord: createUpload('records'),
+  uploadConsultationFeeProof: createUpload('consultation-fees'),
   uploadRecordRoomImages: createUpload('records', { imagesOnly: true }),
   uploadPrescription: createUpload('prescriptions'),
   uploadMedicineImage: createUpload('medicine', { imagesOnly: true }),
