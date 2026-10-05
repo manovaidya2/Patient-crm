@@ -17,6 +17,7 @@ const PatientApprovals = lazy(() => import('./pages/admin/PatientApprovals.jsx')
 const PatientDetails = lazy(() => import('./pages/admin/PatientDetails.jsx'));
 const PatientsByStage = lazy(() => import('./pages/admin/PatientsByStage.jsx'));
 const Accounts = lazy(() => import('./pages/admin/Accounts.jsx'));
+const Invoices = lazy(() => import('./pages/admin/Invoices.jsx'));
 const Expenses = lazy(() => import('./pages/admin/Expenses.jsx'));
 const FollowUps = lazy(() => import('./pages/admin/FollowUps.jsx'));
 const FamilySessions = lazy(() => import('./pages/admin/FamilySessions.jsx'));
@@ -104,6 +105,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="invoices" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.RECEPTIONIST]}><Invoices /></ProtectedRoute>} />
         <Route
           path="payment-settings"
           element={

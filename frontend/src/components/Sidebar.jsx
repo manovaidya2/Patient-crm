@@ -28,6 +28,7 @@ import {
   UserX,
   BookOpen,
   FileArchive,
+  FileText,
   CheckSquare,
   RotateCcw,
 } from 'lucide-react';
@@ -64,6 +65,7 @@ export const navItems = [
   { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER] },
   { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
+  { to: '/admin/invoices', icon: FileText, label: 'Invoices', roles: [ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.RECEPTIONIST] },
   { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
@@ -87,6 +89,7 @@ const accountantNavOrder = [
   '/admin/approved-payments',
   '/admin/accounts/consultations',
   '/admin/accounts/treatment',
+  '/admin/invoices',
   '/admin/appointment-management',
   '/admin/accounts/expenses',
   '/admin/accounts/refunds',

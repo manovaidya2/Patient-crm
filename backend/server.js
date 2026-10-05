@@ -74,6 +74,7 @@ app.get('/api/health/pdf', async (req, res) => {
 // Uploaded payment screenshots — served at http://<host>/uploads/payments/<file>
 // Inventory templates are served by the authenticated soft-copy endpoint only.
 app.use('/uploads/clinic-inventory', (req, res) => res.status(404).end());
+app.use('/uploads/invoices', (req, res) => res.status(404).end());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/auth', authRoutes);
@@ -84,6 +85,7 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/medicine', medicineRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/accounts', accountRoutes);
+app.use('/api/invoices', require('./src/routes/invoiceRoutes'));
 app.use('/api/advice', adviceRoutes);
 app.use('/api/worksheet', worksheetRoutes);
 app.use('/api/crm-chat', crmChatRoutes);
