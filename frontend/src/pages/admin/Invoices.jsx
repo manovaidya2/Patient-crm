@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Check, CreditCard, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays } from 'lucide-react';
 import api from '../../api/axios.js';
+import FinalBillForm from './FinalBillForm.jsx';
 
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:bg-gray-100';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -45,6 +46,8 @@ export default function Invoices() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editing, setEditing] = useState(false);
+  const [formType, setFormType] = useState('part-payment');
+  const [listType, setListType] = useState('all');
   const [details, setDetails] = useState(blankDetails);
   const [patient, setPatient] = useState(null);
   const [patientQuery, setPatientQuery] = useState('');
@@ -66,17 +69,17 @@ export default function Invoices() {
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const { data } = await api.get('/invoices', { params: { q: query, from, to, page }, signal: controller.signal });
+        const { data } = await api.get('/invoices', { params: { q: query, from, to, page, ...(listType === 'all' ? {} : { type: listType }) }, signal: controller.signal });
         setRows(data.invoices); setTotal(data.total); setPages(data.pages);
       } catch (err) { if (!controller.signal.aborted) setError(err.response?.data?.message || 'Could not load receipts.'); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, from, to, page, reload]);
+  }, [query, from, to, page, listType, reload]);
 
   useEffect(() => {
     setPatients([]); setPatientSearchError('');
-    if (!editing || !patientQuery.trim()) { setSearching(false); return undefined; }
+    if (!editing || formType !== 'part-payment' || !patientQuery.trim()) { setSearching(false); return undefined; }
     const controller = new AbortController();
     setSearching(true);
     const timer = setTimeout(async () => {
@@ -87,7 +90,7 @@ export default function Invoices() {
       finally { if (!controller.signal.aborted) setSearching(false); }
     }, 300);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [patientQuery, editing]);
+  }, [patientQuery, editing, formType]);
 
   useEffect(() => () => { if (pdfUrl.current) URL.revokeObjectURL(pdfUrl.current); }, []);
   useEffect(() => {
@@ -99,9 +102,9 @@ export default function Invoices() {
     return () => { window.removeEventListener('keydown', handler); document.body.style.overflow = previous; };
   }, [preview]);
 
-  function startReceipt() {
+  function startReceipt(type) {
     setDetails(blankDetails()); setPatient(null); setPatientQuery(''); setPatients([]);
-    submissionKey.current = newKey(); setError(''); setNotice(''); setEditing(true);
+    submissionKey.current = newKey(); setError(''); setNotice(''); setFormType(type); setEditing(true);
   }
 
   function selectPatient(p) {
@@ -110,18 +113,21 @@ export default function Invoices() {
     setPatientQuery(''); setPatients([]);
   }
 
-  async function saveReceipt(e) {
-    e.preventDefault();
+  async function saveInvoice(payload) {
     if (busyRef.current) return;
-    if (!details.paymentModes.length) { setError('Select at least one payment mode.'); return; }
     busyRef.current = true; setSaving(true); setError('');
     try {
-      const { data } = await api.post('/invoices', { type: 'part-payment', submissionKey: submissionKey.current, patient: patient?.id || null, details });
-      setEditing(false); setQuery(''); setFrom(''); setTo(''); setPage(1); setReload((n) => n + 1);
+      const { data } = await api.post('/invoices', { ...payload, submissionKey: submissionKey.current });
+      setEditing(false); setListType('all'); setQuery(''); setFrom(''); setTo(''); setPage(1); setReload((n) => n + 1);
       setNotice(`${data.invoice.invoiceNumber} saved. PDF ready to download or print.`);
       await openPdf(data.invoice);
     } catch (err) { setError(err.response?.data?.message || 'Receipt could not be saved. Please retry.'); }
     finally { busyRef.current = false; setSaving(false); }
+  }
+  function saveReceipt(e) {
+    e.preventDefault();
+    if (!details.paymentModes.length) { setError('Select at least one payment mode.'); return; }
+    saveInvoice({ type: 'part-payment', patient: patient?.id || null, details });
   }
 
   async function openPdf(row, download = false) {
@@ -149,14 +155,14 @@ export default function Invoices() {
     <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
         {editing && <button type="button" className={buttonClass} title="Back to receipts" aria-label="Back to receipts" disabled={saving} onClick={() => { if (window.confirm('Discard this unsaved receipt?')) { setEditing(false); setError(''); } }}><ArrowLeft size={18} /></button>}
-        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? 'Part-payment receipt' : 'Invoices'}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? 'ManoVaidya / Treatment order' : `${total} saved receipts`}</p></div>
+        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? formType === 'final-bill' ? 'Final Bill' : 'Part-payment receipt' : 'Invoices'}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? 'ManoVaidya / Billing' : `${total} saved invoices`}</p></div>
       </div>
-      {!editing && <button className={primaryClass} onClick={startReceipt}><Plus size={17} />New receipt</button>}
+      {!editing && <div className="flex flex-wrap gap-2"><button className={buttonClass} onClick={() => startReceipt('part-payment')}><Plus size={17} />Part-payment receipt</button><button className={primaryClass} onClick={() => startReceipt('final-bill')}><Plus size={17} />Final Bill</button></div>}
     </header>
     {error && <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}<button className="float-right ml-3" onClick={() => setError('')} aria-label="Dismiss error"><X size={16} /></button></div>}
     {notice && !editing && <p role="status" className="mb-4 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800">{notice}</p>}
 
-    {editing ? <form onSubmit={saveReceipt}>
+    {editing && formType === 'final-bill' ? <FinalBillForm onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
       <fieldset disabled={saving} className="min-w-0 disabled:opacity-70">
         <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-3 sm:px-5">
           <Field label="Receipt number"><input className={inputClass} value="Auto-generated on save" disabled /></Field>
@@ -214,7 +220,7 @@ export default function Invoices() {
         </footer>
       </fieldset>
     </form> : <>
-      <div className="mb-4 border-b border-cardline"><span className="inline-flex items-center gap-2 border-b-2 border-teal-700 px-1 py-3 text-sm font-semibold text-teal-700"><FileText size={18} />Part-payment receipts</span></div>
+      <div className="mb-4 flex flex-wrap gap-5 border-b border-cardline">{[['all', 'All invoices'], ['part-payment', 'Part-payment receipts'], ['final-bill', 'Final Bills']].map(([type, label]) => <button key={type} type="button" className={`inline-flex items-center gap-2 border-b-2 px-1 py-3 text-sm font-semibold ${listType === type ? 'border-teal-700 text-teal-700' : 'border-transparent text-charcoal/60 hover:text-charcoal'}`} onClick={() => { setListType(type); setPage(1); }}><FileText size={17} />{label}</button>)}</div>
       <div className="mb-5 grid items-end gap-3 sm:grid-cols-[minmax(200px,1fr)_160px_160px_auto]">
         <Field label="Search receipts"><div className="relative"><Search size={17} className="absolute left-3 top-3 text-charcoal/50" /><input className={`${inputClass} !pl-10`} placeholder="Invoice number, patient name or ID" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} /></div></Field>
         <Field label="From" type="date" value={from} onChange={(v) => { setFrom(v); setPage(1); }} />
@@ -223,18 +229,18 @@ export default function Invoices() {
       </div>
       <div className="overflow-x-auto rounded-md border border-cardline bg-white/60" aria-busy={loading}>
         <table className="w-full min-w-[930px] text-left text-sm">
-          <thead className="bg-teal-900 text-white"><tr>{['Receipt', 'Patient', 'Receipt date', 'Received', 'Outstanding', 'Issued by', 'PDF'].map((text) => <th key={text} className="whitespace-nowrap px-4 py-3 font-semibold">{text}</th>)}</tr></thead>
+          <thead className="bg-teal-900 text-white"><tr>{['Invoice / Type', 'Patient', 'Invoice date', 'Received', 'Outstanding', 'Issued by', 'PDF'].map((text) => <th key={text} className="whitespace-nowrap px-4 py-3 font-semibold">{text}</th>)}</tr></thead>
           <tbody>{loading ? <tr><td colSpan={7} className="p-10 text-center text-charcoal/60">Loading receipts...</td></tr> : rows.length ? rows.map((row) => <tr key={row.id} className="border-b border-cardline last:border-0 hover:bg-white">
-            <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}</td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4">{row.createdByName || '-'}</td>
+            <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.type === 'final-bill' ? 'Final Bill' : 'Part-payment receipt'}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4">{row.createdByName || '-'}</td>
             <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print receipt" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button></div></td>
           </tr>) : <tr><td colSpan={7} className="p-12 text-center text-charcoal/60">No receipts found.</td></tr>}</tbody>
         </table>
       </div>
-      <div className="mt-4 flex items-center justify-between gap-3 text-sm text-charcoal/60"><span>{total} receipts</span><div className="flex items-center gap-3"><button className={buttonClass} aria-label="Previous page" disabled={page <= 1 || loading} onClick={() => setPage((n) => n - 1)}><ChevronLeft size={16} /></button><span>{page} / {Math.max(1, pages)}</span><button className={buttonClass} aria-label="Next page" disabled={page >= pages || loading} onClick={() => setPage((n) => n + 1)}><ChevronRight size={16} /></button></div></div>
+      <div className="mt-4 flex items-center justify-between gap-3 text-sm text-charcoal/60"><span>{total} invoices</span><div className="flex items-center gap-3"><button className={buttonClass} aria-label="Previous page" disabled={page <= 1 || loading} onClick={() => setPage((n) => n - 1)}><ChevronLeft size={16} /></button><span>{page} / {Math.max(1, pages)}</span><button className={buttonClass} aria-label="Next page" disabled={page >= pages || loading} onClick={() => setPage((n) => n + 1)}><ChevronRight size={16} /></button></div></div>
     </>}
     {preview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="receipt-preview-title">
       <div className="flex h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3 sm:p-4"><div className="min-w-0"><h2 id="receipt-preview-title" className="text-base font-semibold">Part-payment receipt</h2><p className="break-words text-xs text-charcoal/60">{preview.invoiceNumber} / {preview.patientName}</p></div><div className="flex flex-wrap gap-2"><a className={buttonClass} href={preview.url} download={preview.fileName} title="Download PDF"><Download size={17} /><span className="hidden sm:inline">Download</span></a><button className={buttonClass} disabled={!pdfReady} onClick={printPdf} title="Print receipt"><Printer size={17} /><span className="hidden sm:inline">Print</span></button><button className={buttonClass} onClick={() => setPreview(null)} title="Close preview" aria-label="Close preview" autoFocus><X size={18} /></button></div></header>
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3 sm:p-4"><div className="min-w-0"><h2 id="receipt-preview-title" className="text-base font-semibold">{preview.type === 'final-bill' ? 'Final Bill' : 'Part-payment receipt'}</h2><p className="break-words text-xs text-charcoal/60">{preview.invoiceNumber} / {preview.patientName}</p></div><div className="flex flex-wrap gap-2"><a className={buttonClass} href={preview.url} download={preview.fileName} title="Download PDF"><Download size={17} /><span className="hidden sm:inline">Download</span></a><button className={buttonClass} disabled={!pdfReady} onClick={printPdf} title="Print receipt"><Printer size={17} /><span className="hidden sm:inline">Print</span></button><button className={buttonClass} onClick={() => setPreview(null)} title="Close preview" aria-label="Close preview" autoFocus><X size={18} /></button></div></header>
         <div className="flex justify-end border-b px-4 py-2"><a className="text-sm font-medium text-teal-700 underline" href={preview.url} target="_blank" rel="noreferrer">Open PDF in new tab</a></div>
         <iframe ref={pdfFrame} title="Part-payment receipt PDF" src={preview.url} className="min-h-0 w-full flex-1 border-0 bg-gray-100" onLoad={() => setPdfReady(true)} />
       </div>

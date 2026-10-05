@@ -5,6 +5,25 @@ const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { validateReceipt, renderReceipt, receiptFileName, validDate } = require('../utils/partPaymentReceipt');
+const { validateFinalBill, renderFinalBill } = require('../utils/finalBill');
+const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
+
+const readSettings = async () => await InvoiceSettings.findById('final-bill').lean() || { paymentParticulars: DEFAULT_PARTICULARS, paymentStatuses: DEFAULT_STATUSES };
+const getSettings = asyncHandler(async (req, res) => {
+  const settings = await readSettings();
+  res.json({ paymentParticulars: settings.paymentParticulars, paymentStatuses: settings.paymentStatuses });
+});
+const updateSettings = asyncHandler(async (req, res) => {
+  const update = {};
+  for (const key of ['paymentParticulars', 'paymentStatuses']) {
+    const values = req.body[key];
+    if (!Array.isArray(values) || !values.length || values.length > 100 || values.some((v) => typeof v !== 'string' || !v.trim() || v.length > 80 || /[\r\n\t]/.test(v))) badRequest('Dropdowns require 1 to 100 non-empty options, each up to 80 characters');
+    update[key] = values.map((v) => v.trim());
+    if (new Set(update[key].map((v) => v.toLowerCase())).size !== values.length) badRequest('Dropdown options must be unique');
+  }
+  const settings = await InvoiceSettings.findByIdAndUpdate('final-bill', { $set: { ...update, updatedBy: req.user._id } }, { upsert: true, new: true, runValidators: true });
+  res.json({ paymentParticulars: settings.paymentParticulars, paymentStatuses: settings.paymentStatuses });
+});
 
 const INVOICE_DIR = path.join(__dirname, '../../uploads/invoices');
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -26,6 +45,10 @@ const findPatients = asyncHandler(async (req, res) => {
 
 const listInvoices = asyncHandler(async (req, res) => {
   const filter = {};
+  if (req.query.type) {
+    if (!['part-payment', 'final-bill'].includes(req.query.type)) badRequest('Unsupported invoice type');
+    filter.type = req.query.type;
+  }
   const q = String(req.query.q || '').trim().slice(0, 100);
   if (q) {
     const regex = new RegExp(escapeRegex(q), 'i');
@@ -46,19 +69,20 @@ const listInvoices = asyncHandler(async (req, res) => {
 });
 
 const createInvoice = asyncHandler(async (req, res) => {
-  if (req.body.type !== 'part-payment') badRequest('Unsupported receipt type');
+  const type = req.body.type;
+  if (!['part-payment', 'final-bill'].includes(type)) badRequest('Unsupported receipt type');
   const key = req.body.submissionKey;
   if (typeof key !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(key)) badRequest('A valid submission key is required');
   const submissionKey = `${req.user._id}:${key}`;
   const existing = await Invoice.findOne({ submissionKey }).lean();
   if (existing) return res.json({ invoice: formatInvoice(existing) });
-  const details = validateReceipt(req.body.details);
+  const details = type === 'final-bill' ? await validateFinalBill(req.body.details, await readSettings()) : validateReceipt(req.body.details);
   const patient = req.body.patient || null;
   if (patient && (!mongoose.isObjectIdOrHexString(patient) || !await Patient.exists({ _id: patient }))) badRequest('Selected patient was not found');
   // Atomic numbering and a unique submission key protect concurrent saves/retries.
   await Invoice.init();
   const year = new Date().getFullYear();
-  const counterKey = `part-payment-${year}`;
+  const counterKey = `${type}-${year}`;
   let counter;
   try {
     counter = await InvoiceCounter.findOneAndUpdate({ _id: counterKey }, { $inc: { sequence: 1 } }, { upsert: true, new: true });
@@ -66,16 +90,16 @@ const createInvoice = asyncHandler(async (req, res) => {
     if (error.code !== 11000) throw error;
     counter = await InvoiceCounter.findOneAndUpdate({ _id: counterKey }, { $inc: { sequence: 1 } }, { new: true });
   }
-  const invoiceNumber = `MV-PP-${year}-${String(counter.sequence).padStart(6, '0')}`;
-  const fileName = receiptFileName(invoiceNumber, details.patientName);
-  const pdf = await renderReceipt(invoiceNumber, details);
+  const invoiceNumber = `MV-${type === 'final-bill' ? 'FB' : 'PP'}-${year}-${String(counter.sequence).padStart(6, '0')}`;
+  const fileName = receiptFileName(invoiceNumber, details.patientName).replace('Part-payment-receipt', type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt');
+  const pdf = await (type === 'final-bill' ? renderFinalBill : renderReceipt)(invoiceNumber, details);
   const id = new mongoose.Types.ObjectId();
   const filePath = path.join(INVOICE_DIR, fileName);
   await fs.mkdir(INVOICE_DIR, { recursive: true });
   try {
     await fs.writeFile(filePath, pdf, { flag: 'wx' });
     const invoice = await Invoice.create({
-      _id: id, type: 'part-payment', submissionKey, invoiceNumber, patient,
+      _id: id, type, submissionKey, invoiceNumber, patient,
       date: details.date, patientName: details.patientName, patientCode: details.patientCode,
       details, fileName, createdBy: req.user._id, createdByName: req.user.name,
     });
@@ -99,10 +123,10 @@ const getPdf = asyncHandler(async (req, res, next) => {
     if (error.code !== 'ENOENT') throw error;
     // The saved snapshot can restore a PDF after a storage migration.
     await fs.mkdir(INVOICE_DIR, { recursive: true });
-    await fs.writeFile(filePath, await renderReceipt(invoice.invoiceNumber, invoice.details));
+    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, invoice.details));
   }
   res.set('Cache-Control', 'private, no-store');
   res.download(filePath, invoice.fileName, (error) => { if (error && !res.headersSent) next(error); });
 });
 
-module.exports = { findPatients, listInvoices, createInvoice, getPdf };
+module.exports = { findPatients, listInvoices, createInvoice, getPdf, getSettings, updateSettings };

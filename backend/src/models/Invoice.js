@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const invoiceSchema = new mongoose.Schema({
-  type: { type: String, enum: ['part-payment'], required: true },
+  type: { type: String, enum: ['part-payment', 'final-bill'], required: true },
   invoiceNumber: { type: String, required: true, unique: true },
   submissionKey: { type: String, required: true, unique: true },
   date: { type: String, required: true, index: true },

@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('fs/promises');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
-const { createInvoice, listInvoices, findPatients, getPdf } = require('./invoiceController');
+const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
+const { createInvoice, listInvoices, findPatients, getPdf, getSettings, updateSettings } = require('./invoiceController');
 const invoiceRouter = require('../routes/invoiceRoutes');
 const id = '507f1f77bcf86cd799439011';
 const details = { patientName: 'Test Patient', date: '2026-10-05', totalPayable: '599', amountReceived: '99', outstanding: '500', paymentModes: ['online'] };
@@ -109,5 +110,56 @@ test('invoice routes allow admin, accountant, post counselor and doctor but deny
     accessMiddleware({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
     assert.equal(permitted, ['admin', 'accountant', 'post_counselor', 'doctor'].includes(role));
     if (!permitted) assert.equal(status, 403);
+  }
+});
+
+test('final bill creation calculates totals, uses own number series, and persists its PDF', async () => {
+  stubSave();
+  mock.method(InvoiceSettings, 'findById', () => ({ lean: async () => null }));
+  fs.writeFile.mock.restore();
+  let savedPath;
+  mock.method(fs, 'writeFile', async (name, data) => { savedPath = name; assert.ok(data.toString('latin1').startsWith('%PDF')); });
+  InvoiceCounter.findOneAndUpdate.mock.restore();
+  mock.method(InvoiceCounter, 'findOneAndUpdate', async (filter) => { assert.match(filter._id, /^final-bill-/); return { sequence: 12 }; });
+  const bill = {
+    date: '2026-10-05', patientName: 'Test Patient',
+    items: [{ amount: '599', duration: '05/10/2026' }, { amount: '43000', duration: 'Six Months' }, { amount: '450', duration: '05/10/2026' }],
+    payments: [{ date: '2026-10-05', particulars: 'Consultation Fee', received: '599' }, { date: '2026-10-05', particulars: 'Final Instalment', received: '43450' }],
+    paymentStatus: 'FULLY PAID', totalPayable: 1, amountReceived: 1,
+  };
+  const result = await invoke(createInvoice, { body: { type: 'final-bill', submissionKey: 'final-bill-key-12345', details: bill } });
+  assert.equal(result.error, undefined);
+  assert.match(result.body.invoice.invoiceNumber, /^MV-FB-\d{4}-000012$/);
+  assert.equal(result.body.invoice.details.amountReceived, 44049);
+  assert.equal(result.body.invoice.details.outstanding, 0);
+  assert.match(savedPath, /uploads[\\/]invoices[\\/]Final-bill-MV-FB-/);
+});
+
+test('settings default correctly and admin changes are validated', async () => {
+  mock.method(InvoiceSettings, 'findById', () => ({ lean: async () => null }));
+  const defaults = await invoke(getSettings);
+  assert.deepEqual(defaults.body.paymentParticulars, DEFAULT_PARTICULARS);
+  assert.deepEqual(defaults.body.paymentStatuses, DEFAULT_STATUSES);
+  for (const paymentParticulars of [[], ['Same', 'same'], ['']]) {
+    const result = await invoke(updateSettings, { body: { paymentParticulars, paymentStatuses: ['PAID'] } });
+    assert.equal(result.error.statusCode, 400);
+  }
+  mock.method(InvoiceSettings, 'findByIdAndUpdate', async (id, update) => {
+    assert.equal(id, 'final-bill');
+    assert.deepEqual(update.$set.paymentParticulars, ['Card', 'Cash']);
+    return update.$set;
+  });
+  const saved = await invoke(updateSettings, { body: { paymentParticulars: [' Card ', 'Cash'], paymentStatuses: ['PAID'] } });
+  assert.deepEqual(saved.body.paymentParticulars, ['Card', 'Cash']);
+});
+
+test('invoice settings writes are admin-only at the route', () => {
+  const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/settings' && layer.route.methods.put);
+  const guard = route.route.stack[0].handle;
+  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor']) {
+    let permitted = false, status;
+    guard({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
+    assert.equal(permitted, role === 'admin');
+    if (role !== 'admin') assert.equal(status, 403);
   }
 });
