@@ -4,7 +4,7 @@ const fs = require('fs/promises');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
 const { createInvoice, listInvoices, findPatients, getPdf } = require('./invoiceController');
-const { authorize } = require('../middleware/auth');
+const invoiceRouter = require('../routes/invoiceRoutes');
 const id = '507f1f77bcf86cd799439011';
 const details = { patientName: 'Test Patient', date: '2026-10-05', totalPayable: '599', amountReceived: '99', outstanding: '500', paymentModes: ['online'] };
 const user = { _id: id, name: 'Accountant', role: 'accountant' };
@@ -102,11 +102,12 @@ test('invalid PDF ids return not found', async () => {
   assert.equal(result.status, 404);
 });
 
-test('invoice access only allows admin, accountant and reception', () => {
-  for (const role of ['sales_team', 'psychologist', 'medicine_department', 'admin', 'accountant', 'receptionist']) {
+test('invoice routes allow admin, accountant, post counselor and doctor but deny reception', () => {
+  const accessMiddleware = invoiceRouter.stack[1].handle;
+  for (const role of ['sales_team', 'psychologist', 'medicine_department', 'admin', 'accountant', 'receptionist', 'post_counselor', 'doctor']) {
     let status, permitted = false;
-    authorize('admin', 'accountant', 'receptionist')({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
-    assert.equal(permitted, ['admin', 'accountant', 'receptionist'].includes(role));
+    accessMiddleware({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
+    assert.equal(permitted, ['admin', 'accountant', 'post_counselor', 'doctor'].includes(role));
     if (!permitted) assert.equal(status, 403);
   }
 });

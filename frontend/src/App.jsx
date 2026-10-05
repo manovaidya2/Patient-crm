@@ -105,7 +105,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="invoices" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.RECEPTIONIST]}><Invoices /></ProtectedRoute>} />
+        <Route path="invoices" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR]}><Invoices /></ProtectedRoute>} />
         <Route
           path="payment-settings"
           element={
