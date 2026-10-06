@@ -39,8 +39,17 @@ test('creates numbered persistent PDF and snapshot, without altering patient/pay
   assert.match(result.body.invoice.invoiceNumber, /^MV-PP-\d{4}-000012$/);
   assert.equal(result.body.invoice.details.amountReceived, 99);
   assert.equal(result.body.invoice.patient, null);
+  assert.equal(result.body.invoice.pdfStyle, 'black-white');
   assert.equal(result.body.invoice.createdByName, 'Accountant');
   assert.equal(fs.writeFile.mock.callCount(), 1);
+});
+
+test('saves a selected color PDF style and uses an identifiable filename', async () => {
+  stubSave();
+  const result = await invoke(createInvoice, { body: { type: 'part-payment', submissionKey: 'color-submission-123', pdfStyle: 'color', details } });
+  assert.equal(result.error, undefined);
+  assert.equal(result.body.invoice.pdfStyle, 'color');
+  assert.match(result.body.invoice.fileName, /-Color\.pdf$/);
 });
 
 test('retries return existing receipt without consuming another number', async () => {
@@ -55,7 +64,7 @@ test('retries return existing receipt without consuming another number', async (
 test('rejects missing patient link, malformed requests, and unsupported types', async () => {
   stubSave();
   mock.method(Patient, 'exists', async () => null);
-  for (const body of [{ type: 'prescription' }, { type: 'part-payment', submissionKey: 'short' }, { type: 'part-payment', submissionKey: 'valid-submission-123', details, patient: id }]) {
+  for (const body of [{ type: 'prescription' }, { type: 'part-payment', submissionKey: 'short' }, { type: 'part-payment', submissionKey: 'valid-submission-123', pdfStyle: 'neon', details }, { type: 'part-payment', submissionKey: 'valid-submission-123', details, patient: id }]) {
     const result = await invoke(createInvoice, { body }); assert.equal(result.error.statusCode, 400);
   }
   assert.equal(fs.writeFile.mock.callCount(), 0);

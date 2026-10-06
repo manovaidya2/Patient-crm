@@ -8,6 +8,7 @@ const invoiceSchema = new mongoose.Schema({
   patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
   patientName: { type: String, required: true },
   patientCode: { type: String, default: '' },
+  pdfStyle: { type: String, enum: ['black-white', 'color'], default: 'black-white' },
   // A receipt is an immutable snapshot, independent of later patient edits.
   details: { type: mongoose.Schema.Types.Mixed, required: true },
   fileName: { type: String, required: true },

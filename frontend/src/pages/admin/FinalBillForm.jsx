@@ -3,6 +3,7 @@ import { Check, Plus, Search, Settings2, Trash2, UserRound, FileText, CreditCard
 import api from '../../api/axios.js';
 import { BILL_DESCRIPTIONS, calculateFinalBill } from '../../utils/finalBillMath.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import InvoicePdfStyleSelector from '../../components/InvoicePdfStyleSelector.jsx';
 
 const input = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15';
 const button = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2 text-sm font-medium hover:bg-teal-50 disabled:opacity-50';
@@ -23,6 +24,7 @@ function Section({ title, icon: Icon, children }) {
 export default function FinalBillForm({ initial, onSave, saving, reportError }) {
   const { user } = useAuth();
   const [details, setDetails] = useState(() => initial ? { ...blank(), ...initial.details } : blank());
+  const [pdfStyle, setPdfStyle] = useState(() => initial?.pdfStyle || 'black-white');
   const [patient, setPatient] = useState(() => initial?.patient ? { id: initial.patient, patientName: initial.patientName, patientCode: initial.patientCode } : null);
   const [patientQuery, setPatientQuery] = useState('');
   const [patients, setPatients] = useState([]);
@@ -88,14 +90,15 @@ export default function FinalBillForm({ initial, onSave, saving, reportError }) 
     e.preventDefault();
     if (settingsLoading || !calculated) { reportError('Check amounts and dropdown settings before saving.'); return; }
     if (statusMismatch) { reportError('Payment status does not match the received amount.'); return; }
-    onSave({ type: 'final-bill', patient: patient?.id || null, details });
+    onSave({ type: 'final-bill', patient: patient?.id || null, pdfStyle, details });
   }
 
   return <form onSubmit={submit} className="min-w-0"><fieldset disabled={saving || settingsLoading} className="min-w-0 disabled:opacity-70">
-    <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-3 sm:px-5">
+    <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-2 lg:grid-cols-4 sm:px-5">
       <Field label="Invoice number"><input className={input} disabled value={initial?.invoiceNumber || 'Auto-generated on save'} /></Field>
       <Field label="Invoice date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
       <Field label="Issued by" value={details.issuedBy} onChange={(v) => setField('issuedBy', v)} />
+      <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
     </div>
     <Section title="Patient details" icon={UserRound}>
       <div className="mb-5 max-w-2xl"><Field label="Find patient by name or ID"><div className="relative"><Search size={17} className="absolute left-3 top-3 text-charcoal/50" /><input className={`${input} !pl-10`} placeholder="Patient name or patient ID" autoComplete="off" value={patientQuery} onChange={(e) => setPatientQuery(e.target.value)} /></div></Field>

@@ -27,14 +27,21 @@ const updateSettings = asyncHandler(async (req, res) => {
 });
 
 const INVOICE_DIR = path.join(__dirname, '../../uploads/invoices');
+const PDF_STYLES = ['black-white', 'color'];
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const badRequest = (message) => { throw Object.assign(new Error(message), { statusCode: 400 }); };
+const pdfStyleFrom = (value) => {
+  const style = value || 'black-white';
+  if (!PDF_STYLES.includes(style)) badRequest('Select a valid PDF style');
+  return style;
+};
+const styleFileName = (fileName, style) => style === 'color' ? fileName.replace(/\.pdf$/i, '-Color.pdf') : fileName;
 const formatInvoice = (row) => ({
   id: row._id, type: row.type, invoiceNumber: row.invoiceNumber, date: row.date,
   patient: row.patient, patientName: row.patientName, patientCode: row.patientCode,
-  details: row.details, fileName: row.fileName, createdByName: row.createdByName, createdAt: row.createdAt,
+  pdfStyle: row.pdfStyle || 'black-white', details: row.details, fileName: row.fileName, createdByName: row.createdByName, createdAt: row.createdAt,
   revision: row.revision || 1, editedByName: row.editedByName || '', editedAt: row.editedAt || null,
-  revisionHistory: (row.revisionHistory || []).map(({ revision, fileName, editedByName, editedAt }) => ({ revision, fileName, editedByName, editedAt })),
+  revisionHistory: (row.revisionHistory || []).map(({ revision, fileName, pdfStyle, editedByName, editedAt }) => ({ revision, fileName, pdfStyle: pdfStyle || 'black-white', editedByName, editedAt })),
 });
 
 const findPatients = asyncHandler(async (req, res) => {
@@ -80,6 +87,7 @@ const createInvoice = asyncHandler(async (req, res) => {
   const existing = await Invoice.findOne({ submissionKey }).lean();
   if (existing) return res.json({ invoice: formatInvoice(existing) });
   const details = type === 'final-bill' ? await validateFinalBill(req.body.details, await readSettings()) : validateReceipt(req.body.details);
+  const pdfStyle = pdfStyleFrom(req.body.pdfStyle);
   const patient = req.body.patient || null;
   if (patient && (!mongoose.isObjectIdOrHexString(patient) || !await Patient.exists({ _id: patient }))) badRequest('Selected patient was not found');
   // Atomic numbering and a unique submission key protect concurrent saves/retries.
@@ -94,8 +102,8 @@ const createInvoice = asyncHandler(async (req, res) => {
     counter = await InvoiceCounter.findOneAndUpdate({ _id: counterKey }, { $inc: { sequence: 1 } }, { new: true });
   }
   const invoiceNumber = `MV-${type === 'final-bill' ? 'FB' : 'PP'}-${year}-${String(counter.sequence).padStart(6, '0')}`;
-  const fileName = receiptFileName(invoiceNumber, details.patientName).replace('Part-payment-receipt', type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt');
-  const pdf = await (type === 'final-bill' ? renderFinalBill : renderReceipt)(invoiceNumber, details);
+  const fileName = styleFileName(receiptFileName(invoiceNumber, details.patientName).replace('Part-payment-receipt', type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt'), pdfStyle);
+  const pdf = await (type === 'final-bill' ? renderFinalBill : renderReceipt)(invoiceNumber, details, pdfStyle);
   const id = new mongoose.Types.ObjectId();
   const filePath = path.join(INVOICE_DIR, fileName);
   await fs.mkdir(INVOICE_DIR, { recursive: true });
@@ -103,7 +111,7 @@ const createInvoice = asyncHandler(async (req, res) => {
     await fs.writeFile(filePath, pdf, { flag: 'wx' });
     const invoice = await Invoice.create({
       _id: id, type, submissionKey, invoiceNumber, patient,
-      date: details.date, patientName: details.patientName, patientCode: details.patientCode,
+      date: details.date, patientName: details.patientName, patientCode: details.patientCode, pdfStyle,
       details, fileName, createdBy: req.user._id, createdByName: req.user.name,
     });
     res.status(201).json({ invoice: formatInvoice(invoice) });
@@ -132,13 +140,14 @@ const updateInvoice = asyncHandler(async (req, res) => {
   const details = original.type === 'final-bill'
     ? await validateFinalBill(req.body.details, settings)
     : validateReceipt(req.body.details);
+  const pdfStyle = pdfStyleFrom(req.body.pdfStyle || original.pdfStyle);
   const patient = req.body.patient || null;
   if (patient && (!mongoose.isObjectIdOrHexString(patient) || !await Patient.exists({ _id: patient }))) badRequest('Selected patient was not found');
   const nextRevision = revision + 1;
   const baseName = receiptFileName(original.invoiceNumber, details.patientName);
-  const fileName = baseName.replace('Part-payment-receipt', original.type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt').replace(/\.pdf$/, `-v${nextRevision}-${randomUUID().slice(0, 8)}.pdf`);
+  const fileName = styleFileName(baseName.replace('Part-payment-receipt', original.type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt'), pdfStyle).replace(/\.pdf$/, `-v${nextRevision}-${randomUUID().slice(0, 8)}.pdf`);
   const filePath = path.join(INVOICE_DIR, fileName);
-  const pdf = await (original.type === 'final-bill' ? renderFinalBill : renderReceipt)(original.invoiceNumber, details);
+  const pdf = await (original.type === 'final-bill' ? renderFinalBill : renderReceipt)(original.invoiceNumber, details, pdfStyle);
   await fs.mkdir(INVOICE_DIR, { recursive: true });
   await fs.writeFile(filePath, pdf, { flag: 'wx' });
   try {
@@ -146,8 +155,8 @@ const updateInvoice = asyncHandler(async (req, res) => {
     const saved = await Invoice.findOneAndUpdate(
       { _id: original._id, revision: original.revision == null ? { $exists: false } : revision },
       {
-        $set: { patient, date: details.date, patientName: details.patientName, patientCode: details.patientCode, details, fileName, revision: nextRevision, editedByName: req.user.name, editedAt: changedAt },
-        $push: { revisionHistory: { revision, details: original.details, fileName: original.fileName, editedByName: req.user.name, editedAt: changedAt } },
+        $set: { patient, date: details.date, patientName: details.patientName, patientCode: details.patientCode, pdfStyle, details, fileName, revision: nextRevision, editedByName: req.user.name, editedAt: changedAt },
+        $push: { revisionHistory: { revision, details: original.details, fileName: original.fileName, pdfStyle: original.pdfStyle || 'black-white', editedByName: req.user.name, editedAt: changedAt } },
       },
       { new: true, runValidators: true }
     ).lean();
@@ -177,13 +186,13 @@ const getPdf = asyncHandler(async (req, res, next) => {
   const filePath = path.join(INVOICE_DIR, selected.fileName);
   if (req.params.revision === undefined) {
     await fs.mkdir(INVOICE_DIR, { recursive: true });
-    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details));
+    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details, selected.pdfStyle || 'black-white'));
   }
   try { await fs.access(filePath); } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     // The saved snapshot can restore a PDF after a storage migration.
     await fs.mkdir(INVOICE_DIR, { recursive: true });
-    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details));
+    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details, selected.pdfStyle || 'black-white'));
   }
   res.set('Cache-Control', 'private, no-store');
   res.download(filePath, selected.fileName, (error) => { if (error && !res.headersSent) next(error); });

@@ -41,7 +41,7 @@ async function validateFinalBill(input, settings) {
   return d;
 }
 
-function renderFinalBill(number, d) {
+function renderFinalBill(number, d, pdfStyle = 'black-white') {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true, info: { Title: `Final Bill - ${number} - ${d.patientName}`, Author: 'ManoVaidya' } });
     const chunks = [];
@@ -49,18 +49,22 @@ function renderFinalBill(number, d) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     try {
+      const isColor = pdfStyle === 'color';
+      const palette = isColor
+        ? { text: '#28465B', brand: '#7B3FA1', rule: '#78909F', fill: '#EAF2F7' }
+        : { text: '#000000', brand: '#000000', rule: '#000000', fill: '#eaf1f6' };
       doc.registerFont('Regular', path.join(__dirname, '../../assets/fonts/Mukta.ttf'));
       doc.registerFont('Bold', path.join(__dirname, '../../assets/fonts/Mukta-Bold.ttf'));
       const left = 40, width = doc.page.width - 80, right = left + width;
       const money = (value) => Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const date = (value) => value.split('-').reverse().join('/');
       let y = 26;
-      const write = (value, x, top, w, size = 10, bold = false, align = 'left') => {
-        doc.font(bold ? 'Bold' : 'Regular').fontSize(size).fillColor('#000000').text(String(value), x, top, { width: w, align });
+      const write = (value, x, top, w, size = 10, bold = false, align = 'left', color = palette.text) => {
+        doc.font(bold ? 'Bold' : 'Regular').fontSize(size).fillColor(color).text(String(value), x, top, { width: w, align });
       };
       const measure = (value, w, size = 10, bold = false) => doc.font(bold ? 'Bold' : 'Regular').fontSize(size).heightOfString(String(value), { width: w });
-      const rule = (top) => doc.strokeColor('#000000').lineWidth(0.6).moveTo(left, top).lineTo(right, top).stroke();
-      const box = (top, h, fill = '#ffffff') => doc.rect(left, top, width, h).fillAndStroke(fill, '#000000');
+      const rule = (top) => doc.strokeColor(palette.rule).lineWidth(0.6).moveTo(left, top).lineTo(right, top).stroke();
+      const box = (top, h, fill = '#ffffff') => doc.rect(left, top, width, h).fillAndStroke(fill, palette.rule);
       const page = () => {
         doc.addPage(); y = 36;
         write('ManoVaidya | INVOICE & PAYMENT RECEIPT', left, y, width, 12, true);
@@ -74,29 +78,29 @@ function renderFinalBill(number, d) {
         box(y, height, fill);
         let x = left;
         values.forEach((value, i) => {
-          if (i) doc.moveTo(x, y).lineTo(x, y + height).strokeColor('#000000').stroke();
+          if (i) doc.moveTo(x, y).lineTo(x, y + height).strokeColor(palette.rule).stroke();
           write(value, x + 8, y + 5, widths[i] - 16, 9.5, bold, rightAlignLast && i === values.length - 1 ? 'right' : 'left');
           x += widths[i];
         });
         y += height;
       };
-      doc.font('Bold').fontSize(27).fillColor('#000000').text('ManoVaidya', left, y, { width, align: 'center' });
+      doc.font('Bold').fontSize(27).fillColor(palette.brand).text('ManoVaidya', left, y, { width, align: 'center' });
       y = 61; write('INVOICE & PAYMENT RECEIPT', left, y, width, 13, true, 'center');
       y = 86; write('+91-7823838638   |   manovaidya2@gmail.com   |   www.manovaidya.in', left, y, width, 9, false, 'center');
       y = 103; write('VS Plaza, near Vinayak Hospital, Atta Market, Pocket E, Sector 27, Noida, UP 201301', left, y, width, 8.7, false, 'center');
       y = 118; rule(y); y += 16;
-      row([`Invoice No.: ${number}`, `Invoice Date: ${date(d.date)}`], [width * 0.62, width * 0.38], { bold: true, fill: '#eaf1f6', minHeight: 31 });
+      row([`Invoice No.: ${number}`, `Invoice Date: ${date(d.date)}`], [width * 0.62, width * 0.38], { bold: true, fill: palette.fill, minHeight: 31 });
       y += 13; section('PATIENT DETAILS');
       row([`Patient: ${d.patientName}`, `Patient ID: ${d.patientCode || '-'}`], [width / 2, width / 2], { rightAlignLast: false });
       row([`Age / Gender: ${[d.age, d.gender].filter(Boolean).join(' / ') || '-'}`, `Father / Guardian: ${d.guardianName || '-'}`], [width / 2, width / 2], { rightAlignLast: false });
       y += 14; section('INVOICE DETAILS');
       const itemWidths = [32, 252, 111, width - 395];
-      row(['No.', 'Description', 'Date / Duration', 'Amount (Rs.)'], itemWidths, { bold: true, fill: '#eaf1f6' });
+      row(['No.', 'Description', 'Date / Duration', 'Amount (Rs.)'], itemWidths, { bold: true, fill: palette.fill });
       d.items.forEach((item, index) => row([index + 1, item.description, item.duration || '-', money(item.amount)], itemWidths, { minHeight: 32 }));
-      row(['TOTAL AMOUNT (INCLUDING CARD CHARGE)', money(d.totalPayable)], [395, width - 395], { bold: true, fill: '#eaf1f6', minHeight: 32 });
+      row(['TOTAL AMOUNT (INCLUDING CARD CHARGE)', money(d.totalPayable)], [395, width - 395], { bold: true, fill: palette.fill, minHeight: 32 });
       y += 12; section('PAYMENT RECEIPTS');
       const paymentWidths = [113, 282, width - 395];
-      const paymentHeader = () => row(['Date', 'Payment Particulars', 'Received (Rs.)'], paymentWidths, { bold: true, fill: '#eaf1f6' });
+      const paymentHeader = () => row(['Date', 'Payment Particulars', 'Received (Rs.)'], paymentWidths, { bold: true, fill: palette.fill });
       paymentHeader();
       d.payments.forEach((payment) => {
         const height = Math.max(27, measure(payment.particulars, 266, 9.5) + 12);
@@ -107,7 +111,7 @@ function renderFinalBill(number, d) {
       const statusText = `Payment Status: ${d.paymentStatus}   |   Outstanding: Rs. ${money(d.outstanding)}${d.excessReceived ? `   |   Excess received: Rs. ${money(d.excessReceived)}` : ''}`;
       const issuedText = `Issued By: ${d.issuedBy || 'Billing Desk'}`;
       ensure(32 + measure(statusText, width, 10.6, true) + measure(wordsText, width, 9.5) + measure(issuedText, width, 10.3, true) + 43);
-      row(['TOTAL RECEIVED', money(d.amountReceived)], [395, width - 395], { bold: true, fill: '#eaf1f6', minHeight: 32 });
+      row(['TOTAL RECEIVED', money(d.amountReceived)], [395, width - 395], { bold: true, fill: palette.fill, minHeight: 32 });
       y += 9; write(statusText, left, y, width, 10.6, true); y += measure(statusText, width, 10.6, true) + 10;
       write(wordsText, left, y, width, 9.5); y += measure(wordsText, width, 9.5) + 13;
       write(issuedText, left, y, width, 10.3, true); y += measure(issuedText, width, 10.3, true) + 7;

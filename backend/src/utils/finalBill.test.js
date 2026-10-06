@@ -54,3 +54,11 @@ test('renders supplied form sections and wraps many payment rows onto later page
   assert.ok((pdf.match(/\/Type \/Page\b/g) || []).length >= 2);
   assert.ok(pdf.startsWith('%PDF-'));
 });
+
+test('renders color and black-white final bills from the same snapshot', async () => {
+  const details = await validateFinalBill(sample(), settings);
+  const blackWhite = await renderFinalBill('MV-FB-2026-000003', details, 'black-white');
+  const color = await renderFinalBill('MV-FB-2026-000003', details, 'color');
+  assert.ok(color.toString('latin1').startsWith('%PDF-'));
+  assert.notDeepEqual(color, blackWhite);
+});

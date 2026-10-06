@@ -67,3 +67,17 @@ test('renders an aligned extra billing row only when a card charge is entered', 
   assert.notDeepEqual(charged, base);
   assert.ok(charged.length > 150000);
 });
+
+test('renders a one-page colored receipt without changing the print layout', async () => {
+  const details = validateReceipt(sample());
+  const blackWhite = await renderReceipt('MV-PP-2026-000003', details, 'black-white');
+  const color = await renderReceipt('MV-PP-2026-000003', details, 'color');
+  assert.ok(color.toString('latin1').startsWith('%PDF-'));
+  assert.equal((color.toString('latin1').match(/\/Type \/Page\b/g) || []).length, 1);
+  assert.notDeepEqual(color, blackWhite);
+});
+
+test('keeps the colored receipt on one page when a card-charge row is present', async () => {
+  const color = await renderReceipt('MV-PP-2026-000004', validateReceipt({ ...sample(), cardCharge: '300' }), 'color');
+  assert.equal((color.toString('latin1').match(/\/Type \/Page\b/g) || []).length, 1);
+});

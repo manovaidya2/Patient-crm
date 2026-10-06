@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Check, Download, Eye, FileText, P
 import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import InvoicePdfStyleSelector from '../../components/InvoicePdfStyleSelector.jsx';
 
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:bg-gray-100';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -51,6 +52,7 @@ export default function Invoices({ type }) {
   const [editing, setEditing] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [details, setDetails] = useState(blankDetails);
+  const [pdfStyle, setPdfStyle] = useState('black-white');
   const [patient, setPatient] = useState(null);
   const [patientQuery, setPatientQuery] = useState('');
   const [patients, setPatients] = useState([]);
@@ -106,11 +108,13 @@ export default function Invoices({ type }) {
 
   function startReceipt() {
     setDetails(blankDetails()); setPatient(null); setPatientQuery(''); setPatients([]);
+    setPdfStyle('black-white');
     submissionKey.current = newKey(); setEditingRow(null); setError(''); setNotice(''); setEditing(true);
   }
   function editReceipt(row) {
     if (!isAdmin) return;
     setDetails({ ...blankDetails(), ...row.details });
+    setPdfStyle(row.pdfStyle || 'black-white');
     setPatient(row.patient ? { id: row.patient, patientName: row.patientName, patientCode: row.patientCode } : null);
     setPatientQuery(''); setPatients([]); setEditingRow(row); setError(''); setNotice(''); setEditing(true);
   }
@@ -136,7 +140,7 @@ export default function Invoices({ type }) {
   }
   function saveReceipt(e) {
     e.preventDefault();
-    saveInvoice({ type: 'part-payment', patient: patient?.id || null, details });
+    saveInvoice({ type: 'part-payment', patient: patient?.id || null, pdfStyle, details });
   }
 
   async function openPdf(row, download = false, revision = null) {
@@ -174,10 +178,11 @@ export default function Invoices({ type }) {
 
     {editing && type === 'final-bill' ? <FinalBillForm key={editingRow?.id || 'new'} initial={editingRow} onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
       <fieldset disabled={saving} className="min-w-0 disabled:opacity-70">
-        <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-3 sm:px-5">
+        <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-2 lg:grid-cols-4 sm:px-5">
           <Field label="Receipt number"><input className={inputClass} value={editingRow?.invoiceNumber || 'Auto-generated on save'} disabled /></Field>
           <Field label="Receipt date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
           <Field label="Purchase order number" value={details.purchaseOrder} onChange={(v) => setField('purchaseOrder', v)} />
+          <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
         </div>
         <Section title="Patient details" icon={UserRound}>
           <div className="mb-5 max-w-2xl">
@@ -230,7 +235,7 @@ export default function Invoices({ type }) {
         <table className="w-full min-w-[930px] text-left text-sm">
           <thead className="bg-teal-900 text-white"><tr>{['Invoice / Type', 'Patient', 'Invoice date', 'Received', 'Outstanding', 'Issued by', 'PDF'].map((text) => <th key={text} className="whitespace-nowrap px-4 py-3 font-semibold">{text}</th>)}</tr></thead>
           <tbody>{loading ? <tr><td colSpan={7} className="p-10 text-center text-charcoal/60">Loading bills...</td></tr> : rows.length ? rows.map((row) => <tr key={row.id} className="border-b border-cardline last:border-0 hover:bg-white">
-            <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.revision > 1 ? `Revision ${row.revision}` : title.slice(0, -1)}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4"><span>{row.createdByName || '-'}</span>{row.editedByName && <span className="block text-xs text-charcoal/60">Edited by {row.editedByName}</span>}</td>
+            <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.revision > 1 ? `Revision ${row.revision}` : title.slice(0, -1)}</span><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.pdfStyle === 'color' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-charcoal/65'}`}>{row.pdfStyle === 'color' ? 'Color PDF' : 'Black & white'}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4"><span>{row.createdByName || '-'}</span>{row.editedByName && <span className="block text-xs text-charcoal/60">Edited by {row.editedByName}</span>}</td>
             <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print bill" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button>{isAdmin && <button className={buttonClass} title="Edit saved bill" aria-label={`Edit ${row.invoiceNumber}`} onClick={() => editReceipt(row)}><Pencil size={17} /></button>}</div>{row.revisionHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer text-teal-700">Previous PDFs</summary><div className="mt-1 flex flex-wrap gap-1">{row.revisionHistory.map((item) => <button key={item.revision} type="button" className="rounded border border-cardline px-2 py-1 hover:bg-teal-50" onClick={() => openPdf(row, false, item.revision)}>v{item.revision}</button>)}</div></details>}</td>
           </tr>) : <tr><td colSpan={7} className="p-12 text-center text-charcoal/60">No receipts found.</td></tr>}</tbody>
         </table>
