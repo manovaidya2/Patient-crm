@@ -94,11 +94,17 @@ export default function FinalBillForm({ initial, onSave, saving, reportError }) 
   }
 
   return <form onSubmit={submit} className="min-w-0"><fieldset disabled={saving || settingsLoading} className="min-w-0 disabled:opacity-70">
-    <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-2 lg:grid-cols-4 sm:px-5">
-      <Field label="Invoice number"><input className={input} disabled value={initial?.invoiceNumber || 'Auto-generated on save'} /></Field>
-      <Field label="Invoice date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
-      <Field label="Issued by" value={details.issuedBy} onChange={(v) => setField('issuedBy', v)} />
-      <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
+    <div className="overflow-hidden rounded-md border border-cardline bg-white shadow-[0_8px_24px_rgba(39,50,56,0.06)]">
+      <div className="flex items-center gap-2 border-b border-cardline bg-[#EEF5F2] px-4 py-3 text-sm font-semibold text-teal-900 sm:px-5">
+        <FileText size={17} className="text-teal-700" />
+        Bill setup
+      </div>
+      <div className="grid items-end gap-4 px-4 py-5 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.05fr)_minmax(190px,.9fr)_minmax(190px,.9fr)_minmax(310px,1.35fr)]">
+        <Field label="Invoice number"><input className={input} disabled value={initial?.invoiceNumber || 'Auto-generated on save'} /></Field>
+        <Field label="Invoice date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
+        <Field label="Issued by" value={details.issuedBy} onChange={(v) => setField('issuedBy', v)} />
+        <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
+      </div>
     </div>
     <Section title="Patient details" icon={UserRound}>
       <div className="mb-5 max-w-2xl"><Field label="Find patient by name or ID"><div className="relative"><Search size={17} className="absolute left-3 top-3 text-charcoal/50" /><input className={`${input} !pl-10`} placeholder="Patient name or patient ID" autoComplete="off" value={patientQuery} onChange={(e) => setPatientQuery(e.target.value)} /></div></Field>

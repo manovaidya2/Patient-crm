@@ -178,11 +178,17 @@ export default function Invoices({ type }) {
 
     {editing && type === 'final-bill' ? <FinalBillForm key={editingRow?.id || 'new'} initial={editingRow} onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
       <fieldset disabled={saving} className="min-w-0 disabled:opacity-70">
-        <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-2 lg:grid-cols-4 sm:px-5">
-          <Field label="Receipt number"><input className={inputClass} value={editingRow?.invoiceNumber || 'Auto-generated on save'} disabled /></Field>
-          <Field label="Receipt date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
-          <Field label="Purchase order number" value={details.purchaseOrder} onChange={(v) => setField('purchaseOrder', v)} />
-          <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
+        <div className="overflow-hidden rounded-md border border-cardline bg-white shadow-[0_8px_24px_rgba(39,50,56,0.06)]">
+          <div className="flex items-center gap-2 border-b border-cardline bg-[#EEF5F2] px-4 py-3 text-sm font-semibold text-teal-900 sm:px-5">
+            <FileText size={17} className="text-teal-700" />
+            Bill setup
+          </div>
+          <div className="grid items-end gap-4 px-4 py-5 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.05fr)_minmax(190px,.9fr)_minmax(220px,1fr)_minmax(310px,1.35fr)]">
+            <Field label="Receipt number"><input className={inputClass} value={editingRow?.invoiceNumber || 'Auto-generated on save'} disabled /></Field>
+            <Field label="Receipt date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
+            <Field label="Purchase order number" value={details.purchaseOrder} onChange={(v) => setField('purchaseOrder', v)} />
+            <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
+          </div>
         </div>
         <Section title="Patient details" icon={UserRound}>
           <div className="mb-5 max-w-2xl">
