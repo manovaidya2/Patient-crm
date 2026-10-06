@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Check, CreditCard, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Check, CreditCard, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil } from 'lucide-react';
 import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:bg-gray-100';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -33,7 +34,10 @@ function Section({ title, icon: Icon, children }) {
   </section>;
 }
 
-export default function Invoices() {
+export default function Invoices({ type }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const title = type === 'final-bill' ? 'Final Bills' : 'Part-payment Bills';
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
@@ -46,8 +50,7 @@ export default function Invoices() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editing, setEditing] = useState(false);
-  const [formType, setFormType] = useState('part-payment');
-  const [listType, setListType] = useState('all');
+  const [editingRow, setEditingRow] = useState(null);
   const [details, setDetails] = useState(blankDetails);
   const [patient, setPatient] = useState(null);
   const [patientQuery, setPatientQuery] = useState('');
@@ -69,17 +72,17 @@ export default function Invoices() {
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const { data } = await api.get('/invoices', { params: { q: query, from, to, page, ...(listType === 'all' ? {} : { type: listType }) }, signal: controller.signal });
+        const { data } = await api.get('/invoices', { params: { q: query, from, to, page, type }, signal: controller.signal });
         setRows(data.invoices); setTotal(data.total); setPages(data.pages);
       } catch (err) { if (!controller.signal.aborted) setError(err.response?.data?.message || 'Could not load receipts.'); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, from, to, page, listType, reload]);
+  }, [query, from, to, page, type, reload]);
 
   useEffect(() => {
     setPatients([]); setPatientSearchError('');
-    if (!editing || formType !== 'part-payment' || !patientQuery.trim()) { setSearching(false); return undefined; }
+    if (!editing || type !== 'part-payment' || !patientQuery.trim()) { setSearching(false); return undefined; }
     const controller = new AbortController();
     setSearching(true);
     const timer = setTimeout(async () => {
@@ -90,7 +93,7 @@ export default function Invoices() {
       finally { if (!controller.signal.aborted) setSearching(false); }
     }, 300);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [patientQuery, editing, formType]);
+  }, [patientQuery, editing, type]);
 
   useEffect(() => () => { if (pdfUrl.current) URL.revokeObjectURL(pdfUrl.current); }, []);
   useEffect(() => {
@@ -102,9 +105,15 @@ export default function Invoices() {
     return () => { window.removeEventListener('keydown', handler); document.body.style.overflow = previous; };
   }, [preview]);
 
-  function startReceipt(type) {
+  function startReceipt() {
     setDetails(blankDetails()); setPatient(null); setPatientQuery(''); setPatients([]);
-    submissionKey.current = newKey(); setError(''); setNotice(''); setFormType(type); setEditing(true);
+    submissionKey.current = newKey(); setEditingRow(null); setError(''); setNotice(''); setEditing(true);
+  }
+  function editReceipt(row) {
+    if (!isAdmin) return;
+    setDetails({ ...blankDetails(), ...row.details });
+    setPatient(row.patient ? { id: row.patient, patientName: row.patientName, patientCode: row.patientCode } : null);
+    setPatientQuery(''); setPatients([]); setEditingRow(row); setError(''); setNotice(''); setEditing(true);
   }
 
   function selectPatient(p) {
@@ -117,9 +126,11 @@ export default function Invoices() {
     if (busyRef.current) return;
     busyRef.current = true; setSaving(true); setError('');
     try {
-      const { data } = await api.post('/invoices', { ...payload, submissionKey: submissionKey.current });
-      setEditing(false); setListType('all'); setQuery(''); setFrom(''); setTo(''); setPage(1); setReload((n) => n + 1);
-      setNotice(`${data.invoice.invoiceNumber} saved. PDF ready to download or print.`);
+      const { data } = editingRow
+        ? await api.put(`/invoices/${editingRow.id}`, { ...payload, expectedRevision: editingRow.revision })
+        : await api.post('/invoices', { ...payload, submissionKey: submissionKey.current });
+      setEditing(false); setEditingRow(null); setQuery(''); setFrom(''); setTo(''); setPage(1); setReload((n) => n + 1);
+      setNotice(`${data.invoice.invoiceNumber} saved${data.invoice.revision > 1 ? ` (revision ${data.invoice.revision})` : ''}. PDF ready to download or print.`);
       await openPdf(data.invoice);
     } catch (err) { setError(err.response?.data?.message || 'Receipt could not be saved. Please retry.'); }
     finally { busyRef.current = false; setSaving(false); }
@@ -130,17 +141,18 @@ export default function Invoices() {
     saveInvoice({ type: 'part-payment', patient: patient?.id || null, details });
   }
 
-  async function openPdf(row, download = false) {
+  async function openPdf(row, download = false, revision = null) {
     setPdfBusy(row.id); setError('');
     try {
-      const { data } = await api.get(`/invoices/${row.id}/pdf`, { responseType: 'blob', skipCache: true });
+      const { data } = await api.get(revision ? `/invoices/${row.id}/revisions/${revision}/pdf` : `/invoices/${row.id}/pdf`, { responseType: 'blob', skipCache: true });
+      const selected = revision ? { ...row, fileName: row.revisionHistory.find((item) => item.revision === revision)?.fileName || row.fileName } : row;
       const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
       if (download) {
-        const link = document.createElement('a'); link.href = url; link.download = row.fileName;
+        const link = document.createElement('a'); link.href = url; link.download = selected.fileName;
         document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
       } else {
         if (pdfUrl.current) URL.revokeObjectURL(pdfUrl.current);
-        pdfUrl.current = url; setPdfReady(false); setPreview({ ...row, url });
+        pdfUrl.current = url; setPdfReady(false); setPreview({ ...selected, url });
       }
     } catch { setError('Could not open the saved PDF. Please try again.'); }
     finally { setPdfBusy(''); }
@@ -154,18 +166,18 @@ export default function Invoices() {
   return <div className="mx-auto max-w-[1500px] p-3 text-charcoal sm:p-6">
     <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
-        {editing && <button type="button" className={buttonClass} title="Back to receipts" aria-label="Back to receipts" disabled={saving} onClick={() => { if (window.confirm('Discard this unsaved receipt?')) { setEditing(false); setError(''); } }}><ArrowLeft size={18} /></button>}
-        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? formType === 'final-bill' ? 'Final Bill' : 'Part-payment receipt' : 'Invoices'}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? 'ManoVaidya / Billing' : `${total} saved invoices`}</p></div>
+        {editing && <button type="button" className={buttonClass} title="Back to bills" aria-label="Back to bills" disabled={saving} onClick={() => { if (window.confirm('Discard unsaved changes?')) { setEditing(false); setEditingRow(null); setError(''); } }}><ArrowLeft size={18} /></button>}
+        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? `${editingRow ? 'Edit' : 'New'} ${type === 'final-bill' ? 'Final Bill' : 'Part-payment Bill'}` : title}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? editingRow ? `${editingRow.invoiceNumber} / Revision ${editingRow.revision}` : 'ManoVaidya / Billing' : `${total} saved bills`}</p></div>
       </div>
-      {!editing && <div className="flex flex-wrap gap-2"><button className={buttonClass} onClick={() => startReceipt('part-payment')}><Plus size={17} />Part-payment receipt</button><button className={primaryClass} onClick={() => startReceipt('final-bill')}><Plus size={17} />Final Bill</button></div>}
+      {!editing && <button className={primaryClass} onClick={startReceipt}><Plus size={17} />New {type === 'final-bill' ? 'Final Bill' : 'Part-payment Bill'}</button>}
     </header>
     {error && <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}<button className="float-right ml-3" onClick={() => setError('')} aria-label="Dismiss error"><X size={16} /></button></div>}
     {notice && !editing && <p role="status" className="mb-4 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800">{notice}</p>}
 
-    {editing && formType === 'final-bill' ? <FinalBillForm onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
+    {editing && type === 'final-bill' ? <FinalBillForm key={editingRow?.id || 'new'} initial={editingRow} onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
       <fieldset disabled={saving} className="min-w-0 disabled:opacity-70">
         <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-3 sm:px-5">
-          <Field label="Receipt number"><input className={inputClass} value="Auto-generated on save" disabled /></Field>
+          <Field label="Receipt number"><input className={inputClass} value={editingRow?.invoiceNumber || 'Auto-generated on save'} disabled /></Field>
           <Field label="Receipt date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
           <Field label="Purchase order number" value={details.purchaseOrder} onChange={(v) => setField('purchaseOrder', v)} />
         </div>
@@ -216,11 +228,11 @@ export default function Invoices() {
         </Section>
         <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-cardline bg-white/70 px-3 py-4 sm:px-5">
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm"><span>Received <strong className="ml-2 text-teal-700">{money(details.amountReceived)}</strong></span><span>Outstanding <strong className="ml-2">{money(details.outstanding)}</strong></span></div>
-          <button type="submit" className={primaryClass} disabled={saving}><Save size={17} />{saving ? 'Saving PDF...' : 'Save receipt & PDF'}</button>
+          <button type="submit" className={primaryClass} disabled={saving}><Save size={17} />{saving ? 'Saving PDF...' : editingRow ? 'Save changes & PDF' : 'Save receipt & PDF'}</button>
         </footer>
       </fieldset>
     </form> : <>
-      <div className="mb-4 flex flex-wrap gap-5 border-b border-cardline">{[['all', 'All invoices'], ['part-payment', 'Part-payment receipts'], ['final-bill', 'Final Bills']].map(([type, label]) => <button key={type} type="button" className={`inline-flex items-center gap-2 border-b-2 px-1 py-3 text-sm font-semibold ${listType === type ? 'border-teal-700 text-teal-700' : 'border-transparent text-charcoal/60 hover:text-charcoal'}`} onClick={() => { setListType(type); setPage(1); }}><FileText size={17} />{label}</button>)}</div>
+      <div className="mb-4 border-b border-cardline"><span className="inline-flex items-center gap-2 border-b-2 border-teal-700 px-1 py-3 text-sm font-semibold text-teal-700"><FileText size={17} />{title}</span></div>
       <div className="mb-5 grid items-end gap-3 sm:grid-cols-[minmax(200px,1fr)_160px_160px_auto]">
         <Field label="Search receipts"><div className="relative"><Search size={17} className="absolute left-3 top-3 text-charcoal/50" /><input className={`${inputClass} !pl-10`} placeholder="Invoice number, patient name or ID" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} /></div></Field>
         <Field label="From" type="date" value={from} onChange={(v) => { setFrom(v); setPage(1); }} />
@@ -230,9 +242,9 @@ export default function Invoices() {
       <div className="overflow-x-auto rounded-md border border-cardline bg-white/60" aria-busy={loading}>
         <table className="w-full min-w-[930px] text-left text-sm">
           <thead className="bg-teal-900 text-white"><tr>{['Invoice / Type', 'Patient', 'Invoice date', 'Received', 'Outstanding', 'Issued by', 'PDF'].map((text) => <th key={text} className="whitespace-nowrap px-4 py-3 font-semibold">{text}</th>)}</tr></thead>
-          <tbody>{loading ? <tr><td colSpan={7} className="p-10 text-center text-charcoal/60">Loading receipts...</td></tr> : rows.length ? rows.map((row) => <tr key={row.id} className="border-b border-cardline last:border-0 hover:bg-white">
-            <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.type === 'final-bill' ? 'Final Bill' : 'Part-payment receipt'}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4">{row.createdByName || '-'}</td>
-            <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print receipt" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button></div></td>
+          <tbody>{loading ? <tr><td colSpan={7} className="p-10 text-center text-charcoal/60">Loading bills...</td></tr> : rows.length ? rows.map((row) => <tr key={row.id} className="border-b border-cardline last:border-0 hover:bg-white">
+            <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.revision > 1 ? `Revision ${row.revision}` : title.slice(0, -1)}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4"><span>{row.createdByName || '-'}</span>{row.editedByName && <span className="block text-xs text-charcoal/60">Edited by {row.editedByName}</span>}</td>
+            <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print bill" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button>{isAdmin && <button className={buttonClass} title="Edit saved bill" aria-label={`Edit ${row.invoiceNumber}`} onClick={() => editReceipt(row)}><Pencil size={17} /></button>}</div>{row.revisionHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer text-teal-700">Previous PDFs</summary><div className="mt-1 flex flex-wrap gap-1">{row.revisionHistory.map((item) => <button key={item.revision} type="button" className="rounded border border-cardline px-2 py-1 hover:bg-teal-50" onClick={() => openPdf(row, false, item.revision)}>v{item.revision}</button>)}</div></details>}</td>
           </tr>) : <tr><td colSpan={7} className="p-12 text-center text-charcoal/60">No receipts found.</td></tr>}</tbody>
         </table>
       </div>

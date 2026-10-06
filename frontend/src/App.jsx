@@ -105,7 +105,9 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="invoices" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR]}><Invoices /></ProtectedRoute>} />
+        <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />
+        <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR]}><Invoices type="final-bill" /></ProtectedRoute>} />
+        <Route path="invoices/part-payment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR]}><Invoices type="part-payment" /></ProtectedRoute>} />
         <Route
           path="payment-settings"
           element={

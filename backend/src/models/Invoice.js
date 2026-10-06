@@ -11,6 +11,10 @@ const invoiceSchema = new mongoose.Schema({
   // A receipt is an immutable snapshot, independent of later patient edits.
   details: { type: mongoose.Schema.Types.Mixed, required: true },
   fileName: { type: String, required: true },
+  revision: { type: Number, default: 1, min: 1 },
+  revisionHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  editedByName: { type: String, default: '' },
+  editedAt: { type: Date, default: null },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   createdByName: { type: String, default: '' },
 }, { timestamps: true });

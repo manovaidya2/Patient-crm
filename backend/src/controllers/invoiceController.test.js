@@ -4,7 +4,7 @@ const fs = require('fs/promises');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
 const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
-const { createInvoice, listInvoices, findPatients, getPdf, getSettings, updateSettings } = require('./invoiceController');
+const { createInvoice, updateInvoice, listInvoices, findPatients, getPdf, getSettings, updateSettings } = require('./invoiceController');
 const invoiceRouter = require('../routes/invoiceRoutes');
 const id = '507f1f77bcf86cd799439011';
 const details = { patientName: 'Test Patient', date: '2026-10-05', totalPayable: '599', amountReceived: '99', outstanding: '500', paymentModes: ['online'] };
@@ -162,4 +162,87 @@ test('invoice settings writes are admin-only at the route', () => {
     assert.equal(permitted, role === 'admin');
     if (role !== 'admin') assert.equal(status, 403);
   }
+});
+
+test('saved bill edit keeps its number and stores prior PDF revision', async () => {
+  const original = { _id: id, type: 'part-payment', invoiceNumber: 'MV-PP-2026-000001', revision: 1, details: { ...details, amountReceived: 99 }, fileName: 'Part-payment-receipt-MV-PP-2026-000001-Test-Patient.pdf', patient: null };
+  mock.method(Invoice, 'findById', () => ({ lean: async () => original }));
+  mock.method(fs, 'mkdir', async () => {});
+  let generated;
+  mock.method(fs, 'writeFile', async (filePath, data, options) => { generated = filePath; assert.equal(options.flag, 'wx'); assert.ok(data.toString('latin1').startsWith('%PDF-')); });
+  mock.method(Invoice, 'findOneAndUpdate', (filter, changes) => {
+    assert.equal(filter.revision, 1);
+    assert.equal(changes.$set.revision, 2);
+    assert.equal(changes.$set.details.amountReceived, 200);
+    assert.equal(changes.$push.revisionHistory.fileName, original.fileName);
+    assert.equal(changes.$push.revisionHistory.details.amountReceived, 99);
+    return { lean: async () => ({ ...original, ...changes.$set, revisionHistory: [changes.$push.revisionHistory] }) };
+  });
+  const result = await invoke(updateInvoice, { params: { id }, user: { ...user, role: 'admin' }, body: { type: 'part-payment', expectedRevision: 1, details: { ...details, amountReceived: 200, outstanding: 399 } } });
+  assert.equal(result.error, undefined);
+  assert.equal(result.body.invoice.invoiceNumber, original.invoiceNumber);
+  assert.equal(result.body.invoice.revision, 2);
+  assert.equal(result.body.invoice.revisionHistory[0].revision, 1);
+  assert.match(generated, /-v2-[a-f0-9]{8}\.pdf$/);
+});
+
+test('stale revisions are refused before generating a PDF', async () => {
+  mock.method(Invoice, 'findById', () => ({ lean: async () => ({ _id: id, revision: 2, type: 'part-payment' }) }));
+  mock.method(fs, 'writeFile', async () => { throw new Error('Should not write'); });
+  const result = await invoke(updateInvoice, { params: { id }, body: { expectedRevision: 1, details } });
+  assert.equal(result.status, 409);
+  assert.equal(fs.writeFile.mock.callCount(), 0);
+});
+
+test('concurrent edit conflict removes new PDF and preserves previous revision', async () => {
+  const original = { _id: id, revision: 1, type: 'part-payment', invoiceNumber: 'MV-PP-2026-000001', details, fileName: 'previous.pdf' };
+  mock.method(Invoice, 'findById', () => ({ lean: async () => original }));
+  mock.method(fs, 'mkdir', async () => {});
+  mock.method(fs, 'writeFile', async () => {});
+  mock.method(fs, 'unlink', async () => {});
+  mock.method(Invoice, 'findOneAndUpdate', () => ({ lean: async () => null }));
+  const result = await invoke(updateInvoice, { params: { id }, body: { expectedRevision: 1, details } });
+  assert.equal(result.status, 409);
+  assert.equal(fs.unlink.mock.callCount(), 1);
+});
+
+test('edit route allows only admin, while readers can still view both bill pages', () => {
+  const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/:id' && layer.route.methods.put);
+  const guard = route.route.stack[0].handle;
+  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor']) {
+    let allowed = false;
+    guard({ user: { role } }, { status() { return this; }, json() {} }, () => { allowed = true; });
+    assert.equal(allowed, role === 'admin');
+  }
+});
+
+test('editing an older Final Bill keeps a now-retired payment option valid', async () => {
+  const oldDetails = {
+    date: '2026-10-05', patientName: 'Sample',
+    items: [{ amount: 599 }, { amount: 43000 }, { amount: 450 }],
+    payments: [{ date: '2026-10-05', particulars: 'Old Payment Option', received: 599 }],
+    paymentStatus: 'PARTIALLY PAID',
+  };
+  mock.method(Invoice, 'findById', () => ({ lean: async () => ({ _id: id, type: 'final-bill', revision: 1, invoiceNumber: 'MV-FB-2026-000001', fileName: 'old.pdf', details: oldDetails }) }));
+  mock.method(InvoiceSettings, 'findById', () => ({ lean: async () => ({ paymentParticulars: ['New Payment Option'], paymentStatuses: ['PARTIALLY PAID'] }) }));
+  mock.method(fs, 'mkdir', async () => {});
+  mock.method(fs, 'writeFile', async () => {});
+  mock.method(Invoice, 'findOneAndUpdate', (_filter, changes) => ({ lean: async () => ({ _id: id, type: 'final-bill', invoiceNumber: 'MV-FB-2026-000001', ...changes.$set, revisionHistory: [changes.$push.revisionHistory] }) }));
+  const result = await invoke(updateInvoice, { params: { id }, body: { expectedRevision: 1, details: { ...oldDetails, patientName: 'Edited Sample' } } });
+  assert.equal(result.error, undefined);
+  assert.equal(result.body.invoice.details.payments[0].particulars, 'Old Payment Option');
+  assert.equal(result.body.invoice.revision, 2);
+});
+
+test('previous PDF version is selected from stored revision history', async () => {
+  mock.method(Invoice, 'findById', () => ({ lean: async () => ({ _id: id, type: 'part-payment', invoiceNumber: 'MV-PP-2026-000001', fileName: 'current.pdf', details, revisionHistory: [{ revision: 1, fileName: 'original.pdf', details }] }) }));
+  mock.method(fs, 'access', async () => {});
+  let downloaded;
+  await getPdf({ params: { id, revision: '1' } }, {
+    set() { return this; },
+    download(_path, name) { downloaded = name; },
+    status() { return this; },
+    json() {},
+  }, (error) => { throw error; });
+  assert.equal(downloaded, 'original.pdf');
 });

@@ -1,6 +1,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const mongoose = require('mongoose');
+const { randomUUID } = require('crypto');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -32,6 +33,8 @@ const formatInvoice = (row) => ({
   id: row._id, type: row.type, invoiceNumber: row.invoiceNumber, date: row.date,
   patient: row.patient, patientName: row.patientName, patientCode: row.patientCode,
   details: row.details, fileName: row.fileName, createdByName: row.createdByName, createdAt: row.createdAt,
+  revision: row.revision || 1, editedByName: row.editedByName || '', editedAt: row.editedAt || null,
+  revisionHistory: (row.revisionHistory || []).map(({ revision, fileName, editedByName, editedAt }) => ({ revision, fileName, editedByName, editedAt })),
 });
 
 const findPatients = asyncHandler(async (req, res) => {
@@ -114,19 +117,72 @@ const createInvoice = asyncHandler(async (req, res) => {
   }
 });
 
+const updateInvoice = asyncHandler(async (req, res) => {
+  if (!mongoose.isObjectIdOrHexString(req.params.id)) return res.status(404).json({ message: 'Bill not found' });
+  const original = await Invoice.findById(req.params.id).lean();
+  if (!original) return res.status(404).json({ message: 'Bill not found' });
+  const revision = original.revision || 1;
+  if (req.body.expectedRevision !== revision) return res.status(409).json({ message: 'This bill was updated elsewhere. Reload it before editing.' });
+  if (req.body.type && req.body.type !== original.type) badRequest('Bill type cannot be changed');
+  const currentSettings = original.type === 'final-bill' ? await readSettings() : null;
+  const settings = currentSettings && {
+    paymentParticulars: [...new Set([...currentSettings.paymentParticulars, ...(original.details.payments || []).map((row) => row.particulars)])],
+    paymentStatuses: [...new Set([...currentSettings.paymentStatuses, original.details.paymentStatus])],
+  };
+  const details = original.type === 'final-bill'
+    ? await validateFinalBill(req.body.details, settings)
+    : validateReceipt(req.body.details);
+  const patient = req.body.patient || null;
+  if (patient && (!mongoose.isObjectIdOrHexString(patient) || !await Patient.exists({ _id: patient }))) badRequest('Selected patient was not found');
+  const nextRevision = revision + 1;
+  const baseName = receiptFileName(original.invoiceNumber, details.patientName);
+  const fileName = baseName.replace('Part-payment-receipt', original.type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt').replace(/\.pdf$/, `-v${nextRevision}-${randomUUID().slice(0, 8)}.pdf`);
+  const filePath = path.join(INVOICE_DIR, fileName);
+  const pdf = await (original.type === 'final-bill' ? renderFinalBill : renderReceipt)(original.invoiceNumber, details);
+  await fs.mkdir(INVOICE_DIR, { recursive: true });
+  await fs.writeFile(filePath, pdf, { flag: 'wx' });
+  try {
+    const changedAt = new Date();
+    const saved = await Invoice.findOneAndUpdate(
+      { _id: original._id, revision: original.revision == null ? { $exists: false } : revision },
+      {
+        $set: { patient, date: details.date, patientName: details.patientName, patientCode: details.patientCode, details, fileName, revision: nextRevision, editedByName: req.user.name, editedAt: changedAt },
+        $push: { revisionHistory: { revision, details: original.details, fileName: original.fileName, editedByName: req.user.name, editedAt: changedAt } },
+      },
+      { new: true, runValidators: true }
+    ).lean();
+    if (!saved) {
+      await fs.unlink(filePath).catch(() => {});
+      return res.status(409).json({ message: 'This bill was updated elsewhere. Reload it before editing.' });
+    }
+    return res.json({ invoice: formatInvoice(saved) });
+  } catch (error) {
+    await fs.unlink(filePath).catch(() => {});
+    throw error;
+  }
+});
+
 const getPdf = asyncHandler(async (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.id)) return res.status(404).json({ message: 'Receipt not found' });
   const invoice = await Invoice.findById(req.params.id).lean();
   if (!invoice) return res.status(404).json({ message: 'Receipt not found' });
-  const filePath = path.join(INVOICE_DIR, invoice.fileName);
+  let selected = invoice;
+  if (req.params.revision !== undefined) {
+    const revision = Number(req.params.revision);
+    if (!Number.isInteger(revision) || revision < 1) return res.status(404).json({ message: 'Revision not found' });
+    const previous = (invoice.revisionHistory || []).find((item) => item.revision === revision);
+    if (!previous) return res.status(404).json({ message: 'Revision not found' });
+    selected = { ...invoice, ...previous };
+  }
+  const filePath = path.join(INVOICE_DIR, selected.fileName);
   try { await fs.access(filePath); } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     // The saved snapshot can restore a PDF after a storage migration.
     await fs.mkdir(INVOICE_DIR, { recursive: true });
-    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, invoice.details));
+    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details));
   }
   res.set('Cache-Control', 'private, no-store');
-  res.download(filePath, invoice.fileName, (error) => { if (error && !res.headersSent) next(error); });
+  res.download(filePath, selected.fileName, (error) => { if (error && !res.headersSent) next(error); });
 });
 
-module.exports = { findPatients, listInvoices, createInvoice, getPdf, getSettings, updateSettings };
+module.exports = { findPatients, listInvoices, createInvoice, updateInvoice, getPdf, getSettings, updateSettings };

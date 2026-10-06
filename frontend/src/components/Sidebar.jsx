@@ -65,7 +65,7 @@ export const navItems = [
   { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER] },
   { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/invoices', icon: FileText, label: 'Invoices', roles: [ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR] },
+  { to: '/admin/invoices', type: 'invoices', roles: [ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR] },
   { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
   { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
@@ -159,6 +159,22 @@ export const StageMenu = ({ collapsed, onNavigate }) => {
   );
 };
 
+const InvoiceMenu = ({ collapsed, onNavigate }) => {
+  const location = useLocation();
+  const isOnInvoices = location.pathname.startsWith('/admin/invoices');
+  const [open, setOpen] = useState(isOnInvoices);
+  useEffect(() => { if (isOnInvoices) setOpen(true); }, [isOnInvoices]);
+  if (collapsed) return <NavLink to="/admin/invoices/final-bill" onClick={onNavigate} title="Invoices" aria-label="Invoices" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnInvoices ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><FileText size={17} /></NavLink>;
+  return <div>
+    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium ${isOnInvoices ? 'bg-teal-800 text-white' : 'text-teal-100/70 hover:bg-teal-800 hover:text-white'}`}>
+      <FileText size={17} /><span className="flex-1 text-left">Invoices</span><ChevronDown size={15} className={open ? 'rotate-180' : ''} />
+    </button>
+    {open && <div className="ml-4 mt-1 space-y-0.5 border-l border-offwhite-100/10 pl-3.5">
+      {[['final-bill', 'Final Bills'], ['part-payment', 'Part-payment Bills']].map(([type, label]) => <NavLink key={type} to={`/admin/invoices/${type}`} onClick={onNavigate} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm font-medium ${isActive ? 'bg-teal-700 text-white shadow-sm' : 'text-teal-100/60 hover:bg-teal-800 hover:text-white'}`}>{label}</NavLink>)}
+    </div>}
+  </div>;
+};
+
 const Sidebar = ({ mobile = false, onClose }) => {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true');
@@ -238,6 +254,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
         {visibleNavItems.map((item) => {
           if (item.type === 'stages') {
             return <StageMenu key="stages" collapsed={isCollapsed} onNavigate={onClose} />;
+          }
+          if (item.type === 'invoices') {
+            return <InvoiceMenu key="invoices" collapsed={isCollapsed} onNavigate={onClose} />;
           }
           const { to, icon: Icon, label, end } = item;
           const showAdviceBadge = to === '/admin/request-for-advice' && adviceUnreadCount > 0;

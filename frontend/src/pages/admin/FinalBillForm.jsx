@@ -20,10 +20,10 @@ function Section({ title, icon: Icon, children }) {
   return <section className="border-b border-cardline py-6 last:border-b-0"><h2 className="mb-5 flex items-center gap-2 border-l-4 border-teal-600 pl-3 text-base font-semibold text-charcoal"><Icon size={19} className="text-teal-700" />{title}</h2>{children}</section>;
 }
 
-export default function FinalBillForm({ onSave, saving, reportError }) {
+export default function FinalBillForm({ initial, onSave, saving, reportError }) {
   const { user } = useAuth();
-  const [details, setDetails] = useState(blank);
-  const [patient, setPatient] = useState(null);
+  const [details, setDetails] = useState(() => initial ? { ...blank(), ...initial.details } : blank());
+  const [patient, setPatient] = useState(() => initial?.patient ? { id: initial.patient, patientName: initial.patientName, patientCode: initial.patientCode } : null);
   const [patientQuery, setPatientQuery] = useState('');
   const [patients, setPatients] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -63,6 +63,8 @@ export default function FinalBillForm({ onSave, saving, reportError }) {
   try { calculated = calculateFinalBill(details.items, details.payments); } catch { calculated = null; }
   const paymentStatus = details.paymentStatus;
   const statusMismatch = calculated && ((paymentStatus === 'FULLY PAID' && (calculated.outstanding > 0 || calculated.excessReceived > 0)) || (paymentStatus === 'UNPAID' && calculated.amountReceived > 0) || (paymentStatus === 'PARTIALLY PAID' && (calculated.amountReceived <= 0 || calculated.outstanding <= 0)));
+  const particularsOptions = [...new Set([...settings.paymentParticulars, ...(initial?.details.payments || []).map((row) => row.particulars)])];
+  const statusOptions = [...new Set([...settings.paymentStatuses, initial?.details.paymentStatus].filter(Boolean))];
 
   function choosePatient(p) {
     setPatient(p); setDetails((d) => ({ ...d, patientName: p.patientName, patientCode: p.patientCode, guardianName: p.guardianName, age: p.age, gender: p.gender }));
@@ -91,7 +93,7 @@ export default function FinalBillForm({ onSave, saving, reportError }) {
 
   return <form onSubmit={submit} className="min-w-0"><fieldset disabled={saving || settingsLoading} className="min-w-0 disabled:opacity-70">
     <div className="grid gap-4 border-y border-cardline bg-white/60 px-3 py-5 sm:grid-cols-3 sm:px-5">
-      <Field label="Invoice number"><input className={input} disabled value="Auto-generated on save" /></Field>
+      <Field label="Invoice number"><input className={input} disabled value={initial?.invoiceNumber || 'Auto-generated on save'} /></Field>
       <Field label="Invoice date" type="date" required value={details.date} onChange={(v) => setField('date', v)} />
       <Field label="Issued by" value={details.issuedBy} onChange={(v) => setField('issuedBy', v)} />
     </div>
@@ -122,16 +124,16 @@ export default function FinalBillForm({ onSave, saving, reportError }) {
       {settingsOpen && <div className="mb-5 border-y border-cardline bg-teal-50/50 p-4"><h3 className="mb-4 font-semibold">Final Bill dropdown settings</h3><div className="grid gap-5 lg:grid-cols-2">{[['paymentParticulars', 'Payment particulars'], ['paymentStatuses', 'Payment statuses']].map(([key, label]) => <div key={key}><h4 className="mb-2 text-sm font-semibold">{label}</h4><div className="space-y-2">{settingsDraft[key].map((value, i) => <div key={`${key}-${i}`} className="flex gap-2"><input className={input} maxLength={80} value={value} onChange={(e) => setSettingsDraft((d) => ({ ...d, [key]: d[key].map((option, n) => n === i ? e.target.value : option) }))} /><button type="button" className={button} title="Remove option" aria-label={`Remove ${label} option ${i + 1}`} disabled={settingsDraft[key].length <= 1} onClick={() => setSettingsDraft((d) => ({ ...d, [key]: d[key].filter((_, n) => n !== i) }))}><Trash2 size={16} /></button></div>)}</div><button type="button" className={`${button} mt-2`} disabled={settingsDraft[key].length >= 100} onClick={() => setSettingsDraft((d) => ({ ...d, [key]: [...d[key], ''] }))}><Plus size={16} />Add option</button></div>)}</div><button type="button" className="mt-5 rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={settingsSaving} onClick={saveSettings}>{settingsSaving ? 'Saving...' : 'Save dropdowns'}</button></div>}
       <div className="space-y-3">{details.payments.map((row, index) => <div key={index} className="grid items-end gap-3 border-b border-cardline/70 pb-4 sm:grid-cols-[minmax(135px,1fr)_minmax(190px,2fr)_minmax(130px,1fr)_42px]">
         <Field label={`Payment ${index + 1} date`} required type="date" value={row.date} onChange={(v) => changePayment(index, 'date', v)} />
-        <Field label="Payment particulars" required><select className={input} value={row.particulars} required onChange={(e) => changePayment(index, 'particulars', e.target.value)}><option value="">Select particulars</option>{settings.paymentParticulars.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>
+        <Field label="Payment particulars" required><select className={input} value={row.particulars} required onChange={(e) => changePayment(index, 'particulars', e.target.value)}><option value="">Select particulars</option>{particularsOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>
         <Field label="Received (Rs)" type="number" required value={row.received} onChange={(v) => changePayment(index, 'received', v)} />
         <button type="button" className={`${button} h-10 w-10 justify-self-end`} title="Remove payment row" aria-label={`Remove payment ${index + 1}`} onClick={() => setField('payments', details.payments.filter((_, i) => i !== index))}><Trash2 size={16} /></button>
       </div>)}</div>
       {!details.payments.length && <p className="py-6 text-center text-sm text-charcoal/60">No payments recorded yet.</p>}
       <div className="mt-4 grid gap-3 border-y border-cardline bg-white/70 p-4 text-sm sm:grid-cols-3"><p>Total received <strong className="block text-base text-teal-700">{calculated ? number(calculated.amountReceived) : '-'}</strong></p><p>Outstanding <strong className="block text-base">{calculated ? number(calculated.outstanding) : '-'}</strong></p><p>Excess received <strong className="block text-base">{calculated ? number(calculated.excessReceived) : '-'}</strong></p></div>
-      <div className="mt-5 max-w-sm"><Field label="Payment status" required><select className={input} value={details.paymentStatus} required onChange={(e) => setField('paymentStatus', e.target.value)}><option value="">Select status</option>{settings.paymentStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></Field></div>
+      <div className="mt-5 max-w-sm"><Field label="Payment status" required><select className={input} value={details.paymentStatus} required onChange={(e) => setField('paymentStatus', e.target.value)}><option value="">Select status</option>{statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}</select></Field></div>
       {statusMismatch && <p className="mt-2 text-sm text-red-700">Payment status does not match the received amount.</p>}
       <p className="mt-5 text-sm text-charcoal/70">Amount in words: <strong className="text-charcoal">{calculated?.amountInWords || '-'}</strong></p>
     </Section>
-    <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-cardline bg-white/70 px-3 py-4 sm:px-5"><p className="text-sm text-charcoal/60">Final Bill / PDF</p><button type="submit" disabled={saving || settingsLoading || !calculated || statusMismatch} className="inline-flex items-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving PDF...' : 'Save Final Bill & PDF'}</button></footer>
+    <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-cardline bg-white/70 px-3 py-4 sm:px-5"><p className="text-sm text-charcoal/60">Final Bill / PDF</p><button type="submit" disabled={saving || settingsLoading || !calculated || statusMismatch} className="inline-flex items-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving PDF...' : initial ? 'Save changes & PDF' : 'Save Final Bill & PDF'}</button></footer>
   </fieldset></form>;
 }
