@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Check, CreditCard, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Check, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil } from 'lucide-react';
 import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -7,7 +7,6 @@ import { useAuth } from '../../context/AuthContext.jsx';
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:bg-gray-100';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const primaryClass = `${buttonClass} !border-teal-700 !bg-teal-700 !text-white hover:!bg-teal-800`;
-const modeOptions = [['cash', 'Cash'], ['online', 'Online'], ['card', 'Card'], ['emi', 'EMI'], ['other', 'Other']];
 const billingFields = [['consultationFee', 'Consultation fee'], ['treatmentAmount', 'Treatment / formulation order'], ['adjustment', 'Adjustment / concession'], ['totalPayable', 'Total agreed payable'], ['amountReceived', 'Amount received'], ['outstanding', 'Outstanding after payment']];
 const blankDetails = () => ({
   date: '', purchaseOrder: '', patientName: '', patientCode: '', guardianName: '', age: '', gender: '',
@@ -137,7 +136,6 @@ export default function Invoices({ type }) {
   }
   function saveReceipt(e) {
     e.preventDefault();
-    if (!details.paymentModes.length) { setError('Select at least one payment mode.'); return; }
     saveInvoice({ type: 'part-payment', patient: patient?.id || null, details });
   }
 
@@ -200,18 +198,7 @@ export default function Invoices({ type }) {
         <Section title="Billing & agreed payment" icon={FileText}>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {billingFields.map(([key, label], i) => <Field key={key} label={`${label} (Rs)`} type="number" required={i >= 3} value={details[key]} onChange={(v) => setField(key, v)} />)}
-          </div>
-        </Section>
-        <Section title="Payment details" icon={CreditCard}>
-          <fieldset><legend className="mb-2 text-sm font-medium">Payment mode <span className="text-red-700">*</span></legend><div className="mb-5 flex flex-wrap gap-2">
-            {modeOptions.map(([key, label]) => <label key={key} className={`flex cursor-pointer items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-medium ${details.paymentModes.includes(key) ? 'border-teal-700 bg-teal-700 text-white' : 'border-cardline bg-white text-charcoal'}`}><input type="checkbox" className="h-4 w-4 accent-teal-600" checked={details.paymentModes.includes(key)} onChange={(e) => setField('paymentModes', e.target.checked ? [...details.paymentModes, key] : details.paymentModes.filter((m) => m !== key))} />{label}</label>)}
-          </div></fieldset>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="UTR / transaction / card reference" value={details.reference} onChange={(v) => setField('reference', v)} />
-            <Field label="Card charge (Rs)" type="number" value={details.cardCharge} onChange={(v) => setField('cardCharge', v)} />
-            <Field label="Cash collected by" required={details.paymentModes.includes('cash')} value={details.cashCollectedBy} onChange={(v) => setField('cashCollectedBy', v)} />
-            <Field label="Handed to" value={details.handedTo} onChange={(v) => setField('handedTo', v)} />
-            <Field label="Time" type="time" value={details.time} onChange={(v) => setField('time', v)} />
+            <Field label="Card charge (3% of paid amount), if any (Rs)" type="number" value={details.cardCharge} onChange={(v) => setField('cardCharge', v)} />
           </div>
         </Section>
         <Section title="Agreed future instalments" icon={CalendarDays}>

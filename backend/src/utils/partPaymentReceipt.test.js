@@ -31,9 +31,11 @@ test('rejects malformed amounts and input objects instead of coercing them', () 
   assert.throws(() => validateReceipt({ ...sample(), reference: 'x'.repeat(81) }), { statusCode: 400 });
 });
 
-test('validates payment boxes and cash recipient without requiring online references', () => {
-  for (const paymentModes of [[], ['invalid'], 'cash']) assert.throws(() => validateReceipt({ ...sample(), paymentModes }), { statusCode: 400 });
-  assert.throws(() => validateReceipt({ ...sample(), paymentModes: ['cash'] }), /Cash collected by/);
+test('payment modes are optional for the revised bill while invalid values are rejected', () => {
+  for (const paymentModes of [['invalid'], 'cash']) assert.throws(() => validateReceipt({ ...sample(), paymentModes }), { statusCode: 400 });
+  assert.deepEqual(validateReceipt({ ...sample(), paymentModes: [] }).paymentModes, []);
+  assert.deepEqual(validateReceipt({ ...sample(), paymentModes: undefined }).paymentModes, []);
+  assert.equal(validateReceipt({ ...sample(), paymentModes: ['cash'], cashCollectedBy: '' }).cashCollectedBy, '');
   assert.equal(validateReceipt({ ...sample(), reference: '' }).reference, '');
 });
 
@@ -48,7 +50,7 @@ test('filenames retain receipt type and number without path traversal', () => {
   assert.equal(/[\\/]/.test(name), false);
 });
 
-test('renders a single A4 PDF with embedded receipt template and font', async () => {
+test('renders the original receipt template with black entered values on one A4 page', async () => {
   const pdf = await renderReceipt('MV-PP-2026-000001', validateReceipt(sample()));
   const text = pdf.toString('latin1');
   assert.ok(text.startsWith('%PDF-'));
@@ -56,4 +58,12 @@ test('renders a single A4 PDF with embedded receipt template and font', async ()
   assert.match(text, /\/Subtype \/Image/);
   assert.match(text, /\/FontFile2/);
   assert.ok(pdf.length > 150000);
+});
+
+test('renders an aligned extra billing row only when a card charge is entered', async () => {
+  const base = await renderReceipt('MV-PP-2026-000002', validateReceipt(sample()));
+  const charged = await renderReceipt('MV-PP-2026-000002', validateReceipt({ ...sample(), cardCharge: '300' }));
+  assert.equal((charged.toString('latin1').match(/\/Type \/Page\b/g) || []).length, 1);
+  assert.notDeepEqual(charged, base);
+  assert.ok(charged.length > 150000);
 });

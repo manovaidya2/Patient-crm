@@ -30,9 +30,8 @@ function validateReceipt(input = {}) {
   if (d.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(d.time)) fail('Enter a valid payment time');
   for (const key of MONEY_FIELDS) d[key] = money(input[key], key);
   for (const key of ['totalPayable', 'amountReceived', 'outstanding']) if (d[key] === '') fail(`${key} is required (enter 0 where applicable)`);
-  if (!Array.isArray(input.paymentModes) || !input.paymentModes.length || input.paymentModes.some((mode) => !PAYMENT_MODES.includes(mode))) fail('Select a payment mode');
-  d.paymentModes = [...new Set(input.paymentModes)];
-  if (d.paymentModes.includes('cash') && !d.cashCollectedBy) fail('Cash collected by is required for cash payments');
+  if (input.paymentModes != null && (!Array.isArray(input.paymentModes) || input.paymentModes.some((mode) => !PAYMENT_MODES.includes(mode)))) fail('Invalid payment mode');
+  d.paymentModes = [...new Set(input.paymentModes || [])];
   if (input.instalments != null && (!Array.isArray(input.instalments) || input.instalments.length > 3)) fail('Up to three future instalments are supported');
   d.instalments = Array.from({ length: 3 }, (_, index) => {
     const row = input.instalments?.[index] || {};
@@ -60,21 +59,23 @@ function renderReceipt(number, d) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     try {
+      const hasCardCharge = d.cardCharge !== '' && d.cardCharge != null && Number(d.cardCharge) > 0;
+      const lowerOffset = hasCardCharge ? 31 : 0;
       const scale = doc.page.width / 1086;
-      const top = (doc.page.height - 1448 * scale) / 2;
-      doc.image(path.join(__dirname, '../../assets/receipts/part-payment.jpg'), 0, top, { width: doc.page.width });
+      const top = (doc.page.height - (1331 + lowerOffset) * scale) / 2;
+      doc.image(path.join(__dirname, `../../assets/receipts/part-payment-print${hasCardCharge ? '-card' : ''}.png`), 0, top, { width: doc.page.width });
       doc.registerFont('Receipt', path.join(__dirname, '../../assets/fonts/Mukta.ttf'));
       doc.font('Receipt');
-      // Positions use the source template's pixels, scaled to an A4 print page.
+      // Keep the original template positions while rendering all entered values in black.
       const write = (value, x, y, width, size = 16) => {
         if (value === '' || value == null) return;
         const text = String(value);
         let fontSize = size * scale;
         doc.fontSize(fontSize);
         while (doc.widthOfString(text) > width * scale && fontSize > 5) doc.fontSize(fontSize -= 0.2);
-        doc.fillColor('#152b43').text(text, x * scale, top + y * scale, { width: width * scale, lineBreak: false });
+        doc.fillColor('#000000').text(text, x * scale, top + y * scale, { width: width * scale, lineBreak: false });
       };
-      const check = (x, y) => doc.save().fillColor('#287969').rect((x + 2) * scale, top + (y + 2) * scale, 13 * scale, 13 * scale).fill().restore();
+      const check = (x, y) => doc.save().fillColor('#000000').rect((x + 2) * scale, top + (y + 2) * scale, 13 * scale, 13 * scale).fill().restore();
       write(number, 146, 156, 278);
       write(formatDate(d.date), 494, 156, 210);
       write(d.purchaseOrder, 904, 156, 139);
@@ -82,22 +83,21 @@ function renderReceipt(number, d) {
       write(d.patientCode, 692, 249, 350);
       write([d.age, d.gender].filter(Boolean).join(' / '), 180, 277, 400);
       write(d.guardianName, 750, 277, 292);
-      ['consultationFee', 'treatmentAmount', 'adjustment', 'totalPayable', 'amountReceived', 'outstanding'].forEach((key, i) => write(formatMoney(d[key]), 852, 401 + i * 31.3, 188));
-      const boxes = { cash: 223, online: 335, card: 455, emi: 700, other: 802 };
-      d.paymentModes.forEach((mode) => check(boxes[mode], 612));
-      write(d.reference, 287, 642, 481);
-      write(formatMoney(d.cardCharge), 952, 642, 85);
-      write(d.cashCollectedBy, 202, 675, 212);
-      write(d.handedTo, 545, 675, 226);
-      write(d.time, 891, 675, 145);
+      ['consultationFee', 'treatmentAmount', 'adjustment', 'totalPayable', 'amountReceived', 'outstanding'].forEach((key, i) => write(formatMoney(d[key]), 852, 401 + i * 31.3 + (i === 5 ? lowerOffset : 0), 188));
+      if (hasCardCharge) {
+        doc.font('Helvetica-Bold');
+        write('Card charge (3% of paid amount)', 50, 561, 735, 16);
+        doc.font('Receipt');
+        write(formatMoney(d.cardCharge), 852, 557.5, 188, 16);
+      }
       d.instalments.forEach((row, i) => {
-        write(formatMoney(row.amount), 285, 806 + i * 31.3, 236);
-        write(formatDate(row.dueDate), 565, 806 + i * 31.3, 190);
-        write(row.status ? row.status[0].toUpperCase() + row.status.slice(1) : '', 802, 806 + i * 31.3, 237);
+        write(formatMoney(row.amount), 285, 689 + lowerOffset + i * 31.3, 236);
+        write(formatDate(row.dueDate), 565, 689 + lowerOffset + i * 31.3, 190);
+        write(row.status ? row.status[0].toUpperCase() + row.status.slice(1) : '', 802, 689 + lowerOffset + i * 31.3, 237);
       });
-      write(d.emiProvider, 485, 907, 556);
-      write(d.helpline, 181, 1353, 242);
-      check(d.poVerified === 'yes' ? 894 : 967, 1395);
+      write(d.emiProvider, 485, 790 + lowerOffset, 556);
+      write(d.helpline, 181, 1236 + lowerOffset, 242);
+      check(d.poVerified === 'yes' ? 894 : 967, 1278 + lowerOffset);
       doc.end();
     } catch (error) { doc.destroy(); reject(error); }
   });

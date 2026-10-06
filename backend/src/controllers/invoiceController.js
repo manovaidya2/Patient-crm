@@ -175,6 +175,10 @@ const getPdf = asyncHandler(async (req, res, next) => {
     selected = { ...invoice, ...previous };
   }
   const filePath = path.join(INVOICE_DIR, selected.fileName);
+  if (invoice.type === 'part-payment' && req.params.revision === undefined) {
+    await fs.mkdir(INVOICE_DIR, { recursive: true });
+    await fs.writeFile(filePath, await renderReceipt(invoice.invoiceNumber, selected.details));
+  }
   try { await fs.access(filePath); } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     // The saved snapshot can restore a PDF after a storage migration.
