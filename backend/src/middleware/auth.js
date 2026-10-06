@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { attachCrmAudit } = require('./crmAudit');
 
 // Verifies the JWT and attaches the logged-in user to req.user
 const protect = async (req, res, next) => {
@@ -27,6 +28,7 @@ const protect = async (req, res, next) => {
     }
 
     req.user = user;
+    attachCrmAudit(req, res);
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: 'Not authorized, token failed' });

@@ -47,6 +47,7 @@ const Enquiries = lazy(() => import('./pages/admin/Enquiries.jsx'));
 const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
 const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
 const ReceptionRegister = lazy(() => import('./pages/admin/ReceptionRegister.jsx'));
+const CrmHistory = lazy(() => import('./pages/admin/CrmHistory.jsx'));
 
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
@@ -102,6 +103,14 @@ function App() {
           element={
             <ProtectedRoute role="admin">
               <TeamMembers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="history"
+          element={
+            <ProtectedRoute role="admin">
+              <CrmHistory />
             </ProtectedRoute>
           }
         />

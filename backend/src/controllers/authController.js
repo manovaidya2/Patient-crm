@@ -2,6 +2,7 @@ const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLE_LABELS } = require('../constants/roles');
+const CrmAuditLog = require('../models/CrmAuditLog');
 
 const formatUser = (user) => ({
   id: user._id,
@@ -34,6 +35,19 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const token = generateToken(user._id);
+
+  CrmAuditLog.create({
+    actor: user._id,
+    actorName: user.name,
+    actorRole: user.role,
+    module: 'Account Security',
+    action: 'Signed in',
+    summary: 'Signed in to the CRM',
+    method: 'POST',
+    path: '/api/auth/login',
+    statusCode: 200,
+    occurredAt: new Date(),
+  }).catch((error) => console.error('CRM sign-in audit log could not be saved:', error.message));
 
   res.status(200).json({
     success: true,

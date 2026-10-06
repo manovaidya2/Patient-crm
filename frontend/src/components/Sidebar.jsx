@@ -31,6 +31,7 @@ import {
   FileText,
   CheckSquare,
   RotateCcw,
+  History,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -75,6 +76,7 @@ export const navItems = [
   { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING] },
   
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
+  { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true },
   { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true },
   { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
   { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
