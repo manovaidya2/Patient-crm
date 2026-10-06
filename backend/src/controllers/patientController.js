@@ -498,6 +498,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   age: p.age,
   number: p.number,
   guardianName: p.guardianName || null,
+  centerName: p.centerName || '',
+  centerId: p.centerId || '',
   alternateNumber: p.alternateNumber || null,
   relativeName: p.relativeName || null,
   currentStage: p.currentStage || 1,
@@ -639,6 +641,8 @@ const formatPatientListItem = (p, user = null) => {
     age: p.age,
     number: p.number,
     guardianName: p.guardianName || null,
+    centerName: p.centerName || '',
+    centerId: p.centerId || '',
     alternateNumber: p.alternateNumber || null,
     relativeName: p.relativeName || null,
     currentStage,
@@ -744,6 +748,16 @@ const getPatients = asyncHandler(async (req, res) => {
     filter.$expr = filter.$expr ? { $and: [filter.$expr, amountCondition] } : amountCondition;
   }
 
+  if (req.query.center !== undefined && typeof req.query.center !== 'string') {
+    return res.status(400).json({ message: 'Invalid center filter' });
+  }
+  if (req.query.center?.trim()) {
+    const center = req.query.center.trim().slice(0, 120).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filter.$and = [...(filter.$and || []), { $or: [
+      { centerName: { $regex: center, $options: 'i' } },
+      { centerId: { $regex: center, $options: 'i' } },
+    ] }];
+  }
   if (search) {
     filter.$or = [
       { patientName: { $regex: search, $options: 'i' } },
@@ -769,7 +783,7 @@ const getPatients = asyncHandler(async (req, res) => {
   const skip = (pageNum - 1) * limitNum;
 
   const listProjection = [
-    'patientCode patientName category age number guardianName alternateNumber relativeName currentStage',
+    'patientCode patientName centerName centerId category age number guardianName alternateNumber relativeName currentStage',
     'approvalStatus isActive inactiveReason inactivatedByName inactivatedAt createdAt',
     'stages.number stages.totalAmount stages.consultationDate stages.medicineNextConnectDate stages.medicineConnectDone',
     'stages.followUps.status stages.familySessions.status',
@@ -1501,8 +1515,15 @@ const createPatient = asyncHandler(async (req, res) => {
     stageEntry.postCounselor = selectedPostCounselor._id;
   }
 
+  for (const [key, max] of [['centerName', 120], ['centerId', 80]]) {
+    if (req.body[key] !== undefined && (typeof req.body[key] !== 'string' || req.body[key].trim().length > max)) {
+      return res.status(400).json({ message: `${key} must be text up to ${max} characters` });
+    }
+  }
   const patient = await Patient.create({
     patientCode: normalizedPatientCode,
+    centerName: req.body.centerName,
+    centerId: req.body.centerId,
     patientName,
     category,
     age: ageText,
@@ -1756,6 +1777,13 @@ const updatePatient = asyncHandler(async (req, res) => {
   }
 
   updateField('age', age, 'Age');
+  for (const [key, label, max] of [['centerName', 'Center name', 120], ['centerId', 'Center ID', 80]]) {
+    const value = req.body[key];
+    if (value !== undefined) {
+      if (typeof value !== 'string' || value.trim().length > max) return res.status(400).json({ message: `${label} must be text up to ${max} characters` });
+      updateField(key, value.trim(), label);
+    }
+  }
   updateField('number', number, "Father's number");
   updateField('guardianName', guardianName, 'Father/Mother name');
   updateField('alternateNumber', alternateNumber, "Mother's number");

@@ -70,6 +70,21 @@ async function invoke(handler, { query = {}, role = ROLES.ADMIN, patients = [] }
   } finally { Patient.find = original; Patient.countDocuments = originalCount; }
 }
 
+test('center filters match literal text and preserve assigned-patient scope', async () => {
+  const result = await invoke(controller.getPatients, {
+    role: ROLES.ASSISTANT_DOCTOR,
+    query: { center: ' Noida (East) ' },
+  });
+  assert.deepEqual(result.filter.$and[0].$or, [
+    { centerName: { $regex: 'Noida \\(East\\)', $options: 'i' } },
+    { centerId: { $regex: 'Noida \\(East\\)', $options: 'i' } },
+  ]);
+  assert.equal(result.filter.assignedDoctor, 'staff-1');
+  assert.ok(result.fields.includes('centerName centerId'));
+  const invalid = await invoke(controller.getPatients, { query: { center: { $ne: '' } } });
+  assert.equal(invalid.response.code, 400);
+});
+
 test('medicine reads filter legacy and multiple requests in Mongo and exclude unrelated stages data', async () => {
   const result = await invoke(controller.listMedicineRequests, {
     query: { status: 'made' },

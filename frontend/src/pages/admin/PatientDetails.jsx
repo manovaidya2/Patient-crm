@@ -2867,8 +2867,8 @@ const PatientDetails = () => {
                 Approved by {patient.approvedByName}{patient.approvedAt ? ` on ${formatDate(patient.approvedAt)}` : ''}
               </p>
             )}
-            {(isAdmin || (patient.canToggleActive && patient.isActive)) && (
-              <div className="mt-4 flex flex-wrap items-center gap-4">
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex min-h-8 flex-wrap items-center gap-4">
                 {patient.canToggleActive && patient.isActive && (
                   <button
                     type="button"
@@ -2889,7 +2889,19 @@ const PatientDetails = () => {
                   </button>
                 )}
               </div>
-            )}
+              <div className="ml-auto w-fit space-y-1 text-xs text-charcoal/60">
+                <div className="grid grid-cols-[76px_minmax(80px,auto)_34px] items-center gap-1 text-right">
+                  <span className="font-semibold uppercase text-[10px]">Center Name</span>
+                  <span className="font-medium text-charcoal">{patient.centerName || 'Not added'}</span>
+                  <HeaderEditButton label="Center Name" value={patient.centerName || ''} onSave={(val) => saveField('centerName', val)} readOnly={!canEditPatientDetails} />
+                </div>
+                <div className="grid grid-cols-[76px_minmax(80px,auto)_34px] items-center gap-1 text-right">
+                  <span className="font-semibold uppercase text-[10px]">Center ID</span>
+                  <span className="font-medium text-charcoal">{patient.centerId || 'Not added'}</span>
+                  <HeaderEditButton label="Center ID" value={patient.centerId || ''} onSave={(val) => saveField('centerId', val)} readOnly={!canEditPatientDetails} />
+                </div>
+              </div>
+            </div>
             {deletePatientError && <p className="mt-1 text-xs text-[#8C3B2E]">{deletePatientError}</p>}
           </div>
 

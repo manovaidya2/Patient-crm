@@ -13,6 +13,8 @@ import { useAuth } from '../../context/AuthContext.jsx';
 
 const PAGE_SIZE = 10;
 const OPTIONAL_PATIENT_COLUMNS = [
+  { key: 'centerName', label: 'Center Name' },
+  { key: 'centerId', label: 'Center ID' },
   { key: 'receivedDate', label: 'Received' },
   { key: 'followUps', label: 'Follow-ups' },
   { key: 'familySessions', label: 'Family Sessions' },
@@ -20,6 +22,8 @@ const OPTIONAL_PATIENT_COLUMNS = [
 ];
 
 const emptyPatientForm = {
+  centerName: '',
+  centerId: '',
   patientCode: '',
   patientName: '',
   category: PATIENT_CATEGORIES.AUTISM_ADHD,
@@ -48,6 +52,17 @@ const AllPatients = () => {
   // Restored from the URL on mount so the browser/router "back" button (from a
   // patient's details page) lands on the same page/search/filter, not a reset list.
   const [search, setSearch] = useState(() => searchParams.get('search') || '');
+  const [center, setCenter] = useState(() => searchParams.get('center') || searchParams.get('centerName') || searchParams.get('centerId') || '');
+  const [debouncedCenter, setDebouncedCenter] = useState(() => searchParams.get('center') || searchParams.get('centerName') || searchParams.get('centerId') || '');
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedCenter((previous) => {
+        if (previous !== center) setPage(1);
+        return center;
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [center]);
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || '');
   const [amountStatus, setAmountStatus] = useState(() => searchParams.get('amountStatus') || '');
@@ -110,18 +125,20 @@ const AllPatients = () => {
     const params = {};
     if (page > 1) params.page = String(page);
     if (debouncedSearch) params.search = debouncedSearch;
+    if (debouncedCenter) params.center = debouncedCenter;
     if (categoryFilter) params.category = categoryFilter;
     if (amountStatus) params.amountStatus = amountStatus;
     if (dateFilter) params.date = dateFilter;
     if (consultationDateFilter) params.consultationDate = consultationDateFilter;
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter, amountStatus]);
+  }, [page, debouncedSearch, categoryFilter, dateFilter, consultationDateFilter, amountStatus, debouncedCenter]);
 
   const { data, loading, error } = useApiQuery('/patients', {
     params: {
       page, limit: PAGE_SIZE,
       search: debouncedSearch || undefined,
+      center: debouncedCenter || undefined,
       category: categoryFilter || undefined,
       amountStatus: amountStatus || undefined,
       receivedDate: dateFilter || undefined,
@@ -131,7 +148,7 @@ const AllPatients = () => {
   const patients = data?.patients || [];
   const pages = data?.pages || 1;
   const total = data?.total || 0;
-  const hasFilters = Boolean(debouncedSearch || categoryFilter || dateFilter || consultationDateFilter || amountStatus);
+  const hasFilters = Boolean(debouncedSearch || categoryFilter || dateFilter || consultationDateFilter || amountStatus || debouncedCenter);
   const loadError = error && !data ? error.response?.data?.message || 'Could not load patients.' : '';
 
   useEffect(() => {
@@ -256,17 +273,22 @@ const AllPatients = () => {
       </Modal>
 
       <Card className="mt-6" padded={false}>
-        <div className="grid gap-3 border-b border-cardline-soft p-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(140px,1fr))]">
-          <div className="relative self-end">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
-            <input
-              placeholder="Search by patient ID, name, father or mother number"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-cardline bg-offwhite-200 pl-9 pr-3.5 py-2.5 text-xs text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
-            />
-          </div>
-          <div className="self-end">
+        <div className="space-y-3 border-b border-cardline-soft p-4 sm:p-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="self-end sm:col-span-2">
+              <label htmlFor="patient-search" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">Patient Search</label>
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+                <input
+                  id="patient-search"
+                  placeholder="Patient ID, name, father or mother number"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-3.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+                />
+              </div>
+            </div>
+            <div className="self-end">
             <label htmlFor="received-date-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">
               Received Date Filter
             </label>
@@ -277,7 +299,7 @@ const AllPatients = () => {
                 type="date"
                 value={dateFilter}
                 onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
               />
               {dateFilter && (
                 <button
@@ -290,8 +312,8 @@ const AllPatients = () => {
                 </button>
               )}
             </div>
-          </div>
-          <div className="self-end">
+            </div>
+            <div className="self-end">
             <label htmlFor="consultation-date-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">
               Consultation Date Filter
             </label>
@@ -302,7 +324,7 @@ const AllPatients = () => {
                 type="date"
                 value={consultationDateFilter}
                 onChange={(e) => setConsultationDateFilter(e.target.value)}
-                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
+                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
               />
               {consultationDateFilter && (
                 <button
@@ -315,24 +337,29 @@ const AllPatients = () => {
                 </button>
               )}
             </div>
+            </div>
           </div>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full self-end rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
-          >
-            <option value="">All categories</option>
-            {ALL_PATIENT_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABELS[c]}
-              </option>
-            ))}
-          </select>
-          <div className="self-end">
-            <label htmlFor="package-amount-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">Total Amount (Current Phase)</label>
-            <select id="package-amount-filter" value={amountStatus} onChange={(event) => setAmountStatus(event.target.value)} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-xs text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
-              <option value="">All amounts</option><option value="missing">Amount not added</option><option value="added">Amount added</option>
-            </select>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label htmlFor="category-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">Category</label>
+              <select id="category-filter" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition">
+                <option value="">All categories</option>
+                {ALL_PATIENT_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="center-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">Center</label>
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
+                <input id="center-filter" value={center} maxLength={120} onChange={(e) => setCenter(e.target.value)} placeholder="Center name or ID" className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-3.5 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition" />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="package-amount-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">Total Amount (Current Phase)</label>
+              <select id="package-amount-filter" value={amountStatus} onChange={(event) => setAmountStatus(event.target.value)} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
+                <option value="">All amounts</option><option value="missing">Amount not added</option><option value="added">Amount added</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -371,6 +398,8 @@ const AllPatients = () => {
                     <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's / Relative Number</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
                     {optionalColumns.includes('receivedDate') && <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>}
+                    {optionalColumns.includes('centerName') && <th className="px-3 py-2.5 font-semibold">Center Name</th>}
+                    {optionalColumns.includes('centerId') && <th className="px-3 py-2.5 font-semibold">Center ID</th>}
                     {optionalColumns.includes('totalAmount') && <th className="w-[12%] px-3 py-2.5 font-semibold">Total Amount</th>}
                     {!isLimitedViewer && optionalColumns.includes('followUps') && <th className="w-[12%] px-3 py-2.5 font-semibold">Follow-ups</th>}
                     {!isLimitedViewer && optionalColumns.includes('familySessions') && <th className="w-[14%] px-3 py-2.5 font-semibold">Family Sessions</th>}
@@ -410,6 +439,8 @@ const AllPatients = () => {
                         {p.consultationDate ? formatDate(p.consultationDate) : '—'}
                       </td>
                       {optionalColumns.includes('receivedDate') && <td data-label="Received" className="px-3 py-3 text-charcoal/55">{formatDate(p.createdAt)}</td>}
+                      {optionalColumns.includes('centerName') && <td data-label="Center Name" className="break-words px-3 py-3">{p.centerName || 'Not added'}</td>}
+                      {optionalColumns.includes('centerId') && <td data-label="Center ID" className="break-words px-3 py-3">{p.centerId || 'Not added'}</td>}
                       {optionalColumns.includes('totalAmount') && <td data-label="Total amount" className="px-3 py-3 text-charcoal">
                         <span className="font-semibold">{Number(p.totalAmount) > 0 ? `Rs ${Number(p.totalAmount).toLocaleString('en-IN')}` : 'Not added'}</span>
                         <span className="mt-1 block text-[10px] text-charcoal/60">Phase {p.currentStage}</span>
@@ -488,6 +519,8 @@ const AllPatients = () => {
               onChange={(e) => updateAddForm('patientName', e.target.value)}
               required
             />
+            <Input id="centerName" label="Center Name" value={addForm.centerName} maxLength={120} onChange={(e) => updateAddForm('centerName', e.target.value)} />
+            <Input id="centerId" label="Center ID" value={addForm.centerId} maxLength={80} onChange={(e) => updateAddForm('centerId', e.target.value)} />
             <div>
               <label htmlFor="category" className="block text-sm font-medium text-charcoal mb-1.5">
                 Category

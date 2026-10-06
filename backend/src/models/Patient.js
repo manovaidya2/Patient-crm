@@ -257,6 +257,8 @@ const patientSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    centerName: { type: String, trim: true, default: '', maxlength: 120 },
+    centerId: { type: String, trim: true, default: '', maxlength: 80 },
     category: {
       type: String,
       enum: ALL_CATEGORIES,
