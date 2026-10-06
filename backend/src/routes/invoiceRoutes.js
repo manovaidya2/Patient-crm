@@ -4,7 +4,7 @@ const { ROLES } = require('../constants/roles');
 const { findPatients, listInvoices, createInvoice, updateInvoice, getPdf, getSettings, updateSettings } = require('../controllers/invoiceController');
 
 const router = express.Router();
-router.use(protect, authorize(ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR));
+router.use(protect, authorize(ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST));
 router.get('/patients', findPatients);
 router.get('/settings', getSettings);
 router.put('/settings', authorize(ROLES.ADMIN), updateSettings);

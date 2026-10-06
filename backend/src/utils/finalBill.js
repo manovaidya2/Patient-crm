@@ -56,11 +56,11 @@ function renderFinalBill(number, d) {
       const date = (value) => value.split('-').reverse().join('/');
       let y = 26;
       const write = (value, x, top, w, size = 10, bold = false, align = 'left') => {
-        doc.font(bold ? 'Bold' : 'Regular').fontSize(size).fillColor('#18394e').text(String(value), x, top, { width: w, align });
+        doc.font(bold ? 'Bold' : 'Regular').fontSize(size).fillColor('#000000').text(String(value), x, top, { width: w, align });
       };
       const measure = (value, w, size = 10, bold = false) => doc.font(bold ? 'Bold' : 'Regular').fontSize(size).heightOfString(String(value), { width: w });
-      const rule = (top) => doc.strokeColor('#879ba8').lineWidth(0.6).moveTo(left, top).lineTo(right, top).stroke();
-      const box = (top, h, fill = '#ffffff') => doc.rect(left, top, width, h).fillAndStroke(fill, '#879ba8');
+      const rule = (top) => doc.strokeColor('#000000').lineWidth(0.6).moveTo(left, top).lineTo(right, top).stroke();
+      const box = (top, h, fill = '#ffffff') => doc.rect(left, top, width, h).fillAndStroke(fill, '#000000');
       const page = () => {
         doc.addPage(); y = 36;
         write('ManoVaidya | INVOICE & PAYMENT RECEIPT', left, y, width, 12, true);
@@ -74,13 +74,13 @@ function renderFinalBill(number, d) {
         box(y, height, fill);
         let x = left;
         values.forEach((value, i) => {
-          if (i) doc.moveTo(x, y).lineTo(x, y + height).strokeColor('#879ba8').stroke();
+          if (i) doc.moveTo(x, y).lineTo(x, y + height).strokeColor('#000000').stroke();
           write(value, x + 8, y + 5, widths[i] - 16, 9.5, bold, rightAlignLast && i === values.length - 1 ? 'right' : 'left');
           x += widths[i];
         });
         y += height;
       };
-      doc.font('Bold').fontSize(27).fillColor('#7f42a3').text('ManoVaidya', left, y, { width, align: 'center' });
+      doc.font('Bold').fontSize(27).fillColor('#000000').text('ManoVaidya', left, y, { width, align: 'center' });
       y = 61; write('INVOICE & PAYMENT RECEIPT', left, y, width, 13, true, 'center');
       y = 86; write('+91-7823838638   |   manovaidya2@gmail.com   |   www.manovaidya.in', left, y, width, 9, false, 'center');
       y = 103; write('VS Plaza, near Vinayak Hospital, Atta Market, Pocket E, Sector 27, Noida, UP 201301', left, y, width, 8.7, false, 'center');

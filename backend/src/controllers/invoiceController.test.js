@@ -103,12 +103,12 @@ test('invalid PDF ids return not found', async () => {
   assert.equal(result.status, 404);
 });
 
-test('invoice routes allow admin, accountant, post counselor and doctor but deny reception', () => {
+test('invoice routes allow admin, accountant, post counselor, doctor and receptionist', () => {
   const accessMiddleware = invoiceRouter.stack[1].handle;
   for (const role of ['sales_team', 'psychologist', 'medicine_department', 'admin', 'accountant', 'receptionist', 'post_counselor', 'doctor']) {
     let status, permitted = false;
     accessMiddleware({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
-    assert.equal(permitted, ['admin', 'accountant', 'post_counselor', 'doctor'].includes(role));
+    assert.equal(permitted, ['admin', 'accountant', 'post_counselor', 'doctor', 'receptionist'].includes(role));
     if (!permitted) assert.equal(status, 403);
   }
 });
@@ -156,7 +156,7 @@ test('settings default correctly and admin changes are validated', async () => {
 test('invoice settings writes are admin-only at the route', () => {
   const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/settings' && layer.route.methods.put);
   const guard = route.route.stack[0].handle;
-  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor']) {
+  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
     let permitted = false, status;
     guard({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
     assert.equal(permitted, role === 'admin');
@@ -209,7 +209,7 @@ test('concurrent edit conflict removes new PDF and preserves previous revision',
 test('edit route allows only admin, while readers can still view both bill pages', () => {
   const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/:id' && layer.route.methods.put);
   const guard = route.route.stack[0].handle;
-  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor']) {
+  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
     let allowed = false;
     guard({ user: { role } }, { status() { return this; }, json() {} }, () => { allowed = true; });
     assert.equal(allowed, role === 'admin');
