@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Check, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Check, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import InvoicePdfStyleSelector from '../../components/InvoicePdfStyleSelector.jsx';
+import Modal from '../../components/ui/Modal.jsx';
+import Button from '../../components/ui/Button.jsx';
 
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:bg-gray-100';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -62,6 +64,8 @@ export default function Invoices({ type }) {
   const [pdfBusy, setPdfBusy] = useState('');
   const [preview, setPreview] = useState(null);
   const [pdfReady, setPdfReady] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const submissionKey = useRef('');
   const pdfFrame = useRef(null);
   const pdfUrl = useRef(null);
@@ -165,6 +169,27 @@ export default function Invoices({ type }) {
     catch { setError('Open the PDF in a new tab and use the browser print option.'); }
   }
 
+  async function deleteSavedBill() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true); setError('');
+    try {
+      await api.delete(`/invoices/${deleteTarget.id}`);
+      if (preview?.id === deleteTarget.id) {
+        if (pdfUrl.current) URL.revokeObjectURL(pdfUrl.current);
+        pdfUrl.current = null; setPreview(null);
+      }
+      const deletedNumber = deleteTarget.invoiceNumber;
+      setDeleteTarget(null);
+      setNotice(`${deletedNumber} deleted.`);
+      if (rows.length === 1 && page > 1) setPage((current) => current - 1);
+      else setReload((current) => current + 1);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Bill could not be deleted. Please retry.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return <div className="mx-auto max-w-[1500px] p-3 text-charcoal sm:p-6">
     <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
@@ -242,7 +267,7 @@ export default function Invoices({ type }) {
           <thead className="bg-teal-900 text-white"><tr>{['Invoice / Type', 'Patient', 'Invoice date', 'Received', 'Outstanding', 'Issued by', 'PDF'].map((text) => <th key={text} className="whitespace-nowrap px-4 py-3 font-semibold">{text}</th>)}</tr></thead>
           <tbody>{loading ? <tr><td colSpan={7} className="p-10 text-center text-charcoal/60">Loading bills...</td></tr> : rows.length ? rows.map((row) => <tr key={row.id} className="border-b border-cardline last:border-0 hover:bg-white">
             <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.revision > 1 ? `Revision ${row.revision}` : title.slice(0, -1)}</span><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.pdfStyle === 'color' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-charcoal/65'}`}>{row.pdfStyle === 'color' ? 'Color PDF' : 'Black & white'}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4"><span>{row.createdByName || '-'}</span>{row.editedByName && <span className="block text-xs text-charcoal/60">Edited by {row.editedByName}</span>}</td>
-            <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print bill" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button>{isAdmin && <button className={buttonClass} title="Edit saved bill" aria-label={`Edit ${row.invoiceNumber}`} onClick={() => editReceipt(row)}><Pencil size={17} /></button>}</div>{row.revisionHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer text-teal-700">Previous PDFs</summary><div className="mt-1 flex flex-wrap gap-1">{row.revisionHistory.map((item) => <button key={item.revision} type="button" className="rounded border border-cardline px-2 py-1 hover:bg-teal-50" onClick={() => openPdf(row, false, item.revision)}>v{item.revision}</button>)}</div></details>}</td>
+            <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print bill" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button>{isAdmin && <><button className={buttonClass} title="Edit saved bill" aria-label={`Edit ${row.invoiceNumber}`} onClick={() => editReceipt(row)}><Pencil size={17} /></button><button className={`${buttonClass} !border-red-200 !text-red-700 hover:!bg-red-50`} title="Delete saved bill" aria-label={`Delete ${row.invoiceNumber}`} onClick={() => setDeleteTarget(row)}><Trash2 size={17} /></button></>}</div>{row.revisionHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer text-teal-700">Previous PDFs</summary><div className="mt-1 flex flex-wrap gap-1">{row.revisionHistory.map((item) => <button key={item.revision} type="button" className="rounded border border-cardline px-2 py-1 hover:bg-teal-50" onClick={() => openPdf(row, false, item.revision)}>v{item.revision}</button>)}</div></details>}</td>
           </tr>) : <tr><td colSpan={7} className="p-12 text-center text-charcoal/60">No receipts found.</td></tr>}</tbody>
         </table>
       </div>
@@ -255,5 +280,17 @@ export default function Invoices({ type }) {
         <iframe ref={pdfFrame} title="Part-payment receipt PDF" src={preview.url} className="min-h-0 w-full flex-1 border-0 bg-gray-100" onLoad={() => setPdfReady(true)} />
       </div>
     </div>}
+    <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`Delete ${deleteTarget?.type === 'final-bill' ? 'Final Bill' : 'Part-payment Bill'}`}>
+      <div className="space-y-5">
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-charcoal">
+          <p>Delete <strong>{deleteTarget?.invoiceNumber}</strong> for <strong>{deleteTarget?.patientName}</strong>?</p>
+          <p className="mt-2 text-charcoal/65">Its saved PDF and previous PDF revisions will also be removed.</p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" disabled={deleting} onClick={() => setDeleteTarget(null)}>Back</Button>
+          <Button variant="danger" disabled={deleting} onClick={deleteSavedBill}><Trash2 size={16} />{deleting ? 'Deleting...' : 'Delete bill'}</Button>
+        </div>
+      </div>
+    </Modal>
   </div>;
 }

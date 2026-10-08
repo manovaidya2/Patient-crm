@@ -198,4 +198,25 @@ const getPdf = asyncHandler(async (req, res, next) => {
   res.download(filePath, selected.fileName, (error) => { if (error && !res.headersSent) next(error); });
 });
 
-module.exports = { findPatients, listInvoices, createInvoice, updateInvoice, getPdf, getSettings, updateSettings };
+const deleteInvoice = asyncHandler(async (req, res) => {
+  if (!mongoose.isObjectIdOrHexString(req.params.id)) return res.status(404).json({ message: 'Bill not found' });
+  const invoice = await Invoice.findOneAndDelete({ _id: req.params.id }).lean();
+  if (!invoice) return res.status(404).json({ message: 'Bill not found' });
+
+  const fileNames = new Set([
+    invoice.fileName,
+    ...(invoice.revisionHistory || []).map((revision) => revision.fileName),
+  ].filter((fileName) => typeof fileName === 'string' && fileName && !/[\\/]/.test(fileName)));
+
+  await Promise.all([...fileNames].map(async (fileName) => {
+    try {
+      await fs.unlink(path.join(INVOICE_DIR, fileName));
+    } catch (error) {
+      if (error.code !== 'ENOENT') console.error(`Could not remove invoice PDF ${fileName}:`, error.message);
+    }
+  }));
+
+  res.json({ message: 'Bill deleted', id: String(invoice._id), invoiceNumber: invoice.invoiceNumber });
+});
+
+module.exports = { findPatients, listInvoices, createInvoice, updateInvoice, deleteInvoice, getPdf, getSettings, updateSettings };

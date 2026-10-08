@@ -1,10 +1,11 @@
 const { test, afterEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs/promises');
+const path = require('path');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
 const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
-const { createInvoice, updateInvoice, listInvoices, findPatients, getPdf, getSettings, updateSettings } = require('./invoiceController');
+const { createInvoice, updateInvoice, deleteInvoice, listInvoices, findPatients, getPdf, getSettings, updateSettings } = require('./invoiceController');
 const invoiceRouter = require('../routes/invoiceRoutes');
 const id = '507f1f77bcf86cd799439011';
 const details = { patientName: 'Test Patient', date: '2026-10-05', totalPayable: '599', amountReceived: '99', outstanding: '500', paymentModes: ['online'] };
@@ -223,6 +224,47 @@ test('edit route allows only admin, while readers can still view both bill pages
     guard({ user: { role } }, { status() { return this; }, json() {} }, () => { allowed = true; });
     assert.equal(allowed, role === 'admin');
   }
+});
+
+test('delete route is admin-only', () => {
+  const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/:id' && layer.route.methods.delete);
+  const guard = route.route.stack[0].handle;
+  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
+    let allowed = false, status;
+    guard({ user: { role } }, { status(code) { status = code; return this; }, json() {} }, () => { allowed = true; });
+    assert.equal(allowed, role === 'admin');
+    if (role !== 'admin') assert.equal(status, 403);
+  }
+});
+
+test('admin deletes a saved bill and all current and revision PDFs', async () => {
+  const invoice = {
+    _id: id,
+    invoiceNumber: 'MV-FB-2026-000001',
+    fileName: 'Final-bill-current.pdf',
+    revisionHistory: [
+      { revision: 1, fileName: 'Final-bill-v1.pdf' },
+      { revision: 2, fileName: 'Final-bill-v2.pdf' },
+    ],
+  };
+  mock.method(Invoice, 'findOneAndDelete', (filter) => {
+    assert.equal(String(filter._id), id);
+    return { lean: async () => invoice };
+  });
+  const removed = [];
+  mock.method(fs, 'unlink', async (filePath) => { removed.push(filePath); });
+  const result = await invoke(deleteInvoice, { params: { id }, user: { ...user, role: 'admin' } });
+  assert.equal(result.error, undefined);
+  assert.equal(result.body.invoiceNumber, invoice.invoiceNumber);
+  assert.deepEqual(removed.map((filePath) => path.basename(filePath)).sort(), ['Final-bill-current.pdf', 'Final-bill-v1.pdf', 'Final-bill-v2.pdf']);
+});
+
+test('deleting a missing bill returns not found without touching files', async () => {
+  mock.method(Invoice, 'findOneAndDelete', () => ({ lean: async () => null }));
+  mock.method(fs, 'unlink', async () => {});
+  const result = await invoke(deleteInvoice, { params: { id }, user: { ...user, role: 'admin' } });
+  assert.equal(result.status, 404);
+  assert.equal(fs.unlink.mock.callCount(), 0);
 });
 
 test('editing an older Final Bill keeps a now-retired payment option valid', async () => {
