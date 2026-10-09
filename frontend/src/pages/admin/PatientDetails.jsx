@@ -2441,7 +2441,7 @@ const PatientDetails = () => {
   const canEditPatientIdentity = [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
+  const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
   const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isAccountant;
   const canEditPostCounselor = isAdmin || isPostCounselor;

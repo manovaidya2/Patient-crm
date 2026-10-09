@@ -47,8 +47,8 @@ export const ROLE_LABELS = {
 export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
 export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING, ROLES.RECEPTIONIST, ROLES.SALES_TEAM];
 
-// Roles allowed to assign/reassign a patient's Assistant Doctor
-export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR];
+// Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist
+export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ACCOUNTANT];
 
 // Where a user lands right after logging in
 export const getDefaultRoute = (role) => {

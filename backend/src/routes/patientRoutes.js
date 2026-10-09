@@ -48,6 +48,7 @@ const PATIENT_CREATE_ROLES = PATIENT_FULL_ACCESS_ROLES.filter((role) => role !==
 const PACKAGE_STAGE_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR];
 const PATIENT_RECORD_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const PAYMENT_ADD_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+const MEDICINE_REQUEST_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.ACCOUNTANT];
 
 router.use(protect, authorize(...PATIENT_ACCESS_ROLES, ROLES.RECEPTIONIST, ROLES.SALES_TEAM));
 router.use(function patientViewerAccess(req, res, next) {
@@ -71,7 +72,7 @@ router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
 router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approvePatient);
 router.patch('/:id/status', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR), updatePatientStatus);
-router.patch('/:id', authorize(...PATIENT_WRITE_ROLES), updatePatient);
+router.patch('/:id', authorize(...PATIENT_WRITE_ROLES, ROLES.ACCOUNTANT), updatePatient);
 router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER), updatePatientStage);
 router.post('/:id/stages/:number/payments', authorize(...PAYMENT_ADD_ROLES), uploadPaymentScreenshot.array('screenshot', 10), addStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
@@ -83,7 +84,7 @@ router.post('/:id/refunds', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTAN
 router.patch('/:id/stages/:number/payments/:paymentId/refunds/:refundId', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), uploadPaymentScreenshot.array('screenshot', 10), updatePaymentRefund);
 router.post('/:id/stages/:number/record', authorize(...PATIENT_RECORD_EDIT_ROLES), uploadRecordMiddleware.array('record', 30), uploadStageRecord);
 router.delete('/:id/stages/:number/record-scans/:scanId', authorize(...PATIENT_RECORD_EDIT_ROLES), deleteStageRecordScan);
-router.post('/:id/stages/:number/medicine-request', authorize(...PATIENT_WRITE_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
+router.post('/:id/stages/:number/medicine-request', authorize(...MEDICINE_REQUEST_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
 router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), addFollowUp);
 router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFollowUp);
 router.delete('/:id/stages/:number/followups/:entryId', authorize(ROLES.ADMIN), deleteFollowUp);

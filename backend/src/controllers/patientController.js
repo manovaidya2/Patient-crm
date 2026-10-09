@@ -1705,8 +1705,15 @@ const updatePatientStatus = asyncHandler(async (req, res) => {
 
 // @desc    Update one or more fields on a patient (used by inline editing on the details page)
 // @route   PATCH /api/patients/:id
-// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped); Accountant assignments only
 const updatePatient = asyncHandler(async (req, res) => {
+  if (req.user.role === ROLES.ACCOUNTANT) {
+    const assignmentFields = new Set(['assignedDoctor', 'assignedPsychologist']);
+    const hasDisallowedField = Object.keys(req.body || {}).some((key) => !assignmentFields.has(key));
+    if (hasDisallowedField || Object.keys(req.body || {}).length === 0) {
+      return res.status(403).json({ success: false, message: 'Accountant can only assign the Assistant Doctor or Psychologist' });
+    }
+  }
   const {
     patientCode,
     patientName,
@@ -2607,17 +2614,17 @@ const deleteStageRecordScan = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
-// @desc    Assistant Doctor/Doctor/Admin sends a stage medicine request with prescription
+// @desc    Assistant Doctor/Doctor/Admin/Accountant sends a stage medicine request with prescription
 // @route   POST /api/patients/:id/stages/:number/medicine-request
-// @access  Private/Admin, Doctor, Assistant Doctor (scoped)
+// @access  Private/Admin, Doctor, Assistant Doctor (scoped), Accountant
 const requestStageMedicine = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
     return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
-  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(req.user.role)) {
-    return res.status(403).json({ success: false, message: 'Only Doctor, Assistant Doctor or Admin can request medicine' });
+  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.ACCOUNTANT].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'You do not have permission to request medicine' });
   }
 
   const { medicines, notes } = req.body;

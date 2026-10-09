@@ -38,8 +38,8 @@ const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSE
 // Assistant Doctor and Psychologist can also open those pages, but only for patients assigned to them.
 const PATIENT_ACCESS_ROLES = [...PATIENT_FULL_ACCESS_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 
-// Roles allowed to assign/reassign a patient's Assistant Doctor.
-const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR];
+// Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist.
+const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ACCOUNTANT];
 
 const ROLE_LABELS = {
   [ROLES.ADMIN]: 'Admin',
