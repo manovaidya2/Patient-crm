@@ -1,0 +1,45 @@
+const express = require('express');
+const { protect, authorize } = require('../middleware/auth');
+const { ROLES } = require('../constants/roles');
+const controller = require('../controllers/hrController');
+const recruitment = require('../controllers/hrRecruitmentController');
+
+const router = express.Router();
+router.use(protect, authorize(ROLES.ADMIN, ROLES.HR));
+
+router.get('/dashboard', controller.dashboard);
+router.get('/recruitment/summary', recruitment.recruitmentSummary);
+router.get('/requirements', recruitment.listRequirements);
+router.post('/requirements', recruitment.saveRequirement);
+router.patch('/requirements/:id', recruitment.saveRequirement);
+router.post('/requirements/:id/status', recruitment.requirementStatus);
+router.get('/job-descriptions', recruitment.listJds);
+router.post('/job-descriptions', recruitment.saveJd);
+router.patch('/job-descriptions/:id', recruitment.saveJd);
+router.get('/campaigns', recruitment.listCampaigns);
+router.post('/campaigns', recruitment.saveCampaign);
+router.patch('/campaigns/:id', recruitment.saveCampaign);
+router.get('/interviews', recruitment.listInterviews);
+router.post('/interviews', recruitment.saveInterview);
+router.patch('/interviews/:id', recruitment.saveInterview);
+router.post('/interviews/:id/evaluation', recruitment.saveEvaluation);
+router.get('/offers', recruitment.listOffers);
+router.post('/offers', recruitment.saveOffer);
+router.patch('/offers/:id', recruitment.saveOffer);
+router.post('/offers/:id/status', recruitment.offerStatus);
+router.get('/onboarding', recruitment.listOnboarding);
+router.post('/onboarding', recruitment.createOnboarding);
+router.patch('/onboarding/:id/checklist/:key', recruitment.updateOnboardingItem);
+router.get('/candidates', controller.listCandidates);
+router.post('/candidates', controller.createCandidate);
+router.get('/candidates/:id', controller.getCandidate);
+router.patch('/candidates/:id', controller.updateCandidate);
+router.put('/candidates/:id/screening', recruitment.saveScreening);
+router.get('/calls/export', controller.exportCalls);
+router.get('/calls', controller.listCalls);
+router.post('/calls', controller.createCall);
+router.patch('/calls/:id', controller.updateCall);
+router.post('/calls/:id/follow-up', controller.setFollowUpStatus);
+router.post('/calls/:id/void', authorize(ROLES.ADMIN), controller.voidCall);
+
+module.exports = router;

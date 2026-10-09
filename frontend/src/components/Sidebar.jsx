@@ -32,6 +32,10 @@ import {
   CheckSquare,
   RotateCcw,
   History,
+  Briefcase,
+  PhoneCall,
+  UserPlus,
+  Send,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -42,10 +46,11 @@ import BrandLogo from './BrandLogo.jsx';
 export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
+  { to: '/admin/hr', type: 'hr', roles: [ROLES.ADMIN, ROLES.HR] },
   { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT] },
   { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Receptionist Checklist', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: Object.values(ROLES) },
-  { to: '/admin/enquiries', icon: ClipboardList, label: 'Enquiries & Escalations', roles: Object.values(ROLES) },
+  { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
+  { to: '/admin/enquiries', icon: ClipboardList, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/visitors', icon: Users, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Parcels / Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
@@ -177,6 +182,31 @@ const InvoiceMenu = ({ collapsed, onNavigate }) => {
   </div>;
 };
 
+const HrMenu = ({ collapsed, onNavigate }) => {
+  const location = useLocation();
+  const isOnHr = location.pathname.startsWith('/admin/hr');
+  const [open, setOpen] = useState(isOnHr);
+  useEffect(() => { if (isOnHr) setOpen(true); }, [isOnHr]);
+  const links = [
+    ['/admin/hr', 'HR Dashboard', LayoutGrid],
+    ['/admin/hr/requirements', 'Hiring Requirements', ClipboardCheck],
+    ['/admin/hr/job-descriptions', 'Job Descriptions', FileText],
+    ['/admin/hr/campaigns', 'Job Campaigns', Megaphone],
+    ['/admin/hr/candidates', 'Candidates', UserPlus],
+    ['/admin/hr/calls', 'Manual Call Register', PhoneCall],
+    ['/admin/hr/interviews', 'Interviews', CalendarClock],
+    ['/admin/hr/offers', 'Offers', Send],
+    ['/admin/hr/onboarding', 'Onboarding', CheckSquare],
+  ];
+  if (collapsed) return <NavLink to="/admin/hr" onClick={onNavigate} title="HR Management" aria-label="HR Management" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnHr ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><Briefcase size={17} /></NavLink>;
+  return <div className="my-2 border-y border-offwhite-100/10 py-2">
+    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-semibold ${isOnHr ? 'bg-teal-800 text-white' : 'text-teal-100/80 hover:bg-teal-800 hover:text-white'}`}>
+      <Briefcase size={17} /><span className="flex-1 text-left">HR Management</span><ChevronDown size={15} className={open ? 'rotate-180' : ''} />
+    </button>
+    {open && <div className="ml-4 mt-1 space-y-0.5 border-l border-offwhite-100/10 pl-3.5">{links.map(([to, label, Icon]) => <NavLink key={to} to={to} end={to === '/admin/hr'} onClick={onNavigate} className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${isActive ? 'bg-teal-700 text-white shadow-sm' : 'text-teal-100/60 hover:bg-teal-800 hover:text-white'}`}><Icon size={15} />{label}</NavLink>)}</div>}
+  </div>;
+};
+
 const Sidebar = ({ mobile = false, onClose }) => {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true');
@@ -259,6 +289,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
           }
           if (item.type === 'invoices') {
             return <InvoiceMenu key="invoices" collapsed={isCollapsed} onNavigate={onClose} />;
+          }
+          if (item.type === 'hr') {
+            return <HrMenu key="hr" collapsed={isCollapsed} onNavigate={onClose} />;
           }
           const { to, icon: Icon, label, end } = item;
           const showAdviceBadge = to === '/admin/request-for-advice' && adviceUnreadCount > 0;

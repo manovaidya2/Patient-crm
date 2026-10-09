@@ -101,6 +101,7 @@ app.use('/api/clinic-inventory', clinicInventoryRoutes);
 app.use('/api/record-room', recordRoomRoutes);
 app.use('/api/reception-registers', require('./src/routes/receptionRegisterRoutes'));
 app.use('/api/crm-history', require('./src/routes/crmHistoryRoutes'));
+app.use('/api/hr', require('./src/routes/hrRoutes'));
 
 // 404 handler for unknown routes
 app.use((req, res) => {
