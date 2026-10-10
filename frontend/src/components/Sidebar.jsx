@@ -36,6 +36,9 @@ import {
   PhoneCall,
   UserPlus,
   Send,
+  Target,
+  Activity,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -202,7 +205,15 @@ const HrMenu = ({ collapsed, onNavigate }) => {
     ['/admin/hr/leaves', 'Leave Administration', ClipboardList],
     ['/admin/hr/holidays', 'Holiday Calendar', CalendarClock],
     ['/admin/hr/training', 'Training', BadgeCheck],
+    ['/admin/hr/kpis', 'Team KPIs', Target],
+    ['/admin/hr/performance', 'Performance', Activity],
+    ['/admin/hr/appraisals', 'Appraisals', BadgeCheck],
+    ['/admin/hr/pip', 'PIP', TrendingDown],
+    ['/admin/hr/grievances', 'Grievances', HeartHandshake],
     ['/admin/hr/policies', 'Policies', ShieldCheck],
+    ['/admin/hr/payroll', 'Payroll Records', IndianRupee],
+    ['/admin/hr/exits', 'Exit Management', UserX],
+    ['/admin/hr/reports', 'HR Reports', BarChart3],
   ];
   if (collapsed) return <NavLink to="/admin/hr" onClick={onNavigate} title="HR Management" aria-label="HR Management" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnHr ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><Briefcase size={17} /></NavLink>;
   return <div className="my-2 border-y border-offwhite-100/10 py-2">

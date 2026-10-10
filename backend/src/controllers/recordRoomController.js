@@ -89,6 +89,7 @@ const movements = asyncHandler(async (req, res) => {
   res.json({ entries: result.entries, total: result.count[0]?.total || 0, page });
 });
 
+
 const lookup = asyncHandler(async (req, res) => {
   const query = String(req.query.query || '').trim();
   if (query.length < 2) return res.json({ success: true, results: [] });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, PhoneCall, PhoneIncoming, UserRoundCheck, Users, AlertTriangle, ArrowRight, ClipboardCheck, Megaphone, Send, Briefcase, GraduationCap, ShieldCheck } from 'lucide-react';
+import { CalendarClock, PhoneCall, PhoneIncoming, UserRoundCheck, Users, AlertTriangle, ArrowRight, ClipboardCheck, Megaphone, Send, Briefcase, GraduationCap, ShieldCheck, Target, Activity, IndianRupee, UserMinus } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import { CALL_OUTCOMES, formatDateTime, labelFor } from './hrOptions.js';
@@ -36,15 +36,26 @@ const operationsCards = [
   ['draftPolicies', 'Policy drafts', ShieldCheck, '/admin/hr/policies', 'bg-[#F7F1EF] border-[#A97970]'],
 ];
 
+const lifecycleCards = [
+  ['kpis', 'Team KPIs', Target, '/admin/hr/kpis', 'bg-[#EEF6F4] border-[#6C9B91]'],
+  ['performance', 'Performance reviews', Activity, '/admin/hr/performance', 'bg-[#EFF4F8] border-[#7C9AAF]'],
+  ['appraisals', 'Appraisals', UserRoundCheck, '/admin/hr/appraisals', 'bg-[#F5EFF9] border-[#9873B2]'],
+  ['pip', 'Active PIP records', AlertTriangle, '/admin/hr/pip', 'bg-[#FFF6E8] border-[#D5A75F]'],
+  ['grievances', 'Grievances', ShieldCheck, '/admin/hr/grievances', 'bg-[#F7F1EF] border-[#A97970]'],
+  ['payroll', 'Payroll records', IndianRupee, '/admin/hr/payroll', 'bg-[#EEF6F4] border-[#6C9B91]'],
+  ['exits', 'Exit cases', UserMinus, '/admin/hr/exits', 'bg-[#EFF4F8] border-[#7C9AAF]'],
+];
+
 export default function HrDashboard() {
   const [data, setData] = useState(null);
   const [recruitment, setRecruitment] = useState(null);
   const [operations, setOperations] = useState(null);
+  const [lifecycle, setLifecycle] = useState(null);
   const [error, setError] = useState('');
   const load = async () => {
     try {
-      const [callResponse, recruitmentResponse, operationsResponse] = await Promise.all([api.get('/hr/dashboard'), api.get('/hr/recruitment/summary'), api.get('/hr/operations/summary')]);
-      setData(callResponse.data); setRecruitment(recruitmentResponse.data.summary); setOperations(operationsResponse.data.summary); setError('');
+      const [callResponse, recruitmentResponse, operationsResponse, lifecycleResponse] = await Promise.all([api.get('/hr/dashboard'), api.get('/hr/recruitment/summary'), api.get('/hr/operations/summary'), api.get('/hr/lifecycle/summary')]);
+      setData(callResponse.data); setRecruitment(recruitmentResponse.data.summary); setOperations(operationsResponse.data.summary); setLifecycle(lifecycleResponse.data.summary); setError('');
     }
     catch (requestError) { setError(requestError.response?.data?.message || 'HR dashboard could not be loaded'); }
   };
@@ -60,6 +71,10 @@ export default function HrDashboard() {
     <section className="border border-cardline bg-offwhite-100">
       <div className="flex items-center justify-between border-b border-cardline px-4 py-3"><div><h2 className="font-semibold text-charcoal">Recruitment pipeline</h2><p className="text-xs text-charcoal/55">Current approvals and operational workload</p></div><Link to="/admin/hr/requirements" className="inline-flex items-center gap-1 text-sm font-semibold text-sage">Open pipeline <ArrowRight size={14} /></Link></div>
       <div className="grid sm:grid-cols-2 xl:grid-cols-5">{recruitmentCards.map(([key, label, Icon, to, style]) => <Link key={key} to={to} className={`min-h-[116px] border-b border-r border-cardline p-4 transition hover:brightness-95 ${style}`}><div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-charcoal/65">{label}</p><Icon size={18} className="shrink-0 text-charcoal/45" /></div><p className="mt-3 text-3xl font-bold text-charcoal">{recruitment ? recruitment[key] : '...'}</p></Link>)}</div>
+    </section>
+    <section className="border border-cardline bg-offwhite-100">
+      <div className="flex items-center justify-between border-b border-cardline px-4 py-3"><div><h2 className="font-semibold text-charcoal">People lifecycle</h2><p className="text-xs text-charcoal/55">Performance, approvals, payroll and exit workload</p></div><Link to="/admin/hr/reports" className="inline-flex items-center gap-1 text-sm font-semibold text-sage">Open reports <ArrowRight size={14} /></Link></div>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-7">{lifecycleCards.map(([key, label, Icon, to, style]) => <Link key={key} to={to} className={`min-h-[112px] border-b border-r border-cardline p-4 transition hover:brightness-95 ${style}`}><div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-charcoal/65">{label}</p><Icon size={18} className="shrink-0 text-charcoal/45" /></div><p className="mt-3 text-3xl font-bold text-charcoal">{lifecycle ? lifecycle[key]?.total || 0 : '...'}</p></Link>)}</div>
     </section>
     <section className="border border-cardline bg-offwhite-100">
       <div className="flex items-center justify-between border-b border-cardline px-4 py-3"><div><h2 className="font-semibold text-charcoal">Employee operations</h2><p className="text-xs text-charcoal/55">Daily workforce records and approvals</p></div><Link to="/admin/hr/employees" className="inline-flex items-center gap-1 text-sm font-semibold text-sage">Open employees <ArrowRight size={14} /></Link></div>

@@ -23,12 +23,18 @@ The current HR branch contains:
 - Accepted-offer onboarding checklists
 - Recruitment workload summary on the HR Dashboard
 - Employee Directory linked to completed onboarding
-- Daily attendance with check-in, check-out and calculated work duration
-- Leave requests with Admin approval/rejection
+- Daily attendance with full day, half day, short day, work-from-home and calculated work duration
+- HR-managed leave requests with approval, rejection and cancellation
 - Holiday calendar
 - Training plans with employee participation tracking
 - Versioned HR policies with Admin publishing
 - Employee operations summary on the HR Dashboard
+- Employee-linked KPIs and structured performance reviews
+- Appraisal proposals with Admin approval
+- Performance improvement plans and confidential grievances
+- Monthly payroll records with server-calculated net pay and Admin approval
+- Exit approval, clearance and automatic employee status closure
+- Consolidated lifecycle reporting with CSV export
 
 Employee-operation modules will build on this recruitment foundation.
 
@@ -65,12 +71,17 @@ Every call record has `source: hr_entered` and is not represented as automatical
 | Manage onboarding checklist | Yes | Yes | No |
 | Create/edit employee records | Yes | Yes | No |
 | Record/edit attendance | Yes | Yes | No |
-| Create/edit pending leave requests | Yes | Yes | No |
-| Approve/reject leave requests | Yes | No | No |
+| Create/edit pending leave requests | View only | Yes | No |
+| Approve/reject/cancel leave requests | View only | Yes | No |
 | Maintain holiday calendar | Yes | Yes | No |
 | Manage training and participation | Yes | Yes | No |
 | Draft HR policies | Yes | Yes | No |
 | Publish/archive HR policies | Yes | No | No |
+| Manage KPIs and performance reviews | Yes | Yes | No |
+| Manage PIP and grievance records | Yes | Yes | No |
+| Prepare appraisal, payroll and exit records | Yes | Yes | No |
+| Give final appraisal/payroll/exit approval | Yes | No | No |
+| Export HR lifecycle reports | Yes | Yes | No |
 
 The `HR` role uses the existing `User` model and JWT authentication. Existing Manager accounts do not receive HR access.
 
@@ -100,10 +111,11 @@ Provides atomic yearly sequences for candidate, call, requirement, JD, campaign,
 
 - `HrEmployee` stores the employee master record and can link back to completed onboarding and candidate records.
 - `HrAttendance` stores one daily record per employee and calculates worked minutes from check-in and check-out.
-- `HrLeaveRequest` stores leave duration, reason and Admin decision details.
+- `HrLeaveRequest` stores leave duration, reason and HR decision details.
 - `HrHoliday` stores the organization holiday calendar with one holiday per date.
 - `HrTraining` stores schedules, trainers, assigned employees and participation outcomes.
 - `HrPolicy` stores versioned policy content. HR prepares drafts and Admin publishes or archives them.
+- `HrLifecycleRecord` stores employee-linked KPI, performance, appraisal, PIP, grievance, payroll and exit records with module-specific validated data and an actor timeline.
 
 ## Follow-up Rules
 
@@ -148,12 +160,16 @@ All routes require the existing CRM login and either `admin` or `hr` role.
 | GET | `/api/hr/employees/onboarding-options` | Completed onboarding not yet converted |
 | GET/POST/PATCH | `/api/hr/attendance` | Daily attendance register |
 | GET/POST/PATCH | `/api/hr/leaves` | Leave requests |
-| POST | `/api/hr/leaves/:id/status` | Admin leave approval/rejection |
+| POST | `/api/hr/leaves/:id/status` | HR leave approval/rejection/cancellation |
 | GET/POST/PATCH | `/api/hr/holidays` | Holiday calendar |
 | GET/POST/PATCH | `/api/hr/training` | Training plans |
 | PATCH | `/api/hr/training/:id/participants/:employeeId` | Participation result |
 | GET/POST/PATCH | `/api/hr/policies` | Policy drafts |
 | POST | `/api/hr/policies/:id/status` | Admin publish/archive action |
+| GET/POST/PATCH | `/api/hr/lifecycle/:module` | Lifecycle register for KPI through exit modules |
+| POST | `/api/hr/lifecycle/:module/:id/status` | Controlled workflow transition |
+| GET | `/api/hr/lifecycle/summary` | Real lifecycle dashboard/report counts |
+| GET | `/api/hr/lifecycle/reports/export` | Filterable lifecycle CSV export |
 
 ## Dashboard Calculations
 
@@ -183,11 +199,15 @@ Counts are generated from MongoDB records and exclude voided calls.
 - A completed onboarding can be converted into one employee record only once.
 - Each employee can have only one attendance record per date.
 - Pending or approved leave date ranges cannot overlap for the same employee.
-- Only Admin can approve/reject leave and publish/archive policies.
+- HR alone creates, edits, approves, rejects or cancels leave requests; Admin retains read-only visibility.
+- Monthly salary is required on an offer. Annual CTC is optional and defaults to monthly salary multiplied by 12.
+- Only Admin can publish/archive policies.
 - Published policies cannot be silently edited; a new version should be drafted.
+- Appraisal, payroll and exit records require Admin final approval.
+- Payroll net pay is calculated server-side from basic salary, allowances and deductions; one payroll record is allowed per employee/month.
+- Completing an exit changes the linked employee status to `exited` and records the action on the employee timeline.
+- Grievance and payroll records are stored as confidential lifecycle records.
 
-## Next Phases
+## Current Phase Status
 
-1. KPIs, Performance, Appraisals, PIP, Grievances, Payroll and Exit Management
-
-Admin approval controls will be introduced with each relevant phase instead of adding non-functional placeholder pages.
+The planned HR phases are implemented. Further work should be driven by live operational feedback, statutory payroll requirements and organization-specific appraisal policy rather than placeholder modules.
