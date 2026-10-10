@@ -2787,6 +2787,57 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
     return res.status(400).json({ success: false, message: 'Medicine has not been requested for this phase' });
   }
+  if (status === MEDICINE_STATUSES.MADE && ['savePackaging', 'selfPickup'].includes(req.body.action)) {
+    if (currentRequest.status !== MEDICINE_STATUSES.MADE) {
+      return res.status(400).json({ success: false, message: 'Medicine must be marked made first' });
+    }
+    const text = (field) => String(req.body[field] || '').trim().slice(0, 500);
+    const isPickup = req.body.action === 'selfPickup';
+    let nextRequest;
+    let detail;
+    if (!isPickup) {
+      const packagedByName = text('packagedByName');
+      const chitsWrittenByName = text('chitsWrittenByName');
+      const lastMedicineCheckedByName = text('lastMedicineCheckedByName');
+      if (!packagedByName || !chitsWrittenByName || !lastMedicineCheckedByName) {
+        return res.status(400).json({ success: false, message: 'Packaging by, chits written by and last medicine checking by are required' });
+      }
+      nextRequest = { ...currentRequest, packagedByName, chitsWrittenByName, lastMedicineCheckedByName, packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: new Date() };
+      detail = `Packaging details saved | Packaging: ${packagedByName} | Chits: ${chitsWrittenByName} | Last checking: ${lastMedicineCheckedByName}`;
+    } else {
+      if (!currentRequest.packagedByName || !currentRequest.chitsWrittenByName || !currentRequest.lastMedicineCheckedByName) {
+        return res.status(400).json({ success: false, message: 'Fill packaging details before self pickup' });
+      }
+      const receiverName = text('receiverName');
+      const receiverPhone = text('receiverPhone');
+      if (!receiverName || !receiverPhone) {
+        return res.status(400).json({ success: false, message: 'Receiver name and receiver phone are required' });
+      }
+      const proof = toFileItems(uploadedFiles, 'courier');
+      nextRequest = {
+        ...currentRequest,
+        courier: {
+          ...emptyCourier(),
+          status: COURIER_STATUSES.DELIVERED,
+          deliveryMode: 'self',
+          receiverName,
+          receiverPhone,
+          receivedByName: text('receivedByName') || receiverName,
+          notes: text('notes'),
+          deliveredAt: new Date(),
+          deliveredByName: req.user.name,
+          ...(proof.length ? { deliveryProofUrl: proof[0].url, deliveryProofFileName: proof[0].fileName, deliveryProofImages: proof } : {}),
+        },
+      };
+      detail = `Self pickup by ${nextRequest.courier.receivedByName}`;
+    }
+    if (req.body.requestId && req.body.requestId !== 'legacy') Object.assign(requestDoc, nextRequest);
+    else stageEntry.medicineRequest = nextRequest;
+    addActivity(patient, req.user, `Medicine ${isPickup ? 'self pickup' : 'packaging details'} updated for Phase ${stageNum}`, `${detail} | Request: ${currentRequest.requestId || 'legacy'}`);
+    await patient.save();
+    await populateAssignments(patient);
+    return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)) });
+  }
   if (status === MEDICINE_STATUSES.MADE && !uploadedFiles.length && !existingMedicineImages.length) {
     return res.status(400).json({ success: false, message: 'Medicine image is required before marking medicine made' });
   }
@@ -2794,10 +2845,15 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Upload medicine image before sending to courier' });
   }
   if (status === MEDICINE_STATUSES.SENT_TO_COURIER) {
-    if (!req.body.packagedByName || !req.body.chitsWrittenByName || !req.body.lastMedicineCheckedByName) {
+    if (!(req.body.packagedByName || currentRequest.packagedByName) || !(req.body.chitsWrittenByName || currentRequest.chitsWrittenByName) || !(req.body.lastMedicineCheckedByName || currentRequest.lastMedicineCheckedByName)) {
       return res.status(400).json({ success: false, message: 'Packaging by, chits written by and last medicine checking by are required before sending to courier' });
     }
   }
+  const packaging = {
+    packagedByName: req.body.packagedByName || currentRequest.packagedByName,
+    chitsWrittenByName: req.body.chitsWrittenByName || currentRequest.chitsWrittenByName,
+    lastMedicineCheckedByName: req.body.lastMedicineCheckedByName || currentRequest.lastMedicineCheckedByName,
+  };
 
   const medicineImages = toFileItems(uploadedFiles, 'medicine');
   const nextRequest = {
@@ -2819,11 +2875,8 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
       : {}),
     ...(status === MEDICINE_STATUSES.SENT_TO_COURIER
       ? {
-          packagedByName: req.body.packagedByName,
-          chitsWrittenByName: req.body.chitsWrittenByName,
-          lastMedicineCheckedByName: req.body.lastMedicineCheckedByName,
-          packagingDetailsFilledByName: req.user.name,
-          packagingDetailsFilledAt: new Date(),
+          ...packaging,
+          ...(req.body.packagedByName ? { packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: new Date() } : {}),
           sentToCourierAt: new Date(),
           sentToCourierByName: req.user.name,
         }
@@ -2840,7 +2893,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     req.user,
     `Medicine status updated for Phase ${stageNum}`,
     status === MEDICINE_STATUSES.SENT_TO_COURIER
-      ? `${MEDICINE_STATUS_LABELS[status]} | Packaging: ${req.body.packagedByName} | Chits: ${req.body.chitsWrittenByName} | Last checking: ${req.body.lastMedicineCheckedByName} | Request: ${currentRequest.requestId || 'legacy'}`
+      ? `${MEDICINE_STATUS_LABELS[status]} | Packaging: ${packaging.packagedByName} | Chits: ${packaging.chitsWrittenByName} | Last checking: ${packaging.lastMedicineCheckedByName} | Request: ${currentRequest.requestId || 'legacy'}`
       : `${MEDICINE_STATUS_LABELS[status]} | Request: ${currentRequest.requestId || 'legacy'}`
   );
 
@@ -2910,6 +2963,29 @@ const deleteMedicineRequest = asyncHandler(async (req, res) => {
   await patient.save();
   await populateAssignments(patient);
   res.status(200).json({ success: true, message: 'Request deleted' });
+});
+
+// @desc    Admin removes only the courier step; the medicine stays in Medicine Made
+// @route   DELETE /api/courier/requests/:patientId/stages/:number
+const deleteCourierRequest = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can delete courier requests' });
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) return res.status(400).json({ success: false, message: 'Invalid phase number' });
+  const patient = await Patient.findById(req.params.patientId);
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  patient.stages = normalizeStages(patient.stages);
+  const stageEntry = patient.stages.find((stage) => stage.number === stageNum);
+  const requestId = req.body?.requestId || req.query.requestId || 'legacy';
+  const requestDoc = findStageMedicineRequest(stageEntry, requestId);
+  if (!requestDoc || requestDoc.status !== MEDICINE_STATUSES.SENT_TO_COURIER) return res.status(404).json({ success: false, message: 'Courier request not found' });
+  const currentRequest = { ...emptyMedicineRequest(), ...(requestDoc.toObject?.() || requestDoc) };
+  const nextRequest = { ...currentRequest, status: MEDICINE_STATUSES.MADE, sentToCourierAt: null, sentToCourierByName: '', courier: emptyCourier() };
+  if (requestId !== 'legacy') Object.assign(requestDoc, nextRequest);
+  else stageEntry.medicineRequest = nextRequest;
+  addActivity(patient, req.user, `Courier request deleted for Phase ${stageNum}`, `Medicine kept in Medicine Made | Request: ${requestId}`);
+  await patient.save();
+  await populateAssignments(patient);
+  res.status(200).json({ success: true, message: 'Courier request deleted' });
 });
 
 // @desc    Courier department/admin updates courier dispatch or delivery details
@@ -3528,6 +3604,7 @@ module.exports = {
   listMedicineRequests,
   updateMedicineRequestStatus,
   deleteMedicineRequest,
+  deleteCourierRequest,
   listCourierRequests,
   updateCourierRequest,
   addFollowUp,

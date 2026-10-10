@@ -148,7 +148,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       receiverPhone: courier.receiverPhone || row.patientNumber || '',
       address: courier.address || '',
       courierPartner: courier.courierPartner || '',
-      deliveryMode: courier.deliveryMode || 'courier',
+      deliveryMode: 'courier',
       selfPickupByName: courier.selfPickupByName || '',
       trackingNumber: courier.trackingNumber || '',
       paymentPaidBy: courier.paymentPaidBy || 'clinic',
@@ -223,7 +223,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
 
   const adminRequestAction = async (row, action) => {
     if (!isAdmin) return;
-    const label = action === 'cancel' ? 'cancel this courier request' : 'delete this courier request permanently';
+    const label = action === 'cancel' ? 'cancel this courier request' : 'delete this courier request? The medicine will stay in Medicine Made';
     if (!window.confirm(`Are you sure you want to ${label}?`)) return;
     setSaving(true);
     setModalError('');
@@ -353,11 +353,13 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                     </div>
                   </div>
                   <div className="flex flex-wrap items-start gap-2 xl:justify-end">
-                    {isAdmin && courier.status !== 'cancelled' && (
+                    {isAdmin && (
                       <>
-                        <Button size="sm" variant="outline" disabled={saving} onClick={() => adminRequestAction(row, 'cancel')}>
-                          <Ban size={14} /> Cancel
-                        </Button>
+                        {courier.status !== 'cancelled' && (
+                          <Button size="sm" variant="outline" disabled={saving} onClick={() => adminRequestAction(row, 'cancel')}>
+                            <Ban size={14} /> Cancel
+                          </Button>
+                        )}
                         <Button size="sm" variant="danger" disabled={saving} onClick={() => adminRequestAction(row, 'delete')}>
                           <Trash2 size={14} /> Delete
                         </Button>
@@ -376,13 +378,6 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       <Modal open={!!dispatchRow} onClose={() => setDispatchRow(null)} title="Dispatch Courier" className="max-w-2xl">
         <form onSubmit={submitDispatch} className="space-y-4">
           {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
-          <div>
-            <label className="block text-sm font-medium text-charcoal mb-1.5">Delivery Type</label>
-            <select value={form.deliveryMode} onChange={(e) => setForm({ ...form, deliveryMode: e.target.value })} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
-              <option value="courier">Courier</option>
-              <option value="self">Self pickup</option>
-            </select>
-          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="Receiver Name" value={form.receiverName} onChange={(e) => setForm({ ...form, receiverName: e.target.value })} required />
             <Input label="Receiver Phone" value={form.receiverPhone} onChange={(e) => setForm({ ...form, receiverPhone: e.target.value })} required />

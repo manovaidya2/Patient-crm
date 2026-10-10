@@ -7,7 +7,7 @@ const MedicineMade = () => (
     statuses={['made', 'sent_to_courier']}
     emptyText="No made medicines yet."
     actions={[
-      { from: ['made'], status: 'sent_to_courier', label: 'Send To Courier' },
+      { from: ['made'], status: 'sent_to_courier', label: 'Packaging / Dispatch' },
     ]}
   />
 );

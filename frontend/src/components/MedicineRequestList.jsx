@@ -89,6 +89,11 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   const [courierAction, setCourierAction] = useState(null);
   const [courierForm, setCourierForm] = useState({ packagedByName: '', chitsWrittenByName: '', lastMedicineCheckedByName: '' });
   const [courierError, setCourierError] = useState('');
+  const [choiceRow, setChoiceRow] = useState(null);
+  const [pickupRow, setPickupRow] = useState(null);
+  const [pickupForm, setPickupForm] = useState({ receiverName: '', receiverPhone: '', receivedByName: '', notes: '' });
+  const [pickupFiles, setPickupFiles] = useState([]);
+  const [pickupError, setPickupError] = useState('');
 
   const { data, loading, error: queryError, refresh } = useApiQuery('/medicine/requests', {
     params: { status: statuses.join(',') },
@@ -161,6 +166,59 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     }
   };
 
+  const savePackaging = async (row, values) => {
+    const key = `${row.patientId}-${row.stage}-${row.requestId}-sent_to_courier`;
+    setBusyKey(key);
+    try {
+      await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { status: 'made', action: 'savePackaging', requestId: row.requestId, ...values });
+      refresh();
+      return true;
+    } catch (err) {
+      setCourierError(err.response?.data?.message || 'Could not save packaging details.');
+      return false;
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const chooseCourier = async (row) => {
+    setChoiceRow(null);
+    await sendToCourier(row, {});
+  };
+
+  const openPickup = (row) => {
+    setChoiceRow(null);
+    setPickupRow(row);
+    setPickupForm({ receiverName: '', receiverPhone: '', receivedByName: '', notes: '' });
+    setPickupFiles([]);
+    setPickupError('');
+  };
+
+  const submitPickup = async (e) => {
+    e.preventDefault();
+    if (!pickupForm.receiverName.trim() || !pickupForm.receiverPhone.trim()) {
+      setPickupError('Receiver name and receiver phone are required');
+      return;
+    }
+    const row = pickupRow;
+    setBusyKey(`${row.patientId}-${row.stage}-${row.requestId}-pickup`);
+    try {
+      const formData = new FormData();
+      formData.append('status', 'made');
+      formData.append('action', 'selfPickup');
+      if (row.requestId) formData.append('requestId', row.requestId);
+      Object.entries(pickupForm).forEach(([key, value]) => formData.append(key, value.trim()));
+      pickupFiles.forEach((file) => formData.append('medicineImage', file));
+      await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, formData);
+      setPickupRow(null);
+      refresh();
+    } catch (err) {
+      setPickupError(err.response?.data?.message || 'Could not save self pickup.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
   const openImageAction = (row, action) => {
     setImageAction({ row, action });
     setImageFiles([]);
@@ -194,8 +252,9 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
       setCourierError('Packaging by, chits written by and last medicine checking by are required');
       return;
     }
-    const saved = await sendToCourier(courierAction, courierForm);
-    if (saved) setCourierAction(null);
+    const row = courierAction;
+    const saved = await savePackaging(row, courierForm);
+    if (saved) { setCourierAction(null); setChoiceRow(row); }
   };
 
   const activeDateValue = dateMode === 'week' ? weekValue : dateMode === 'month' ? monthValue : dateValue;
@@ -320,6 +379,16 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                     {request.notes && <p className="mt-2 whitespace-pre-line text-xs text-charcoal/55">{request.notes}</p>}
                     <CompactAttachments files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescription" />
                     <CompactAttachments files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine Image'} label="Medicine images" />
+                    {request.status === 'made' && request.courier?.deliveryMode === 'self' && request.courier?.status === 'delivered' && (
+                      <div className="mt-3 rounded-lg border border-cardline bg-offwhite-200 p-3 text-xs text-charcoal/65">
+                        <p className="font-semibold text-charcoal">Self pickup</p>
+                        <p className="mt-1">Picked up by: {request.courier.receivedByName || request.courier.receiverName || '-'}</p>
+                        <p className="mt-1">Phone: {request.courier.receiverPhone || '-'}</p>
+                        <p className="mt-1">Handed over: {formatDateTime(request.courier.deliveredAt)} by {request.courier.deliveredByName || '-'}</p>
+                        {request.courier.notes && <p className="mt-1">Notes: {request.courier.notes}</p>}
+                        <CompactAttachments files={request.courier.deliveryProofImages} fallbackUrl={request.courier.deliveryProofUrl} fallbackName="Pickup proof" label="Pickup proof" />
+                      </div>
+                    )}
                     {request.status === 'sent_to_courier' && (
                       <div className="mt-3 rounded-lg border border-cardline bg-offwhite-200 p-3 text-xs text-charcoal/65">
                         <p className="font-semibold text-charcoal">Courier</p>
@@ -332,11 +401,13 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                   </div>
 
                   <div className="flex flex-wrap items-start gap-2 lg:justify-end">
-                    {isAdmin && request.status !== 'cancelled' && (
+                    {isAdmin && (
                       <>
-                        <Button size="sm" variant="outline" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'cancelled')}>
-                          <Ban size={14} /> Cancel
-                        </Button>
+                        {request.status !== 'cancelled' && (
+                          <Button size="sm" variant="outline" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'cancelled')}>
+                            <Ban size={14} /> Cancel
+                          </Button>
+                        )}
                         <Button size="sm" variant="danger" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'delete')}>
                           <Trash2 size={14} /> Delete
                         </Button>
@@ -346,6 +417,13 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                       .filter((action) => action.from.includes(request.status))
                       .map((action) => {
                         const key = `${row.patientId}-${row.stage}-${row.requestId}-${action.status}`;
+                        if (action.status === 'sent_to_courier') {
+                          if (request.courier?.deliveryMode === 'self' && request.courier?.status === 'delivered') return null;
+                          if (!request.packagedByName || !request.chitsWrittenByName || !request.lastMedicineCheckedByName) {
+                            return <Button key={action.status} size="sm" disabled={!!busyKey} onClick={() => openCourierAction(row)}>Fill Packaging Details</Button>;
+                          }
+                          return <Button key={action.status} size="sm" disabled={!!busyKey} onClick={() => setChoiceRow(row)}>Courier / Self Pickup</Button>;
+                        }
                         return (
                           <Button
                             key={action.status}
@@ -406,8 +484,8 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
       {courierAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
           <form onSubmit={submitCourierAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
-            <h3 className="font-display text-lg font-bold text-charcoal">Send To Courier</h3>
-            <p className="mt-1 text-sm text-charcoal/60">Fill medicine packaging details before sending this request to courier.</p>
+            <h3 className="font-display text-lg font-bold text-charcoal">Packaging Details</h3>
+            <p className="mt-1 text-sm text-charcoal/60">Fill and save these details first. Then choose courier or self pickup.</p>
             {courierError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{courierError}</p>}
             <div className="mt-4 space-y-3">
               <div>
@@ -443,8 +521,47 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                 Cancel
               </Button>
               <Button type="submit" disabled={!!busyKey}>
-                {busyKey ? 'Saving...' : 'Send To Courier'}
+                {busyKey ? 'Saving...' : 'Save Details'}
               </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {choiceRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
+          <div className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-charcoal">How will this medicine go?</h3>
+            <p className="mt-1 text-sm text-charcoal/60">{choiceRow.patientName} · Phase {choiceRow.stage}. Courier requests go to the courier department. Self pickup is handed over here.</p>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <Button disabled={!!busyKey} onClick={() => chooseCourier(choiceRow)}>Send By Courier</Button>
+              <Button variant="outline" disabled={!!busyKey} onClick={() => openPickup(choiceRow)}>Self Pickup</Button>
+            </div>
+            <div className="mt-3 flex justify-end"><Button type="button" variant="ghost" onClick={() => setChoiceRow(null)}>Decide later</Button></div>
+          </div>
+        </div>
+      )}
+
+      {pickupRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
+          <form onSubmit={submitPickup} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-charcoal">Self Pickup</h3>
+            <p className="mt-1 text-sm text-charcoal/60">Enter who is collecting the medicine from the clinic.</p>
+            {pickupError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{pickupError}</p>}
+            <div className="mt-4 space-y-3">
+              <div><label className="mb-1.5 block text-sm font-medium text-charcoal">Receiver name</label><input className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" required value={pickupForm.receiverName} onChange={(e) => setPickupForm({ ...pickupForm, receiverName: e.target.value })} /></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-charcoal">Receiver phone</label><input className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" type="tel" required value={pickupForm.receiverPhone} onChange={(e) => setPickupForm({ ...pickupForm, receiverPhone: e.target.value })} /></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-charcoal">Received by (if different)</label><input className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" value={pickupForm.receivedByName} onChange={(e) => setPickupForm({ ...pickupForm, receivedByName: e.target.value })} /></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-charcoal">Notes</label><textarea rows={2} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" value={pickupForm.notes} onChange={(e) => setPickupForm({ ...pickupForm, notes: e.target.value })} /></div>
+              <label className="flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-3 text-sm font-semibold text-sage hover:border-sage">
+                Add pickup proof (optional)
+                <input type="file" accept="image/*" multiple onChange={(e) => appendSelectedFiles(setPickupFiles, e.target.files)} className="hidden" />
+              </label>
+              <SelectedAttachments files={pickupFiles} onRemove={(index) => removeSelectedFile(setPickupFiles, index)} />
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setPickupRow(null)}>Cancel</Button>
+              <Button type="submit" disabled={!!busyKey}>{busyKey ? 'Saving...' : 'Save Self Pickup'}</Button>
             </div>
           </form>
         </div>
