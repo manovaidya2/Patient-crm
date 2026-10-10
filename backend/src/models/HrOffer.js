@@ -6,7 +6,7 @@ const schema = new mongoose.Schema({
   candidateCode: { type: String, required: true }, candidateName: { type: String, required: true },
   designation: { type: String, required: true, trim: true, maxlength: 180 },
   department: { type: String, required: true, trim: true, maxlength: 120 },
-  annualCtc: { type: Number, required: true, min: 0 }, monthlyGross: { type: Number, min: 0, default: 0 },
+  annualCtc: { type: Number, min: 0, default: 0 }, monthlyGross: { type: Number, required: true, min: 0 },
   employmentType: { type: String, enum: ['full_time', 'part_time', 'contract', 'internship', 'consultant'], default: 'full_time' },
   proposedJoiningDate: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
   validUntil: { type: String, default: '', match: /^$|^\d{4}-\d{2}-\d{2}$/ },

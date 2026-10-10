@@ -59,8 +59,9 @@ Every call record has `source: hr_entered` and is not represented as automatical
 | Approve/reject hiring requirements | Yes | No | No |
 | Approve/reject salary offers | Yes | No | No |
 | Manage JDs, campaigns and screening | Yes | Yes | No |
-| Schedule/evaluate interviews | Yes | Yes | No |
-| Send offers after approval | Yes | Yes | No |
+| Schedule/evaluate connected interview rounds | Yes | Yes | No |
+| Prepare, submit and communicate offers | No | Yes | No |
+| Edit and approve/reject salary offers | Yes | No | No |
 | Manage onboarding checklist | Yes | Yes | No |
 | Create/edit employee records | Yes | Yes | No |
 | Record/edit attendance | Yes | Yes | No |
@@ -172,8 +173,10 @@ Counts are generated from MongoDB records and exclude voided calls.
 - A job description requires an approved hiring requirement.
 - A campaign requires an active job description.
 - New candidate campaign links must point to an active campaign.
-- Interview evaluation records a 1-5 rating and recommendation.
+- Interview evaluation records a 1-5 rating and recommendation. A `next_round` result creates a connected round from the previous interview.
 - HR submits an offer; only Admin can approve or reject salary details.
+- Admin can edit an offer while it awaits approval; HR owns offer submission, sent and candidate-response updates.
+- Candidate-profile actions retain the selected candidate through interview and offer forms.
 - An offer can be marked sent only after approval.
 - Onboarding can start only after the offer is accepted.
 - Completing every onboarding task moves the candidate to `joined`.

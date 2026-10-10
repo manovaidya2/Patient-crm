@@ -101,7 +101,7 @@ const saveAttendance = asyncHandler(async (req, res) => {
   const employee = await HrEmployee.findOne({ _id: req.body.employeeId, status: { $in: ['active', 'probation', 'notice_period'] } }).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const date = clean(req.body.date, 10), status = clean(req.body.status, 30), checkIn = clean(req.body.checkIn, 5), checkOut = clean(req.body.checkOut, 5);
-  if (!validDateKey(date) || !['present', 'absent', 'half_day', 'leave', 'holiday', 'work_from_home'].includes(status)) return res.status(400).json({ success: false, message: 'Valid attendance date and status are required' });
+  if (!validDateKey(date) || !['present', 'absent', 'half_day', 'short_day', 'leave', 'holiday', 'work_from_home'].includes(status)) return res.status(400).json({ success: false, message: 'Valid attendance date and status are required' });
   if ((checkIn && !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkIn)) || (checkOut && !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkOut))) return res.status(400).json({ success: false, message: 'Enter valid check-in and check-out times' });
   if (checkIn && checkOut && timeMinutes(checkOut) < timeMinutes(checkIn)) return res.status(400).json({ success: false, message: 'Check-out cannot be before check-in' });
   const payload = { employee: employee._id, employeeCode: employee.employeeCode, employeeName: employee.name, department: employee.department, date, status, checkIn, checkOut, workedMinutes: workedMinutes(checkIn, checkOut), notes: clean(req.body.notes, 1000) };
@@ -123,6 +123,7 @@ const listLeaves = asyncHandler(async (req, res) => {
 });
 
 const saveLeave = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.HR) return res.status(403).json({ success: false, message: 'Only HR can add or edit leave requests' });
   const employee = await HrEmployee.findOne({ _id: req.body.employeeId, status: { $in: ['active', 'probation', 'notice_period'] } }).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const startDate = clean(req.body.startDate, 10), endDate = clean(req.body.endDate, 10), halfDay = req.body.halfDay === true || req.body.halfDay === 'true';
@@ -142,7 +143,7 @@ const saveLeave = asyncHandler(async (req, res) => {
 const leaveStatus = asyncHandler(async (req, res) => {
   const row = await HrLeaveRequest.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Leave request not found' });
   const status = clean(req.body.status, 20), note = clean(req.body.note, 1000);
-  if (!canChangeLeaveStatus(row.status, status, req.user.role)) return res.status(req.user.role === ROLES.ADMIN ? 409 : 403).json({ success: false, message: 'Admin can approve or reject pending leave; Admin and HR can cancel it' });
+  if (!canChangeLeaveStatus(row.status, status, req.user.role)) return res.status(req.user.role === ROLES.HR ? 409 : 403).json({ success: false, message: 'Only HR can approve, reject or cancel a pending leave request' });
   if (status === 'rejected' && !note) return res.status(400).json({ success: false, message: 'Rejection reason is required' });
   row.status = status; row.decisionNote = note; row.decidedBy = req.user._id; row.decidedByName = req.user.name; row.decidedAt = new Date(); updateActor(row, req.user); await row.save();
   res.json({ success: true, leave: row });

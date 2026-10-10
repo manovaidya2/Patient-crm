@@ -15,6 +15,8 @@ const schema = new mongoose.Schema({
   candidate: { type: mongoose.Schema.Types.ObjectId, ref: 'HrCandidate', required: true, index: true },
   candidateCode: { type: String, required: true }, candidateName: { type: String, required: true },
   appliedPosition: { type: String, required: true },
+  previousInterview: { type: mongoose.Schema.Types.ObjectId, ref: 'HrInterview', default: null, index: true },
+  roundNumber: { type: Number, min: 1, default: 1 },
   round: { type: String, required: true, trim: true, maxlength: 120 },
   interviewType: { type: String, enum: ['phone', 'video', 'in_person', 'technical', 'hr'], required: true },
   scheduledAt: { type: Date, required: true, index: true }, durationMinutes: { type: Number, min: 5, max: 480, default: 30 },
@@ -28,4 +30,5 @@ const schema = new mongoose.Schema({
 }, { timestamps: true, optimisticConcurrency: true });
 
 schema.index({ status: 1, scheduledAt: 1 });
+schema.index({ candidate: 1, roundNumber: 1 });
 module.exports = mongoose.model('HrInterview', schema);

@@ -10,7 +10,7 @@ const HrOnboarding = require('../models/HrOnboarding');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { localDateTime, dateKeyInIndia } = require('../utils/hrCallUtils');
-const { REQUIREMENT_TRANSITIONS, OFFER_TRANSITIONS, canTransition, splitList, validDateKey } = require('../utils/hrRecruitmentUtils');
+const { REQUIREMENT_TRANSITIONS, OFFER_TRANSITIONS, canTransition, canEditOffer, canManageOfferTransition, nextInterviewRound, offerCompensation, interviewChainMetadata, splitList, validDateKey } = require('../utils/hrRecruitmentUtils');
 
 const clean = (value, max = 3000) => String(value || '').trim().slice(0, max);
 const validId = (value) => mongoose.Types.ObjectId.isValid(value);
@@ -131,14 +131,26 @@ const saveScreening = asyncHandler(async (req, res) => {
 const listInterviews = asyncHandler(async (req, res) => {
   const filter = { ...searchFilter(req.query, ['interviewCode', 'candidateCode', 'candidateName', 'appliedPosition', 'interviewerName']) }; if (req.query.status) filter.status = req.query.status; if (req.query.candidateId && validId(req.query.candidateId)) filter.candidate = req.query.candidateId;
   const rows = await HrInterview.find(filter).sort({ scheduledAt: -1 }).limit(500).lean();
-  res.json({ success: true, interviews: rows.map((row) => ({ ...common(row, 'interviewCode'), candidateId: String(row.candidate), candidateCode: row.candidateCode, candidateName: row.candidateName, appliedPosition: row.appliedPosition, round: row.round, interviewType: row.interviewType, scheduledAt: row.scheduledAt, durationMinutes: row.durationMinutes, interviewerName: row.interviewerName, locationOrLink: row.locationOrLink, instructions: row.instructions, evaluation: row.evaluation })) });
+  const chain = interviewChainMetadata(rows);
+  res.json({ success: true, interviews: rows.map((row) => ({ ...common(row, 'interviewCode'), candidateId: String(row.candidate), candidateCode: row.candidateCode, candidateName: row.candidateName, appliedPosition: row.appliedPosition, ...chain.get(String(row._id)), round: row.round, interviewType: row.interviewType, scheduledAt: row.scheduledAt, durationMinutes: row.durationMinutes, interviewerName: row.interviewerName, locationOrLink: row.locationOrLink, instructions: row.instructions, evaluation: row.evaluation })) });
 });
 
 const saveInterview = asyncHandler(async (req, res) => {
   const candidate = await HrCandidate.findById(req.body.candidateId); if (!candidate) return res.status(400).json({ success: false, message: 'Select a valid candidate' });
   if (!req.params.id && (!candidate.isActive || ['rejected', 'withdrawn', 'joined'].includes(candidate.stage))) return res.status(409).json({ success: false, message: 'Interview cannot be scheduled for this candidate stage' });
+  let previousInterview = null;
+  if (!req.params.id && req.body.previousInterviewId) {
+    if (!validId(req.body.previousInterviewId)) return res.status(400).json({ success: false, message: 'Invalid previous interview' });
+    previousInterview = await HrInterview.findOne({ _id: req.body.previousInterviewId, candidate: candidate._id });
+    if (!previousInterview || previousInterview.status !== 'completed' || previousInterview.evaluation?.recommendation !== 'next_round') return res.status(409).json({ success: false, message: 'Next round requires a completed interview recommended for the next round' });
+    if (await HrInterview.exists({ previousInterview: previousInterview._id })) return res.status(409).json({ success: false, message: 'The next round is already scheduled for this interview' });
+  }
+  if (!req.params.id && !previousInterview && candidate.screening?.status !== 'shortlisted') return res.status(409).json({ success: false, message: 'Complete screening and shortlist the candidate before scheduling the first interview' });
   const scheduledAt = localDateTime(clean(req.body.scheduledDate, 10), clean(req.body.scheduledTime, 5));
-  const payload = { candidate: candidate._id, candidateCode: candidate.candidateCode, candidateName: candidate.name, appliedPosition: candidate.appliedPosition, round: clean(req.body.round, 120), interviewType: clean(req.body.interviewType, 30), scheduledAt, durationMinutes: Number(req.body.durationMinutes || 30), interviewerName: clean(req.body.interviewerName, 180), locationOrLink: clean(req.body.locationOrLink, 1000), instructions: clean(req.body.instructions, 3000), status: clean(req.body.status, 30) || 'scheduled' };
+  const existingCount = req.params.id ? 0 : await HrInterview.countDocuments({ candidate: candidate._id });
+  if (!req.params.id && !previousInterview && existingCount > 0) return res.status(409).json({ success: false, message: 'Book another round from the previous interview evaluation so the history remains connected' });
+  const roundNumber = req.params.id ? undefined : previousInterview ? nextInterviewRound(previousInterview.roundNumber, existingCount) : 1;
+  const payload = { candidate: candidate._id, candidateCode: candidate.candidateCode, candidateName: candidate.name, appliedPosition: candidate.appliedPosition, ...(!req.params.id ? { previousInterview: previousInterview?._id || null, roundNumber } : {}), round: clean(req.body.round, 120), interviewType: clean(req.body.interviewType, 30), scheduledAt, durationMinutes: Number(req.body.durationMinutes || 30), interviewerName: clean(req.body.interviewerName, 180), locationOrLink: clean(req.body.locationOrLink, 1000), instructions: clean(req.body.instructions, 3000), status: clean(req.body.status, 30) || 'scheduled' };
   if (!scheduledAt || !payload.round || !payload.interviewerName) return res.status(400).json({ success: false, message: 'Candidate, round, schedule and interviewer are required' });
   let row;
   if (req.params.id) { row = await HrInterview.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Interview not found' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
@@ -170,16 +182,18 @@ const listOffers = asyncHandler(async (req, res) => {
 });
 
 const saveOffer = asyncHandler(async (req, res) => {
+  if (!req.params.id && req.user.role !== ROLES.HR) return res.status(403).json({ success: false, message: 'HR prepares and submits new offers for Admin approval' });
   const candidate = await HrCandidate.findById(req.body.candidateId); if (!candidate) return res.status(400).json({ success: false, message: 'Select a valid candidate' });
   if (!req.params.id && (!candidate.isActive || candidate.stage !== 'selected')) return res.status(409).json({ success: false, message: 'Only an active selected candidate can receive a new offer' });
   if (!req.params.id) {
     const openOffer = await HrOffer.findOne({ candidate: candidate._id, status: { $in: ['draft', 'pending_approval', 'approved', 'sent', 'accepted'] } }).select('_id').lean();
     if (openOffer) return res.status(409).json({ success: false, message: 'This candidate already has an active offer' });
   }
-  const payload = { candidate: candidate._id, candidateCode: candidate.candidateCode, candidateName: candidate.name, designation: clean(req.body.designation, 180), department: clean(req.body.department, 120), annualCtc: Number(req.body.annualCtc), monthlyGross: Number(req.body.monthlyGross || 0), employmentType: clean(req.body.employmentType, 30) || 'full_time', proposedJoiningDate: clean(req.body.proposedJoiningDate, 10), validUntil: clean(req.body.validUntil, 10), terms: clean(req.body.terms, 5000) };
-  if (!payload.designation || !payload.department || !Number.isFinite(payload.annualCtc) || payload.annualCtc < 0 || !validDateKey(payload.proposedJoiningDate) || !validDateKey(payload.validUntil, true)) return res.status(400).json({ success: false, message: 'Designation, department, valid salary and joining date are required' });
+  const compensation = offerCompensation(req.body.monthlyGross, req.body.annualCtc);
+  const payload = { candidate: candidate._id, candidateCode: candidate.candidateCode, candidateName: candidate.name, designation: clean(req.body.designation, 180), department: clean(req.body.department, 120), ...(compensation || {}), employmentType: clean(req.body.employmentType, 30) || 'full_time', proposedJoiningDate: clean(req.body.proposedJoiningDate, 10), validUntil: clean(req.body.validUntil, 10), terms: clean(req.body.terms, 5000) };
+  if (!payload.designation || !payload.department || !compensation || !validDateKey(payload.proposedJoiningDate) || !validDateKey(payload.validUntil, true)) return res.status(400).json({ success: false, message: 'Designation, department, monthly salary and valid joining date are required' });
   let row;
-  if (req.params.id) { row = await HrOffer.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Offer not found' }); if (req.user.role !== ROLES.ADMIN && !['draft', 'rejected'].includes(row.status)) return res.status(409).json({ success: false, message: 'Only draft or rejected offers can be edited' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
+  if (req.params.id) { row = await HrOffer.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Offer not found' }); if (!canEditOffer(req.user.role, row.status)) return res.status(409).json({ success: false, message: 'This offer can no longer be edited at its current stage' }); if (String(row.candidate) !== String(candidate._id)) return res.status(409).json({ success: false, message: 'The candidate linked to an offer cannot be changed' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
   else { row = await HrOffer.create({ ...payload, offerCode: await nextCode('HR-OFR', 'offer'), createdBy: req.user._id, createdByName: req.user.name, updatedBy: req.user._id, updatedByName: req.user.name }); }
   await candidateActivity(candidate._id, req.user, req.params.id ? 'Offer updated' : 'Offer drafted', row.offerCode);
   res.status(req.params.id ? 200 : 201).json({ success: true, offer: row });
@@ -189,7 +203,7 @@ const offerStatus = asyncHandler(async (req, res) => {
   const row = await HrOffer.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Offer not found' });
   const next = clean(req.body.status, 30); const note = clean(req.body.note, 1000);
   if (!canTransition(OFFER_TRANSITIONS, row.status, next)) return res.status(409).json({ success: false, message: `Cannot move offer from ${row.status} to ${next}` });
-  if (['approved', 'rejected'].includes(next) && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can approve or reject salary offers' });
+  if (!canManageOfferTransition(req.user.role, next)) return res.status(403).json({ success: false, message: ['approved', 'rejected'].includes(next) ? 'Only Admin can approve or reject salary offers' : 'HR manages offer submission, communication and candidate response updates' });
   if (next === 'rejected' && !note) return res.status(400).json({ success: false, message: 'Rejection reason is required' });
   row.status = next; row.approvalNote = note; updateActor(row, req.user);
   if (next === 'approved') { row.approvedBy = req.user._id; row.approvedByName = req.user.name; row.approvedAt = new Date(); }

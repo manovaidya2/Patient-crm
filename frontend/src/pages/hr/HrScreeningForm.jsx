@@ -6,15 +6,16 @@ import Modal from '../../components/ui/Modal.jsx';
 const fieldClass = 'mt-1 w-full rounded-md border border-cardline bg-white px-3 py-2.5 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 const blank = { status: 'pending', rating: '3', education: '', experience: '', currentCtc: '', expectedCtc: '', noticePeriod: '', remarks: '' };
 
-export default function HrScreeningForm({ open, candidate, onClose, onSaved }) {
+export default function HrScreeningForm({ open, candidate, onClose, onSaved, onSchedule }) {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { if (open) setForm({ ...blank, ...(candidate?.screening || {}), rating: String(candidate?.screening?.rating || 3) }); setError(''); }, [open, candidate]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const submit = async (event) => {
+    const scheduleInterview = event.nativeEvent.submitter?.value === 'schedule';
     event.preventDefault(); setSaving(true); setError('');
-    try { await api.put(`/hr/candidates/${candidate.id}/screening`, form); onSaved(); onClose(); }
+    try { await api.put(`/hr/candidates/${candidate.id}/screening`, form); await onSaved(); onClose(); if (scheduleInterview) onSchedule?.(); }
     catch (requestError) { setError(requestError.response?.data?.message || 'Screening could not be saved'); }
     finally { setSaving(false); }
   };
@@ -31,7 +32,7 @@ export default function HrScreeningForm({ open, candidate, onClose, onSaved }) {
         <label className="text-sm font-medium">Notice period<input className={fieldClass} value={form.noticePeriod} onChange={set('noticePeriod')} /></label>
       </div>
       <label className="block text-sm font-medium">Screening remarks<textarea rows="4" className={fieldClass} value={form.remarks} onChange={set('remarks')} /></label>
-      <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save screening'}</Button></div>
+      <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save screening'}</Button>{form.status === 'shortlisted' && <Button type="submit" value="schedule" disabled={saving}>Save & schedule interview</Button>}</div>
     </form>
   </Modal>;
 }

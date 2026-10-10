@@ -20,10 +20,10 @@ test('policies require publishing before archival', () => {
   assert.equal(canChangePolicyStatus('archived', 'published'), false);
 });
 
-test('Admin decides leave while HR can cancel a pending request', () => {
-  assert.equal(canChangeLeaveStatus('pending', 'approved', 'admin'), true);
-  assert.equal(canChangeLeaveStatus('pending', 'rejected', 'admin'), true);
+test('HR alone decides or cancels a pending leave request', () => {
+  assert.equal(canChangeLeaveStatus('pending', 'approved', 'hr'), true);
+  assert.equal(canChangeLeaveStatus('pending', 'rejected', 'hr'), true);
   assert.equal(canChangeLeaveStatus('pending', 'cancelled', 'hr'), true);
-  assert.equal(canChangeLeaveStatus('pending', 'approved', 'hr'), false);
+  assert.equal(canChangeLeaveStatus('pending', 'approved', 'admin'), false);
   assert.equal(canChangeLeaveStatus('approved', 'cancelled', 'admin'), false);
 });
