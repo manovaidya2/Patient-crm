@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, PhoneCall, PhoneIncoming, UserRoundCheck, Users, AlertTriangle, ArrowRight, ClipboardCheck, Megaphone, Send, Briefcase } from 'lucide-react';
+import { CalendarClock, PhoneCall, PhoneIncoming, UserRoundCheck, Users, AlertTriangle, ArrowRight, ClipboardCheck, Megaphone, Send, Briefcase, GraduationCap, ShieldCheck } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import { CALL_OUTCOMES, formatDateTime, labelFor } from './hrOptions.js';
@@ -27,14 +27,24 @@ const recruitmentCards = [
   ['activeOnboarding', 'Active onboarding', Briefcase, '/admin/hr/onboarding', 'bg-[#F8F3EA] border-[#A88B60]'],
 ];
 
+const operationsCards = [
+  ['activeEmployees', 'Active employees', Users, '/admin/hr/employees', 'bg-[#EEF6F4] border-[#6C9B91]'],
+  ['todayAttendance', "Today's attendance", CalendarClock, '/admin/hr/attendance', 'bg-[#EFF4F8] border-[#7C9AAF]'],
+  ['pendingLeaves', 'Pending leave approvals', ClipboardCheck, '/admin/hr/leaves', 'bg-[#FFF6E8] border-[#D5A75F]'],
+  ['upcomingHolidays', 'Upcoming holidays', CalendarClock, '/admin/hr/holidays', 'bg-[#F8F3EA] border-[#A88B60]'],
+  ['plannedTraining', 'Active training plans', GraduationCap, '/admin/hr/training', 'bg-[#F5EFF9] border-[#9873B2]'],
+  ['draftPolicies', 'Policy drafts', ShieldCheck, '/admin/hr/policies', 'bg-[#F7F1EF] border-[#A97970]'],
+];
+
 export default function HrDashboard() {
   const [data, setData] = useState(null);
   const [recruitment, setRecruitment] = useState(null);
+  const [operations, setOperations] = useState(null);
   const [error, setError] = useState('');
   const load = async () => {
     try {
-      const [callResponse, recruitmentResponse] = await Promise.all([api.get('/hr/dashboard'), api.get('/hr/recruitment/summary')]);
-      setData(callResponse.data); setRecruitment(recruitmentResponse.data.summary); setError('');
+      const [callResponse, recruitmentResponse, operationsResponse] = await Promise.all([api.get('/hr/dashboard'), api.get('/hr/recruitment/summary'), api.get('/hr/operations/summary')]);
+      setData(callResponse.data); setRecruitment(recruitmentResponse.data.summary); setOperations(operationsResponse.data.summary); setError('');
     }
     catch (requestError) { setError(requestError.response?.data?.message || 'HR dashboard could not be loaded'); }
   };
@@ -43,13 +53,17 @@ export default function HrDashboard() {
 
   return <div className="space-y-6">
     <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="font-display text-2xl font-bold text-charcoal">HR Dashboard</h1><p className="mt-1 text-sm text-charcoal/60">Recruitment pipeline, manual calling and candidate follow-ups.</p></div>
+      <div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="font-display text-2xl font-bold text-charcoal">HR Dashboard</h1><p className="mt-1 text-sm text-charcoal/60">Recruitment, employee operations, attendance and daily HR work.</p></div>
       <div className="flex gap-2"><Link to="/admin/hr/candidates"><Button variant="outline">Candidates</Button></Link><Link to="/admin/hr/calls"><Button><PhoneCall size={16} /> Manual Call Register</Button></Link></div>
     </header>
     {error && <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error} <button className="ml-2 underline" onClick={load}>Retry</button></div>}
     <section className="border border-cardline bg-offwhite-100">
       <div className="flex items-center justify-between border-b border-cardline px-4 py-3"><div><h2 className="font-semibold text-charcoal">Recruitment pipeline</h2><p className="text-xs text-charcoal/55">Current approvals and operational workload</p></div><Link to="/admin/hr/requirements" className="inline-flex items-center gap-1 text-sm font-semibold text-sage">Open pipeline <ArrowRight size={14} /></Link></div>
       <div className="grid sm:grid-cols-2 xl:grid-cols-5">{recruitmentCards.map(([key, label, Icon, to, style]) => <Link key={key} to={to} className={`min-h-[116px] border-b border-r border-cardline p-4 transition hover:brightness-95 ${style}`}><div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-charcoal/65">{label}</p><Icon size={18} className="shrink-0 text-charcoal/45" /></div><p className="mt-3 text-3xl font-bold text-charcoal">{recruitment ? recruitment[key] : '...'}</p></Link>)}</div>
+    </section>
+    <section className="border border-cardline bg-offwhite-100">
+      <div className="flex items-center justify-between border-b border-cardline px-4 py-3"><div><h2 className="font-semibold text-charcoal">Employee operations</h2><p className="text-xs text-charcoal/55">Daily workforce records and approvals</p></div><Link to="/admin/hr/employees" className="inline-flex items-center gap-1 text-sm font-semibold text-sage">Open employees <ArrowRight size={14} /></Link></div>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-6">{operationsCards.map(([key, label, Icon, to, style]) => <Link key={key} to={to} className={`min-h-[112px] border-b border-r border-cardline p-4 transition hover:brightness-95 ${style}`}><div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-charcoal/65">{label}</p><Icon size={18} className="shrink-0 text-charcoal/45" /></div><p className="mt-3 text-3xl font-bold text-charcoal">{operations ? operations[key] : '...'}</p></Link>)}</div>
     </section>
     <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {cards.map(([key, label, Icon, tone]) => <div key={key} className={`min-h-[108px] border-l-4 p-4 ${tone}`}><div className="flex items-center justify-between"><p className="text-sm font-semibold text-charcoal/65">{label}</p><Icon size={18} className="text-charcoal/45" /></div><p className="mt-3 text-3xl font-bold text-charcoal">{data ? stat(key) : '...'}</p></div>)}

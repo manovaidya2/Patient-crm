@@ -197,6 +197,12 @@ const HrMenu = ({ collapsed, onNavigate }) => {
     ['/admin/hr/interviews', 'Interviews', CalendarClock],
     ['/admin/hr/offers', 'Offers', Send],
     ['/admin/hr/onboarding', 'Onboarding', CheckSquare],
+    ['/admin/hr/employees', 'Employees', Users],
+    ['/admin/hr/attendance', 'Attendance', CalendarClock],
+    ['/admin/hr/leaves', 'Leave Administration', ClipboardList],
+    ['/admin/hr/holidays', 'Holiday Calendar', CalendarClock],
+    ['/admin/hr/training', 'Training', BadgeCheck],
+    ['/admin/hr/policies', 'Policies', ShieldCheck],
   ];
   if (collapsed) return <NavLink to="/admin/hr" onClick={onNavigate} title="HR Management" aria-label="HR Management" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnHr ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><Briefcase size={17} /></NavLink>;
   return <div className="my-2 border-y border-offwhite-100/10 py-2">

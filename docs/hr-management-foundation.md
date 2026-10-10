@@ -22,6 +22,13 @@ The current HR branch contains:
 - Salary offers with Admin approval
 - Accepted-offer onboarding checklists
 - Recruitment workload summary on the HR Dashboard
+- Employee Directory linked to completed onboarding
+- Daily attendance with check-in, check-out and calculated work duration
+- Leave requests with Admin approval/rejection
+- Holiday calendar
+- Training plans with employee participation tracking
+- Versioned HR policies with Admin publishing
+- Employee operations summary on the HR Dashboard
 
 Employee-operation modules will build on this recruitment foundation.
 
@@ -55,6 +62,14 @@ Every call record has `source: hr_entered` and is not represented as automatical
 | Schedule/evaluate interviews | Yes | Yes | No |
 | Send offers after approval | Yes | Yes | No |
 | Manage onboarding checklist | Yes | Yes | No |
+| Create/edit employee records | Yes | Yes | No |
+| Record/edit attendance | Yes | Yes | No |
+| Create/edit pending leave requests | Yes | Yes | No |
+| Approve/reject leave requests | Yes | No | No |
+| Maintain holiday calendar | Yes | Yes | No |
+| Manage training and participation | Yes | Yes | No |
+| Draft HR policies | Yes | Yes | No |
+| Publish/archive HR policies | Yes | No | No |
 
 The `HR` role uses the existing `User` model and JWT authentication. Existing Manager accounts do not receive HR access.
 
@@ -79,6 +94,15 @@ Provides atomic yearly sequences for candidate, call, requirement, JD, campaign,
 ### Recruitment Records
 
 `HrHiringRequirement`, `HrJobDescription`, `HrCampaign`, `HrInterview`, `HrOffer`, and `HrOnboarding` keep each recruitment step separately auditable. Candidates retain their campaign attribution, screening assessment and lifecycle activity timeline.
+
+### Employee Operations Records
+
+- `HrEmployee` stores the employee master record and can link back to completed onboarding and candidate records.
+- `HrAttendance` stores one daily record per employee and calculates worked minutes from check-in and check-out.
+- `HrLeaveRequest` stores leave duration, reason and Admin decision details.
+- `HrHoliday` stores the organization holiday calendar with one holiday per date.
+- `HrTraining` stores schedules, trainers, assigned employees and participation outcomes.
+- `HrPolicy` stores versioned policy content. HR prepares drafts and Admin publishes or archives them.
 
 ## Follow-up Rules
 
@@ -118,6 +142,17 @@ All routes require the existing CRM login and either `admin` or `hr` role.
 | POST | `/api/hr/offers/:id/status` | Offer approval and response workflow |
 | GET/POST | `/api/hr/onboarding` | Accepted-offer onboarding |
 | PATCH | `/api/hr/onboarding/:id/checklist/:key` | Update onboarding task |
+| GET | `/api/hr/operations/summary` | Employee operations workload counts |
+| GET/POST/PATCH | `/api/hr/employees` | Employee Directory records |
+| GET | `/api/hr/employees/onboarding-options` | Completed onboarding not yet converted |
+| GET/POST/PATCH | `/api/hr/attendance` | Daily attendance register |
+| GET/POST/PATCH | `/api/hr/leaves` | Leave requests |
+| POST | `/api/hr/leaves/:id/status` | Admin leave approval/rejection |
+| GET/POST/PATCH | `/api/hr/holidays` | Holiday calendar |
+| GET/POST/PATCH | `/api/hr/training` | Training plans |
+| PATCH | `/api/hr/training/:id/participants/:employeeId` | Participation result |
+| GET/POST/PATCH | `/api/hr/policies` | Policy drafts |
+| POST | `/api/hr/policies/:id/status` | Admin publish/archive action |
 
 ## Dashboard Calculations
 
@@ -142,10 +177,14 @@ Counts are generated from MongoDB records and exclude voided calls.
 - An offer can be marked sent only after approval.
 - Onboarding can start only after the offer is accepted.
 - Completing every onboarding task moves the candidate to `joined`.
+- A completed onboarding can be converted into one employee record only once.
+- Each employee can have only one attendance record per date.
+- Pending or approved leave date ranges cannot overlap for the same employee.
+- Only Admin can approve/reject leave and publish/archive policies.
+- Published policies cannot be silently edited; a new version should be drafted.
 
 ## Next Phases
 
-1. Employees, Attendance, Leave, Holidays, Training and Policies
-2. KPIs, Performance, Appraisals, PIP, Grievances, Payroll and Exit Management
+1. KPIs, Performance, Appraisals, PIP, Grievances, Payroll and Exit Management
 
 Admin approval controls will be introduced with each relevant phase instead of adding non-functional placeholder pages.

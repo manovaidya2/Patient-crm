@@ -53,6 +53,7 @@ const HrCandidates = lazy(() => import('./pages/hr/HrCandidates.jsx'));
 const HrCandidateDetails = lazy(() => import('./pages/hr/HrCandidateDetails.jsx'));
 const HrCallRegister = lazy(() => import('./pages/hr/HrCallRegister.jsx'));
 const HrRecruitmentPage = lazy(() => import('./pages/hr/HrRecruitmentPage.jsx'));
+const HrOperationsPage = lazy(() => import('./pages/hr/HrOperationsPage.jsx'));
 
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
@@ -101,6 +102,12 @@ function App() {
         <Route path="hr/interviews" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="interviews" /></ProtectedRoute>} />
         <Route path="hr/offers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="offers" /></ProtectedRoute>} />
         <Route path="hr/onboarding" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="onboarding" /></ProtectedRoute>} />
+        <Route path="hr/employees" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="employees" /></ProtectedRoute>} />
+        <Route path="hr/attendance" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="attendance" /></ProtectedRoute>} />
+        <Route path="hr/leaves" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="leaves" /></ProtectedRoute>} />
+        <Route path="hr/holidays" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="holidays" /></ProtectedRoute>} />
+        <Route path="hr/training" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="training" /></ProtectedRoute>} />
+        <Route path="hr/policies" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="policies" /></ProtectedRoute>} />
         <Route
           index
           element={
