@@ -602,8 +602,26 @@ const createManagedAppointment = asyncHandler(async (req, res) => {
   const values = await cleanManagementValues(req.body.values);
   const salesValues = await cleanValues(req.body.salesValues || {});
   const fee = consultationFee(req.body.consultationFee);
+  const payment = advancePayment(req.body.payment, fee);
+  let bank = null;
+  if (payment?.bank) {
+    if (!/^[a-f\d]{24}$/i.test(payment.bank)) return res.status(400).json({ success: false, message: 'Select a valid bank' });
+    bank = await BankAccount.findOne({ _id: payment.bank, isActive: true });
+    if (!bank) return res.status(400).json({ success: false, message: 'Select an active bank' });
+  }
   const row = await AppointmentManagementEntry.create({ appointmentDate: req.body.appointmentDate, appointmentCode: createAppointmentCode(), entryAt: new Date(), consultationFee: fee, salesValues, values, createdBy: req.user._id, createdByName: req.user.name });
+  try {
+    if (payment) {
+      const nameColumn = await SalesSheetColumn.findOne({ isActive: true, label: { $regex: /^(patient name|name)$/i } }).lean();
+      const patientName = String(nameColumn ? salesValues[String(nameColumn._id)] : '').trim() || `Appointment ${row.appointmentCode}`;
+      await ConsultationReceipt.create({ appointment: row._id, collectionStage: 'reception', appointmentCode: row.appointmentCode, patientName, amount: payment.amount, date: payment.date, paymentMode: payment.paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '', reference: payment.reference, cashReceivedByName: payment.cashReceivedByName, files: payment.files, notes: payment.notes, recordedBy: req.user._id, recordedByName: req.user.name, submissionKey: `appointment-payment:${row._id}` });
+    }
+  } catch (error) {
+    await row.deleteOne();
+    throw error;
+  }
   await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Management row created', details: 'Appointment added directly to Appointment Management' });
+  if (payment) await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Reception payment recorded', details: `Rs ${payment.amount}` });
   emitDateChanged(req, row.appointmentDate);
   res.status(201).json({ success: true, appointment: serializeManagementEntry(row, req.user) });
 });
