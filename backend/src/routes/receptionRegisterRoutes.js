@@ -6,6 +6,7 @@ router.use(protect, authorize(ROLES.ADMIN, ROLES.RECEPTIONIST));
 router.param('kind', (req, res, next, kind) => ['visitors', 'incoming-couriers', 'outgoing-couriers'].includes(kind) ? next() : res.status(404).json({ message: 'Register not found' }));
 router.get('/:kind', controller.list);
 router.post('/:kind/columns', controller.addColumn);
+router.put('/:kind/columns/order', controller.reorderColumns);
 const { uploadCourierImage } = require('../middleware/fileUploads');
 router.post('/:kind/entries', uploadCourierImage.single('image'), controller.save);
 router.patch('/:kind/entries/:id', uploadCourierImage.single('image'), controller.save);

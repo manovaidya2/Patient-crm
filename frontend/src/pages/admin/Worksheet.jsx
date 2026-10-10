@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays, Columns3, FileSpreadsheet, Inbox, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarDays, Columns3, FileSpreadsheet, Inbox, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -175,6 +175,20 @@ const Worksheet = () => {
     } catch (err) {
       setModalError(err.response?.data?.message || 'Could not rename column.');
     }
+  };
+
+  const moveColumn = async (index, direction) => {
+    const next = [...columns];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setModalError(''); setColumnBusy(true);
+    try {
+      await Promise.all(next.map((column, order) => column.order === order ? null : api.put(`/worksheet/columns/${column.id}`, { order })));
+      reload();
+    } catch (err) {
+      setModalError(err.response?.data?.message || 'Could not move column.');
+    } finally { setColumnBusy(false); }
   };
 
   const deleteColumn = async (column) => {
@@ -407,13 +421,15 @@ const Worksheet = () => {
         <div className="space-y-4">
           {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
           <ul className="divide-y divide-cardline rounded-lg border border-cardline">
-            {columns.map((column) => (
+            {columns.map((column, index) => (
               <li key={column.id} className="flex items-center justify-between gap-2 px-3 py-2">
                 <span className="text-sm font-medium text-charcoal">
                   {column.label}
                   {column.type === 'date' && <span className="ml-2 text-[10px] uppercase text-charcoal/50">Date</span>}
                 </span>
                 <span className="flex items-center gap-1">
+                  <button type="button" disabled={columnBusy || index === 0} onClick={() => moveColumn(index, -1)} className="rounded-md p-1.5 text-charcoal/55 hover:bg-offwhite-300 disabled:opacity-25" aria-label={`Move ${column.label} up`}><ArrowUp size={14} /></button>
+                  <button type="button" disabled={columnBusy || index === columns.length - 1} onClick={() => moveColumn(index, 1)} className="rounded-md p-1.5 text-charcoal/55 hover:bg-offwhite-300 disabled:opacity-25" aria-label={`Move ${column.label} down`}><ArrowDown size={14} /></button>
                   <button
                     type="button"
                     onClick={() => renameColumn(column)}

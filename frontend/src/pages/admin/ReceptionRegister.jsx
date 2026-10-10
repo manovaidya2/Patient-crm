@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Columns3, Pencil, Plus, RefreshCw, Save, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Pencil, Plus, RefreshCw, Save, Search } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -21,6 +21,7 @@ export default function ReceptionRegister({ kind }) {
   const [modalError, setModalError] = useState('');
   const [draft, setDraft] = useState(null);
   const [columnOpen, setColumnOpen] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
   const [column, setColumn] = useState(blankColumn);
   const [saving, setSaving] = useState(false);
   const [image, setImage] = useState(null);
@@ -58,6 +59,16 @@ export default function ReceptionRegister({ kind }) {
     } catch (err) { setModalError(err.response?.data?.message || 'Could not save changes'); }
     finally { setSaving(false); }
   }
+  const moveColumn = async (index, direction) => {
+    const next = [...data.columns];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setSaving(true); setModalError('');
+    try { await api.put(`${endpoint}/columns/order`, { keys: next.map((item) => item.key) }); setData((old) => ({ ...old, columns: next })); }
+    catch (err) { setModalError(err.response?.data?.message || 'Could not move column'); }
+    finally { setSaving(false); }
+  };
   const change = (key, value) => setDraft((current) => ({ ...current, values: { ...current.values, [key]: value } }));
   const field = (item) => {
     const props = { className: input, value: draft.values[item.key] || '', required: item.required, onChange: (event) => change(item.key, event.target.value) };
@@ -67,7 +78,7 @@ export default function ReceptionRegister({ kind }) {
     return <input {...props} type={item.type === 'phone' ? 'tel' : item.type} step={item.type === 'number' ? 'any' : undefined} maxLength={2000} />;
   };
   return <div className="space-y-4 text-charcoal">
-    <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="font-display text-xl font-bold sm:text-2xl">{title}</h1><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => { setColumn(blankColumn); setModalError(''); setColumnOpen(true); }}><Columns3 size={16} />Add column</Button><Button size="sm" disabled={loading || !!error} onClick={() => { setModalError(''); setImage(null); setDraft({ date: date || today(), values: {} }); }}><Plus size={16} />Add entry</Button></div></header>
+    <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="font-display text-xl font-bold sm:text-2xl">{title}</h1><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={loading || !!error} onClick={() => { setModalError(''); setArrangeOpen(true); }}><ArrowUp size={16} />Arrange columns</Button><Button variant="outline" size="sm" onClick={() => { setColumn(blankColumn); setModalError(''); setColumnOpen(true); }}><Columns3 size={16} />Add column</Button><Button size="sm" disabled={loading || !!error} onClick={() => { setModalError(''); setImage(null); setDraft({ date: date || today(), values: {} }); }}><Plus size={16} />Add entry</Button></div></header>
     <div className="flex flex-wrap items-end gap-3">
       <label className="relative min-w-0 flex-1 basis-56"><span className="sr-only">Search register</span><Search size={16} className="pointer-events-none absolute left-3 top-3 text-sage" /><input className={`${input} !pl-10`} placeholder={kind === 'visitors' ? 'Search visitors, phone or purpose' : 'Search sender, recipient or tracking number'} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></label>
       <label className="space-y-1 text-xs font-semibold"><span className="block">Entry date</span><input className={input} type="date" value={date} onChange={(event) => { setDate(event.target.value); setPage(1); }} /></label>
@@ -80,6 +91,10 @@ export default function ReceptionRegister({ kind }) {
       {!loading && !error && !data.rows.length && <tr><td colSpan={data.columns.length + 4 + (hasImage ? 1 : 0)} className="p-8 text-charcoal/70">No entries found.</td></tr>}
     </tbody></table></div>
     <footer className="flex items-center justify-between text-xs"><span>{data.total} entries · Page {page} of {Math.max(1, Math.ceil(data.total / 25))}</span><div className="flex gap-2"><button title="Previous page" aria-label="Previous page" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)} className="p-2 disabled:opacity-30"><ChevronLeft size={18} /></button><button title="Next page" aria-label="Next page" disabled={page * 25 >= data.total || loading} onClick={() => setPage(page + 1)} className="p-2 disabled:opacity-30"><ChevronRight size={18} /></button></div></footer>
+    <Modal open={arrangeOpen} onClose={() => setArrangeOpen(false)} title="Arrange columns" className="max-w-lg">
+      {modalError && <p role="alert" className="mb-2 text-sm text-red-700">{modalError}</p>}
+      <div className="divide-y divide-cardline">{data.columns.map((item, index) => <div key={item.key} className="flex items-center gap-3 py-3"><span className="w-6 text-xs text-charcoal/40">{index + 1}</span><span className="flex-1 font-semibold">{item.label}</span><button disabled={saving || !index} onClick={() => moveColumn(index, -1)} className="p-1 text-sage disabled:opacity-25" title="Move up" aria-label={`Move ${item.label} up`}><ArrowUp size={16} /></button><button disabled={saving || index === data.columns.length - 1} onClick={() => moveColumn(index, 1)} className="p-1 text-sage disabled:opacity-25" title="Move down" aria-label={`Move ${item.label} down`}><ArrowDown size={16} /></button></div>)}</div>
+    </Modal>
     <Modal open={!!draft || columnOpen} onClose={() => { if (!saving) { setDraft(null); setColumnOpen(false); } }} title={columnOpen ? 'Add column' : draft?._id ? 'Edit entry' : 'Add entry'} className="max-w-2xl">
       <form onSubmit={save} className="space-y-4">{modalError && <p role="alert" className="text-sm text-red-700">{modalError}</p>}<fieldset disabled={saving} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {columnOpen ? <><label className="space-y-1 text-sm">Column name<input className={input} required maxLength={80} value={column.label} onChange={(event) => setColumn({ ...column, label: event.target.value })} /></label><label className="space-y-1 text-sm">Type<select className={input} value={column.type} onChange={(event) => setColumn({ ...column, type: event.target.value })}>{Object.entries(types).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>{column.type === 'select' && <label className="space-y-1 text-sm sm:col-span-2">Options, separated by commas<textarea className={input} required value={column.options} onChange={(event) => setColumn({ ...column, options: event.target.value })} /></label>}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={column.required} onChange={(event) => setColumn({ ...column, required: event.target.checked })} />Required</label></> : draft && <><label className="space-y-1 text-sm">Entry date *<input className={input} type="date" required value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label>{data.columns.map((item) => <label key={item.key} className="flex min-w-0 flex-col gap-1 text-sm">{item.label}{item.required ? ' *' : ''}{field(item)}</label>)}{hasImage && <label className="flex min-w-0 flex-col gap-1 text-sm">Parcel image (optional)<input type="file" accept="image/*" className={input} onChange={(event) => setImage(event.target.files?.[0] || null)} />{draft._id && draft.imageUrl && !image && <span className="text-xs">Current image kept unless you choose a new one</span>}</label>}</>}

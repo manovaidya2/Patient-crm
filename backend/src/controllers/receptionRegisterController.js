@@ -76,4 +76,13 @@ const addColumn = asyncHandler(async (req, res) => {
   await ReceptionRegister.updateOne({ _id: register._id }, { $push: { columns: { ...column, key: `field_${crypto.randomUUID().replace(/-/g, '')}` } } });
   res.status(201).json({ success: true });
 });
-module.exports = { list, save, addColumn, cleanValues, cleanColumn, validDate };
+const reorderColumns = asyncHandler(async (req, res) => {
+  const register = await getRegister(req.params.kind);
+  const keys = Array.isArray(req.body.keys) ? req.body.keys.map(String) : [];
+  const current = register.columns.map((column) => column.key);
+  if (keys.length !== current.length || new Set(keys).size !== keys.length || keys.some((key) => !current.includes(key))) fail('Column list is out of date. Reload and try again');
+  const byKey = new Map(register.columns.map((column) => [column.key, column.toObject()]));
+  await ReceptionRegister.updateOne({ _id: register._id }, { $set: { columns: keys.map((key) => byKey.get(key)) } });
+  res.json({ success: true });
+});
+module.exports = { list, save, addColumn, reorderColumns, cleanValues, cleanColumn, validDate };

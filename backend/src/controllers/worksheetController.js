@@ -141,6 +141,7 @@ const formatColumn = (column) => ({
   key: column.key,
   label: column.label,
   type: column.type || 'text',
+  order: column.order,
 });
 
 // Old rows stored Date/Patient/Work/Details as fixed fields; surface them in the matching default columns.
@@ -313,6 +314,14 @@ const updateWorksheetColumn = asyncHandler(async (req, res) => {
   const found = await findOwnedColumn(req, res);
   if (!found) return;
 
+  if (req.body.order !== undefined && req.body.label === undefined) {
+    const order = Number(req.body.order);
+    if (!Number.isInteger(order) || order < 0 || order > 10000) return res.status(400).json({ success: false, message: 'Invalid column position' });
+    found.column.order = order;
+    if (!found.column.user) found.column.user = found.ownerId;
+    await found.column.save();
+    return res.status(200).json({ success: true, column: formatColumn(found.column) });
+  }
   const label = String(req.body.label || '').trim().slice(0, 80);
   if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
 
