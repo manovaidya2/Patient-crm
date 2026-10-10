@@ -219,6 +219,7 @@ function App() {
         <Route path="clinic-inventory" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ClinicInventory /></ProtectedRoute>} />
         <Route path="visitors" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ReceptionRegister key="visitors" kind="visitors" /></ProtectedRoute>} />
         <Route path="incoming-couriers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ReceptionRegister key="incoming-couriers" kind="incoming-couriers" /></ProtectedRoute>} />
+        <Route path="outgoing-couriers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}><ReceptionRegister key="outgoing-couriers" kind="outgoing-couriers" /></ProtectedRoute>} />
         <Route
           path="courier"
           element={

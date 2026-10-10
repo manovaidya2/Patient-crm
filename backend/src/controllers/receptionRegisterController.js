@@ -8,6 +8,8 @@ const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(
 const defaults = (kind) => (kind === 'visitors' ? [
   ['name', 'Visitor name', 'text', true], ['phone', 'Phone', 'phone'], ['purpose', 'Purpose', 'textarea'],
   ['meeting', 'Whom to meet', 'text'], ['in', 'In time', 'time'], ['out', 'Out time', 'time'], ['notes', 'Notes', 'textarea'],
+] : kind === 'outgoing-couriers' ? [
+  ['parcel', 'Parcel', 'textarea', true], ['sentTo', 'Sent to (where)', 'text', true], ['sentBy', 'Sent by (who)', 'text', true], ['notes', 'Note', 'textarea'],
 ] : [
   ['sender', 'Sender', 'text', true], ['recipient', 'Recipient', 'text', true], ['company', 'Courier company', 'text'],
   ['tracking', 'Tracking number', 'text'], ['description', 'Parcel details', 'textarea'], ['received', 'Received time', 'time'],
@@ -52,14 +54,18 @@ const list = asyncHandler(async (req, res) => {
 const save = asyncHandler(async (req, res) => {
   if (!validDate(req.body.date || '')) fail('Select an entry date');
   const register = await getRegister(req.params.kind);
-  const values = cleanValues(register.columns, req.body.values);
+  let raw = req.body.values;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { fail('Entry values must be an object'); } }
+  const values = cleanValues(register.columns, raw);
+  const imageUrl = req.file ? `/uploads/courier/${req.file.filename}` : undefined;
   let row;
   if (req.params.id) {
     row = await ReceptionEntry.findOne({ _id: req.params.id, kind: req.params.kind });
     if (!row) return res.status(404).json({ message: 'Entry not found' });
     row.values = values; row.date = req.body.date; row.updatedByName = req.user.name;
+    if (imageUrl) row.imageUrl = imageUrl;
     await row.save();
-  } else row = await ReceptionEntry.create({ kind: req.params.kind, date: req.body.date, values, createdByName: req.user.name, updatedByName: req.user.name });
+  } else row = await ReceptionEntry.create({ kind: req.params.kind, date: req.body.date, values, imageUrl, createdByName: req.user.name, updatedByName: req.user.name });
   res.status(req.params.id ? 200 : 201).json({ row });
 });
 const addColumn = asyncHandler(async (req, res) => {

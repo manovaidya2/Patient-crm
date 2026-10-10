@@ -33,7 +33,7 @@ async function main() {
     fs.mkdirSync(output, { recursive: true });
     for (const width of [1440, 390]) {
       await page.setViewport({ width, height: 900 });
-      for (const kind of ['visitors', 'incoming-couriers']) {
+      for (const kind of ['visitors', 'incoming-couriers', 'outgoing-couriers']) {
         await page.goto(new URL(`/admin/${kind}`, url).href);
         await page.waitForSelector('button[title="Edit entry"]');
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));

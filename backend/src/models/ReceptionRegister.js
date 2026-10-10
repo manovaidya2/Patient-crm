@@ -8,13 +8,14 @@ const columnSchema = new mongoose.Schema({
   options: { type: [String], default: [] },
 });
 const registerSchema = new mongoose.Schema({
-  kind: { type: String, enum: ['visitors', 'incoming-couriers'], unique: true, required: true },
+  kind: { type: String, enum: ['visitors', 'incoming-couriers', 'outgoing-couriers'], unique: true, required: true },
   columns: [columnSchema],
 }, { timestamps: true });
 const entrySchema = new mongoose.Schema({
-  kind: { type: String, enum: ['visitors', 'incoming-couriers'], required: true },
+  kind: { type: String, enum: ['visitors', 'incoming-couriers', 'outgoing-couriers'], required: true },
   date: { type: String, required: true },
   values: { type: Map, of: String, default: {} },
+  imageUrl: String,
   createdByName: String,
   updatedByName: String,
 }, { timestamps: true, optimisticConcurrency: true });
