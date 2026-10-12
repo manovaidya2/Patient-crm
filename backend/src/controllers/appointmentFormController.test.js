@@ -1,11 +1,13 @@
 const { test, afterEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const { ROLES } = require('../constants/roles');
+const { isConsentFormColumn, isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 const { canWrite, receiptFilter, normalizedValue, updateField, updateFee, prepareReceipt, getForm, updateSalesReceipt } = require('./appointmentFormController');
 const { createReceipt } = require('./financialLedgerController');
 const Sales = require('../models/SalesAppointment');
 const Management = require('../models/AppointmentManagementEntry');
 const Column = require('../models/SalesSheetColumn');
+const ManagementColumn = require('../models/AppointmentManagementColumn');
 const Receipt = require('../models/ConsultationReceipt');
 const Audit = require('../models/SalesSheetAudit');
 const Bank = require('../models/BankAccount');
@@ -20,12 +22,37 @@ const invoke = async (handler, req) => {
   return { body, error, status, advanced };
 };
 afterEach(() => mock.restoreAll());
+test('consent form is optional only for admin in appointment management', () => {
+  const consent = { label: 'Consent Form', required: true };
+  assert.equal(isConsentFormColumn(consent), true);
+  assert.equal(isConsentFormColumn({ label: 'Concent  Form' }), true);
+  assert.equal(isManagementColumnRequired(consent, ROLES.ADMIN), false);
+  assert.equal(isManagementColumnRequired(consent, ROLES.RECEPTIONIST), true);
+  assert.equal(isManagementColumnRequired({ label: 'Patient name', required: true }, ROLES.ADMIN), true);
+});
 test('reception cannot edit sales confirmation fields through appointment form', async () => {
   mock.method(Management, 'findById', async () => ({ ...row, sourceAppointment: id }));
   mock.method(Sales, 'findById', async () => row);
   mock.method(Column, 'findOne', async () => ({ _id: columnId, label: 'Confirmation notes', type: 'text', section: 'confirmation' }));
   const result = await invoke(updateField, { params: { sheet: 'management', id }, user: { ...user, role: ROLES.RECEPTIONIST }, body: { source: 'sales', columnId, value: 'Changed' } });
   assert.equal(result.error?.statusCode, 403);
+});
+test('admin can clear a required consent form field in appointment management', async () => {
+  const managementRow = { ...row, sourceAppointment: null };
+  mock.method(Management, 'findById', async () => managementRow);
+  mock.method(ManagementColumn, 'findOne', async () => ({ _id: columnId, label: 'Consent Form', type: 'file', required: true, options: [] }));
+  mock.method(Management, 'findOneAndUpdate', async (condition, update) => {
+    assert.equal(update.$set[`values.${columnId}`], '');
+    return managementRow;
+  });
+  mock.method(Audit, 'create', async () => ({}));
+  const result = await invoke(updateField, {
+    params: { sheet: 'management', id },
+    user: { ...user, role: ROLES.ADMIN },
+    body: { source: 'reception', columnId, previousValue: '/uploads/records/consent.pdf', value: '' },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.body.value, '');
 });
 test('sales can edit only owned active unaccepted rows; accountant stays read-only', () => {
   assert.equal(canWrite('sales', row, user), true);
@@ -187,7 +214,6 @@ test('accepted appointment keeps its generated fields and linked call target in 
   mock.method(Management, 'findById', async () => management);
   mock.method(Sales, 'findById', async () => source);
   mock.method(Column, 'find', () => ({ sort: () => ({ lean: async () => [] }) }));
-  const ManagementColumn = require('../models/AppointmentManagementColumn');
   mock.method(ManagementColumn, 'find', () => ({ sort: () => ({ lean: async () => [] }) }));
   mock.method(Receipt, 'find', () => ({ sort: () => ({ lean: async () => [] }) }));
   mock.method(Bank, 'find', () => ({ select: () => ({ sort: () => ({ lean: async () => [] }) }) }));

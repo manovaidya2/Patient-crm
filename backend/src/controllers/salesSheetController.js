@@ -12,6 +12,7 @@ const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { dateRoom } = require('../realtime/salesSheetSocket');
+const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 
 const emitColumnsChanged = (req) => req.app.get('io')?.to('sales-sheet').emit('sales-sheet:columns-changed');
 const emitDateChanged = (req, date) => req.app.get('io')?.to(dateRoom(date)).emit('sales-sheet:date-changed', { date });
@@ -178,12 +179,12 @@ const cleanValues = async (rawValues, requireComplete = true) => {
   }
   return values;
 };
-const cleanManagementValues = async (rawValues) => {
+const cleanManagementValues = async (rawValues, role) => {
   const columns = await AppointmentManagementColumn.find({ isActive: true }).sort({ order: 1 }).lean();
   const values = {};
   for (const column of columns) {
     const value = cleanColumnValue(column, rawValues?.[String(column._id)]);
-    if (column.required && !value) {
+    if (isManagementColumnRequired(column, role) && !value) {
       const error = new Error(`${column.label} is required`);
       error.statusCode = 400;
       throw error;
@@ -599,7 +600,7 @@ const updateCallStatus = asyncHandler(async (req, res) => {
 
 const createManagedAppointment = asyncHandler(async (req, res) => {
   if (!validDate(req.body.appointmentDate)) return res.status(400).json({ success: false, message: 'Valid appointment date is required' });
-  const values = await cleanManagementValues(req.body.values);
+  const values = await cleanManagementValues(req.body.values, req.user.role);
   const salesValues = await cleanValues(req.body.salesValues || {});
   const fee = consultationFee(req.body.consultationFee);
   const payment = advancePayment(req.body.payment, fee);
@@ -639,7 +640,7 @@ const updateManagedAppointment = asyncHandler(async (req, res) => {
     }
     row.salesValues = nextValues;
   }
-  row.values = await cleanManagementValues(req.body.values);
+  row.values = await cleanManagementValues(req.body.values, req.user.role);
   row.updatedByName = req.user.name; row.lastEditedAt = new Date(); await row.save(); emitDateChanged(req, row.appointmentDate);
   await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Management row updated', details: 'Appointment details edited' });
   res.json({ success: true });

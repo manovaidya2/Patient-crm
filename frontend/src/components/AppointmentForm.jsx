@@ -17,6 +17,11 @@ const paidDate = (value) => value ? new Date(value).toLocaleDateString('en-IN', 
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 const href = (value) => value?.startsWith('/uploads/') ? `${(import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '')}${value}` : undefined;
 const checked = (value) => [true, 'true', '\u2611'].includes(value);
+const appointmentColumnsFor = (columns, sheet, role) => (sheet === 'management' && role === ROLES.ADMIN
+  ? columns.map((column) => /^(consent|concent)\s*form$/i.test(column.label.trim().replace(/\s+/g, ' '))
+    ? { ...column, required: false }
+    : column)
+  : columns);
 const Label = ({ title, children }) => <label className="block min-w-0"><span className="mb-1 block text-xs font-semibold text-charcoal/80">{title}</span>{children}</label>;
 
 function Value({ column, value }) {
@@ -68,11 +73,11 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
         sheet === 'management' ? api.get('/sales-sheet/management-columns', { skipCache: true }) : Promise.resolve({ data: { columns: [] } }),
         api.get('/sales-sheet/banks', { skipCache: true }),
       ]);
-      setData({ appointmentDate: row.appointmentDate, consultationFee: null, salesColumns: sales.data.columns, columns: reception.data.columns, salesValues: {}, values: {}, receipts: [], banks: banks.data.banks, canEdit: true });
+      setData({ appointmentDate: row.appointmentDate, consultationFee: null, salesColumns: sales.data.columns, columns: appointmentColumnsFor(reception.data.columns, sheet, user?.role), salesValues: {}, values: {}, receipts: [], banks: banks.data.banks, canEdit: true });
       return;
     }
     const response = await api.get(endpoint, { skipCache: true }); setData(response.data);
-  }, [endpoint, row.id, row.appointmentDate, sheet]);
+  }, [endpoint, row.id, row.appointmentDate, sheet, user?.role]);
   useEffect(() => { setLoading(true); load().catch((err) => setError(err.response?.data?.message || 'Appointment could not be loaded')).finally(() => setLoading(false)); }, [load]);
   const saveField = async (e) => {
     e.preventDefault(); setSaving(true); setError('');

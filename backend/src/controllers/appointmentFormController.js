@@ -9,6 +9,7 @@ const { ROLES } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isSalesConfirmationColumn } = require('../utils/appointmentSections');
+const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const idValid = (id) => /^[a-f\d]{24}$/i.test(String(id || ''));
@@ -32,7 +33,7 @@ const loadTarget = async (req) => {
 const receiptFilter = ({ sheet, row, root }) => root
   ? { $or: [{ salesAppointment: root }, ...(sheet === 'management' ? [{ appointment: row._id }] : [])] }
   : { appointment: row._id };
-const serializeColumn = (column) => ({ id: String(column._id), label: column.label, type: column.type, required: column.required, options: column.options || [], section: column.section || '' });
+const serializeColumn = (column, required = Boolean(column.required)) => ({ id: String(column._id), label: column.label, type: column.type, required, options: column.options || [], section: column.section || '' });
 const valuesOf = (values) => Object.fromEntries(values || []);
 const listBanks = asyncHandler(async (req, res) => {
   const banks = await Bank.find({ isActive: true }).select('name displayName').sort({ name: 1 }).lean();
@@ -65,7 +66,9 @@ const getForm = asyncHandler(async (req, res) => {
     consultationFee: target.owner.consultationFee ?? null,
     salesValues: valuesOf(target.sheet === 'sales' ? target.row.values : target.row.salesValues),
     values: valuesOf(target.sheet === 'management' ? target.row.values : null),
-    salesColumns: salesColumns.map(serializeColumn), columns: receptionColumns.map(serializeColumn), receipts, banks,
+    salesColumns: salesColumns.map((column) => serializeColumn(column)),
+    columns: receptionColumns.map((column) => serializeColumn(column, isManagementColumnRequired(column, req.user.role))),
+    receipts, banks,
   });
 });
 
@@ -97,7 +100,10 @@ const updateField = asyncHandler(async (req, res) => {
   const column = await (source === 'sales' ? SalesColumn : ManagementColumn).findOne({ _id: columnId, isActive: true });
   if (!column) fail('Field is no longer available', 404);
   if (req.user.role === ROLES.RECEPTIONIST && source === 'sales' && isSalesConfirmationColumn(column)) fail('Sales confirmation details are read-only for Reception', 403);
-  const value = normalizedValue(column, req.body.value);
+  const effectiveColumn = source === 'reception'
+    ? { label: column.label, type: column.type, options: column.options || [], required: isManagementColumnRequired(column, req.user.role) }
+    : column;
+  const value = normalizedValue(effectiveColumn, req.body.value);
   const field = `${target.sheet === 'management' && source === 'sales' ? 'salesValues' : 'values'}.${columnId}`;
   const previous = String(previousValue ?? '');
   const condition = previous === '' ? { $or: [{ [field]: '' }, { [field]: { $exists: false } }] } : { [field]: previous };
