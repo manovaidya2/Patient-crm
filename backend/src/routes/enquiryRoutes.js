@@ -1,8 +1,8 @@
 const router = require('express').Router();
 const { protect, authorize } = require('../middleware/auth');
-const { ALL_ROLES, ROLES } = require('../constants/roles');
+const { GENERAL_CRM_ROLES, ROLES } = require('../constants/roles');
 const controller = require('../controllers/enquiryController');
-router.use(protect, authorize(...ALL_ROLES));
+router.use(protect, authorize(...GENERAL_CRM_ROLES));
 router.get('/staff', controller.staff);
 router.get('/notifications', controller.notifications);
 router.get('/', controller.list);

@@ -6,6 +6,7 @@ const LABELS = {
   accounts: 'Accounts', advice: 'Doctor Advice', banks: 'Banks', courier: 'Courier',
   'clinic-inventory': 'Clinic Inventory', 'crm-chat': 'CRM Assistant',
   'digital-marketing': 'Digital Marketing', enquiries: 'Enquiries', invoices: 'Invoices',
+  hr: 'HR Management',
   knowledge: 'Knowledge Library', medicine: 'Medicine', patients: 'Patients',
   'package-not-bought': 'Package Not Bought', 'reception-registers': 'Reception Registers',
   'receptionist-checklist': 'Receptionist Checklist', 'record-room': 'Record Room',

@@ -1,10 +1,10 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
-const { ROLES, ALL_ROLES } = require('../constants/roles');
+const { ROLES, GENERAL_CRM_ROLES } = require('../constants/roles');
 const controller = require('../controllers/knowledgeController');
 
 const router = express.Router();
-router.use(protect, authorize(...ALL_ROLES));
+router.use(protect, authorize(...GENERAL_CRM_ROLES));
 router.use(require('../middleware/errorHandler').asyncHandler(async (req, res, next) => {
   await require('../utils/knowledgeMigration')();
   next();

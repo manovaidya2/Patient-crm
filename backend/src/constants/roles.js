@@ -13,6 +13,7 @@ const ROLES = {
   ACCOUNTANT: 'accountant',
   SALES_TEAM: 'sales_team',
   RECEPTIONIST: 'receptionist',
+  HR: 'hr',
 };
 
 // Roles the admin is allowed to create/manage through the Team Members module.
@@ -28,9 +29,11 @@ const CREATABLE_ROLES = [
   ROLES.ACCOUNTANT,
   ROLES.SALES_TEAM,
   ROLES.RECEPTIONIST,
+  ROLES.HR,
 ];
 
 const ALL_ROLES = [ROLES.ADMIN, ...CREATABLE_ROLES];
+const GENERAL_CRM_ROLES = ALL_ROLES.filter((role) => role !== ROLES.HR);
 
 // Roles that can open All Patients / Patient Details and see every patient, same as Admin.
 const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
@@ -54,12 +57,14 @@ const ROLE_LABELS = {
   [ROLES.ACCOUNTANT]: 'Accountant',
   [ROLES.SALES_TEAM]: 'Sales Team',
   [ROLES.RECEPTIONIST]: 'Receptionist',
+  [ROLES.HR]: 'HR',
 };
 
 module.exports = {
   ROLES,
   CREATABLE_ROLES,
   ALL_ROLES,
+  GENERAL_CRM_ROLES,
   ROLE_LABELS,
   PATIENT_FULL_ACCESS_ROLES,
   PATIENT_ACCESS_ROLES,
