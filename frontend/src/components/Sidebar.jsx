@@ -213,6 +213,9 @@ const HrMenu = ({ collapsed, onNavigate }) => {
     ['/admin/hr/policies', 'Policies', ShieldCheck],
     ['/admin/hr/payroll', 'Payroll Records', IndianRupee],
     ['/admin/hr/exits', 'Exit Management', UserX],
+    ['/admin/hr/worksheet', 'Daily HR Worksheet', ClipboardCheck],
+    ['/admin/hr/incidents','Complaints & Conflicts', HeartHandshake],
+    ['/admin/hr/expenses', 'Clinic Expenses', IndianRupee],
     ['/admin/hr/reports', 'HR Reports', BarChart3],
   ];
   if (collapsed) return <NavLink to="/admin/hr" onClick={onNavigate} title="HR Management" aria-label="HR Management" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnHr ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><Briefcase size={17} /></NavLink>;

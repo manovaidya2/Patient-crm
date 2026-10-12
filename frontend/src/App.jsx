@@ -56,6 +56,9 @@ const HrRecruitmentPage = lazy(() => import('./pages/hr/HrRecruitmentPage.jsx'))
 const HrOperationsPage = lazy(() => import('./pages/hr/HrOperationsPage.jsx'));
 const HrLifecyclePage = lazy(() => import('./pages/hr/HrLifecyclePage.jsx'));
 const HrReports = lazy(() => import('./pages/hr/HrReports.jsx'));
+const HrWorksheet = lazy(() => import('./pages/hr/HrWorksheet.jsx'));
+const HrIncidents = lazy(() => import('./pages/hr/HrIncidents.jsx'));
+const HrClinicExpenses = lazy(() => import('./pages/hr/HrClinicExpenses.jsx'));
 
 const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
 const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
@@ -111,7 +114,10 @@ function App() {
         <Route path="hr/training" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="training" /></ProtectedRoute>} />
         <Route path="hr/policies" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="policies" /></ProtectedRoute>} />
         {['kpis', 'performance', 'appraisals', 'pip', 'grievances', 'payroll', 'exits'].map((mode) => <Route key={mode} path={`hr/${mode}`} element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrLifecyclePage mode={mode} /></ProtectedRoute>} />)}
-        <Route path="hr/reports" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrReports /></ProtectedRoute>} />
+        <Route path="hr/worksheet" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrWorksheet /></ProtectedRoute>} />
+        <Route path="hr/incidents"element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrIncidents /></ProtectedRoute>} />
+        <Route path="hr/expenses"element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrClinicExpenses /></ProtectedRoute>} />
+        <Route path="hr/reports"element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrReports /></ProtectedRoute>} />
         <Route
           index
           element={
