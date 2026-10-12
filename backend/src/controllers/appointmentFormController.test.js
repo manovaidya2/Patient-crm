@@ -70,7 +70,7 @@ test('sales advance remains the same receipt after acceptance; direct appointmen
 });
 test('field types validate options, calendar dates, required checkbox and file paths', () => {
   assert.equal(normalizedValue({ type: 'checkbox' }, '\u2611'), 'true');
-  assert.equal(normalizedValue({ type: 'checkbox' }, 'false'), 'false');
+  assert.equal(normalizedValue({ type: 'checkbox' }, 'false'), '');
   assert.throws(() => normalizedValue({ type: 'checkbox', required: true }, 'false'));
   assert.throws(() => normalizedValue({ type: 'date' }, '2026-02-30'));
   assert.throws(() => normalizedValue({ type: 'number' }, 'money'));
@@ -293,7 +293,7 @@ test('sales owner can view reception calls but only reception and admin can log 
 
 test('reception can cancel acceptance and return an untouched appointment to Sales', async () => {
   const acceptedAt = new Date('2026-10-02T12:00:00Z');
-  mock.method(Management, 'findById', async () => ({ _id: columnId, sourceAppointment: id, appointmentCode: row.appointmentCode, values: new Map(), salesValues: row.values }));
+  mock.method(Management, 'findById', async () => ({ _id: columnId, sourceAppointment: id, appointmentCode: row.appointmentCode, values: new Map([['legacy-unchecked-consent', 'false']]), salesValues: row.values }));
   mock.method(Sales, 'findById', async () => ({ ...row, acceptedAt }));
   mock.method(Receipt, 'exists', async () => false);
   mock.method(Sales, 'findOneAndUpdate', async (filter, update) => {

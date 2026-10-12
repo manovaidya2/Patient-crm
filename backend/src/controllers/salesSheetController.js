@@ -72,7 +72,7 @@ const normalizeOptions = (rawOptions, type) => {
 };
 const cleanColumnValue = (column, rawValue) => {
   const value = String(rawValue ?? '').trim();
-  if (column.type === 'checkbox') return value === '☑' ? 'true' : value;
+  if (column.type === 'checkbox') return [true, 'true', '\u2611'].includes(rawValue) ? 'true' : '';
   if (column.type !== 'multi_select' || !value) return value;
   const selected = value.split(',').map((option) => option.trim()).filter(Boolean);
   const allowed = column.options || [];
@@ -92,6 +92,10 @@ const migrateLegacyAttachment = (value) => {
   fs.mkdirSync(uploadDir, { recursive: true });
   fs.writeFileSync(path.join(uploadDir, fileName), Buffer.from(match[2], 'base64'));
   return `/uploads/records/${fileName}`;
+};
+const hasMeaningfulSheetValue = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return Boolean(normalized) && normalized !== 'false';
 };
 const migrateLegacyFiles = async (row, columns, field = 'values') => {
   const values = row[field];
@@ -420,7 +424,7 @@ const cancelAcceptance = asyncHandler(async (req, res) => {
   const salesValues = Object.fromEntries(entry.salesValues || []);
   const sourceValues = Object.fromEntries(source.values || []);
   const salesFieldsChanged = Object.keys(salesValues).some((key) => String(salesValues[key] || '') !== String(sourceValues[key] || ''));
-  if (receptionValues.some((value) => String(value || '').trim()) || salesFieldsChanged) {
+  if (receptionValues.some(hasMeaningfulSheetValue) || salesFieldsChanged) {
     return res.status(409).json({ success: false, message: 'Reception details have been entered. Clear or resolve them before cancelling acceptance.' });
   }
   if (await ConsultationReceipt.exists({ appointment: entry._id })) {

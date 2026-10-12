@@ -74,7 +74,7 @@ const getForm = asyncHandler(async (req, res) => {
 
 const normalizedValue = (column, raw) => {
   let value = String(raw ?? '').trim();
-  if (column.type === 'checkbox') value = String([true, 'true', '\u2611'].includes(raw));
+  if (column.type === 'checkbox') value = [true, 'true', '\u2611'].includes(raw) ? 'true' : '';
   if (column.required && (!value || (column.type === 'checkbox' && value !== 'true'))) fail(`${column.label} is required`);
   if (value.length > 20000) fail('Value is too long');
   if (value && column.type === 'number' && !Number.isFinite(Number(value))) fail('Enter a valid number');
