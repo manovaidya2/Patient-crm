@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
-const { uploadRecordRoomImages } = require('../middleware/fileUploads');
+const { uploadRecordRoomImages, optimizeRecordRoomImages } = require('../middleware/fileUploads');
 const controller = require('../controllers/recordRoomController');
 
 const router = express.Router();
@@ -14,7 +14,7 @@ router.get('/:id', controller.detail);
 router.post('/', controller.create);
 router.patch('/:id', authorize(ROLES.ADMIN), controller.update);
 router.delete('/:id', authorize(ROLES.ADMIN), controller.remove);
-router.post('/:id/documents', uploadRecordRoomImages.array('documents', 30), controller.uploadDocuments);
+router.post('/:id/documents', uploadRecordRoomImages.array('documents', 30), optimizeRecordRoomImages, controller.uploadDocuments);
 router.post('/:id/issue', controller.issue);
 router.post('/:id/collect/:issueId', controller.collect);
 

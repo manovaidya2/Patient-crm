@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
+const { MAX_RECORD_ROOM_FILE_BYTES, compressImageForPdf } = require('./recordRoomMedia');
 // Full `puppeteer` (not puppeteer-core) bundles its own Chromium build, downloaded on
 // `npm install` — that's what makes PDF rendering reliable on a bare server that has no
 // browser installed system-wide, instead of silently falling back to the much lower
@@ -363,17 +364,12 @@ const writeTextPdf = async ({ filePath, title, metaRows = [], formData = {}, htm
   });
 };
 
-const writeImagesPdf = async ({ filePath, images = [] }) => {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
+const renderImagesPdf = async ({ filePath, images }) => {
   const doc = new PDFDocument({ size: 'A4', margin: 24, autoFirstPage: false });
   const stream = fs.createWriteStream(filePath);
   doc.pipe(stream);
 
-  let writtenPages = 0;
   images.forEach((image) => {
-    if (!image?.filePath || !fs.existsSync(image.filePath)) return;
-    writtenPages += 1;
     const addedOn = image.uploadedAt
       ? new Date(image.uploadedAt).toLocaleString('en-IN', {
           day: '2-digit',
@@ -389,7 +385,7 @@ const writeImagesPdf = async ({ filePath, images = [] }) => {
       .join(' | ');
 
     doc.addPage();
-    doc.image(image.filePath, page.margin, page.margin, {
+    doc.image(image.buffer, page.margin, page.margin, {
       fit: [page.width - page.margin * 2, page.height - page.margin * 2 - 24],
       align: 'center',
       valign: 'center',
@@ -400,7 +396,7 @@ const writeImagesPdf = async ({ filePath, images = [] }) => {
     });
   });
 
-  if (writtenPages === 0) {
+  if (images.length === 0) {
     doc.addPage();
     doc.fontSize(12).text('No record images found', page.margin, page.margin);
   }
@@ -411,6 +407,48 @@ const writeImagesPdf = async ({ filePath, images = [] }) => {
     stream.on('finish', resolve);
     stream.on('error', reject);
   });
+};
+
+const preparePdfImages = async (images, targetBytes) => {
+  const prepared = new Array(images.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < images.length) {
+      const index = cursor;
+      cursor += 1;
+      prepared[index] = {
+        ...images[index],
+        buffer: await compressImageForPdf(images[index].filePath, targetBytes),
+      };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, images.length) }, worker));
+  return prepared;
+};
+
+const writeImagesPdf = async ({ filePath, images = [] }) => {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const available = images.filter((image) => image?.filePath && fs.existsSync(image.filePath));
+  const temporaryPath = `${filePath}.${process.pid}-${Date.now()}.tmp`;
+
+  try {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const imageBudget = Math.floor((8.75 * 1024 * 1024 * (0.7 ** attempt)) / Math.max(1, available.length));
+      const prepared = await preparePdfImages(available, Math.max(28 * 1024, imageBudget));
+      await renderImagesPdf({ filePath: temporaryPath, images: prepared });
+      const size = (await fs.promises.stat(temporaryPath)).size;
+      if (size <= MAX_RECORD_ROOM_FILE_BYTES) {
+        await fs.promises.unlink(filePath).catch((error) => { if (error.code !== 'ENOENT') throw error; });
+        await fs.promises.rename(temporaryPath, filePath);
+        return;
+      }
+      await fs.promises.unlink(temporaryPath).catch(() => {});
+    }
+    throw new Error('Record Room PDF could not be compressed below 10 MB');
+  } catch (error) {
+    await fs.promises.unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
 };
 
 module.exports = { writeTextPdf, writeImagesPdf, checkPdfRenderer };

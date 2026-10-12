@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { optimizeUploadedImage } = require('../utils/recordRoomMedia');
 
 const allowedMimeTypes = [
   'image/jpeg',
@@ -67,10 +68,37 @@ const createUpload = (folder, { imagesOnly = false, allowedTypes = null, maxFile
   });
 };
 
+const removeUploadedFiles = async (files) => Promise.all((files || []).map((file) => fs.promises.unlink(file.path).catch(() => {})));
+const optimizeRecordRoomImages = async (req, res, next) => {
+  const files = req.files || [];
+  const optimized = [];
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < files.length) {
+      const index = cursor;
+      cursor += 1;
+      optimized[index] = await optimizeUploadedImage(files[index]);
+    }
+  };
+  try {
+    const results = await Promise.allSettled(Array.from({ length: Math.min(3, files.length) }, worker));
+    const failed = results.find((result) => result.status === 'rejected');
+    if (failed) throw failed.reason;
+    req.files = optimized;
+    next();
+  } catch (error) {
+    await removeUploadedFiles([...files, ...optimized.filter(Boolean)]);
+    error.statusCode = 400;
+    error.message = 'One of the images could not be optimized. Use a clear JPG or PNG image.';
+    next(error);
+  }
+};
+
 module.exports = {
   uploadStageRecord: createUpload('records'),
   uploadConsultationFeeProof: createUpload('consultation-fees'),
   uploadRecordRoomImages: createUpload('records', { imagesOnly: true }),
+  optimizeRecordRoomImages,
   uploadPrescription: createUpload('prescriptions'),
   uploadMedicineImage: createUpload('medicine', { imagesOnly: true }),
   uploadCourierImage: createUpload('courier', { imagesOnly: true }),

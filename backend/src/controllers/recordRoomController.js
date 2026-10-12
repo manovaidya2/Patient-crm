@@ -180,14 +180,25 @@ const rebuildPdf = async (record) => {
 };
 
 const uploadDocuments = asyncHandler(async (req, res) => {
-  const record = await RecordRoom.findById(req.params.id);
-  if (!record) return res.status(404).json({ success: false, message: 'Record room entry not found' });
   const files = req.files || [];
+  const record = await RecordRoom.findById(req.params.id);
+  if (!record) {
+    await Promise.all(files.map((file) => fs.promises.unlink(file.path).catch(() => {})));
+    return res.status(404).json({ success: false, message: 'Record room entry not found' });
+  }
   if (!files.length) return res.status(400).json({ success: false, message: 'Upload at least one image' });
   const invalid = files.find((file) => !file.mimetype.startsWith('image/'));
   if (invalid) return res.status(400).json({ success: false, message: 'Only image files can be scanned into the record PDF' });
-  record.documents.push(...files.map((file) => ({ url: `/uploads/records/${file.filename}`, fileName: file.originalname, uploadedAt: new Date(), uploadedByName: req.user.name })));
-  await rebuildPdf(record); await record.save();
+  const firstNewDocument = record.documents.length;
+  try {
+    record.documents.push(...files.map((file) => ({ url: `/uploads/records/${file.filename}`, fileName: file.originalname, uploadedAt: new Date(), uploadedByName: req.user.name })));
+    await rebuildPdf(record);
+    await record.save();
+  } catch (error) {
+    record.documents.splice(firstNewDocument);
+    await Promise.all(files.map((file) => fs.promises.unlink(file.path).catch(() => {})));
+    throw error;
+  }
   res.json({ success: true, record: serialize(record) });
 });
 

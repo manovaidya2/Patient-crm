@@ -25,6 +25,35 @@ function Field({ label, children }) {
   return <label className="rr-field grid min-w-0 gap-1.5 [&>span]:text-xs [&>span]:leading-[1.5] [&>span]:font-semibold"><span>{label}</span>{children}</label>;
 }
 
+async function optimizeRecordImage(file) {
+  if (!/^image\/(jpeg|png)$/i.test(file.type) || typeof createImageBitmap !== 'function') return file;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, 2000 / bitmap.width, 2800 / bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    let quality = 0.82;
+    let blob;
+    do {
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      quality -= 0.08;
+    } while (blob?.size > 9.5 * 1024 * 1024 && quality >= 0.5);
+    if (!blob) return file;
+    const name = `${file.name.replace(/\.[^.]+$/, '') || 'record-page'}.jpg`;
+    return new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch {
+    return file;
+  } finally {
+    bitmap?.close?.();
+  }
+}
+
 export default function RecordRoom() {
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
@@ -146,7 +175,8 @@ export default function RecordRoom() {
     if (!files.length) return;
     setSaving(true); setError('');
     try {
-      const body = new FormData(); files.forEach((file) => body.append('documents', file));
+      const body = new FormData();
+      for (const file of files) body.append('documents', await optimizeRecordImage(file));
       await api.post(`/record-room/${recordId}/documents`, body);
       setRevision((value) => value + 1);
     } catch (err) { setError(err.response?.data?.message || 'Upload failed. Please use JPG or PNG images.'); }
