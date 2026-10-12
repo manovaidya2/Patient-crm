@@ -22,8 +22,12 @@ test('report calculations exclude cancelled interviews and withdrawn offers', ()
   assert.equal(result.metrics.find((row) => row.key === 'interviewAttendance').value, 50);
   assert.equal(result.metrics.find((row) => row.key === 'offerAcceptance').value, 100);
   assert.equal(result.metrics.find((row) => row.key === 'costPerJoining').value, 3000);
+  assert.equal(result.metrics.find((row) => row.key === 'timeToHire').numerator, 4);
+  assert.equal(result.metrics.find((row) => row.key === 'timeToHire').denominator, 1);
   assert.equal(result.metrics.find((row) => row.key === 'trainingCompletion').value, 50);
   assert.equal(result.metrics.find((row) => row.key === 'kpiAchievement').value, 80);
+  assert.equal(result.metrics.find((row) => row.key === 'kpiAchievement').numerator, 80);
+  assert.equal(result.metrics.find((row) => row.key === 'kpiAchievement').denominator, 100);
 });
 
 test('zero denominators return unavailable instead of misleading zero percent', () => {

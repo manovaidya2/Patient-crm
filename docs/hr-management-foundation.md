@@ -16,7 +16,7 @@ The current HR branch contains:
 - Filtered Excel export
 - Hiring requirements with Admin approval
 - Job descriptions linked to approved requirements
-- Recruitment campaigns linked to active job descriptions
+- Recruitment campaigns linked to active job descriptions, with approved budget and actual spend
 - Candidate screening and campaign attribution
 - Interview scheduling and structured evaluations
 - Salary offers with Admin approval
@@ -29,12 +29,13 @@ The current HR branch contains:
 - Training plans with employee participation tracking
 - Versioned HR policies with Admin publishing
 - Employee operations summary on the HR Dashboard
-- Employee-linked KPIs and structured performance reviews
+- Employee-linked KPIs with numeric targets, actual achievement and weightage, plus structured performance reviews
 - Appraisal proposals with Admin approval
 - Performance improvement plans and confidential grievances
 - Monthly payroll records with server-calculated net pay and Admin approval
 - Exit approval, clearance and automatic employee status closure
-- Consolidated lifecycle reporting with CSV export
+- Daily, weekly and monthly calculated HR analytics with documented exceptions and CSV export
+- Consolidated lifecycle register reporting with CSV export
 
 Employee-operation modules will build on this recruitment foundation.
 
@@ -82,6 +83,8 @@ Every call record has `source: hr_entered` and is not represented as automatical
 | Prepare appraisal, payroll and exit records | Yes | Yes | No |
 | Give final appraisal/payroll/exit approval | Yes | No | No |
 | Export HR lifecycle reports | Yes | Yes | No |
+| Edit any HR record, including finalized records | Yes | Workflow-limited | No |
+| Permanently delete HR records | Yes | No | No |
 
 The `HR` role uses the existing `User` model and JWT authentication. Existing Manager accounts do not receive HR access.
 
@@ -116,6 +119,8 @@ Provides atomic yearly sequences for candidate, call, requirement, JD, campaign,
 - `HrTraining` stores schedules, trainers, assigned employees and participation outcomes.
 - `HrPolicy` stores versioned policy content. HR prepares drafts and Admin publishes or archives them.
 - `HrLifecycleRecord` stores employee-linked KPI, performance, appraisal, PIP, grievance, payroll and exit records with module-specific validated data and an actor timeline.
+
+Employee and candidate creation compares a normalized name and phone-number identity. Name case/extra spaces and common Indian phone formatting (`+91`, spaces or hyphens) cannot be used to create a duplicate person record.
 
 ## Follow-up Rules
 
@@ -169,6 +174,8 @@ All routes require the existing CRM login and either `admin` or `hr` role.
 | GET/POST/PATCH | `/api/hr/lifecycle/:module` | Lifecycle register for KPI through exit modules |
 | POST | `/api/hr/lifecycle/:module/:id/status` | Controlled workflow transition |
 | GET | `/api/hr/lifecycle/summary` | Real lifecycle dashboard/report counts |
+| GET | `/api/hr/lifecycle/reports/metrics` | Daily, weekly or monthly calculated HR metrics |
+| GET | `/api/hr/lifecycle/reports/metrics/export` | Export the selected calculated report to CSV |
 | GET | `/api/hr/lifecycle/reports/export` | Filterable lifecycle CSV export |
 
 ## Dashboard Calculations
@@ -182,6 +189,35 @@ Counts are generated from MongoDB records and exclude voided calls.
 - Outcome counts are grouped from stored outcomes.
 - Pending callbacks have a future follow-up time and pending status.
 - Overdue follow-ups have a past follow-up time and pending status.
+
+## Calculated HR Reports
+
+The HR Reports page calculates the following metrics from CRM records for a selected daily, Monday-to-Sunday weekly, or calendar-month period:
+
+| Metric | Calculation |
+| --- | --- |
+| Interview attendance rate | Attended / scheduled x 100 |
+| Candidate qualification rate | Qualified / applications x 100 |
+| Selection rate | Selected / completed interviews x 100 |
+| Offer acceptance rate | Accepted / issued offers x 100 |
+| Joining rate | Completed onboarding / accepted offers x 100 |
+| Cost per joining | Actual recruitment spend / joined employees |
+| Average time to hire | Acceptance date - application date |
+| Training completion | Completed assignments / assigned modules x 100 |
+| Weighted KPI achievement | Weighted actual / target x 100 |
+
+The report applies consistent exceptions so operational changes do not distort the figures:
+
+- Cancelled interviews are excluded. No-shows remain scheduled but are not attended.
+- The qualification cohort is candidates created in the selected period; a shortlisted screening is qualified.
+- Selection requires a completed interview with a `selected` recommendation.
+- Draft, unapproved and withdrawn offers are excluded. Declined offers remain issued.
+- Joining requires completed onboarding linked to an accepted offer.
+- Cost per joining uses actual spend from non-cancelled campaigns starting in the selected period; campaign budget is not treated as spend.
+- Time to hire averages calendar days for accepted offers issued in the selected period.
+- Cancelled training is excluded and only completed participant assignments count as completed.
+- KPI achievement includes active or completed KPIs ending in the selected period with numeric target, actual value and positive weightage.
+- A metric without a denominator displays `Not available` instead of a misleading zero.
 
 ## Workflow Rules
 
@@ -207,6 +243,11 @@ Counts are generated from MongoDB records and exclude voided calls.
 - Payroll net pay is calculated server-side from basic salary, allowances and deductions; one payroll record is allowed per employee/month.
 - Completing an exit changes the linked employee status to `exited` and records the action on the employee timeline.
 - Grievance and payroll records are stored as confidential lifecycle records.
+- Admin can edit records after normal workflow locking, including approved, completed and finalized records.
+- Admin-only permanent deletion is available across recruitment, calls, employee operations and lifecycle registers.
+- Deleting a candidate removes linked calls, interviews, offers, onboarding and employee records. Deleting an employee removes linked attendance, leave and lifecycle records and unlinks training participation.
+- Deleting a requirement, job description or campaign cleans dependent campaign links without deleting otherwise valid candidates.
+- Dashboard totals and calculated reports query current records, so deleted records are removed from subsequent calculations and exports automatically.
 
 ## Current Phase Status
 

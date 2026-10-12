@@ -30,6 +30,7 @@ test('salary offers cannot be sent before approval', () => {
 
 test('Admin reviews salary while HR manages offer communication', () => {
   assert.equal(canEditOffer('admin', 'pending_approval'), true);
+  assert.equal(canEditOffer('admin', 'accepted'), true);
   assert.equal(canEditOffer('hr', 'pending_approval'), false);
   assert.equal(canManageOfferTransition('admin', 'approved'), true);
   assert.equal(canManageOfferTransition('admin', 'sent'), false);

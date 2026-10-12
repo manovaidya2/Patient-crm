@@ -11,6 +11,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { localDateTime, dateKeyInIndia } = require('../utils/hrCallUtils');
 const { REQUIREMENT_TRANSITIONS, OFFER_TRANSITIONS, canTransition, canEditOffer, canManageOfferTransition, nextInterviewRound, offerCompensation, interviewChainMetadata, splitList, validDateKey } = require('../utils/hrRecruitmentUtils');
+const { deleteCampaignCascade, deleteJobDescriptionCascade, deleteOfferCascade, deleteOnboardingCascade } = require('../utils/hrAdminDeleteUtils');
 
 const clean = (value, max = 3000) => String(value || '').trim().slice(0, max);
 const validId = (value) => mongoose.Types.ObjectId.isValid(value);
@@ -89,7 +90,9 @@ const listJds = asyncHandler(async (req, res) => {
 });
 
 const saveJd = asyncHandler(async (req, res) => {
-  const requirement = await HrHiringRequirement.findOne({ _id: req.body.requirementId, status: 'approved' });
+  const requirementFilter = { _id: req.body.requirementId };
+  if (!(req.user.role === ROLES.ADMIN && req.params.id)) requirementFilter.status = 'approved';
+  const requirement = await HrHiringRequirement.findOne(requirementFilter);
   if (!requirement) return res.status(400).json({ success: false, message: 'Select an approved hiring requirement' });
   const payload = { requirement: requirement._id, requirementCode: requirement.requirementCode, title: clean(req.body.title, 180), department: clean(req.body.department, 120), summary: clean(req.body.summary, 5000), responsibilities: clean(req.body.responsibilities, 8000), qualifications: clean(req.body.qualifications, 5000), experience: clean(req.body.experience, 500), salaryRange: clean(req.body.salaryRange, 300), status: clean(req.body.status, 20) || 'draft' };
   if (!payload.title || !payload.department || !payload.summary || !payload.responsibilities || !payload.qualifications) return res.status(400).json({ success: false, message: 'Title, department, summary, responsibilities and qualifications are required' });
@@ -102,14 +105,17 @@ const saveJd = asyncHandler(async (req, res) => {
 const listCampaigns = asyncHandler(async (req, res) => {
   const filter = { ...searchFilter(req.query, ['campaignCode', 'jdCode', 'positionTitle', 'name']) }; if (req.query.status) filter.status = req.query.status;
   const rows = await HrCampaign.find(filter).sort({ startDate: -1 }).limit(500).lean();
-  res.json({ success: true, campaigns: rows.map((row) => ({ ...common(row, 'campaignCode'), jobDescriptionId: String(row.jobDescription), jdCode: row.jdCode, positionTitle: row.positionTitle, name: row.name, channels: row.channels, startDate: row.startDate, endDate: row.endDate, budget: row.budget, targetApplications: row.targetApplications, notes: row.notes })) });
+  res.json({ success: true, campaigns: rows.map((row) => ({ ...common(row, 'campaignCode'), jobDescriptionId: String(row.jobDescription), jdCode: row.jdCode, positionTitle: row.positionTitle, name: row.name, channels: row.channels, startDate: row.startDate, endDate: row.endDate, budget: row.budget, actualSpend: row.actualSpend || 0, targetApplications: row.targetApplications, notes: row.notes })) });
 });
 
 const saveCampaign = asyncHandler(async (req, res) => {
-  const jd = await HrJobDescription.findOne({ _id: req.body.jobDescriptionId, status: 'active' });
+  const jdFilter = { _id: req.body.jobDescriptionId };
+  if (!(req.user.role === ROLES.ADMIN && req.params.id)) jdFilter.status = 'active';
+  const jd = await HrJobDescription.findOne(jdFilter);
   if (!jd) return res.status(400).json({ success: false, message: 'Select an active job description' });
-  const payload = { jobDescription: jd._id, jdCode: jd.jdCode, positionTitle: jd.title, name: clean(req.body.name, 180), channels: splitList(req.body.channels), startDate: clean(req.body.startDate, 10), endDate: clean(req.body.endDate, 10), budget: Number(req.body.budget || 0), targetApplications: Number(req.body.targetApplications || 0), notes: clean(req.body.notes, 3000), status: clean(req.body.status, 20) || 'planned' };
-  if (!payload.name || !validDateKey(payload.startDate) || !validDateKey(payload.endDate, true) || payload.budget < 0 || payload.targetApplications < 0) return res.status(400).json({ success: false, message: 'Campaign name, valid dates and non-negative targets are required' });
+  const payload = { jobDescription: jd._id, jdCode: jd.jdCode, positionTitle: jd.title, name: clean(req.body.name, 180), channels: splitList(req.body.channels), startDate: clean(req.body.startDate, 10), endDate: clean(req.body.endDate, 10), budget: Number(req.body.budget || 0), actualSpend: Number(req.body.actualSpend || 0), targetApplications: Number(req.body.targetApplications || 0), notes: clean(req.body.notes, 3000), status: clean(req.body.status, 20) || 'planned' };
+  const validNumbers = [payload.budget, payload.actualSpend, payload.targetApplications].every((value) => Number.isFinite(value) && value >= 0);
+  if (!payload.name || !validDateKey(payload.startDate) || !validDateKey(payload.endDate, true) || !validNumbers) return res.status(400).json({ success: false, message: 'Campaign name, valid dates and non-negative budget, spend and targets are required' });
   if (payload.endDate && payload.endDate < payload.startDate) return res.status(400).json({ success: false, message: 'Campaign end date cannot be before start date' });
   let row;
   if (req.params.id) { row = await HrCampaign.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Campaign not found' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
@@ -235,9 +241,20 @@ const createOnboarding = asyncHandler(async (req, res) => {
   await candidateActivity(offer.candidate, req.user, 'Onboarding started', row.onboardingCode); res.status(201).json({ success: true, onboarding: row });
 });
 
+const saveOnboarding = asyncHandler(async (req, res) => {
+  const row = await HrOnboarding.findById(req.params.id);
+  if (!row) return res.status(404).json({ success: false, message: 'Onboarding record not found' });
+  const joiningDate = clean(req.body.joiningDate, 10);
+  if (!validDateKey(joiningDate)) return res.status(400).json({ success: false, message: 'Valid joining date is required' });
+  Object.assign(row, { joiningDate, reportingManager: clean(req.body.reportingManager, 180), workLocation: clean(req.body.workLocation, 180), notes: clean(req.body.notes, 3000) });
+  updateActor(row, req.user); await row.save();
+  await candidateActivity(row.candidate, req.user, 'Onboarding details updated', row.onboardingCode);
+  res.json({ success: true, onboarding: row });
+});
+
 const updateOnboardingItem = asyncHandler(async (req, res) => {
   const row = await HrOnboarding.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Onboarding record not found' });
-  if (['completed', 'cancelled'].includes(row.status)) return res.status(409).json({ success: false, message: 'Completed or cancelled onboarding cannot be changed' });
+  if (['completed', 'cancelled'].includes(row.status) && req.user.role !== ROLES.ADMIN) return res.status(409).json({ success: false, message: 'Only Admin can change completed or cancelled onboarding' });
   const item = row.checklist.find((entry) => entry.key === req.params.key); if (!item) return res.status(404).json({ success: false, message: 'Checklist item not found' });
   item.completed = Boolean(req.body.completed); item.note = clean(req.body.note, 1000);
   item.completedAt = item.completed ? new Date() : null; item.completedBy = item.completed ? req.user._id : null; item.completedByName = item.completed ? req.user.name : '';
@@ -249,6 +266,52 @@ const updateOnboardingItem = asyncHandler(async (req, res) => {
   res.json({ success: true, onboarding: row });
 });
 
+const deleteRequirement = asyncHandler(async (req, res) => {
+  const row = await HrHiringRequirement.findById(req.params.id).select('requirementCode').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Hiring requirement not found' });
+  const jobDescriptions = await HrJobDescription.find({ requirement: row._id }).select('_id').lean();
+  for (const jobDescription of jobDescriptions) await deleteJobDescriptionCascade(jobDescription._id);
+  await HrHiringRequirement.deleteOne({ _id: row._id });
+  res.json({ success: true, message: `${row.requirementCode} and linked job descriptions/campaigns deleted` });
+});
+
+const deleteJd = asyncHandler(async (req, res) => {
+  const row = await HrJobDescription.findById(req.params.id).select('jdCode').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Job description not found' });
+  const deleted = await deleteJobDescriptionCascade(row._id);
+  res.json({ success: true, message: `${row.jdCode} and linked campaigns deleted`, deleted });
+});
+
+const deleteCampaign = asyncHandler(async (req, res) => {
+  const row = await HrCampaign.findById(req.params.id).select('campaignCode').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Campaign not found' });
+  const deleted = await deleteCampaignCascade(row._id);
+  res.json({ success: true, message: `${row.campaignCode} deleted and candidates unlinked`, deleted });
+});
+
+const deleteInterview = asyncHandler(async (req, res) => {
+  const row = await HrInterview.findByIdAndDelete(req.params.id);
+  if (!row) return res.status(404).json({ success: false, message: 'Interview not found' });
+  await HrInterview.updateMany({ previousInterview: row._id }, { $set: { previousInterview: null } });
+  res.json({ success: true, message: `${row.interviewCode} deleted` });
+});
+
+const deleteOffer = asyncHandler(async (req, res) => {
+  const row = await HrOffer.findById(req.params.id).select('offerCode candidate').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Offer not found' });
+  const deleted = await deleteOfferCascade(row._id);
+  await HrCandidate.updateOne({ _id: row.candidate, stage: 'joined' }, { $set: { stage: 'selected', updatedBy: req.user._id, updatedByName: req.user.name } });
+  res.json({ success: true, message: `${row.offerCode} and linked onboarding/employee records deleted`, deleted });
+});
+
+const deleteOnboarding = asyncHandler(async (req, res) => {
+  const row = await HrOnboarding.findById(req.params.id).select('onboardingCode candidate').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Onboarding record not found' });
+  const deleted = await deleteOnboardingCascade(row._id);
+  await HrCandidate.updateOne({ _id: row.candidate, stage: 'joined' }, { $set: { stage: 'selected', updatedBy: req.user._id, updatedByName: req.user.name } });
+  res.json({ success: true, message: `${row.onboardingCode} and linked employee records deleted`, deleted });
+});
+
 const recruitmentSummary = asyncHandler(async (req, res) => {
   const [pendingRequirements, activeCampaigns, upcomingInterviews, pendingOffers, activeOnboarding] = await Promise.all([
     HrHiringRequirement.countDocuments({ status: 'pending_approval' }), HrCampaign.countDocuments({ status: 'active' }),
@@ -258,4 +321,4 @@ const recruitmentSummary = asyncHandler(async (req, res) => {
   res.json({ success: true, summary: { pendingRequirements, activeCampaigns, upcomingInterviews, pendingOffers, activeOnboarding } });
 });
 
-module.exports = { listRequirements, saveRequirement, requirementStatus, listJds, saveJd, listCampaigns, saveCampaign, saveScreening, listInterviews, saveInterview, saveEvaluation, listOffers, saveOffer, offerStatus, listOnboarding, createOnboarding, updateOnboardingItem, recruitmentSummary };
+module.exports = { listRequirements, saveRequirement, deleteRequirement, requirementStatus, listJds, saveJd, deleteJd, listCampaigns, saveCampaign, deleteCampaign, saveScreening, listInterviews, saveInterview, deleteInterview, saveEvaluation, listOffers, saveOffer, deleteOffer, offerStatus, listOnboarding, createOnboarding, saveOnboarding, deleteOnboarding, updateOnboardingItem, recruitmentSummary };

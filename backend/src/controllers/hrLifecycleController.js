@@ -2,11 +2,18 @@ const mongoose = require('mongoose');
 const HrCounter = require('../models/HrCounter');
 const HrEmployee = require('../models/HrEmployee');
 const HrLifecycleRecord = require('../models/HrLifecycleRecord');
+const HrCandidate = require('../models/HrCandidate');
+const HrInterview = require('../models/HrInterview');
+const HrOffer = require('../models/HrOffer');
+const HrOnboarding = require('../models/HrOnboarding');
+const HrCampaign = require('../models/HrCampaign');
+const HrTraining = require('../models/HrTraining');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
-const { dateKeyInIndia } = require('../utils/hrCallUtils');
+const { dateKeyInIndia, addDaysToDateKey } = require('../utils/hrCallUtils');
 const { validDateKey } = require('../utils/hrRecruitmentUtils');
 const { MODULES, STATUS_MAP, START_STATUS, validModule, canTransition, payrollTotals } = require('../utils/hrLifecycleUtils');
+const { periodRange, calculateHrMetrics } = require('../utils/hrReportUtils');
 
 const clean = (value, max = 3000) => String(value ?? '').trim().slice(0, max);
 const number = (value) => value === '' || value === undefined || value === null ? null : Number(value);
@@ -34,9 +41,9 @@ const recordJson = (row) => ({
 
 const dataFor = (module, body) => {
   if (module === 'kpis') {
-    const weightage = number(body.weightage);
-    if (!clean(body.metric, 200) || !clean(body.target, 200) || weightage === null || weightage < 0 || weightage > 100) throw new Error('Metric, target and weightage between 0 and 100 are required');
-    return { metric: clean(body.metric, 200), target: clean(body.target, 200), unit: clean(body.unit, 60), weightage };
+    const target = number(body.target), actualValue = number(body.actualValue ?? 0), weightage = number(body.weightage);
+    if (!clean(body.metric, 200) || target === null || target <= 0 || actualValue === null || actualValue < 0 || weightage === null || weightage <= 0 || weightage > 100) throw new Error('Metric, positive numeric target, actual performance and weightage between 1 and 100 are required');
+    return { metric: clean(body.metric, 200), target, actualValue, unit: clean(body.unit, 60), weightage };
   }
   if (module === 'performance') {
     const score = number(body.score);
@@ -82,7 +89,9 @@ const saveRecord = asyncHandler(async (req, res) => {
   const { module } = req.params;
   if (!validModule(module)) return res.status(404).json({ success: false, message: 'HR module not found' });
   if (!validId(req.body.employeeId) || (req.params.id && !validId(req.params.id))) return res.status(400).json({ success: false, message: 'Select a valid employee and record' });
-  const employee = await HrEmployee.findOne({ _id: req.body.employeeId, status: { $in: ['active', 'probation', 'notice_period'] } }).lean();
+  const employeeFilter = { _id: req.body.employeeId };
+  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  const employee = await HrEmployee.findOne(employeeFilter).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const title = clean(req.body.title, 220), startDate = clean(req.body.startDate, 10), endDate = clean(req.body.endDate, 10);
   if (!title || !validDateKey(startDate, true) || !validDateKey(endDate, true) || (startDate && endDate && endDate < startDate)) return res.status(400).json({ success: false, message: 'Title and valid period dates are required' });
@@ -93,7 +102,7 @@ const saveRecord = asyncHandler(async (req, res) => {
   if (req.params.id) {
     row = await HrLifecycleRecord.findOne({ _id: req.params.id, module });
     if (!row) return res.status(404).json({ success: false, message: `${labels[module]} record not found` });
-    if (finalStatuses.has(row.status)) return res.status(409).json({ success: false, message: 'Finalized records cannot be edited' });
+    if (finalStatuses.has(row.status) && req.user.role !== ROLES.ADMIN) return res.status(409).json({ success: false, message: 'Only Admin can edit a finalized record' });
     if (['appraisals', 'payroll', 'exits'].includes(module) && row.status === 'pending_approval' && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can edit a record awaiting approval' });
     Object.assign(row, payload, { updatedBy: req.user._id, updatedByName: req.user.name });
     row.activity.push({ action: `${labels[module]} updated`, details: title, ...actor(req.user) });
@@ -124,11 +133,68 @@ const setStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, record: recordJson(row) });
 });
 
+const deleteRecord = asyncHandler(async (req, res) => {
+  const { module, id } = req.params;
+  if (!validModule(module) || !validId(id)) return res.status(404).json({ success: false, message: 'HR lifecycle record not found' });
+  const row = await HrLifecycleRecord.findOneAndDelete({ _id: id, module });
+  if (!row) return res.status(404).json({ success: false, message: `${labels[module]} record not found` });
+  if (module === 'exits' && row.status === 'completed') {
+    await HrEmployee.updateOne({ _id: row.employee, status: 'exited' }, { $set: { status: 'active', updatedBy: req.user._id, updatedByName: req.user.name }, $push: { activity: { action: 'Completed exit record deleted by Admin', details: row.recordCode, ...actor(req.user) } } });
+  }
+  res.json({ success: true, message: `${labels[module]} record deleted` });
+});
+
 const summary = asyncHandler(async (req, res) => {
   const grouped = await HrLifecycleRecord.aggregate([{ $group: { _id: { module: '$module', status: '$status' }, count: { $sum: 1 } } }]);
   const result = Object.fromEntries(MODULES.map((module) => [module, { total: 0 }]));
   grouped.forEach(({ _id, count }) => { result[_id.module].total += count; result[_id.module][_id.status] = count; });
   res.json({ success: true, summary: result });
+});
+
+const buildCalculatedReport = async (period, anchor) => {
+  const range = periodRange(period, anchor);
+  if (!range) return null;
+  const start = new Date(`${range.from}T00:00:00+05:30`);
+  const end = new Date(`${addDaysToDateKey(range.to, 1)}T00:00:00+05:30`);
+  const [candidates, interviews, offers, campaigns, trainings, kpis] = await Promise.all([
+    HrCandidate.find({ createdAt: { $gte: start, $lt: end } }).select('_id createdAt screening.status').lean(),
+    HrInterview.find({ scheduledAt: { $gte: start, $lt: end }, status: { $ne: 'cancelled' } }).select('status evaluation').lean(),
+    HrOffer.find({ sentAt: { $gte: start, $lt: end }, status: { $ne: 'withdrawn' } }).select('_id candidate status sentAt respondedAt').lean(),
+    HrCampaign.find({ startDate: { $gte: range.from, $lte: range.to }, status: { $ne: 'cancelled' } }).select('actualSpend').lean(),
+    HrTraining.find({ endDate: { $gte: range.from, $lte: range.to }, status: { $ne: 'cancelled' } }).select('participants').lean(),
+    HrLifecycleRecord.find({ module: 'kpis', endDate: { $gte: range.from, $lte: range.to }, status: { $in: ['active', 'completed'] } }).select('data').lean(),
+  ]);
+  const offerIds = offers.map((row) => row._id);
+  const acceptedCandidateIds = offers.filter((row) => row.status === 'accepted').map((row) => row.candidate);
+  const [onboardings, candidateHistory] = await Promise.all([
+    offerIds.length ? HrOnboarding.find({ offer: { $in: offerIds } }).select('offer status').lean() : [],
+    acceptedCandidateIds.length ? HrCandidate.find({ _id: { $in: acceptedCandidateIds } }).select('_id createdAt').lean() : [],
+  ]);
+  return { period, anchor, range, generatedAt: new Date(), ...calculateHrMetrics({ candidates, candidateHistory, interviews, offers, onboardings, campaigns, trainings, kpis }) };
+};
+
+const calculatedReport = asyncHandler(async (req, res) => {
+  const period = clean(req.query.period, 20) || 'monthly';
+  const anchor = clean(req.query.date, 10) || dateKeyInIndia();
+  const report = await buildCalculatedReport(period, anchor);
+  if (!report) return res.status(400).json({ success: false, message: 'Select daily, weekly or monthly with a valid anchor date' });
+  res.json({ success: true, report });
+});
+
+const exportCalculatedReport = asyncHandler(async (req, res) => {
+  const period = clean(req.query.period, 20) || 'monthly';
+  const anchor = clean(req.query.date, 10) || dateKeyInIndia();
+  const report = await buildCalculatedReport(period, anchor);
+  if (!report) return res.status(400).json({ success: false, message: 'Select daily, weekly or monthly with a valid anchor date' });
+  const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const lines = [
+    ['HR Calculated Report', `${period}: ${report.range.from} to ${report.range.to}`].map(quote).join(','),
+    ['Report', 'Result', 'Numerator', 'Denominator', 'Formula', 'Calculation rule'].map(quote).join(','),
+    ...report.metrics.map((row) => [row.label, row.value === null ? 'Not available' : row.unit === 'percent' ? `${row.value}%` : row.unit === 'currency' ? `Rs ${row.value}` : `${row.value} days`, row.numerator, row.denominator, row.formula, row.rule].map(quote).join(',')),
+  ];
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="HR-Calculated-${period}-${report.range.from}.csv"`);
+  res.send(`\uFEFF${lines.join('\n')}`);
 });
 
 const exportReport = asyncHandler(async (req, res) => {
@@ -142,4 +208,4 @@ const exportReport = asyncHandler(async (req, res) => {
   res.send(`\uFEFF${lines.join('\n')}`);
 });
 
-module.exports = { listRecords, saveRecord, setStatus, summary, exportReport };
+module.exports = { listRecords, saveRecord, deleteRecord, setStatus, summary, calculatedReport, exportCalculatedReport, exportReport };

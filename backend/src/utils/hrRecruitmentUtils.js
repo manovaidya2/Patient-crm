@@ -9,7 +9,7 @@ const OFFER_TRANSITIONS = {
 
 const canTransition = (map, from, to) => Boolean(map[from]?.includes(to));
 const canEditOffer = (role, status) => role === 'admin'
-  ? ['draft', 'rejected', 'pending_approval'].includes(status)
+  ? true
   : role === 'hr' && ['draft', 'rejected'].includes(status);
 const canManageOfferTransition = (role, next) => ['approved', 'rejected'].includes(next)
   ? role === 'admin'

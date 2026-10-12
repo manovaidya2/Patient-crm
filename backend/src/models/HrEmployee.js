@@ -12,8 +12,10 @@ const schema = new mongoose.Schema({
   candidate: { type: mongoose.Schema.Types.ObjectId, ref: 'HrCandidate', default: null },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   name: { type: String, required: true, trim: true, maxlength: 150 },
+  nameKey: { type: String, trim: true, select: false },
   email: { type: String, trim: true, lowercase: true, maxlength: 180, default: '' },
   phone: { type: String, trim: true, maxlength: 30, default: '' },
+  phoneKey: { type: String, trim: true, select: false },
   emergencyContact: { type: String, trim: true, maxlength: 100, default: '' },
   department: { type: String, required: true, trim: true, maxlength: 120, index: true },
   designation: { type: String, required: true, trim: true, maxlength: 180 },
@@ -31,4 +33,5 @@ const schema = new mongoose.Schema({
 }, { timestamps: true, optimisticConcurrency: true });
 
 schema.index({ status: 1, department: 1, name: 1 });
+schema.index({ nameKey: 1, phoneKey: 1 }, { unique: true, partialFilterExpression: { nameKey: { $type: 'string' }, phoneKey: { $type: 'string' } } });
 module.exports = mongoose.model('HrEmployee', schema);

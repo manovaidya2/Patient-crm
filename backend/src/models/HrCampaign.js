@@ -8,7 +8,7 @@ const schema = new mongoose.Schema({
   channels: { type: [String], default: [] },
   startDate: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
   endDate: { type: String, default: '', match: /^$|^\d{4}-\d{2}-\d{2}$/ },
-  budget: { type: Number, min: 0, default: 0 }, targetApplications: { type: Number, min: 0, default: 0 },
+  budget: { type: Number, min: 0, default: 0 }, actualSpend: { type: Number, min: 0, default: 0 }, targetApplications: { type: Number, min: 0, default: 0 },
   notes: { type: String, trim: true, maxlength: 3000, default: '' },
   status: { type: String, enum: ['planned', 'active', 'paused', 'completed', 'cancelled'], default: 'planned', index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, createdByName: { type: String, required: true },

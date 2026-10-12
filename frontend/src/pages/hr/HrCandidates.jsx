@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Users } from 'lucide-react';
+import { Plus, Search, Trash2, Users } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import HrCandidateForm from './HrCandidateForm.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 import { CALL_OUTCOMES, CANDIDATE_STAGES, formatDateTime, labelFor } from './hrOptions.js';
 
 const control = 'rounded-md border border-cardline bg-white px-3 py-2.5 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 
 export default function HrCandidates() {
+  const { user } = useAuth();
   const [rows, setRows] = useState([]);
   const [filters, setFilters] = useState({ search: '', stage: '', active: 'true' });
   const [applied, setApplied] = useState(filters);
@@ -16,6 +19,7 @@ export default function HrCandidates() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
+  const [adminSelectedId, setAdminSelectedId] = useState('');
 
   const load = async (page = 1) => {
     setLoading(true);
@@ -26,6 +30,12 @@ export default function HrCandidates() {
     finally { setLoading(false); }
   };
   useEffect(() => { load(1); }, [applied]);
+  const remove = async () => {
+    const row = rows.find((item) => item.id === adminSelectedId);
+    if (!row || !window.confirm(`Delete ${row.candidateCode} - ${row.name}? Calls, interviews, offers and linked onboarding records will also be deleted.`)) return;
+    try { await api.delete(`/hr/candidates/${row.id}`); setAdminSelectedId(''); await load(1); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Candidate could not be deleted'); }
+  };
 
   return <div className="space-y-5">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="font-display text-2xl font-bold text-charcoal">Candidates</h1><p className="mt-1 text-sm text-charcoal/60">{pagination.total} candidate records</p></div><Button onClick={() => setFormOpen(true)}><Plus size={16} /> Add candidate</Button></header>
@@ -38,6 +48,7 @@ export default function HrCandidates() {
       </form>
     </section>
     {error && <div className="rounded-md bg-red-50 p-4 text-sm text-red-800">{error}</div>}
+    {user?.role === ROLES.ADMIN && rows.length > 0 && <section className="flex flex-col gap-3 border border-red-200 bg-red-50/50 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase text-red-800">Admin record controls</p><select className={`${control} mt-1 w-full`} value={adminSelectedId} onChange={(event) => setAdminSelectedId(event.target.value)}><option value="">Select a candidate</option>{rows.map((row) => <option key={row.id} value={row.id}>{row.candidateCode} - {row.name} - {row.phone}</option>)}</select></div><div className="flex gap-2">{adminSelectedId && <Link to={`/admin/hr/candidates/${adminSelectedId}`}><Button variant="outline">Open / edit</Button></Link>}<Button variant="danger" disabled={!adminSelectedId} onClick={remove}><Trash2 size={15}/> Delete</Button></div></section>}
     <section className="overflow-hidden border border-cardline bg-offwhite-100">
       <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-[#50685D] text-left text-xs uppercase text-white"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Contact</th><th className="px-4 py-3">Position</th><th className="px-4 py-3">Stage</th><th className="px-4 py-3">Calls</th><th className="px-4 py-3">Latest call</th><th className="px-4 py-3">Next follow-up</th><th className="px-4 py-3">Action</th></tr></thead><tbody className="divide-y divide-cardline-soft">
         {rows.map((row) => <tr key={row.id} className="hover:bg-offwhite-200"><td className="px-4 py-3"><p className="font-semibold text-charcoal">{row.name}</p><p className="whitespace-nowrap text-xs text-charcoal/55">{row.candidateCode}</p></td><td className="px-4 py-3"><p>{row.phone}</p><p className="text-xs text-charcoal/55">{row.email || 'No email'}</p></td><td className="px-4 py-3 font-medium">{row.appliedPosition}</td><td className="px-4 py-3"><span className="whitespace-nowrap rounded bg-sage/10 px-2 py-1 font-semibold text-sage">{labelFor(CANDIDATE_STAGES, row.stage)}</span></td><td className="px-4 py-3 font-semibold">{row.totalCalls}</td><td className="px-4 py-3"><p>{row.latestCallOutcome ? labelFor(CALL_OUTCOMES, row.latestCallOutcome) : 'No calls'}</p><p className="whitespace-nowrap text-xs text-charcoal/50">{row.latestCallAt ? formatDateTime(row.latestCallAt) : ''}</p></td><td className="px-4 py-3 whitespace-nowrap">{row.nextFollowUpAt ? formatDateTime(row.nextFollowUpAt) : 'Not scheduled'}</td><td className="px-4 py-3"><Link to={`/admin/hr/candidates/${row.id}`}><Button size="sm" variant="outline">Open profile</Button></Link></td></tr>)}

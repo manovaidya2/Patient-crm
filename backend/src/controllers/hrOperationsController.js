@@ -12,8 +12,10 @@ const { ROLES } = require('../constants/roles');
 const { dateKeyInIndia } = require('../utils/hrCallUtils');
 const { validDateKey, splitList } = require('../utils/hrRecruitmentUtils');
 const { inclusiveDays, timeMinutes, workedMinutes, canChangePolicyStatus, canChangeLeaveStatus } = require('../utils/hrOperationsUtils');
+const { deleteEmployeeCascade } = require('../utils/hrAdminDeleteUtils');
+const { normalizeEmployeeName, normalizeEmployeePhone, sameEmployeeIdentity } = require('../utils/hrEmployeeIdentity');
 
-const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern', 'consultant'];
+const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'internship', 'consultant'];
 const EMPLOYEE_STATUSES = ['active', 'probation', 'notice_period', 'inactive', 'exited'];
 const TRAINING_MODES = ['in_person', 'online', 'hybrid'];
 const TRAINING_STATUSES = ['planned', 'in_progress', 'completed', 'cancelled'];
@@ -56,8 +58,8 @@ const listEmployees = asyncHandler(async (req, res) => {
 
 const availableOnboarding = asyncHandler(async (req, res) => {
   const used = await HrEmployee.distinct('onboarding', { onboarding: { $ne: null } });
-  const rows = await HrOnboarding.find({ status: 'completed', _id: { $nin: used } }).sort({ completedAt: -1 }).lean();
-  res.json({ success: true, onboardings: rows.map((row) => ({ id: String(row._id), candidateId: String(row.candidate), candidateName: row.candidateName, designation: row.designation, department: row.department, joiningDate: row.joiningDate, reportingManager: row.reportingManager, workLocation: row.workLocation, onboardingCode: row.onboardingCode })) });
+  const rows = await HrOnboarding.find({ status: 'completed', _id: { $nin: used } }).populate('candidate', 'phone email').sort({ completedAt: -1 }).lean();
+  res.json({ success: true, onboardings: rows.map((row) => ({ id: String(row._id), candidateId: String(row.candidate?._id || row.candidate), candidateName: row.candidateName, phone: row.candidate?.phone || '', email: row.candidate?.email || '', designation: row.designation, department: row.department, joiningDate: row.joiningDate, reportingManager: row.reportingManager, workLocation: row.workLocation, onboardingCode: row.onboardingCode })) });
 });
 
 const saveEmployee = asyncHandler(async (req, res) => {
@@ -67,9 +69,12 @@ const saveEmployee = asyncHandler(async (req, res) => {
     joiningDate: clean(req.body.joiningDate, 10), workLocation: clean(req.body.workLocation, 180), reportingManager: clean(req.body.reportingManager, 180),
     probationEndDate: clean(req.body.probationEndDate, 10), status: clean(req.body.status, 30) || 'active', address: clean(req.body.address, 1000), notes: clean(req.body.notes, 3000),
   };
-  if (!payload.name || !payload.department || !payload.designation || !validDateKey(payload.joiningDate) || !validDateKey(payload.probationEndDate, true)) return res.status(400).json({ success: false, message: 'Name, department, designation and a valid joining date are required' });
+  payload.nameKey = normalizeEmployeeName(payload.name); payload.phoneKey = normalizeEmployeePhone(payload.phone);
+  if (!payload.name || payload.phoneKey.length < 7 || !payload.department || !payload.designation || !validDateKey(payload.joiningDate) || !validDateKey(payload.probationEndDate, true)) return res.status(400).json({ success: false, message: 'Name, phone number, department, designation and a valid joining date are required' });
   if (!EMPLOYMENT_TYPES.includes(payload.employmentType) || !EMPLOYEE_STATUSES.includes(payload.status)) return res.status(400).json({ success: false, message: 'Select a valid employment type and employee status' });
   if (payload.probationEndDate && payload.probationEndDate < payload.joiningDate) return res.status(400).json({ success: false, message: 'Probation end cannot be before joining date' });
+  const possibleDuplicates = await HrEmployee.find({ _id: { $ne: req.params.id || new mongoose.Types.ObjectId() } }).select('name phone +nameKey +phoneKey').lean();
+  if (possibleDuplicates.some((item) => sameEmployeeIdentity(item, payload))) return res.status(409).json({ success: false, message: 'An employee with this name and phone number already exists' });
   let onboarding = null;
   if (req.body.onboardingId) {
     if (!validId(req.body.onboardingId)) return res.status(400).json({ success: false, message: 'Invalid onboarding record' });
@@ -87,6 +92,13 @@ const saveEmployee = asyncHandler(async (req, res) => {
   res.status(req.params.id ? 200 : 201).json({ success: true, employee: serializeEmployee(row) });
 });
 
+const deleteEmployee = asyncHandler(async (req, res) => {
+  const row = await HrEmployee.findById(req.params.id).select('employeeCode name').lean();
+  if (!row) return res.status(404).json({ success: false, message: 'Employee not found' });
+  const deleted = await deleteEmployeeCascade(row._id);
+  res.json({ success: true, message: `${row.employeeCode} - ${row.name} and linked HR records deleted`, deleted });
+});
+
 const listAttendance = asyncHandler(async (req, res) => {
   const filter = searchFilter(req.query, ['employeeCode', 'employeeName', 'department']);
   if (req.query.status) filter.status = req.query.status;
@@ -98,7 +110,9 @@ const listAttendance = asyncHandler(async (req, res) => {
 });
 
 const saveAttendance = asyncHandler(async (req, res) => {
-  const employee = await HrEmployee.findOne({ _id: req.body.employeeId, status: { $in: ['active', 'probation', 'notice_period'] } }).lean();
+  const employeeFilter = { _id: req.body.employeeId };
+  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  const employee = await HrEmployee.findOne(employeeFilter).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const date = clean(req.body.date, 10), status = clean(req.body.status, 30), checkIn = clean(req.body.checkIn, 5), checkOut = clean(req.body.checkOut, 5);
   if (!validDateKey(date) || !['present', 'absent', 'half_day', 'short_day', 'leave', 'holiday', 'work_from_home'].includes(status)) return res.status(400).json({ success: false, message: 'Valid attendance date and status are required' });
@@ -123,8 +137,10 @@ const listLeaves = asyncHandler(async (req, res) => {
 });
 
 const saveLeave = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.HR) return res.status(403).json({ success: false, message: 'Only HR can add or edit leave requests' });
-  const employee = await HrEmployee.findOne({ _id: req.body.employeeId, status: { $in: ['active', 'probation', 'notice_period'] } }).lean();
+  if (![ROLES.HR, ROLES.ADMIN].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only HR or Admin can add or edit leave requests' });
+  const employeeFilter = { _id: req.body.employeeId };
+  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  const employee = await HrEmployee.findOne(employeeFilter).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const startDate = clean(req.body.startDate, 10), endDate = clean(req.body.endDate, 10), halfDay = req.body.halfDay === true || req.body.halfDay === 'true';
   if (!validDateKey(startDate) || !validDateKey(endDate) || endDate < startDate) return res.status(400).json({ success: false, message: 'Enter a valid leave date range' });
@@ -135,7 +151,7 @@ const saveLeave = asyncHandler(async (req, res) => {
   if (overlap) return res.status(409).json({ success: false, message: 'An active leave request already overlaps these dates' });
   const payload = { employee: employee._id, employeeCode: employee.employeeCode, employeeName: employee.name, department: employee.department, leaveType, startDate, endDate, days: halfDay ? 0.5 : inclusiveDays(startDate, endDate), halfDay, reason };
   let row;
-  if (req.params.id) { row = await HrLeaveRequest.findOne({ _id: req.params.id, status: 'pending' }); if (!row) return res.status(409).json({ success: false, message: 'Only pending leave requests can be edited' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
+  if (req.params.id) { row = await HrLeaveRequest.findOne(req.user.role === ROLES.ADMIN ? { _id: req.params.id } : { _id: req.params.id, status: 'pending' }); if (!row) return res.status(409).json({ success: false, message: 'Only pending leave requests can be edited by HR' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
   else row = await HrLeaveRequest.create({ ...payload, leaveCode: await nextCode('HR-LVE', 'leave'), createdBy: req.user._id, createdByName: req.user.name, updatedBy: req.user._id, updatedByName: req.user.name });
   res.status(req.params.id ? 200 : 201).json({ success: true, leave: row });
 });
@@ -172,7 +188,9 @@ const listTraining = asyncHandler(async (req, res) => {
 
 const saveTraining = asyncHandler(async (req, res) => {
   const employeeIds = splitList(req.body.employeeIds, 500).filter(validId);
-  const employees = await HrEmployee.find({ _id: { $in: employeeIds }, status: { $in: ['active', 'probation', 'notice_period'] } }).lean();
+  const employeeFilter = { _id: { $in: employeeIds } };
+  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  const employees = await HrEmployee.find(employeeFilter).lean();
   if (employees.length !== new Set(employeeIds).size) return res.status(400).json({ success: false, message: 'Select valid active employees' });
   const payload = { title: clean(req.body.title, 200), category: clean(req.body.category, 120), trainer: clean(req.body.trainer, 180), startDate: clean(req.body.startDate, 10), endDate: clean(req.body.endDate, 10), mode: clean(req.body.mode, 30) || 'in_person', locationOrLink: clean(req.body.locationOrLink, 1000), status: clean(req.body.status, 30) || 'planned', objectives: clean(req.body.objectives, 3000), notes: clean(req.body.notes, 3000), participants: employees.map((employee) => ({ employee: employee._id, employeeCode: employee.employeeCode, employeeName: employee.name })) };
   if (!payload.title || !payload.category || !payload.trainer || !validDateKey(payload.startDate) || !validDateKey(payload.endDate) || payload.endDate < payload.startDate || !payload.participants.length) return res.status(400).json({ success: false, message: 'Training details, valid dates and at least one participant are required' });
@@ -200,7 +218,7 @@ const savePolicy = asyncHandler(async (req, res) => {
   const payload = { title: clean(req.body.title, 220), category: clean(req.body.category, 120), version: clean(req.body.version, 30), effectiveDate: clean(req.body.effectiveDate, 10), content: clean(req.body.content, 30000) };
   if (!payload.title || !payload.category || !payload.version || !validDateKey(payload.effectiveDate) || !payload.content) return res.status(400).json({ success: false, message: 'Policy title, category, version, effective date and content are required' });
   let row;
-  if (req.params.id) { row = await HrPolicy.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Policy not found' }); if (row.status !== 'draft') return res.status(409).json({ success: false, message: 'Only draft policies can be edited' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
+  if (req.params.id) { row = await HrPolicy.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Policy not found' }); if (row.status !== 'draft' && req.user.role !== ROLES.ADMIN) return res.status(409).json({ success: false, message: 'Only Admin can edit a published or archived policy' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
   else row = await HrPolicy.create({ ...payload, policyCode: await nextCode('HR-POL', 'policy'), createdBy: req.user._id, createdByName: req.user.name, updatedBy: req.user._id, updatedByName: req.user.name });
   res.status(req.params.id ? 200 : 201).json({ success: true, policy: row });
 });
@@ -221,4 +239,16 @@ const operationsSummary = asyncHandler(async (req, res) => {
   res.json({ success: true, summary: { activeEmployees, todayAttendance, pendingLeaves, upcomingHolidays, plannedTraining, draftPolicies } });
 });
 
-module.exports = { listEmployees, availableOnboarding, saveEmployee, listAttendance, saveAttendance, listLeaves, saveLeave, leaveStatus, listHolidays, saveHoliday, listTraining, saveTraining, updateParticipant, listPolicies, savePolicy, policyStatus, operationsSummary };
+const deleteOperationRecord = (Model, label) => asyncHandler(async (req, res) => {
+  const row = await Model.findByIdAndDelete(req.params.id);
+  if (!row) return res.status(404).json({ success: false, message: `${label} not found` });
+  res.json({ success: true, message: `${label} deleted` });
+});
+
+const deleteAttendance = deleteOperationRecord(HrAttendance, 'Attendance record');
+const deleteLeave = deleteOperationRecord(HrLeaveRequest, 'Leave request');
+const deleteHoliday = deleteOperationRecord(HrHoliday, 'Holiday');
+const deleteTraining = deleteOperationRecord(HrTraining, 'Training record');
+const deletePolicy = deleteOperationRecord(HrPolicy, 'Policy');
+
+module.exports = { listEmployees, availableOnboarding, saveEmployee, deleteEmployee, listAttendance, saveAttendance, deleteAttendance, listLeaves, saveLeave, deleteLeave, leaveStatus, listHolidays, saveHoliday, deleteHoliday, listTraining, saveTraining, deleteTraining, updateParticipant, listPolicies, savePolicy, deletePolicy, policyStatus, operationsSummary };

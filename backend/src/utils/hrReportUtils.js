@@ -32,12 +32,14 @@ const calculateHrMetrics = ({ candidates = [], candidateHistory = candidates, in
     const acceptedAt = row.respondedAt ? new Date(row.respondedAt) : null;
     return appliedAt && acceptedAt && acceptedAt >= appliedAt ? (acceptedAt - appliedAt) / 86400000 : null;
   }).filter((value) => value !== null);
+  const totalHireDays = Number(timeToHireDays.reduce((sum, value) => sum + value, 0).toFixed(1));
   const recruitmentSpend = campaigns.reduce((sum, row) => sum + Number(row.actualSpend || 0), 0);
   const assignedModules = trainings.reduce((sum, row) => sum + (row.participants || []).length, 0);
   const completedModules = trainings.reduce((sum, row) => sum + (row.participants || []).filter((item) => item.status === 'completed').length, 0);
   const weightedKpis = kpis.map((row) => ({ target: Number(row.data?.target), actual: Number(row.data?.actualValue), weight: Number(row.data?.weightage || 0) })).filter((row) => row.target > 0 && Number.isFinite(row.actual) && row.weight > 0);
   const totalWeight = weightedKpis.reduce((sum, row) => sum + row.weight, 0);
-  const weightedAchievement = totalWeight ? Number((weightedKpis.reduce((sum, row) => sum + ((row.actual / row.target) * row.weight), 0) / totalWeight * 100).toFixed(1)) : null;
+  const weightedPoints = Number(weightedKpis.reduce((sum, row) => sum + ((row.actual / row.target) * row.weight), 0).toFixed(2));
+  const weightedAchievement = totalWeight ? Number((weightedPoints / totalWeight * 100).toFixed(1)) : null;
 
   return {
     counts: { applications: candidates.length, qualified, interviewsScheduled: interviews.length, interviewsAttended: attended, interviewsCompleted: completedInterviews, selected, offersIssued: issuedOffers.length, offersAccepted: acceptedOffers.length, joined, recruitmentSpend, trainingAssigned: assignedModules, trainingCompleted: completedModules, kpisMeasured: weightedKpis.length },
@@ -48,9 +50,9 @@ const calculateHrMetrics = ({ candidates = [], candidateHistory = candidates, in
       metric('offerAcceptance', 'Offer acceptance rate', acceptedOffers.length, issuedOffers.length, 'percent', 'Accepted / Offers issued x 100', 'Draft, unapproved and withdrawn offers are excluded; declined offers remain issued.'),
       metric('joining', 'Joining rate', joined, acceptedOffers.length, 'percent', 'Joined / Accepted offers x 100', 'Joining requires completed onboarding linked to an accepted offer.'),
       metric('costPerJoining', 'Cost per joining', recruitmentSpend, joined, 'currency', 'Actual recruitment spend / Employees joined', 'Uses actual spend from non-cancelled campaigns starting in the selected period; budget is not treated as spend.'),
-      { key: 'timeToHire', label: 'Average time to hire', numerator: timeToHireDays.length, denominator: timeToHireDays.length, value: average(timeToHireDays), unit: 'days', formula: 'Offer acceptance date - Application date', rule: 'Average calendar days for accepted offers issued in the selected period.' },
+      { key: 'timeToHire', label: 'Average time to hire', numerator: totalHireDays, denominator: timeToHireDays.length, value: average(timeToHireDays), unit: 'days', formula: 'Offer acceptance date - Application date', rule: 'Average calendar days for accepted offers issued in the selected period.' },
       metric('trainingCompletion', 'Training completion', completedModules, assignedModules, 'percent', 'Completed modules / Assigned modules x 100', 'Cancelled training is excluded; attended but incomplete assignments are not completed.'),
-      { key: 'kpiAchievement', label: 'Weighted KPI achievement', numerator: weightedKpis.length, denominator: weightedKpis.length, value: weightedAchievement, unit: 'percent', formula: 'Weighted Actual / Target x 100', rule: 'Includes active or completed KPIs ending in the selected period with numeric target, actual and positive weightage.' },
+      { key: 'kpiAchievement', label: 'Weighted KPI achievement', numerator: weightedPoints, denominator: totalWeight, value: weightedAchievement, unit: 'percent', formula: 'Weighted Actual / Target x 100', rule: 'Includes active or completed KPIs ending in the selected period with numeric target, actual and positive weightage.' },
     ],
   };
 };

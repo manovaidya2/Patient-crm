@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, ClipboardList, GraduationCap, Pencil, Plus, Search, ShieldCheck, UserRoundCheck, Users } from 'lucide-react';
+import { CalendarDays, Check, ClipboardList, GraduationCap, Pencil, Plus, Search, ShieldCheck, Trash2, UserRoundCheck, Users } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -59,6 +59,7 @@ export default function HrOperationsPage({ mode }) {
   const [saving, setSaving] = useState(false);
   const [decision, setDecision] = useState(null);
   const [decisionNote, setDecisionNote] = useState('');
+  const [adminSelectedId, setAdminSelectedId] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -69,7 +70,7 @@ export default function HrOperationsPage({ mode }) {
   useEffect(() => { setRows([]); setFilters({ search: '', status: '', from: '', to: '' }); setForm(blanks[mode]); load(); }, [mode]);
   useEffect(() => {
     if (!open) return;
-    if (['attendance', 'leaves', 'training'].includes(mode)) api.get('/hr/employees', { params: { operational: true } }).then(({ data }) => setEmployees(data.employees || [])).catch(() => setEmployees([]));
+    if (['attendance', 'leaves', 'training'].includes(mode)) api.get('/hr/employees', { params: { operational: user?.role === ROLES.ADMIN ? undefined : true } }).then(({ data }) => setEmployees(data.employees || [])).catch(() => setEmployees([]));
     if (mode === 'employees') api.get('/hr/employees/onboarding-options').then(({ data }) => setOnboardings(data.onboardings || [])).catch(() => setOnboardings([]));
   }, [mode, open]);
 
@@ -96,15 +97,23 @@ export default function HrOperationsPage({ mode }) {
     try { await api.patch(`/hr/training/${training.id}/participants/${participant.employeeId}`, { status }); await load(); }
     catch (requestError) { setError(requestError.response?.data?.message || 'Participant could not be updated'); }
   };
+  const remove = async (row) => {
+    const warning = mode === 'employees' ? 'Linked attendance, leave, KPI, payroll and employee records will also be deleted.' : 'Reports and totals will update after deletion.';
+    if (!window.confirm(`Delete this ${config.title.toLowerCase()} record? ${warning}`)) return;
+    try { await api.delete(`${config.endpoint}/${row.id}`); await load(); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Record could not be deleted'); }
+  };
   const Icon = config.icon;
   const actionLabel = actionLabels[mode];
+  const adminSelected = rows.find((row) => row.id === adminSelectedId);
 
   return <div className="space-y-5">
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Operations</p><h1 className="flex items-center gap-2 font-display text-2xl font-bold text-charcoal"><Icon size={23} /> {config.title}</h1><p className="mt-1 text-sm text-charcoal/60">{config.subtitle}</p></div>{!(mode === 'leaves' && user?.role !== ROLES.HR) && <Button onClick={openCreate}><Plus size={16} /> {actionLabel}</Button>}</header>
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Operations</p><h1 className="flex items-center gap-2 font-display text-2xl font-bold text-charcoal"><Icon size={23} /> {config.title}</h1><p className="mt-1 text-sm text-charcoal/60">{config.subtitle}</p></div>{!(mode === 'leaves' && ![ROLES.HR, ROLES.ADMIN].includes(user?.role)) && <Button onClick={openCreate}><Plus size={16} /> {actionLabel}</Button>}</header>
     <form onSubmit={(event) => { event.preventDefault(); load(); }} className={`grid gap-3 border border-cardline bg-offwhite-100 p-4 ${mode === 'attendance' ? 'lg:grid-cols-[1fr_170px_160px_160px_auto]' : 'sm:grid-cols-[1fr_220px_auto]'}`}><label className="relative"><Search size={16} className="absolute left-3 top-3 text-charcoal/40" /><input className={`${controlClass} w-full pl-9`} placeholder={`Search ${config.title.toLowerCase()}`} value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} /></label>{statuses[mode].length > 0 && <select className={controlClass} value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All statuses</option>{statuses[mode].map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select>}{mode === 'attendance' && <><input aria-label="From date" type="date" className={controlClass} value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /><input aria-label="To date" type="date" className={controlClass} value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></>}<Button type="submit">Apply filters</Button></form>
     {mode === 'attendance' && <AttendanceSummary summary={summary} total={rows.length} />}
     {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
-    <section className="overflow-hidden border border-cardline bg-offwhite-100"><div className="overflow-x-auto">{renderRows(mode, rows, user, openEdit, setDecision, changeParticipant)}</div>{loading && <p className="p-8 text-center text-sm text-charcoal/50">Loading...</p>}{!loading && !rows.length && <p className="p-10 text-center text-sm text-charcoal/50">No records match these filters.</p>}</section>
+    {user?.role === ROLES.ADMIN && rows.length > 0 && <section className="flex flex-col gap-3 border border-red-200 bg-red-50/50 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase text-red-800">Admin record controls</p><select className={`${controlClass} mt-1 w-full`} value={adminSelectedId} onChange={(event) => setAdminSelectedId(event.target.value)}><option value="">Select a record to edit or delete</option>{rows.map((row) => <option key={row.id} value={row.id}>{row.employeeCode || row.leaveCode || row.trainingCode || row.policyCode || row.name || row.title || row.date} - {row.employeeName || row.name || row.title || row.date}</option>)}</select></div><div className="flex gap-2"><Button variant="outline" disabled={!adminSelected} onClick={() => adminSelected && openEdit(adminSelected)}><Pencil size={15}/> Edit</Button><Button variant="danger" disabled={!adminSelected} onClick={() => adminSelected && remove(adminSelected)}><Trash2 size={15}/> Delete</Button></div></section>}
+    <section className="overflow-hidden border border-cardline bg-offwhite-100"><div className="overflow-x-auto">{renderRows(mode, rows, user, openEdit, setDecision, changeParticipant, remove)}</div>{loading && <p className="p-8 text-center text-sm text-charcoal/50">Loading...</p>}{!loading && !rows.length && <p className="p-10 text-center text-sm text-charcoal/50">No records match these filters.</p>}</section>
     <Modal open={open} onClose={() => setOpen(false)} title={`${editing ? 'Edit' : 'Add'} ${config.title}`} className="max-w-4xl"><form onSubmit={submit} className="space-y-4">{error && <div className="rounded bg-red-50 p-3 text-sm text-red-800">{error}</div>}{renderForm(mode, form, set, setForm, employees, onboardings)}<div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button></div></form></Modal>
     <Modal open={!!decision} onClose={() => setDecision(null)} title={`${decisionLabels[decision?.status] || 'Update'} record`} className="max-w-lg"><form onSubmit={decide} className="space-y-4">{decision?.status === 'rejected' && <Field label="Reason *"><textarea required autoFocus rows="4" className={fieldClass} value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} /></Field>}<p className="text-sm text-charcoal/65">Confirm this status change. The action will be recorded under your login.</p><div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setDecision(null)}>Back</Button><Button type="submit" disabled={saving}>Confirm</Button></div></form></Modal>
   </div>;
@@ -120,7 +129,8 @@ function renderForm(mode, form, set, setForm, employees, onboardings) {
   return <><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"><Field label="Policy title *"><input required className={fieldClass} value={form.title} onChange={set('title')} /></Field><Field label="Category *"><input required className={fieldClass} value={form.category} onChange={set('category')} /></Field><Field label="Version *"><input required className={fieldClass} value={form.version} onChange={set('version')} /></Field><Field label="Effective date *"><input required type="date" className={fieldClass} value={form.effectiveDate} onChange={set('effectiveDate')} /></Field></div><Field label="Policy content *"><textarea required rows="12" className={fieldClass} value={form.content} onChange={set('content')} /></Field></>;
 }
 
-function renderRows(mode, rows, user, edit, setDecision, changeParticipant) {
+function renderRows(mode, rows, user, edit, setDecision, changeParticipant, remove) {
+  const removeButton = (row) => user?.role === ROLES.ADMIN && <button title="Delete record" onClick={() => remove(row)} className="p-2 text-red-700"><Trash2 size={16}/></button>;
   const head = (labels) => <thead className="bg-[#50685D] text-left text-xs uppercase text-white"><tr>{labels.map((label) => <th key={label} className="whitespace-nowrap px-4 py-3">{label}</th>)}</tr></thead>;
   if (mode === 'employees') return <table className="w-full min-w-[1100px] text-sm">{head(['Employee','Name','Department','Designation','Joining','Type','Manager','Status','Action'])}<tbody className="divide-y divide-cardline-soft">{rows.map((row) => <tr key={row.id}><td className="px-4 py-3 font-semibold">{row.employeeCode}</td><td className="px-4 py-3"><p className="font-semibold">{row.name}</p><p className="text-xs text-charcoal/50">{row.email || row.phone || '-'}</p></td><td className="px-4 py-3">{row.department}</td><td className="px-4 py-3">{row.designation}</td><td className="px-4 py-3">{row.joiningDate}</td><td className="px-4 py-3 capitalize">{row.employmentType.replaceAll('_',' ')}</td><td className="px-4 py-3">{row.reportingManager || '-'}</td><td className="px-4 py-3"><Status value={row.status}/></td><td className="px-4 py-3"><button title="Edit employee" onClick={() => edit(row)} className="p-2 text-sage"><Pencil size={16}/></button></td></tr>)}</tbody></table>;
   if (mode === 'attendance') return <table className="w-full min-w-[950px] text-sm">{head(['Date','Employee','Department','Status','Check in','Check out','Hours','Notes','Action'])}<tbody className="divide-y divide-cardline-soft">{rows.map((row) => <tr key={row.id}><td className="px-4 py-3 font-semibold">{row.date}</td><td className="px-4 py-3"><p className="font-semibold">{row.employeeName}</p><p className="text-xs text-charcoal/50">{row.employeeCode}</p></td><td className="px-4 py-3">{row.department}</td><td className="px-4 py-3"><Status value={row.status}/></td><td className="px-4 py-3">{row.checkIn || '-'}</td><td className="px-4 py-3">{row.checkOut || '-'}</td><td className="px-4 py-3">{row.workedMinutes ? `${Math.floor(row.workedMinutes/60)}h ${row.workedMinutes%60}m` : '-'}</td><td className="max-w-56 truncate px-4 py-3">{row.notes || '-'}</td><td className="px-4 py-3"><button title="Edit attendance" onClick={() => edit(row)} className="p-2 text-sage"><Pencil size={16}/></button></td></tr>)}</tbody></table>;

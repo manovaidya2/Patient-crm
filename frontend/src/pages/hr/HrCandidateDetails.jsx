@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, PhoneCall, Plus, UserRound } from 'lucide-react';
+import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, PhoneCall, Plus, Trash2, UserRound } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -69,9 +69,15 @@ export default function HrCandidateDetails() {
   const canPrepareOffer = user?.role === ROLES.HR && candidate.stage === 'selected' && !offers.some((row) => ['draft', 'pending_approval', 'approved', 'sent', 'accepted'].includes(row.status));
   const interviewUrl = `/admin/hr/interviews?create=1&candidateId=${candidate.id}`;
   const offerUrl = `/admin/hr/offers?create=1&candidateId=${candidate.id}`;
+  const removeCandidate = async () => {
+    if (!window.confirm(`Delete ${candidate.candidateCode} - ${candidate.name}? All linked calls, interviews, offers and onboarding records will also be deleted.`)) return;
+    try { await api.delete(`/hr/candidates/${candidate.id}`); navigate('/admin/hr/candidates'); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Candidate could not be deleted'); }
+  };
 
   return <div className="space-y-5">
     <Link to="/admin/hr/candidates" className="inline-flex items-center gap-2 text-sm font-semibold text-sage"><ArrowLeft size={16} /> Back to candidates</Link>
+    {user?.role === ROLES.ADMIN && <div className="flex justify-end"><Button variant="danger" onClick={removeCandidate}><Trash2 size={15}/> Delete candidate</Button></div>}
     <section className="border border-cardline bg-offwhite-100">
       <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center bg-[#EAF3F1] text-sage"><UserRound /></div><div><p className="text-xs font-semibold uppercase text-charcoal/50">{candidate.candidateCode}</p><h1 className="font-display text-3xl font-bold text-charcoal">{candidate.name}</h1><p className="mt-1 text-charcoal/60">{candidate.appliedPosition} | {candidate.phone}</p></div></div>

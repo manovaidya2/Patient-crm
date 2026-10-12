@@ -4,6 +4,8 @@ const HrCandidate = require('../models/HrCandidate');
 const HrCallRecord = require('../models/HrCallRecord');
 const HrCounter = require('../models/HrCounter');
 const HrCampaign = require('../models/HrCampaign');
+const { deleteCandidateCascade } = require('../utils/hrAdminDeleteUtils');
+const { sameEmployeeIdentity } = require('../utils/hrEmployeeIdentity');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const {
@@ -105,6 +107,8 @@ const listCandidates = asyncHandler(async (req, res) => {
 const createCandidate = asyncHandler(async (req, res) => {
   const payload = candidatePayload(req.body);
   if (!payload.name || !payload.phone || !payload.appliedPosition) return res.status(400).json({ success: false, message: 'Candidate name, phone and applied position are required' });
+  const candidates = await HrCandidate.find({}).select('name phone').lean();
+  if (candidates.some((item) => sameEmployeeIdentity(item, payload))) return res.status(409).json({ success: false, message: 'A candidate with this name and phone number already exists' });
   const campaign = await resolveCampaign(req.body.campaignId);
   if (req.body.campaignId && !campaign) return res.status(400).json({ success: false, message: 'Select a valid active recruitment campaign' });
   Object.assign(payload, campaign);
@@ -130,6 +134,8 @@ const updateCandidate = asyncHandler(async (req, res) => {
   if (!entry) return res.status(404).json({ success: false, message: 'Candidate not found' });
   const payload = candidatePayload({ ...entry.toObject(), ...req.body });
   if (!payload.name || !payload.phone || !payload.appliedPosition) return res.status(400).json({ success: false, message: 'Candidate name, phone and applied position are required' });
+  const candidates = await HrCandidate.find({ _id: { $ne: entry._id } }).select('name phone').lean();
+  if (candidates.some((item) => sameEmployeeIdentity(item, payload))) return res.status(409).json({ success: false, message: 'A candidate with this name and phone number already exists' });
   const requestedCampaign = req.body.campaignId === undefined ? entry.campaign : req.body.campaignId;
   const campaign = await resolveCampaign(requestedCampaign, entry.campaign);
   if (requestedCampaign && !campaign) return res.status(400).json({ success: false, message: 'Select a valid active recruitment campaign' });
@@ -142,6 +148,14 @@ const updateCandidate = asyncHandler(async (req, res) => {
   if (changes.length) entry.activity.push({ action: 'Candidate updated', details: changes.map(([key]) => key).join(', '), ...actor(req.user) });
   await entry.save();
   res.json({ success: true, candidate: serializeCandidate(entry) });
+});
+
+const deleteCandidate = asyncHandler(async (req, res) => {
+  if (!objectId(req.params.id)) return res.status(400).json({ success: false, message: 'Invalid candidate ID' });
+  const entry = await HrCandidate.findById(req.params.id).select('candidateCode name').lean();
+  if (!entry) return res.status(404).json({ success: false, message: 'Candidate not found' });
+  const deleted = await deleteCandidateCascade(entry._id);
+  res.json({ success: true, message: `${entry.candidateCode} - ${entry.name} and all linked recruitment records deleted`, deleted });
 });
 
 const callPayload = (body) => {
@@ -271,6 +285,14 @@ const voidCall = asyncHandler(async (req, res) => {
   res.json({ success: true, call: serializeCall(record) });
 });
 
+const deleteCall = asyncHandler(async (req, res) => {
+  if (!objectId(req.params.id)) return res.status(400).json({ success: false, message: 'Invalid call record ID' });
+  const record = await HrCallRecord.findByIdAndDelete(req.params.id);
+  if (!record) return res.status(404).json({ success: false, message: 'Call record not found' });
+  await refreshCandidateSummary(record.candidate);
+  res.json({ success: true, message: `${record.callCode} deleted` });
+});
+
 const dashboard = asyncHandler(async (req, res) => {
   const today = dateKeyInIndia();
   const yesterday = addDaysToDateKey(today, -1);
@@ -321,6 +343,6 @@ const exportCalls = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  listCandidates, createCandidate, getCandidate, updateCandidate,
-  listCalls, createCall, updateCall, setFollowUpStatus, voidCall, dashboard, exportCalls,
+  listCandidates, createCandidate, getCandidate, updateCandidate, deleteCandidate,
+  listCalls, createCall, updateCall, deleteCall, setFollowUpStatus, voidCall, dashboard, exportCalls,
 };
