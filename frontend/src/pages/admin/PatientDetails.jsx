@@ -1114,6 +1114,7 @@ const ScheduleCard = ({
   entries,
   onAdd,
   onUpdateStatus,
+  onUploadVideo,
   onDelete,
   onFetchNotes,
   onAddNote,
@@ -1144,6 +1145,7 @@ const ScheduleCard = ({
   const [doneDetails, setDoneDetails] = useState('');
   const [trackerSubmissionUrl, setTrackerSubmissionUrl] = useState('');
   const [doneFiles, setDoneFiles] = useState([]);
+  const [doneVideo, setDoneVideo] = useState(null);
   const [meetRecordingUrl, setMeetRecordingUrl] = useState('');
   const [doneForm, setDoneForm] = useState(() => createEmptyCompletionForm(formType));
   const [doneSaving, setDoneSaving] = useState(false);
@@ -1224,6 +1226,7 @@ const ScheduleCard = ({
     setDoneDetails('');
     setTrackerSubmissionUrl('');
     setDoneFiles([]);
+    setDoneVideo(null);
     setMeetRecordingUrl('');
     setDoneForm(createEmptyCompletionForm(formType));
     setDoneError('');
@@ -1234,6 +1237,15 @@ const ScheduleCard = ({
     e.preventDefault();
     const isShortFollowUp = doneEntry?.followUpType === 'sfs';
     const isTrackerFollowUp = doneEntry?.followUpType === 'tracker';
+    const isVideoFollowUp = doneEntry?.followUpType === 'video';
+    if (isVideoFollowUp && !doneVideo) {
+      setDoneError('Select the requested video');
+      return;
+    }
+    if (isVideoFollowUp && doneVideo.size > 300 * 1024 * 1024) {
+      setDoneError('Video must be 300 MB or smaller before compression');
+      return;
+    }
     if (isShortFollowUp && allowShortFollowUp && !doneDetails.trim()) {
       setDoneError('Add a short follow-up note');
       return;
@@ -1251,6 +1263,11 @@ const ScheduleCard = ({
     setDoneSaving(true);
     setDoneError('');
     try {
+      if (isVideoFollowUp) {
+        await onUploadVideo(doneEntryId, doneVideo);
+        setDoneModalOpen(false);
+        return;
+      }
       const completionDetails = isShortFollowUp
         ? doneDetails.trim()
         : isTrackerFollowUp
@@ -1495,7 +1512,10 @@ const ScheduleCard = ({
           {sortedEntries.map((e) => {
             const canAct = canUpdate && (e.displayStatus === 'upcoming' || e.displayStatus === 'late');
             const isTracker = formType === 'followup_full' && e.followUpType === 'tracker';
+            const isVideo = formType === 'followup_full' && e.followUpType === 'video';
             const canMarkSentTrackerDone = canUpdate && isTracker && e.status === 'sent';
+            const canUploadRequestedVideo = canUpdate && isVideo && e.status === 'sent';
+            const canActOnScheduled = canAct && e.status === 'scheduled';
             return (
               <li key={e.id} className="rounded-lg border border-cardline bg-offwhite-200 p-3">
                 <div className="flex flex-col items-stretch sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1503,7 +1523,7 @@ const ScheduleCard = ({
                     <p className="text-sm font-semibold text-charcoal">{formatDateTime(e.dateTime)}</p>
                     {(formType === 'followup_full' || allowShortFollowUp) && e.followUpType !== 'normal' && (
                       <span className="mt-1 inline-flex rounded-full bg-sage-muted/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sage">
-                        {e.followUpType === 'tracker' ? 'Tracker' : allowShortFollowUp ? 'Short Follow-up' : 'SFS'}
+                        {e.followUpType === 'tracker' ? 'Tracker' : e.followUpType === 'video' ? 'Video Upload' : allowShortFollowUp ? 'Short Follow-up' : 'SFS'}
                       </span>
                     )}
                     {e.notes && <p className="mt-0.5 text-xs text-charcoal/60 truncate">{e.notes}</p>}
@@ -1528,22 +1548,34 @@ const ScheduleCard = ({
                         <Trash2 size={15} />
                       </button>
                     )}
-                    {(canAct || canMarkSentTrackerDone) && (
+                    {(canActOnScheduled || canMarkSentTrackerDone || canUploadRequestedVideo) && (
                       <>
-                        {canAct && (
+                        {canActOnScheduled && (
                           <Button size="sm" variant="outline" onClick={() => openRescheduleModal(e)}>
                             <CalendarClock size={14} /> Reschedule
                           </Button>
                         )}
-                        {canAct && isTracker && (
+                        {canActOnScheduled && isTracker && (
                           <Button size="sm" variant="outline" onClick={() => handleTrackerSent(e.id)}>
                             Tracker Sent
                           </Button>
                         )}
-                        <Button size="sm" variant="outline" onClick={() => openDoneModal(e)}>
-                          Mark Done
-                        </Button>
-                        {canAct && (
+                        {canActOnScheduled && isVideo && (
+                          <Button size="sm" variant="outline" onClick={() => handleTrackerSent(e.id)}>
+                            <Play size={14} /> Video Requested
+                          </Button>
+                        )}
+                        {!isVideo && (canActOnScheduled || canMarkSentTrackerDone) && (
+                          <Button size="sm" variant="outline" onClick={() => openDoneModal(e)}>
+                            Mark Done
+                          </Button>
+                        )}
+                        {canUploadRequestedVideo && (
+                          <Button size="sm" onClick={() => openDoneModal(e)}>
+                            <Play size={14} /> Upload Video
+                          </Button>
+                        )}
+                        {(canActOnScheduled || canUploadRequestedVideo) && (
                           <button
                             type="button"
                             onClick={() => openCancelModal(e)}
@@ -1607,6 +1639,27 @@ const ScheduleCard = ({
                         <Paperclip size={13} /> Tracker Link
                       </a>
                     )}
+                    {e.videoUrl && (
+                      <div className="mt-3 max-w-xl">
+                        <video
+                          controls
+                          preload="metadata"
+                          src={`${SERVER_BASE}${e.videoUrl}`}
+                          className="aspect-video w-full rounded-lg border border-cardline bg-black"
+                        >
+                          Your browser cannot play this video.
+                        </video>
+                        <a
+                          href={`${SERVER_BASE}${e.videoUrl}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1.5 inline-flex items-center gap-1 font-semibold text-sage hover:text-charcoal"
+                        >
+                          <Play size={13} /> Open video
+                          {e.videoSize ? ` (${(e.videoSize / (1024 * 1024)).toFixed(1)} MB)` : ''}
+                        </a>
+                      </div>
+                    )}
                     <CompactAttachments files={e.completionFiles || []} label="Uploads" />
                     <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-charcoal/60">{e.completionDetails}</p>
                   </div>
@@ -1617,6 +1670,15 @@ const ScheduleCard = ({
                       <span className="font-semibold text-charcoal">Tracker sent</span> · {formatDateTime(e.trackerSentAt)}
                       {e.trackerSentByName ? ` by ${e.trackerSentByName}` : ''}
                     </p>
+                  </div>
+                )}
+                {isVideo && e.status === 'sent' && e.videoRequestedAt && (
+                  <div className="mt-2.5 border-t border-cardline-soft pt-2.5 text-xs text-charcoal/70">
+                    <p>
+                      <span className="font-semibold text-charcoal">Video requested</span> · {formatDateTime(e.videoRequestedAt)}
+                      {e.videoRequestedByName ? ` by ${e.videoRequestedByName}` : ''}
+                    </p>
+                    <p className="mt-0.5 text-charcoal/55">Waiting for the requested video upload.</p>
                   </div>
                 )}
                 {e.status === 'cancelled' && e.cancelReason && (
@@ -1657,6 +1719,7 @@ const ScheduleCard = ({
                 <option value="normal">{allowShortFollowUp ? 'Family Session' : 'Normal follow-up'}</option>
                 <option value="sfs">{allowShortFollowUp ? 'Short Follow-up' : 'SFS short follow-up'}</option>
                 {!allowShortFollowUp && <option value="tracker">Tracker</option>}
+                {!allowShortFollowUp && <option value="video">Video Upload</option>}
               </select>
             </div>
           )}
@@ -1757,6 +1820,7 @@ const ScheduleCard = ({
                 <option value="normal">{allowShortFollowUp ? 'Family Session' : 'Normal follow-up'}</option>
                 <option value="sfs">{allowShortFollowUp ? 'Short Follow-up' : 'SFS short follow-up'}</option>
                 {!allowShortFollowUp && <option value="tracker">Tracker</option>}
+                {!allowShortFollowUp && <option value="video">Video Upload</option>}
               </select>
             </div>
           )}
@@ -1780,10 +1844,36 @@ const ScheduleCard = ({
         </form>
       </Modal>
 
-      <Modal open={doneModalOpen} onClose={() => setDoneModalOpen(false)} title={`Mark ${title.replace(/s$/, '')} Done`} className={allowShortFollowUp && doneEntry?.followUpType === 'sfs' ? 'max-w-lg' : 'max-w-5xl'}>
+      <Modal open={doneModalOpen} onClose={() => setDoneModalOpen(false)} title={doneEntry?.followUpType === 'video' ? 'Upload Requested Video' : `Mark ${title.replace(/s$/, '')} Done`} className={(allowShortFollowUp && doneEntry?.followUpType === 'sfs') || doneEntry?.followUpType === 'video' ? 'max-w-lg' : 'max-w-5xl'}>
         <form onSubmit={handleDoneSubmit} className="space-y-4">
           {doneError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{doneError}</div>}
-          {doneEntry?.followUpType === 'sfs' ? (
+          {doneEntry?.followUpType === 'video' ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-sage-muted/50 bg-sage-muted/10 p-4">
+                <p className="text-sm font-semibold text-charcoal">Requested video</p>
+                <p className="mt-1 text-xs leading-5 text-charcoal/60">
+                  Select an MP4, MOV, WebM, AVI or 3GP video. It will be compressed and converted to a browser-compatible MP4.
+                </p>
+              </div>
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sage/50 bg-offwhite-200 px-5 py-8 text-center transition hover:bg-sage-muted/10">
+                <Play size={28} className="text-sage" />
+                <span className="mt-2 text-sm font-semibold text-charcoal">Select video</span>
+                <span className="mt-1 text-xs text-charcoal/50">Maximum original file size: 300 MB</span>
+                <input
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/3gpp,.mp4,.mov,.webm,.avi,.3gp"
+                  onChange={(event) => setDoneVideo(event.target.files?.[0] || null)}
+                  className="hidden"
+                />
+              </label>
+              {doneVideo && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-cardline bg-white px-3.5 py-3 text-sm">
+                  <span className="min-w-0 truncate font-medium text-charcoal">{doneVideo.name}</span>
+                  <span className="shrink-0 text-xs text-charcoal/55">{(doneVideo.size / (1024 * 1024)).toFixed(1)} MB</span>
+                </div>
+              )}
+            </div>
+          ) : doneEntry?.followUpType === 'sfs' ? (
             <div className="w-full">
               <label className="block text-sm font-medium text-charcoal mb-1.5">{allowShortFollowUp ? 'Short Follow-up Note' : 'SFS Note'}</label>
               <textarea
@@ -1838,7 +1928,7 @@ const ScheduleCard = ({
               )}
             </>
           )}
-          {(!doneEntry || doneEntry?.followUpType !== 'tracker') && !(allowShortFollowUp && doneEntry?.followUpType === 'sfs') ? (
+          {(!doneEntry || !['tracker', 'video'].includes(doneEntry?.followUpType)) && !(allowShortFollowUp && doneEntry?.followUpType === 'sfs') ? (
             <div>
               <label className="block text-sm font-medium text-charcoal mb-1.5">Upload Photo / File</label>
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
@@ -1881,7 +1971,7 @@ const ScheduleCard = ({
               Cancel
             </Button>
             <Button type="submit" disabled={doneSaving}>
-              {doneSaving ? 'Saving…' : 'Mark Done'}
+              {doneSaving ? (doneEntry?.followUpType === 'video' ? 'Compressing & uploading...' : 'Saving…') : (doneEntry?.followUpType === 'video' ? 'Upload & Mark Done' : 'Mark Done')}
             </Button>
           </div>
         </form>
@@ -2666,6 +2756,13 @@ const PatientDetails = () => {
     setPatient(data.patient);
   };
 
+  const handleUploadFollowUpVideo = async (entryId, video) => {
+    const formData = new FormData();
+    formData.append('video', video);
+    const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}/video`, formData);
+    setPatient(data.patient);
+  };
+
   const handleDeleteFollowUp = async (entryId) => {
     const { data } = await api.delete(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}`);
     setPatient(data.patient);
@@ -3374,6 +3471,7 @@ const PatientDetails = () => {
                 entries={activeStage.followUps}
                 onAdd={handleAddFollowUp}
                 onUpdateStatus={handleUpdateFollowUpStatus}
+                onUploadVideo={handleUploadFollowUpVideo}
                 onDelete={handleDeleteFollowUp}
                 onFetchNotes={() => fetchScheduleNotes('followups')}
                 onAddNote={(text) => addScheduleNote('followups', text)}

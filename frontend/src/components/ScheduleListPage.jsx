@@ -7,6 +7,8 @@ import Drawer from './ui/Drawer.jsx';
 import Badge from './ui/Badge.jsx';
 import { DISPLAY_STATUS_BADGE_TONE } from '../constants/scheduleStatuses.js';
 
+const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+
 const getInitials = (name) =>
   name
     .split(' ')
@@ -214,6 +216,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                   <option value="normal">{showFamilySessionTypeFilter ? 'Family Session' : 'Normal'}</option>
                   <option value="sfs">SFS</option>
                   {showFollowUpTypeFilter && <option value="tracker">Tracker</option>}
+                  {showFollowUpTypeFilter && <option value="video">Video Upload</option>}
                 </select>
               )}
               <select
@@ -337,7 +340,7 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-charcoal/45">
                   {showFamilySessionTypeFilter
                     ? (e.followUpType === 'sfs' ? 'Short Follow-up' : 'Family Session')
-                    : (e.followUpType || 'normal') === 'sfs' ? 'SFS' : (e.followUpType || 'normal') === 'tracker' ? 'Tracker' : 'Normal'}
+                    : (e.followUpType || 'normal') === 'sfs' ? 'SFS' : (e.followUpType || 'normal') === 'tracker' ? 'Tracker' : (e.followUpType || 'normal') === 'video' ? 'Video Upload' : 'Normal'}
                 </p>
               )}
               {e.trackerSubmissionUrl && (
@@ -349,6 +352,17 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                   className="mt-1 inline-flex text-xs font-semibold text-sage hover:text-charcoal"
                 >
                   Tracker Link
+                </a>
+              )}
+              {e.videoUrl && (
+                <a
+                  href={`${SERVER_BASE}${e.videoUrl}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                  className="ml-3 mt-1 inline-flex text-xs font-semibold text-sage hover:text-charcoal"
+                >
+                  View Video
                 </a>
               )}
               {e.notes && <p className="mt-1 text-xs text-charcoal/55">{e.notes}</p>}

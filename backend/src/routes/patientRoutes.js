@@ -27,6 +27,7 @@ const {
   requestStageMedicine,
   addFollowUp,
   updateFollowUp,
+  uploadFollowUpVideo,
   deleteFollowUp,
   addFamilySession,
   updateFamilySession,
@@ -39,7 +40,7 @@ const {
 } = require('../controllers/scheduleNoteController');
 const { protect, authorize } = require('../middleware/auth');
 const { uploadPaymentScreenshot } = require('../middleware/upload');
-const { uploadStageRecord: uploadRecordMiddleware, uploadPrescription, uploadScheduleCompletion } = require('../middleware/fileUploads');
+const { uploadStageRecord: uploadRecordMiddleware, uploadPrescription, uploadScheduleCompletion, uploadFollowUpVideo: uploadFollowUpVideoMiddleware } = require('../middleware/fileUploads');
 const { PATIENT_ACCESS_ROLES, PATIENT_FULL_ACCESS_ROLES, ROLES } = require('../constants/roles');
 
 const router = express.Router();
@@ -87,6 +88,7 @@ router.delete('/:id/stages/:number/record-scans/:scanId', authorize(...PATIENT_R
 router.post('/:id/stages/:number/medicine-request', authorize(...MEDICINE_REQUEST_ROLES), uploadPrescription.array('prescription', 10), requestStageMedicine);
 router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), addFollowUp);
 router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFollowUp);
+router.post('/:id/stages/:number/followups/:entryId/video', authorize(...PATIENT_WRITE_ROLES), uploadFollowUpVideoMiddleware.single('video'), uploadFollowUpVideo);
 router.delete('/:id/stages/:number/followups/:entryId', authorize(ROLES.ADMIN), deleteFollowUp);
 router.post('/:id/stages/:number/family-sessions', authorize(...PATIENT_WRITE_ROLES), addFamilySession);
 router.patch('/:id/stages/:number/family-sessions/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFamilySession);

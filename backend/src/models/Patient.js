@@ -11,13 +11,18 @@ const scheduleEntrySchema = new mongoose.Schema(
   {
     dateTime: { type: Date, required: true },
     status: { type: String, enum: ALL_SCHEDULE_STATUSES, default: SCHEDULE_STATUSES.SCHEDULED },
-    followUpType: { type: String, enum: ['normal', 'sfs', 'tracker'], default: 'normal' },
+    followUpType: { type: String, enum: ['normal', 'sfs', 'tracker', 'video'], default: 'normal' },
     notes: { type: String, trim: true, default: '' },
     createdByName: { type: String, trim: true, default: '' },
     // Filled in only when marked completed, via the "mark done" form
     completedAt: { type: Date, default: null },
     trackerSentAt: { type: Date, default: null },
     trackerSentByName: { type: String, trim: true, default: '' },
+    videoRequestedAt: { type: Date, default: null },
+    videoRequestedByName: { type: String, trim: true, default: '' },
+    videoUrl: { type: String, trim: true, default: '' },
+    videoFileName: { type: String, trim: true, default: '' },
+    videoSize: { type: Number, default: 0 },
     completionName: { type: String, trim: true, default: '' },
     completionDetails: { type: String, trim: true, default: '' },
     completionFiles: {

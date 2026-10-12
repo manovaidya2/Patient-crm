@@ -214,6 +214,7 @@ const Dashboard = () => {
     normal: { total: 0, done: 0, pending: 0 },
     sfs: { total: 0, done: 0, pending: 0 },
     tracker: { total: 0, done: 0, pending: 0 },
+    video: { total: 0, done: 0, pending: 0 },
   };
   const workflowSummary = stats?.workflowSummary || {
     medicineRequested: 0,
@@ -437,7 +438,7 @@ const Dashboard = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Follow-up Summary</p>
-            <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Normal, SFS & Tracker follow-ups</h2>
+            <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Normal, SFS, Tracker & Video follow-ups</h2>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <select
@@ -464,7 +465,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-7">
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
             <p className="text-xs font-semibold text-charcoal/55">Total Follow-ups</p>
             <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.total}</p>
@@ -491,6 +492,11 @@ const Dashboard = () => {
             <p className="text-xs font-semibold text-charcoal/55">Tracker</p>
             <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : followUpSummary.tracker.total}</p>
             <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : followUpSummary.tracker.done} | Pending {loading ? '...' : followUpSummary.tracker.pending}</p>
+          </div>
+          <div className="rounded-lg border border-cardline bg-offwhite-200 p-4">
+            <p className="text-xs font-semibold text-charcoal/55">Video</p>
+            <p className="mt-2 font-display text-2xl font-bold text-charcoal">{loading ? '...' : (followUpSummary.video?.total || 0)}</p>
+            <p className="mt-1 text-xs text-charcoal/55">Done {loading ? '...' : (followUpSummary.video?.done || 0)} | Pending {loading ? '...' : (followUpSummary.video?.pending || 0)}</p>
           </div>
         </div>
       </Card>

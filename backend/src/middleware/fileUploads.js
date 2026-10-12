@@ -27,7 +27,12 @@ const callRecordingMimeTypes = [
   'application/octet-stream',
 ];
 
-const createUpload = (folder, { imagesOnly = false, allowedTypes = null, maxFileSize = 10 * 1024 * 1024 } = {}) => {
+const createUpload = (folder, {
+  imagesOnly = false,
+  allowedTypes = null,
+  allowedTypeMessage = 'Only audio or video call recordings are allowed',
+  maxFileSize = 10 * 1024 * 1024,
+} = {}) => {
   const uploadDir = path.join(__dirname, '../../uploads', folder);
   fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -52,7 +57,7 @@ const createUpload = (folder, { imagesOnly = false, allowedTypes = null, maxFile
       cb(
         new Error(
           allowedTypes
-            ? 'Only audio or video call recordings are allowed'
+            ? allowedTypeMessage
             : imagesOnly
               ? 'Only image files are allowed'
               : 'Only images, PDF, or Word documents are allowed'
@@ -103,6 +108,11 @@ module.exports = {
   uploadMedicineImage: createUpload('medicine', { imagesOnly: true }),
   uploadCourierImage: createUpload('courier', { imagesOnly: true }),
   uploadScheduleCompletion: createUpload('schedule'),
+  uploadFollowUpVideo: createUpload('followup-videos', {
+    allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/3gpp'],
+    allowedTypeMessage: 'Only MP4, MOV, WebM, AVI, or 3GP videos are allowed',
+    maxFileSize: 300 * 1024 * 1024,
+  }),
   uploadCallRecording: createUpload('recording', {
     allowedTypes: callRecordingMimeTypes,
     maxFileSize: 100 * 1024 * 1024,

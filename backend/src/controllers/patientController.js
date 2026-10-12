@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { writeTextPdf, writeImagesPdf } = require('../utils/simplePdf');
+const { compressFollowUpVideo } = require('../utils/followUpVideo');
 const { ALL_CATEGORIES, CATEGORY_LABELS } = require('../constants/patientCategories');
 const {
   STAGES,
@@ -203,6 +204,11 @@ const formatScheduleEntry = (e) => {
     completedAt: e.completedAt || null,
     trackerSentAt: e.trackerSentAt || null,
     trackerSentByName: e.trackerSentByName || '',
+    videoRequestedAt: e.videoRequestedAt || null,
+    videoRequestedByName: e.videoRequestedByName || '',
+    videoUrl: e.videoUrl || '',
+    videoFileName: e.videoFileName || '',
+    videoSize: e.videoSize || 0,
     completionName: e.completionName || '',
     completionDetails: e.completionDetails || '',
     completionFiles: e.completionFiles || [],
@@ -216,6 +222,9 @@ const formatScheduleEntry = (e) => {
     cancelledByName: e.cancelledByName || '',
     ...(e.followUpType === 'tracker' && e.status === 'sent'
       ? { displayStatusLabel: 'Tracker Sent' }
+      : {}),
+    ...(e.followUpType === 'video' && e.status === 'sent'
+      ? { displayStatusLabel: 'Video Requested' }
       : {}),
   };
 };
@@ -901,6 +910,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     normal: { total: 0, done: 0, pending: 0 },
     sfs: { total: 0, done: 0, pending: 0 },
     tracker: { total: 0, done: 0, pending: 0 },
+    video: { total: 0, done: 0, pending: 0 },
   };
 
   const now = new Date();
@@ -998,8 +1008,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             });
           }
           if (!entryDate || entryDate < followUpRangeStart || entryDate > followUpRangeEnd) return;
-          const type = entry.followUpType === 'sfs' ? 'sfs' : entry.followUpType === 'tracker' ? 'tracker' : 'normal';
-          const isDone = ['completed', 'sent', 'done', 'done_late'].includes(entry.status);
+          const type = ['sfs', 'tracker', 'video'].includes(entry.followUpType) ? entry.followUpType : 'normal';
+          const isDone = ['completed', 'done', 'done_late'].includes(entry.status)
+            || (entry.status === 'sent' && entry.followUpType !== 'video');
           const isCancelled = entry.status === 'cancelled';
           if (isCancelled) return;
 
@@ -3181,14 +3192,14 @@ const addScheduleEntry = (fieldKey) =>
 
     const stageEntry = patient.stages.find((s) => s.number === stageNum);
     const requestedFollowUpType = String(followUpType || '').toLowerCase();
-    const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker'] : ['normal', 'sfs'];
+    const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker', 'video'] : ['normal', 'sfs'];
     const normalizedFollowUpType = allowedTypes.includes(requestedFollowUpType) ? requestedFollowUpType : 'normal';
     stageEntry[fieldKey].push({ dateTime, notes: notes || '', followUpType: normalizedFollowUpType, createdByName: req.user.name });
     addActivity(
       patient,
       req.user,
       `${fieldKey === 'followUps'
-        ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : 'Follow-up'}`
+        ? `${normalizedFollowUpType === 'sfs' ? 'SFS follow-up' : normalizedFollowUpType === 'tracker' ? 'Tracker follow-up' : normalizedFollowUpType === 'video' ? 'Video upload follow-up' : 'Follow-up'}`
         : normalizedFollowUpType === 'sfs' ? 'Short follow-up' : 'Family session'} scheduled for Phase ${stageNum}`,
       `${new Date(dateTime).toLocaleString('en-IN')}${notes ? ` - ${notes}` : ''}`
     );
@@ -3246,10 +3257,14 @@ const updateScheduleEntry = (fieldKey) =>
 
     const isShortFollowUp = entry.followUpType === 'sfs';
     const isTrackerFollowUp = fieldKey === 'followUps' && entry.followUpType === 'tracker';
-    if (status === 'sent' && !isTrackerFollowUp) {
-      return res.status(400).json({ success: false, message: 'Only tracker follow-ups can be marked sent' });
+    const isVideoFollowUp = fieldKey === 'followUps' && entry.followUpType === 'video';
+    if (status === 'sent' && !isTrackerFollowUp && !isVideoFollowUp) {
+      return res.status(400).json({ success: false, message: 'Only tracker and video follow-ups can be marked sent/requested' });
     }
     if (status === 'completed') {
+      if (isVideoFollowUp) {
+        return res.status(400).json({ success: false, message: 'Upload the requested video to mark this follow-up done' });
+      }
       const hasCompletionAttachment = uploadedCompletionFiles.length > 0 || (entry.completionFiles || []).length > 0;
       if (fieldKey === 'familySessions' && isShortFollowUp && !String(completionDetails || '').trim()) {
         return res.status(400).json({ success: false, message: 'Add a short follow-up note' });
@@ -3266,7 +3281,7 @@ const updateScheduleEntry = (fieldKey) =>
     }
 
     const scheduleLabel = fieldKey === 'followUps'
-      ? (isShortFollowUp ? 'SFS follow-up' : isTrackerFollowUp ? 'Tracker follow-up' : 'Follow-up')
+      ? (isShortFollowUp ? 'SFS follow-up' : isTrackerFollowUp ? 'Tracker follow-up' : isVideoFollowUp ? 'Video upload follow-up' : 'Follow-up')
       : isShortFollowUp ? 'Short follow-up' : 'Family session';
     if (dateTime !== undefined && !sameValue(new Date(entry.dateTime).toISOString(), new Date(dateTime).toISOString())) {
       addActivity(patient, req.user, `${scheduleLabel} rescheduled for Phase ${stageNum}`, new Date(dateTime).toLocaleString('en-IN'));
@@ -3281,7 +3296,7 @@ const updateScheduleEntry = (fieldKey) =>
         return res.status(403).json({ success: false, message: 'Only Admin can edit schedule type' });
       }
       const nextFollowUpType = String(followUpType || 'normal').toLowerCase();
-      const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker'] : ['normal', 'sfs'];
+      const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker', 'video'] : ['normal', 'sfs'];
       if (!allowedTypes.includes(nextFollowUpType)) {
         return res.status(400).json({ success: false, message: `Schedule type must be one of: ${allowedTypes.join(', ')}` });
       }
@@ -3305,8 +3320,13 @@ const updateScheduleEntry = (fieldKey) =>
 
     if (status !== undefined) {
       if (status === 'sent') {
-        entry.trackerSentAt = new Date();
-        entry.trackerSentByName = req.user.name;
+        if (isVideoFollowUp) {
+          entry.videoRequestedAt = new Date();
+          entry.videoRequestedByName = req.user.name;
+        } else {
+          entry.trackerSentAt = new Date();
+          entry.trackerSentByName = req.user.name;
+        }
       }
       if (status === 'cancelled') {
         entry.cancelReason = String(cancelReason || '').trim();
@@ -3376,7 +3396,7 @@ const updateScheduleEntry = (fieldKey) =>
                 ? `Tracker link: ${trackerSubmissionUrl}`
                 : `${entry.completionName}: ${entry.completionDetails || `${(entry.completionFiles || []).length} attachment(s)`}`)
             : status === 'sent'
-              ? 'Tracker sent to parents'
+              ? (isVideoFollowUp ? 'Video requested from patient/guardian' : 'Tracker sent to parents')
               : status === 'cancelled'
                 ? `Reason: ${entry.cancelReason}`
                 : status
@@ -3390,6 +3410,77 @@ const updateScheduleEntry = (fieldKey) =>
 
     res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
   });
+
+// Video follow-ups use a dedicated completion endpoint so a successful, playable
+// compressed upload is required before the entry can become Done.
+const uploadFollowUpVideo = asyncHandler(async (req, res) => {
+  if (cannotUpdateScheduleType(req.user, 'followUps')) {
+    if (req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(403).json({ success: false, message: 'You do not have permission to update this schedule' });
+  }
+
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) {
+    if (req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ success: false, message: 'Invalid phase number' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'Select a video to upload' });
+  }
+
+  let outputPath = '';
+  try {
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+    if (!canAccessPatient(req.user, patient)) {
+      return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+    }
+
+    const stageEntry = patient.stages?.find((stage) => stage.number === stageNum);
+    const entry = stageEntry?.followUps.id(req.params.entryId);
+    if (!entry) return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    if (entry.followUpType !== 'video') {
+      return res.status(400).json({ success: false, message: 'Video can only be uploaded to a video follow-up' });
+    }
+    if (entry.status !== 'sent') {
+      return res.status(409).json({ success: false, message: 'Mark Video Requested before uploading the video' });
+    }
+
+    const outputName = `followup-video-${patient._id}-${entry._id}-${Date.now()}.mp4`;
+    outputPath = path.join(__dirname, '../../uploads/followup-videos', outputName);
+    const previousVideoUrl = entry.videoUrl;
+    const compressed = await compressFollowUpVideo({ inputPath: req.file.path, outputPath });
+
+    entry.videoUrl = `/uploads/followup-videos/${outputName}`;
+    entry.videoFileName = path.parse(req.file.originalname || 'follow-up-video').name + '.mp4';
+    entry.videoSize = compressed.size;
+    entry.status = 'completed';
+    entry.completedAt = new Date();
+    entry.completionName = 'Requested Video';
+    entry.completionDetails = 'Requested video uploaded and compressed';
+    entry.completionFormType = 'video';
+    addActivity(
+      patient,
+      req.user,
+      `Video upload follow-up marked done for Phase ${stageNum}`,
+      `${entry.videoFileName} (${(compressed.size / (1024 * 1024)).toFixed(1)} MB)`
+    );
+
+    await patient.save();
+    if (previousVideoUrl && previousVideoUrl !== entry.videoUrl) await deleteUploadedFileByUrl(previousVideoUrl);
+    await populateAssignments(patient);
+    return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+  } catch (error) {
+    if (outputPath) await fs.promises.unlink(outputPath).catch(() => {});
+    error.statusCode = error.statusCode || 400;
+    if (!error.message || error.message.startsWith('Video compression failed')) {
+      error.message = 'Video could not be processed. Upload a valid MP4, MOV, WebM, AVI, or 3GP video.';
+    }
+    throw error;
+  } finally {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+  }
+});
 
 const deleteScheduleEntry = (fieldKey) =>
   asyncHandler(async (req, res) => {
@@ -3409,7 +3500,7 @@ const deleteScheduleEntry = (fieldKey) =>
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }
 
-    const fileUrls = [entry.completionPdfUrl, ...(entry.completionFiles || []).map((file) => file.url)].filter(Boolean);
+    const fileUrls = [entry.completionPdfUrl, entry.videoUrl, ...(entry.completionFiles || []).map((file) => file.url)].filter(Boolean);
     const entryType = fieldKey === 'followUps' ? 'Follow-up' : 'Family session';
     const details = `Scheduled ${entry.dateTime.toISOString()} | status: ${entry.status} | entry ID: ${entry._id}`;
     entry.deleteOne();
@@ -3463,6 +3554,8 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
         `patientName patientCode category stages.number assignedDoctor assignedPsychologist `
         + `stages.${fieldKey}.dateTime stages.${fieldKey}.status stages.${fieldKey}.followUpType `
         + `stages.${fieldKey}.notes stages.${fieldKey}.createdByName stages.${fieldKey}.trackerSubmissionUrl `
+        + `stages.${fieldKey}.videoRequestedAt stages.${fieldKey}.videoRequestedByName `
+        + `stages.${fieldKey}.videoUrl stages.${fieldKey}.videoFileName stages.${fieldKey}.videoSize `
         + `stages.${fieldKey}.cancelReason stages.${fieldKey}.cancelledAt stages.${fieldKey}.cancelledByName`
       )
       .lean();
@@ -3609,6 +3702,7 @@ module.exports = {
   updateCourierRequest,
   addFollowUp,
   updateFollowUp,
+  uploadFollowUpVideo,
   deleteFollowUp,
   addFamilySession,
   updateFamilySession,
