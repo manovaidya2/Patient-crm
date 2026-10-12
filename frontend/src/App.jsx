@@ -5,7 +5,7 @@ import AdminLayout from './pages/admin/AdminLayout.jsx';
 import EnquiryNotifications from './components/EnquiryNotifications.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
-import { ADMIN_LAYOUT_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
+import { ADMIN_LAYOUT_ROLES, HR_ACCESS_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
 
 const GenericDashboard = lazy(() => import('./pages/GenericDashboard.jsx'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard.jsx'));
@@ -97,27 +97,27 @@ function App() {
           </ProtectedRoute>
         }
       >
-        <Route path="hr" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrDashboard /></ProtectedRoute>} />
-        <Route path="hr/candidates" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrCandidates /></ProtectedRoute>} />
-        <Route path="hr/candidates/:id" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrCandidateDetails /></ProtectedRoute>} />
-        <Route path="hr/calls" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrCallRegister /></ProtectedRoute>} />
-        <Route path="hr/requirements" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="requirements" /></ProtectedRoute>} />
-        <Route path="hr/job-descriptions" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="jds" /></ProtectedRoute>} />
-        <Route path="hr/campaigns" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="campaigns" /></ProtectedRoute>} />
-        <Route path="hr/interviews" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="interviews" /></ProtectedRoute>} />
-        <Route path="hr/offers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="offers" /></ProtectedRoute>} />
-        <Route path="hr/onboarding" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrRecruitmentPage mode="onboarding" /></ProtectedRoute>} />
-        <Route path="hr/employees" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="employees" /></ProtectedRoute>} />
-        <Route path="hr/attendance" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="attendance" /></ProtectedRoute>} />
-        <Route path="hr/leaves" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="leaves" /></ProtectedRoute>} />
-        <Route path="hr/holidays" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="holidays" /></ProtectedRoute>} />
-        <Route path="hr/training" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="training" /></ProtectedRoute>} />
-        <Route path="hr/policies" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrOperationsPage mode="policies" /></ProtectedRoute>} />
-        {['kpis', 'performance', 'appraisals', 'pip', 'grievances', 'payroll', 'exits'].map((mode) => <Route key={mode} path={`hr/${mode}`} element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrLifecyclePage mode={mode} /></ProtectedRoute>} />)}
-        <Route path="hr/worksheet" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrWorksheet /></ProtectedRoute>} />
-        <Route path="hr/incidents"element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrIncidents /></ProtectedRoute>} />
-        <Route path="hr/expenses"element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrClinicExpenses /></ProtectedRoute>} />
-        <Route path="hr/reports"element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.HR]}><HrReports /></ProtectedRoute>} />
+        <Route path="hr" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrDashboard /></ProtectedRoute>} />
+        <Route path="hr/candidates" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrCandidates /></ProtectedRoute>} />
+        <Route path="hr/candidates/:id" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrCandidateDetails /></ProtectedRoute>} />
+        <Route path="hr/calls" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrCallRegister /></ProtectedRoute>} />
+        <Route path="hr/requirements" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrRecruitmentPage mode="requirements" /></ProtectedRoute>} />
+        <Route path="hr/job-descriptions" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrRecruitmentPage mode="jds" /></ProtectedRoute>} />
+        <Route path="hr/campaigns" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrRecruitmentPage mode="campaigns" /></ProtectedRoute>} />
+        <Route path="hr/interviews" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrRecruitmentPage mode="interviews" /></ProtectedRoute>} />
+        <Route path="hr/offers" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrRecruitmentPage mode="offers" /></ProtectedRoute>} />
+        <Route path="hr/onboarding" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrRecruitmentPage mode="onboarding" /></ProtectedRoute>} />
+        <Route path="hr/employees" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrOperationsPage mode="employees" /></ProtectedRoute>} />
+        <Route path="hr/attendance" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrOperationsPage mode="attendance" /></ProtectedRoute>} />
+        <Route path="hr/leaves" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrOperationsPage mode="leaves" /></ProtectedRoute>} />
+        <Route path="hr/holidays" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrOperationsPage mode="holidays" /></ProtectedRoute>} />
+        <Route path="hr/training" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrOperationsPage mode="training" /></ProtectedRoute>} />
+        <Route path="hr/policies" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrOperationsPage mode="policies" /></ProtectedRoute>} />
+        {['kpis', 'performance', 'appraisals', 'pip', 'grievances', 'payroll', 'exits'].map((mode) => <Route key={mode} path={`hr/${mode}`} element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrLifecyclePage mode={mode} /></ProtectedRoute>} />)}
+        <Route path="hr/worksheet" element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrWorksheet /></ProtectedRoute>} />
+        <Route path="hr/incidents"element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrIncidents /></ProtectedRoute>} />
+        <Route path="hr/expenses"element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrClinicExpenses /></ProtectedRoute>} />
+        <Route path="hr/reports"element={<ProtectedRoute roles={HR_ACCESS_ROLES}><HrReports /></ProtectedRoute>} />
         <Route
           index
           element={

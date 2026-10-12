@@ -8,7 +8,7 @@ const HrTraining = require('../models/HrTraining');
 const HrPolicy = require('../models/HrPolicy');
 const HrOnboarding = require('../models/HrOnboarding');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, hasHrFullAccess } = require('../constants/roles');
 const { dateKeyInIndia } = require('../utils/hrCallUtils');
 const { validDateKey, splitList } = require('../utils/hrRecruitmentUtils');
 const { inclusiveDays, timeMinutes, workedMinutes, canChangePolicyStatus, canChangeLeaveStatus } = require('../utils/hrOperationsUtils');
@@ -111,7 +111,7 @@ const listAttendance = asyncHandler(async (req, res) => {
 
 const saveAttendance = asyncHandler(async (req, res) => {
   const employeeFilter = { _id: req.body.employeeId };
-  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  if (!(hasHrFullAccess(req.user.role) && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
   const employee = await HrEmployee.findOne(employeeFilter).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const date = clean(req.body.date, 10), status = clean(req.body.status, 30), checkIn = clean(req.body.checkIn, 5), checkOut = clean(req.body.checkOut, 5);
@@ -137,9 +137,9 @@ const listLeaves = asyncHandler(async (req, res) => {
 });
 
 const saveLeave = asyncHandler(async (req, res) => {
-  if (![ROLES.HR, ROLES.ADMIN].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only HR or Admin can add or edit leave requests' });
+  if (![ROLES.HR, ROLES.ADMIN, ROLES.DOCTOR].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only HR, Admin or Doctor can add or edit leave requests' });
   const employeeFilter = { _id: req.body.employeeId };
-  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  if (!(hasHrFullAccess(req.user.role) && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
   const employee = await HrEmployee.findOne(employeeFilter).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const startDate = clean(req.body.startDate, 10), endDate = clean(req.body.endDate, 10), halfDay = req.body.halfDay === true || req.body.halfDay === 'true';
@@ -151,7 +151,7 @@ const saveLeave = asyncHandler(async (req, res) => {
   if (overlap) return res.status(409).json({ success: false, message: 'An active leave request already overlaps these dates' });
   const payload = { employee: employee._id, employeeCode: employee.employeeCode, employeeName: employee.name, department: employee.department, leaveType, startDate, endDate, days: halfDay ? 0.5 : inclusiveDays(startDate, endDate), halfDay, reason };
   let row;
-  if (req.params.id) { row = await HrLeaveRequest.findOne(req.user.role === ROLES.ADMIN ? { _id: req.params.id } : { _id: req.params.id, status: 'pending' }); if (!row) return res.status(409).json({ success: false, message: 'Only pending leave requests can be edited by HR' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
+  if (req.params.id) { row = await HrLeaveRequest.findOne(hasHrFullAccess(req.user.role) ? { _id: req.params.id } : { _id: req.params.id, status: 'pending' }); if (!row) return res.status(409).json({ success: false, message: 'Only pending leave requests can be edited by HR' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
   else row = await HrLeaveRequest.create({ ...payload, leaveCode: await nextCode('HR-LVE', 'leave'), createdBy: req.user._id, createdByName: req.user.name, updatedBy: req.user._id, updatedByName: req.user.name });
   res.status(req.params.id ? 200 : 201).json({ success: true, leave: row });
 });
@@ -189,7 +189,7 @@ const listTraining = asyncHandler(async (req, res) => {
 const saveTraining = asyncHandler(async (req, res) => {
   const employeeIds = splitList(req.body.employeeIds, 500).filter(validId);
   const employeeFilter = { _id: { $in: employeeIds } };
-  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  if (!(hasHrFullAccess(req.user.role) && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
   const employees = await HrEmployee.find(employeeFilter).lean();
   if (employees.length !== new Set(employeeIds).size) return res.status(400).json({ success: false, message: 'Select valid active employees' });
   const payload = { title: clean(req.body.title, 200), category: clean(req.body.category, 120), trainer: clean(req.body.trainer, 180), startDate: clean(req.body.startDate, 10), endDate: clean(req.body.endDate, 10), mode: clean(req.body.mode, 30) || 'in_person', locationOrLink: clean(req.body.locationOrLink, 1000), status: clean(req.body.status, 30) || 'planned', objectives: clean(req.body.objectives, 3000), notes: clean(req.body.notes, 3000), participants: employees.map((employee) => ({ employee: employee._id, employeeCode: employee.employeeCode, employeeName: employee.name })) };
@@ -218,14 +218,14 @@ const savePolicy = asyncHandler(async (req, res) => {
   const payload = { title: clean(req.body.title, 220), category: clean(req.body.category, 120), version: clean(req.body.version, 30), effectiveDate: clean(req.body.effectiveDate, 10), content: clean(req.body.content, 30000) };
   if (!payload.title || !payload.category || !payload.version || !validDateKey(payload.effectiveDate) || !payload.content) return res.status(400).json({ success: false, message: 'Policy title, category, version, effective date and content are required' });
   let row;
-  if (req.params.id) { row = await HrPolicy.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Policy not found' }); if (row.status !== 'draft' && req.user.role !== ROLES.ADMIN) return res.status(409).json({ success: false, message: 'Only Admin can edit a published or archived policy' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
+  if (req.params.id) { row = await HrPolicy.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Policy not found' }); if (row.status !== 'draft' && !hasHrFullAccess(req.user.role)) return res.status(409).json({ success: false, message: 'Only Admin or Doctor can edit a published or archived policy' }); Object.assign(row, payload); updateActor(row, req.user); await row.save(); }
   else row = await HrPolicy.create({ ...payload, policyCode: await nextCode('HR-POL', 'policy'), createdBy: req.user._id, createdByName: req.user.name, updatedBy: req.user._id, updatedByName: req.user.name });
   res.status(req.params.id ? 200 : 201).json({ success: true, policy: row });
 });
 
 const policyStatus = asyncHandler(async (req, res) => {
   const row = await HrPolicy.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Policy not found' });
-  const status = clean(req.body.status, 20); if (req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can publish or archive policies' });
+  const status = clean(req.body.status, 20); if (!hasHrFullAccess(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin or Doctor can publish or archive policies' });
   if (!canChangePolicyStatus(row.status, status)) return res.status(409).json({ success: false, message: `Cannot move policy from ${row.status} to ${status}` });
   row.status = status; if (status === 'published') { row.publishedBy = req.user._id; row.publishedByName = req.user.name; row.publishedAt = new Date(); } updateActor(row, req.user); await row.save(); res.json({ success: true, policy: row });
 });

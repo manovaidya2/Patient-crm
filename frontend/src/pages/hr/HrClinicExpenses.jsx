@@ -4,7 +4,7 @@ import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { hasHrFullAccess } from '../../constants/roles.js';
 import { todayInput } from './hrOptions.js';
 
 const fieldClass = 'mt-1 w-full rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
@@ -22,7 +22,7 @@ const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
 export default function HrClinicExpenses() {
   const { user } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = hasHrFullAccess(user?.role);
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({ total: 0, approved: 0, pending: 0, unpaid: 0 });
   const [filters, setFilters] = useState({ search: '', category: '', approval: '', paymentStatus: '', from: '', to: '' });

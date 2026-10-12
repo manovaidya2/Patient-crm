@@ -1,6 +1,6 @@
 const HrIncident = require('../models/HrIncident');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { hasHrFullAccess } = require('../constants/roles');
 const { validDateKey } = require('../utils/hrRecruitmentUtils');
 
 const TYPES = ['staff_grievance', 'staff_conflict', 'patient_complaint', 'service_issue', 'safety_incident', 'other'];
@@ -38,7 +38,7 @@ const listIncidents = asyncHandler(async (req, res) => {
 });
 
 const saveIncident = asyncHandler(async (req, res) => {
-  const isAdmin = req.user.role === ROLES.ADMIN;
+  const isAdmin = hasHrFullAccess(req.user.role);
   const payload = {
     date: clean(req.body.date, 10), caseRef: clean(req.body.caseRef, 80), type: clean(req.body.type, 30), department: clean(req.body.department, 120),
     severity: clean(req.body.severity, 20) || 'low', assignedTo: clean(req.body.assignedTo, 150), status: clean(req.body.status, 20) || 'open',

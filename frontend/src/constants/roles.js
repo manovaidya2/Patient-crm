@@ -49,6 +49,9 @@ export const ROLE_LABELS = {
 // Roles that can open All Patients / Patient Details (Assistant Doctor and Psychologist are scoped by the backend)
 export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
 export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.HR];
+export const HR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.HR];
+export const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
+export const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist
 export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ACCOUNTANT];

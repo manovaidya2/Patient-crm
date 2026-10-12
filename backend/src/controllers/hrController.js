@@ -278,7 +278,7 @@ const voidCall = asyncHandler(async (req, res) => {
   await record.save();
   const candidate = await HrCandidate.findById(record.candidate);
   if (candidate) {
-    candidate.activity.push({ action: 'Call record voided by Admin', details: `${record.callCode} • ${reason}`, ...actor(req.user) });
+    candidate.activity.push({ action: 'Call record voided by management', details: `${record.callCode} • ${reason}`, ...actor(req.user) });
     candidate.updatedBy = req.user._id; candidate.updatedByName = req.user.name; await candidate.save();
   }
   await refreshCandidateSummary(record.candidate);

@@ -4,7 +4,7 @@ import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, PhoneCall, Plus, Tras
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { hasHrFullAccess, ROLES } from '../../constants/roles.js';
 import HrCandidateForm from './HrCandidateForm.jsx';
 import HrCallForm from './HrCallForm.jsx';
 import HrScreeningForm from './HrScreeningForm.jsx';
@@ -77,7 +77,7 @@ export default function HrCandidateDetails() {
 
   return <div className="space-y-5">
     <Link to="/admin/hr/candidates" className="inline-flex items-center gap-2 text-sm font-semibold text-sage"><ArrowLeft size={16} /> Back to candidates</Link>
-    {user?.role === ROLES.ADMIN && <div className="flex justify-end"><Button variant="danger" onClick={removeCandidate}><Trash2 size={15}/> Delete candidate</Button></div>}
+    {hasHrFullAccess(user?.role) && <div className="flex justify-end"><Button variant="danger" onClick={removeCandidate}><Trash2 size={15}/> Delete candidate</Button></div>}
     <section className="border border-cardline bg-offwhite-100">
       <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center bg-[#EAF3F1] text-sage"><UserRound /></div><div><p className="text-xs font-semibold uppercase text-charcoal/50">{candidate.candidateCode}</p><h1 className="font-display text-3xl font-bold text-charcoal">{candidate.name}</h1><p className="mt-1 text-charcoal/60">{candidate.appliedPosition} | {candidate.phone}</p></div></div>

@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const HrWorksheetEntry = require('../models/HrWorksheetEntry');
 const HrEmployee = require('../models/HrEmployee');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { hasHrFullAccess } = require('../constants/roles');
 const { validDateKey } = require('../utils/hrRecruitmentUtils');
 
 const DEPARTMENTS = ['hr', 'recruitment', 'payroll', 'admin', 'operations', 'other'];
@@ -22,7 +22,7 @@ const listEntries = asyncHandler(async (req, res) => {
   const search = regex(req.query.search);
   if (search) filter.$or = ['hrEmployee', 'task', 'delayIssue', 'evidence', 'nextAction'].map((field) => ({ [field]: { $regex: search, $options: 'i' } }));
   filter.scope = req.query.scope === 'self' ? 'self' : 'employee';
-  if (filter.scope === 'self' && req.user.role !== ROLES.ADMIN) filter.createdBy = req.user._id;
+  if (filter.scope === 'self' && !hasHrFullAccess(req.user.role)) filter.createdBy = req.user._id;
   if (req.query.employeeId &&mongoose.Types.ObjectId.isValid(req.query.employeeId)) filter.employee = req.query.employeeId;
   if (DEPARTMENTS.includes(req.query.department)) filter.department = req.query.department;
   if (STATUSES.includes(req.query.workStatus)) filter.workStatus = req.query.workStatus;
@@ -56,7 +56,7 @@ const saveEntry = asyncHandler(async (req, res) => {
   if (req.params.id) {
     row = await HrWorksheetEntry.findById(req.params.id);
     if (!row) return res.status(404).json({ success: false, message: 'Worksheet entry not found' });
-    if (req.user.role !== ROLES.ADMIN && String(row.createdBy) !== String(req.user._id)) return res.status(403).json({ success: false, message: 'You can only edit your own entries' });
+    if (!hasHrFullAccess(req.user.role) && String(row.createdBy) !== String(req.user._id)) return res.status(403).json({ success: false, message: 'You can only edit your own entries' });
     if (row.scope === 'self') { payload.scope = 'self'; payload.hrEmployee = row.hrEmployee; }
     Object.assign(row, payload);
   } else {

@@ -4,7 +4,7 @@ import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { hasHrFullAccess } from '../../constants/roles.js';
 import { todayInput } from './hrOptions.js';
 
 const fieldClass = 'mt-1 w-full rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
@@ -18,7 +18,7 @@ const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
 export default function HrWorksheet() {
   const { user } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = hasHrFullAccess(user?.role);
   const [employees, setEmployees] = useState([]);
   const [employeeId, setEmployeeId] = useState('');
   const [scope, setScope] = useState(isAdmin ? 'employee' : 'self');
@@ -84,7 +84,7 @@ export default function HrWorksheet() {
     <div className="flex gap-2 border-b border-cardline">
       {[['self', isAdmin ? 'HR Own Worksheets' : 'My Worksheet'], ['employee', 'Employee Worksheets']].map(([value, text]) => <button key={value} type="button" onClick={() => switchScope(value)} className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold ${scope === value ? 'border-sage text-sage' : 'border-transparent text-charcoal/55 hover:text-charcoal'}`}>{text}</button>)}
     </div>
-    {isSelf && <p className="text-sm text-charcoal/60">{isAdmin ? 'Daily work entries HR members have recorded for themselves.' : 'Record your own daily HR work here. Only you and Admin can see these entries.'}</p>}
+    {isSelf && <p className="text-sm text-charcoal/60">{isAdmin ? 'Daily work entries HR members have recorded for themselves.' : 'Record your own daily HR work here. Only you and management can see these entries.'}</p>}
     {!isSelf && <section className="border border-cardline bg-offwhite-100 p-3">
       <p className="mb-2 text-xs font-semibold uppercase text-charcoal/50">Employee worksheets (filled by HR from each employee's daily report)</p>
       <div className="flex flex-wrap gap-2">

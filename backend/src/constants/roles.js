@@ -34,6 +34,9 @@ const CREATABLE_ROLES = [
 
 const ALL_ROLES = [ROLES.ADMIN, ...CREATABLE_ROLES];
 const GENERAL_CRM_ROLES = ALL_ROLES.filter((role) => role !== ROLES.HR);
+const HR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.HR];
+const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
+const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 
 // Roles that can open All Patients / Patient Details and see every patient, same as Admin.
 const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
@@ -65,6 +68,9 @@ module.exports = {
   CREATABLE_ROLES,
   ALL_ROLES,
   GENERAL_CRM_ROLES,
+  HR_ACCESS_ROLES,
+  HR_FULL_ACCESS_ROLES,
+  hasHrFullAccess,
   ROLE_LABELS,
   PATIENT_FULL_ACCESS_ROLES,
   PATIENT_ACCESS_ROLES,

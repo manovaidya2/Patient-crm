@@ -1,6 +1,6 @@
 const HrClinicExpense = require('../models/HrClinicExpense');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { hasHrFullAccess } = require('../constants/roles');
 const { validDateKey } = require('../utils/hrRecruitmentUtils');
 
 const CATEGORIES = ['tea_coffee', 'pantry', 'cleaning', 'rent', 'electricity', 'internet', 'stationery', 'maintenance', 'vendor', 'raw_material', 'other'];
@@ -35,7 +35,7 @@ const listExpenses = asyncHandler(async (req, res) => {
 });
 
 const saveExpense = asyncHandler(async (req, res) => {
-  const isAdmin = req.user.role === ROLES.ADMIN;
+  const isAdmin = hasHrFullAccess(req.user.role);
   const amount = Number(req.body.amount);
   const payload = {
     date: clean(req.body.date, 10), category: clean(req.body.category, 30), vendor: clean(req.body.vendor, 180), amount,

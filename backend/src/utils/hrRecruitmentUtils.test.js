@@ -28,11 +28,14 @@ test('salary offers cannot be sent before approval', () => {
   assert.equal(canTransition(OFFER_TRANSITIONS, 'accepted', 'withdrawn'), false);
 });
 
-test('Admin reviews salary while HR manages offer communication', () => {
+test('Admin and Doctor review salary while HR manages offer communication', () => {
   assert.equal(canEditOffer('admin', 'pending_approval'), true);
   assert.equal(canEditOffer('admin', 'accepted'), true);
+  assert.equal(canEditOffer('doctor', 'accepted'), true);
   assert.equal(canEditOffer('hr', 'pending_approval'), false);
   assert.equal(canManageOfferTransition('admin', 'approved'), true);
+  assert.equal(canManageOfferTransition('doctor', 'approved'), true);
+  assert.equal(canManageOfferTransition('doctor', 'sent'), false);
   assert.equal(canManageOfferTransition('admin', 'sent'), false);
   assert.equal(canManageOfferTransition('hr', 'approved'), false);
   assert.equal(canManageOfferTransition('hr', 'sent'), true);

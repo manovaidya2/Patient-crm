@@ -8,7 +8,7 @@ const HrInterview = require('../models/HrInterview');
 const HrOffer = require('../models/HrOffer');
 const HrOnboarding = require('../models/HrOnboarding');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, hasHrFullAccess } = require('../constants/roles');
 const { localDateTime, dateKeyInIndia } = require('../utils/hrCallUtils');
 const { REQUIREMENT_TRANSITIONS, OFFER_TRANSITIONS, canTransition, canEditOffer, canManageOfferTransition, nextInterviewRound, offerCompensation, interviewChainMetadata, splitList, validDateKey } = require('../utils/hrRecruitmentUtils');
 const { deleteCampaignCascade, deleteJobDescriptionCascade, deleteOfferCascade, deleteOnboardingCascade } = require('../utils/hrAdminDeleteUtils');
@@ -58,7 +58,7 @@ const saveRequirement = asyncHandler(async (req, res) => {
   if (req.params.id) {
     row = await HrHiringRequirement.findById(req.params.id);
     if (!row) return res.status(404).json({ success: false, message: 'Hiring requirement not found' });
-    if (req.user.role !== ROLES.ADMIN && !['draft', 'rejected'].includes(row.status)) return res.status(409).json({ success: false, message: 'Only draft or rejected requirements can be edited' });
+    if (!hasHrFullAccess(req.user.role) && !['draft', 'rejected'].includes(row.status)) return res.status(409).json({ success: false, message: 'Only draft or rejected requirements can be edited' });
     Object.assign(row, payload); updateActor(row, req.user);
     row.timeline.push({ action: 'Requirement updated', details: payload.positionTitle, ...actor(req.user) });
     await row.save();
@@ -74,7 +74,7 @@ const requirementStatus = asyncHandler(async (req, res) => {
   if (!row) return res.status(404).json({ success: false, message: 'Hiring requirement not found' });
   const next = clean(req.body.status, 30); const note = clean(req.body.note, 1000);
   if (!canTransition(REQUIREMENT_TRANSITIONS, row.status, next)) return res.status(409).json({ success: false, message: `Cannot move requirement from ${row.status} to ${next}` });
-  if (['approved', 'rejected'].includes(next) && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can approve or reject hiring requirements' });
+  if (['approved', 'rejected'].includes(next) && !hasHrFullAccess(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin or Doctor can approve or reject hiring requirements' });
   if (next === 'rejected' && !note) return res.status(400).json({ success: false, message: 'Rejection reason is required' });
   row.status = next; row.approvalNote = note; updateActor(row, req.user);
   if (next === 'approved') { row.approvedBy = req.user._id; row.approvedByName = req.user.name; row.approvedAt = new Date(); }
@@ -91,7 +91,7 @@ const listJds = asyncHandler(async (req, res) => {
 
 const saveJd = asyncHandler(async (req, res) => {
   const requirementFilter = { _id: req.body.requirementId };
-  if (!(req.user.role === ROLES.ADMIN && req.params.id)) requirementFilter.status = 'approved';
+  if (!(hasHrFullAccess(req.user.role) && req.params.id)) requirementFilter.status = 'approved';
   const requirement = await HrHiringRequirement.findOne(requirementFilter);
   if (!requirement) return res.status(400).json({ success: false, message: 'Select an approved hiring requirement' });
   const payload = { requirement: requirement._id, requirementCode: requirement.requirementCode, title: clean(req.body.title, 180), department: clean(req.body.department, 120), summary: clean(req.body.summary, 5000), responsibilities: clean(req.body.responsibilities, 8000), qualifications: clean(req.body.qualifications, 5000), experience: clean(req.body.experience, 500), salaryRange: clean(req.body.salaryRange, 300), status: clean(req.body.status, 20) || 'draft' };
@@ -110,7 +110,7 @@ const listCampaigns = asyncHandler(async (req, res) => {
 
 const saveCampaign = asyncHandler(async (req, res) => {
   const jdFilter = { _id: req.body.jobDescriptionId };
-  if (!(req.user.role === ROLES.ADMIN && req.params.id)) jdFilter.status = 'active';
+  if (!(hasHrFullAccess(req.user.role) && req.params.id)) jdFilter.status = 'active';
   const jd = await HrJobDescription.findOne(jdFilter);
   if (!jd) return res.status(400).json({ success: false, message: 'Select an active job description' });
   const payload = { jobDescription: jd._id, jdCode: jd.jdCode, positionTitle: jd.title, name: clean(req.body.name, 180), channels: splitList(req.body.channels), startDate: clean(req.body.startDate, 10), endDate: clean(req.body.endDate, 10), budget: Number(req.body.budget || 0), actualSpend: Number(req.body.actualSpend || 0), targetApplications: Number(req.body.targetApplications || 0), notes: clean(req.body.notes, 3000), status: clean(req.body.status, 20) || 'planned' };
@@ -209,7 +209,7 @@ const offerStatus = asyncHandler(async (req, res) => {
   const row = await HrOffer.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Offer not found' });
   const next = clean(req.body.status, 30); const note = clean(req.body.note, 1000);
   if (!canTransition(OFFER_TRANSITIONS, row.status, next)) return res.status(409).json({ success: false, message: `Cannot move offer from ${row.status} to ${next}` });
-  if (!canManageOfferTransition(req.user.role, next)) return res.status(403).json({ success: false, message: ['approved', 'rejected'].includes(next) ? 'Only Admin can approve or reject salary offers' : 'HR manages offer submission, communication and candidate response updates' });
+  if (!canManageOfferTransition(req.user.role, next)) return res.status(403).json({ success: false, message: ['approved', 'rejected'].includes(next) ? 'Only Admin or Doctor can approve or reject salary offers' : 'HR manages offer submission, communication and candidate response updates' });
   if (next === 'rejected' && !note) return res.status(400).json({ success: false, message: 'Rejection reason is required' });
   row.status = next; row.approvalNote = note; updateActor(row, req.user);
   if (next === 'approved') { row.approvedBy = req.user._id; row.approvedByName = req.user.name; row.approvedAt = new Date(); }
@@ -254,7 +254,7 @@ const saveOnboarding = asyncHandler(async (req, res) => {
 
 const updateOnboardingItem = asyncHandler(async (req, res) => {
   const row = await HrOnboarding.findById(req.params.id); if (!row) return res.status(404).json({ success: false, message: 'Onboarding record not found' });
-  if (['completed', 'cancelled'].includes(row.status) && req.user.role !== ROLES.ADMIN) return res.status(409).json({ success: false, message: 'Only Admin can change completed or cancelled onboarding' });
+  if (['completed', 'cancelled'].includes(row.status) && !hasHrFullAccess(req.user.role)) return res.status(409).json({ success: false, message: 'Only Admin or Doctor can change completed or cancelled onboarding' });
   const item = row.checklist.find((entry) => entry.key === req.params.key); if (!item) return res.status(404).json({ success: false, message: 'Checklist item not found' });
   item.completed = Boolean(req.body.completed); item.note = clean(req.body.note, 1000);
   item.completedAt = item.completed ? new Date() : null; item.completedBy = item.completed ? req.user._id : null; item.completedByName = item.completed ? req.user.name : '';

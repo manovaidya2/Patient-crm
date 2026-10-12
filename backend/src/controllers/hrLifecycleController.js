@@ -9,7 +9,7 @@ const HrOnboarding = require('../models/HrOnboarding');
 const HrCampaign = require('../models/HrCampaign');
 const HrTraining = require('../models/HrTraining');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { hasHrFullAccess } = require('../constants/roles');
 const { dateKeyInIndia, addDaysToDateKey } = require('../utils/hrCallUtils');
 const { validDateKey } = require('../utils/hrRecruitmentUtils');
 const { MODULES, STATUS_MAP, START_STATUS, validModule, canTransition, payrollTotals } = require('../utils/hrLifecycleUtils');
@@ -90,7 +90,7 @@ const saveRecord = asyncHandler(async (req, res) => {
   if (!validModule(module)) return res.status(404).json({ success: false, message: 'HR module not found' });
   if (!validId(req.body.employeeId) || (req.params.id && !validId(req.params.id))) return res.status(400).json({ success: false, message: 'Select a valid employee and record' });
   const employeeFilter = { _id: req.body.employeeId };
-  if (!(req.user.role === ROLES.ADMIN && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
+  if (!(hasHrFullAccess(req.user.role) && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
   const employee = await HrEmployee.findOne(employeeFilter).lean();
   if (!employee) return res.status(400).json({ success: false, message: 'Select an active employee' });
   const title = clean(req.body.title, 220), startDate = clean(req.body.startDate, 10), endDate = clean(req.body.endDate, 10);
@@ -102,8 +102,8 @@ const saveRecord = asyncHandler(async (req, res) => {
   if (req.params.id) {
     row = await HrLifecycleRecord.findOne({ _id: req.params.id, module });
     if (!row) return res.status(404).json({ success: false, message: `${labels[module]} record not found` });
-    if (finalStatuses.has(row.status) && req.user.role !== ROLES.ADMIN) return res.status(409).json({ success: false, message: 'Only Admin can edit a finalized record' });
-    if (['appraisals', 'payroll', 'exits'].includes(module) && row.status === 'pending_approval' && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Only Admin can edit a record awaiting approval' });
+    if (finalStatuses.has(row.status) && !hasHrFullAccess(req.user.role)) return res.status(409).json({ success: false, message: 'Only Admin or Doctor can edit a finalized record' });
+    if (['appraisals', 'payroll', 'exits'].includes(module) && row.status === 'pending_approval' && !hasHrFullAccess(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin or Doctor can edit a record awaiting approval' });
     Object.assign(row, payload, { updatedBy: req.user._id, updatedByName: req.user.name });
     row.activity.push({ action: `${labels[module]} updated`, details: title, ...actor(req.user) });
     await row.save();
@@ -139,7 +139,7 @@ const deleteRecord = asyncHandler(async (req, res) => {
   const row = await HrLifecycleRecord.findOneAndDelete({ _id: id, module });
   if (!row) return res.status(404).json({ success: false, message: `${labels[module]} record not found` });
   if (module === 'exits' && row.status === 'completed') {
-    await HrEmployee.updateOne({ _id: row.employee, status: 'exited' }, { $set: { status: 'active', updatedBy: req.user._id, updatedByName: req.user.name }, $push: { activity: { action: 'Completed exit record deleted by Admin', details: row.recordCode, ...actor(req.user) } } });
+    await HrEmployee.updateOne({ _id: row.employee, status: 'exited' }, { $set: { status: 'active', updatedBy: req.user._id, updatedByName: req.user.name }, $push: { activity: { action: 'Completed exit record deleted by management', details: row.recordCode, ...actor(req.user) } } });
   }
   res.json({ success: true, message: `${labels[module]} record deleted` });
 });

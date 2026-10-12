@@ -8,11 +8,12 @@ const OFFER_TRANSITIONS = {
 };
 
 const canTransition = (map, from, to) => Boolean(map[from]?.includes(to));
-const canEditOffer = (role, status) => role === 'admin'
+const hasFullAccess = (role) => ['admin', 'doctor'].includes(role);
+const canEditOffer = (role, status) => hasFullAccess(role)
   ? true
   : role === 'hr' && ['draft', 'rejected'].includes(status);
 const canManageOfferTransition = (role, next) => ['approved', 'rejected'].includes(next)
-  ? role === 'admin'
+  ? hasFullAccess(role)
   : role === 'hr';
 const nextInterviewRound = (previousRound, existingCount) => Math.max(Number(previousRound) || 1, Number(existingCount) || 0) + 1;
 const offerCompensation = (monthlyValue, annualValue) => {

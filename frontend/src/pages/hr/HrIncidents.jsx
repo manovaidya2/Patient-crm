@@ -4,7 +4,7 @@ import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { hasHrFullAccess } from '../../constants/roles.js';
 import { todayInput } from './hrOptions.js';
 
 const fieldClass = 'mt-1 w-full rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
@@ -21,7 +21,7 @@ const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
 export default function HrIncidents() {
   const { user } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = hasHrFullAccess(user?.role);
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({ total: 0, open: 0, escalated: 0, critical: 0, overdue: 0 });
   const [filters, setFilters] = useState({ search: '', type: '', severity: '', status: '' });
@@ -72,7 +72,7 @@ export default function HrIncidents() {
       <div><p className="text-xs font-semibold uppercase text-sage">HR Operations</p><h1 className="flex items-center gap-2 font-display text-2xl font-bold text-charcoal"><Scale size={23} /> Complaints & Conflicts</h1><p className="mt-1 text-sm text-charcoal/60">Staff grievances, conflicts, patient complaints and safety incidents.</p></div>
       <div className="flex gap-2"><Button variant="outline" onClick={downloadCsv} disabled={!rows.length}><Download size={16} /> Download CSV</Button><Button onClick={openCreate}><Plus size={16} /> Add Incident</Button></div>
     </header>
-    <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Keep grievance details confidential. Only Admin and HR can see this page; avoid putting sensitive personal details in the reference field.</p>
+    <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Keep grievance details confidential. Only Admin, Doctor and HR can see this page; avoid putting sensitive personal details in the reference field.</p>
     <section className="grid border border-cardline bg-offwhite-100 sm:grid-cols-5">{cards.map(([text, value], index) => <div key={text} className={`px-4 py-3 ${index < cards.length - 1 ? 'border-b border-cardline sm:border-b-0 sm:border-r' : ''}`}><p className="text-xs font-semibold uppercase text-charcoal/50">{text}</p><p className="mt-1 text-2xl font-bold text-charcoal">{value || 0}</p></div>)}</section>
     <form onSubmit={(event) => { event.preventDefault(); load(); }} className="grid gap-3 border border-cardline bg-offwhite-100 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_180px_160px_160px_auto]">
       <label className="relative"><Search size={16} className="absolute left-3 top-3 text-charcoal/40" /><input className={`${controlClass} w-full pl-9`} placeholder="Search case ref, department, assignee" value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} /></label>

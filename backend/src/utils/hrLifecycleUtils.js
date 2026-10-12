@@ -20,8 +20,8 @@ const canTransition = (module, from, to, role) => {
   if (!validStatus(module, to) || from === to) return false;
   if (APPROVAL_MODULES.has(module)) {
     if (to === 'pending_approval') return ['admin', 'hr'].includes(role) && ['draft', 'rejected', 'initiated'].includes(from);
-    if (['approved', 'rejected'].includes(to)) return role === 'admin' && from === 'pending_approval';
-    if (module === 'payroll' && to === 'paid') return role === 'admin' && from === 'approved';
+    if (['approved', 'rejected'].includes(to)) return ['admin', 'doctor'].includes(role) && from === 'pending_approval';
+    if (module === 'payroll' && to === 'paid') return ['admin', 'doctor'].includes(role) && from === 'approved';
     if (module === 'exits' && to === 'clearance') return ['admin', 'hr'].includes(role) && from === 'approved';
     if (module === 'exits' && to === 'completed') return ['admin', 'hr'].includes(role) && from === 'clearance';
     return false;
