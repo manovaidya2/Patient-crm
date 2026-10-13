@@ -194,6 +194,7 @@ const stageEntrySchema = new mongoose.Schema(
     notes: { type: String, trim: true, default: '' },
     packageName: { type: String, trim: true, default: '' },
     patientHistoryBy: { type: String, trim: true, default: '' },
+    purchaseOrder: { type: String, trim: true, default: '', maxlength: 80 },
     totalAmount: { type: Number, default: 0, min: 0 },
     postCounselor: {
       type: mongoose.Schema.Types.ObjectId,

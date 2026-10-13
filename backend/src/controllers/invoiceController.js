@@ -49,8 +49,8 @@ const findPatients = asyncHandler(async (req, res) => {
   if (!q) return res.json({ patients: [] });
   const regex = new RegExp(escapeRegex(q), 'i');
   const patients = await Patient.find({ $or: [{ patientCode: regex }, { patientName: regex }] })
-    .select('patientName patientCode guardianName relativeName age gender').sort({ patientName: 1 }).limit(20).lean();
-  res.json({ patients: patients.map((p) => ({ id: p._id, patientName: p.patientName, patientCode: p.patientCode || '', guardianName: p.guardianName || p.relativeName || '', age: p.age || '', gender: p.gender || '' })) });
+    .select('patientName patientCode guardianName relativeName age gender currentStage stages.number stages.purchaseOrder').sort({ patientName: 1 }).limit(20).lean();
+  res.json({ patients: patients.map((p) => ({ id: p._id, patientName: p.patientName, patientCode: p.patientCode || '', guardianName: p.guardianName || p.relativeName || '', age: p.age || '', gender: p.gender || '', purchaseOrder: ((p.stages || []).find((s) => s.number === p.currentStage)?.purchaseOrder) || [...(p.stages || [])].reverse().find((s) => s.purchaseOrder)?.purchaseOrder || '' })) });
 });
 
 const listInvoices = asyncHandler(async (req, res) => {
@@ -63,6 +63,12 @@ const listInvoices = asyncHandler(async (req, res) => {
   if (q) {
     const regex = new RegExp(escapeRegex(q), 'i');
     filter.$or = [{ invoiceNumber: regex }, { patientName: regex }, { patientCode: regex }];
+  }
+  if (req.query.patient) {
+    if (!mongoose.isObjectIdOrHexString(String(req.query.patient))) badRequest('Invalid patient filter');
+    filter.patient = req.query.patient;
+    const stage = parseInt(req.query.stage, 10);
+    if (stage >= 1 && stage <= 6) filter['details.stageNumber'] = stage;
   }
   for (const key of ['from', 'to']) if (req.query[key] && !validDate(String(req.query[key]))) badRequest('Invalid date filter');
   if (req.query.from || req.query.to) {

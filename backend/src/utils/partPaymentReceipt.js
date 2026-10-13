@@ -42,6 +42,12 @@ function validateReceipt(input = {}) {
     if (!['', 'received', 'pending'].includes(status)) fail('Invalid instalment status');
     return { amount: money(row.amount, 'Instalment amount'), dueDate, status };
   });
+  d.paymentNote = cleanText(input.paymentNote, 'Payment details', 120);
+  const stage = input.stageNumber;
+  if (stage != null && stage !== '' && (!Number.isInteger(Number(stage)) || Number(stage) < 1 || Number(stage) > 6)) fail('Invalid phase');
+  d.stageNumber = stage == null || stage === '' ? '' : Number(stage);
+  if (input.paymentIds != null && (!Array.isArray(input.paymentIds) || input.paymentIds.length > 50 || input.paymentIds.some((id) => !/^[a-f0-9]{24}$/i.test(String(id))))) fail('Invalid payment selection');
+  d.paymentIds = [...new Set((input.paymentIds || []).map(String))];
   d.poVerified = input.poVerified || 'pending';
   if (!['yes', 'pending'].includes(d.poVerified)) fail('Invalid purchase order verification');
   return d;
@@ -192,6 +198,7 @@ function renderColoredReceipt(number, d) {
       rule(footerY + 24, 174, 425, 0.9);
       text('www.manovaidya.in', 790, footerY, 264, 16, true, 'right', headingInk, { lineBreak: false });
       text('Issued by: Billing Desk', left + 3, footerY + 45, 330, 16, false, 'left', ink, { lineBreak: false });
+      text(d.paymentNote, 240, footerY + 47, 540, 13, false, 'center', ink, { lineBreak: false });
       text('PO verified:', 796, footerY + 45, 120, 16, false, 'left', ink, { lineBreak: false });
       const check = (x, label, selected) => {
         doc.save().lineWidth(sx(1.2)).rect(sx(x), sx(footerY + 47), sx(17), sx(17));
@@ -232,6 +239,7 @@ function renderReceipt(number, d, pdfStyle = 'black-white') {
         doc.fillColor('#000000').text(text, x * scale, top + y * scale, { width: width * scale, lineBreak: false });
       };
       const check = (x, y) => doc.save().fillColor('#000000').rect((x + 2) * scale, top + (y + 2) * scale, 13 * scale, 13 * scale).fill().restore();
+      write(d.paymentNote, 240, 1274 + lowerOffset, 540, 13);
       write(number, 146, 156, 278);
       write(formatDate(d.date), 494, 156, 210);
       write(d.purchaseOrder, 904, 156, 139);

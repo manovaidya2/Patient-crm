@@ -458,6 +458,7 @@ const normalizeStages = (existing = []) => {
       notes: found?.notes || '',
       packageName: found?.packageName || '',
       patientHistoryBy: found?.patientHistoryBy || '',
+      purchaseOrder: found?.purchaseOrder || '',
       totalAmount: found?.totalAmount || 0,
       postCounselor: found?.postCounselor || null,
       medicineMonthsGiven: found?.medicineMonthsGiven || 0,
@@ -540,6 +541,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       notes: s.notes,
       packageName: s.packageName,
       patientHistoryBy: s.patientHistoryBy || (s.number === 1 ? p.patientHistoryBy || '' : ''),
+      purchaseOrder: s.purchaseOrder || '',
       totalAmount: s.totalAmount,
       postCounselor: formatAssignedUser(s.postCounselor),
       medicineMonthsGiven: s.medicineMonthsGiven || 0,
@@ -1895,6 +1897,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     packageName,
     consultationDate,
     patientHistoryBy,
+    purchaseOrder,
     totalAmount,
     postCounselor,
     medicineMonthsGiven,
@@ -1979,6 +1982,12 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   if (packageName !== undefined && !sameValue(stageEntry.packageName, packageName)) {
     addActivity(patient, req.user, `Phase ${stageNum} package updated`, packageName || 'Cleared');
     stageEntry.packageName = packageName;
+  }
+  if (purchaseOrder !== undefined) {
+    const nextPurchaseOrder = String(purchaseOrder || '').trim().replace(/\s+/g, ' ');
+    if (nextPurchaseOrder.length > 80) return res.status(400).json({ success: false, message: 'Purchase order must be 80 characters or fewer' });
+    if (!sameValue(stageEntry.purchaseOrder, nextPurchaseOrder)) addActivity(patient, req.user, `Phase ${stageNum} purchase order updated`, nextPurchaseOrder || 'Cleared');
+    stageEntry.purchaseOrder = nextPurchaseOrder;
   }
   if (totalAmount !== undefined) {
     const nextTotalAmount = Math.max(Number(totalAmount) || 0, 0);

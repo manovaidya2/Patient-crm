@@ -32,6 +32,9 @@ async function validateFinalBill(input, settings) {
     if (!settings.paymentParticulars.includes(particulars)) fail('Payment particulars changed. Refresh dropdown options and select again');
     return { date, particulars, received: amount(row?.received, `Payment ${index + 1} received amount`) };
   });
+  const stage = input.stageNumber;
+  if (stage != null && stage !== '' && (!Number.isInteger(Number(stage)) || Number(stage) < 1 || Number(stage) > 6)) fail('Invalid phase');
+  if (stage != null && stage !== '') d.stageNumber = Number(stage);
   d.paymentStatus = text(input.paymentStatus, 'Payment status');
   if (!settings.paymentStatuses.includes(d.paymentStatus)) fail('Select a configured payment status');
   try { Object.assign(d, calculateFinalBill(d.items, d.payments)); } catch (error) { fail(error.message); }

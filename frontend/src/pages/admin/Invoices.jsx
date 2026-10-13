@@ -125,7 +125,7 @@ export default function Invoices({ type }) {
 
   function selectPatient(p) {
     setPatient(p);
-    setDetails((d) => ({ ...d, patientName: p.patientName, patientCode: p.patientCode, guardianName: p.guardianName, age: p.age, gender: p.gender }));
+    setDetails((d) => ({ ...d, patientName: p.patientName, patientCode: p.patientCode, guardianName: p.guardianName, age: p.age, gender: p.gender, purchaseOrder: d.purchaseOrder || p.purchaseOrder || '' }));
     setPatientQuery(''); setPatients([]);
   }
 

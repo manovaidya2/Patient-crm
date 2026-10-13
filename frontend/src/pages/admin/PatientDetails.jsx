@@ -11,6 +11,7 @@ import EditableField from '../../components/ui/EditableField.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
 import RefundImages from '../../components/RefundImages.jsx';
+import PatientBillPanel from '../../components/PatientBillPanel.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
@@ -2525,6 +2526,7 @@ const PatientDetails = () => {
   const isPsychologist = user?.role === ROLES.PSYCHOLOGIST;
   const isAccountant = user?.role === ROLES.ACCOUNTANT;
   const isAdmin = user?.role === ROLES.ADMIN;
+  const canMakeBills = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
   const isPostCounselor = user?.role === ROLES.POST_COUNSELOR;
   const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
   const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
@@ -3291,6 +3293,13 @@ const PatientDetails = () => {
                     readOnly={!canEditPostCounselor}
                   />
                   <EditableField
+                    label="Purchase Order No."
+                    value={activeStage.purchaseOrder || ''}
+                    placeholder="Not added"
+                    onSave={(val) => saveStageField('purchaseOrder', val)}
+                    readOnly={!canEditStageDetails}
+                  />
+                  <EditableField
                     label="Total Amount"
                     type="number"
                     value={activeStage.totalAmount || ''}
@@ -3352,6 +3361,7 @@ const PatientDetails = () => {
                     canDelete={canEditPatientRecords}
                   />
                 </div>
+                {canMakeBills && <PatientBillPanel patient={patient} stage={activeStage} />}
               </div>
 
               <div
