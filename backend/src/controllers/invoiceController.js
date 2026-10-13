@@ -7,6 +7,7 @@ const Patient = require('../models/Patient');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { validateReceipt, renderReceipt, receiptFileName, validDate } = require('../utils/partPaymentReceipt');
 const { validateFinalBill, renderFinalBill } = require('../utils/finalBill');
+const { validateConsultationBill, renderConsultationBill } = require('../utils/consultationBill');
 const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
 
 const readSettings = async () => await InvoiceSettings.findById('final-bill').lean() || { paymentParticulars: DEFAULT_PARTICULARS, paymentStatuses: DEFAULT_STATUSES };
@@ -26,6 +27,11 @@ const updateSettings = asyncHandler(async (req, res) => {
   res.json({ paymentParticulars: settings.paymentParticulars, paymentStatuses: settings.paymentStatuses });
 });
 
+const INVOICE_TYPES = {
+  'part-payment': { code: 'PP', file: 'Part-payment-receipt', render: renderReceipt },
+  'final-bill': { code: 'FB', file: 'Final-bill', render: renderFinalBill },
+  consultation: { code: 'CN', file: 'Consultation-receipt', render: renderConsultationBill },
+};
 const INVOICE_DIR = path.join(__dirname, '../../uploads/invoices');
 const PDF_STYLES = ['black-white', 'color'];
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -56,7 +62,7 @@ const findPatients = asyncHandler(async (req, res) => {
 const listInvoices = asyncHandler(async (req, res) => {
   const filter = {};
   if (req.query.type) {
-    if (!['part-payment', 'final-bill'].includes(req.query.type)) badRequest('Unsupported invoice type');
+    if (!INVOICE_TYPES[req.query.type]) badRequest('Unsupported invoice type');
     filter.type = req.query.type;
   }
   const q = String(req.query.q || '').trim().slice(0, 100);
@@ -86,13 +92,13 @@ const listInvoices = asyncHandler(async (req, res) => {
 
 const createInvoice = asyncHandler(async (req, res) => {
   const type = req.body.type;
-  if (!['part-payment', 'final-bill'].includes(type)) badRequest('Unsupported receipt type');
+  if (!INVOICE_TYPES[type]) badRequest('Unsupported receipt type');
   const key = req.body.submissionKey;
   if (typeof key !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(key)) badRequest('A valid submission key is required');
   const submissionKey = `${req.user._id}:${key}`;
   const existing = await Invoice.findOne({ submissionKey }).lean();
   if (existing) return res.json({ invoice: formatInvoice(existing) });
-  const details = type === 'final-bill' ? await validateFinalBill(req.body.details, await readSettings()) : validateReceipt(req.body.details);
+  const details = type === 'final-bill' ? await validateFinalBill(req.body.details, await readSettings()) : type === 'consultation' ? validateConsultationBill(req.body.details) : validateReceipt(req.body.details);
   const pdfStyle = pdfStyleFrom(req.body.pdfStyle);
   const patient = req.body.patient || null;
   if (patient && (!mongoose.isObjectIdOrHexString(patient) || !await Patient.exists({ _id: patient }))) badRequest('Selected patient was not found');
@@ -107,9 +113,9 @@ const createInvoice = asyncHandler(async (req, res) => {
     if (error.code !== 11000) throw error;
     counter = await InvoiceCounter.findOneAndUpdate({ _id: counterKey }, { $inc: { sequence: 1 } }, { new: true });
   }
-  const invoiceNumber = `MV-${type === 'final-bill' ? 'FB' : 'PP'}-${year}-${String(counter.sequence).padStart(6, '0')}`;
-  const fileName = styleFileName(receiptFileName(invoiceNumber, details.patientName).replace('Part-payment-receipt', type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt'), pdfStyle);
-  const pdf = await (type === 'final-bill' ? renderFinalBill : renderReceipt)(invoiceNumber, details, pdfStyle);
+  const invoiceNumber = `MV-${INVOICE_TYPES[type].code}-${year}-${String(counter.sequence).padStart(6, '0')}`;
+  const fileName = styleFileName(receiptFileName(invoiceNumber, details.patientName).replace('Part-payment-receipt', INVOICE_TYPES[type].file), pdfStyle);
+  const pdf = await INVOICE_TYPES[type].render(invoiceNumber, details, pdfStyle);
   const id = new mongoose.Types.ObjectId();
   const filePath = path.join(INVOICE_DIR, fileName);
   await fs.mkdir(INVOICE_DIR, { recursive: true });
@@ -145,15 +151,15 @@ const updateInvoice = asyncHandler(async (req, res) => {
   };
   const details = original.type === 'final-bill'
     ? await validateFinalBill(req.body.details, settings)
-    : validateReceipt(req.body.details);
+    : original.type === 'consultation' ? validateConsultationBill(req.body.details) : validateReceipt(req.body.details);
   const pdfStyle = pdfStyleFrom(req.body.pdfStyle || original.pdfStyle);
   const patient = req.body.patient || null;
   if (patient && (!mongoose.isObjectIdOrHexString(patient) || !await Patient.exists({ _id: patient }))) badRequest('Selected patient was not found');
   const nextRevision = revision + 1;
   const baseName = receiptFileName(original.invoiceNumber, details.patientName);
-  const fileName = styleFileName(baseName.replace('Part-payment-receipt', original.type === 'final-bill' ? 'Final-bill' : 'Part-payment-receipt'), pdfStyle).replace(/\.pdf$/, `-v${nextRevision}-${randomUUID().slice(0, 8)}.pdf`);
+  const fileName = styleFileName(baseName.replace('Part-payment-receipt', INVOICE_TYPES[original.type].file), pdfStyle).replace(/\.pdf$/, `-v${nextRevision}-${randomUUID().slice(0, 8)}.pdf`);
   const filePath = path.join(INVOICE_DIR, fileName);
-  const pdf = await (original.type === 'final-bill' ? renderFinalBill : renderReceipt)(original.invoiceNumber, details, pdfStyle);
+  const pdf = await INVOICE_TYPES[original.type].render(original.invoiceNumber, details, pdfStyle);
   await fs.mkdir(INVOICE_DIR, { recursive: true });
   await fs.writeFile(filePath, pdf, { flag: 'wx' });
   try {
@@ -192,13 +198,13 @@ const getPdf = asyncHandler(async (req, res, next) => {
   const filePath = path.join(INVOICE_DIR, selected.fileName);
   if (req.params.revision === undefined) {
     await fs.mkdir(INVOICE_DIR, { recursive: true });
-    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details, selected.pdfStyle || 'black-white'));
+    await fs.writeFile(filePath, await INVOICE_TYPES[invoice.type].render(invoice.invoiceNumber, selected.details, selected.pdfStyle || 'black-white'));
   }
   try { await fs.access(filePath); } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     // The saved snapshot can restore a PDF after a storage migration.
     await fs.mkdir(INVOICE_DIR, { recursive: true });
-    await fs.writeFile(filePath, await (invoice.type === 'final-bill' ? renderFinalBill : renderReceipt)(invoice.invoiceNumber, selected.details, selected.pdfStyle || 'black-white'));
+    await fs.writeFile(filePath, await INVOICE_TYPES[invoice.type].render(invoice.invoiceNumber, selected.details, selected.pdfStyle || 'black-white'));
   }
   res.set('Cache-Control', 'private, no-store');
   res.download(filePath, selected.fileName, (error) => { if (error && !res.headersSent) next(error); });

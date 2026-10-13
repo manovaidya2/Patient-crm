@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Check, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
+import ConsultationBillForm from './ConsultationBillForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import InvoicePdfStyleSelector from '../../components/InvoicePdfStyleSelector.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -11,6 +12,7 @@ const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const primaryClass = `${buttonClass} !border-teal-700 !bg-teal-700 !text-white hover:!bg-teal-800`;
 const billingFields = [['consultationFee', 'Consultation fee'], ['treatmentAmount', 'Treatment / formulation order'], ['adjustment', 'Adjustment / concession'], ['totalPayable', 'Total agreed payable'], ['amountReceived', 'Amount received'], ['outstanding', 'Outstanding after payment']];
+const BILL_NAMES = { 'part-payment': 'Part-payment Bill', 'final-bill': 'Final Bill', consultation: 'Consultation Bill' };
 const blankDetails = () => ({
   date: '', purchaseOrder: '', patientName: '', patientCode: '', guardianName: '', age: '', gender: '',
   consultationFee: '', treatmentAmount: '', adjustment: '', totalPayable: '', amountReceived: '', outstanding: '',
@@ -39,7 +41,7 @@ function Section({ title, icon: Icon, children }) {
 export default function Invoices({ type }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const title = type === 'final-bill' ? 'Final Bills' : 'Part-payment Bills';
+  const title = `${BILL_NAMES[type]}s`;
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
@@ -194,14 +196,14 @@ export default function Invoices({ type }) {
     <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
         {editing && <button type="button" className={buttonClass} title="Back to bills" aria-label="Back to bills" disabled={saving} onClick={() => { if (window.confirm('Discard unsaved changes?')) { setEditing(false); setEditingRow(null); setError(''); } }}><ArrowLeft size={18} /></button>}
-        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? `${editingRow ? 'Edit' : 'New'} ${type === 'final-bill' ? 'Final Bill' : 'Part-payment Bill'}` : title}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? editingRow ? `${editingRow.invoiceNumber} / Revision ${editingRow.revision}` : 'ManoVaidya / Billing' : `${total} saved bills`}</p></div>
+        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? `${editingRow ? 'Edit' : 'New'} ${BILL_NAMES[type]}` : title}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? editingRow ? `${editingRow.invoiceNumber} / Revision ${editingRow.revision}` : 'ManoVaidya / Billing' : `${total} saved bills`}</p></div>
       </div>
-      {!editing && <button className={primaryClass} onClick={startReceipt}><Plus size={17} />New {type === 'final-bill' ? 'Final Bill' : 'Part-payment Bill'}</button>}
+      {!editing && <button className={primaryClass} onClick={startReceipt}><Plus size={17} />New {BILL_NAMES[type]}</button>}
     </header>
     {error && <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}<button className="float-right ml-3" onClick={() => setError('')} aria-label="Dismiss error"><X size={16} /></button></div>}
     {notice && !editing && <p role="status" className="mb-4 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800">{notice}</p>}
 
-    {editing && type === 'final-bill' ? <FinalBillForm key={editingRow?.id || 'new'} initial={editingRow} onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
+    {editing && type === 'final-bill' ? <FinalBillForm key={editingRow?.id || 'new'} initial={editingRow} onSave={saveInvoice} saving={saving} reportError={setError} /> : editing && type === 'consultation' ? <ConsultationBillForm key={editingRow?.id || 'new'} initial={editingRow} onSave={saveInvoice} saving={saving} reportError={setError} /> : editing ? <form onSubmit={saveReceipt}>
       <fieldset disabled={saving} className="min-w-0 disabled:opacity-70">
         <div className="overflow-hidden rounded-md border border-cardline bg-white shadow-[0_8px_24px_rgba(39,50,56,0.06)]">
           <div className="flex items-center gap-2 border-b border-cardline bg-[#EEF5F2] px-4 py-3 text-sm font-semibold text-teal-900 sm:px-5">
@@ -275,12 +277,12 @@ export default function Invoices({ type }) {
     </>}
     {preview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="receipt-preview-title">
       <div className="flex h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3 sm:p-4"><div className="min-w-0"><h2 id="receipt-preview-title" className="text-base font-semibold">{preview.type === 'final-bill' ? 'Final Bill' : 'Part-payment receipt'}</h2><p className="break-words text-xs text-charcoal/60">{preview.invoiceNumber} / {preview.patientName}</p></div><div className="flex flex-wrap gap-2"><a className={buttonClass} href={preview.url} download={preview.fileName} title="Download PDF"><Download size={17} /><span className="hidden sm:inline">Download</span></a><button className={buttonClass} disabled={!pdfReady} onClick={printPdf} title="Print receipt"><Printer size={17} /><span className="hidden sm:inline">Print</span></button><button className={buttonClass} onClick={() => setPreview(null)} title="Close preview" aria-label="Close preview" autoFocus><X size={18} /></button></div></header>
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3 sm:p-4"><div className="min-w-0"><h2 id="receipt-preview-title" className="text-base font-semibold">{preview.type === 'part-payment' ? 'Part-payment receipt' : BILL_NAMES[preview.type]}</h2><p className="break-words text-xs text-charcoal/60">{preview.invoiceNumber} / {preview.patientName}</p></div><div className="flex flex-wrap gap-2"><a className={buttonClass} href={preview.url} download={preview.fileName} title="Download PDF"><Download size={17} /><span className="hidden sm:inline">Download</span></a><button className={buttonClass} disabled={!pdfReady} onClick={printPdf} title="Print receipt"><Printer size={17} /><span className="hidden sm:inline">Print</span></button><button className={buttonClass} onClick={() => setPreview(null)} title="Close preview" aria-label="Close preview" autoFocus><X size={18} /></button></div></header>
         <div className="flex justify-end border-b px-4 py-2"><a className="text-sm font-medium text-teal-700 underline" href={preview.url} target="_blank" rel="noreferrer">Open PDF in new tab</a></div>
         <iframe ref={pdfFrame} title="Part-payment receipt PDF" src={preview.url} className="min-h-0 w-full flex-1 border-0 bg-gray-100" onLoad={() => setPdfReady(true)} />
       </div>
     </div>}
-    <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`Delete ${deleteTarget?.type === 'final-bill' ? 'Final Bill' : 'Part-payment Bill'}`}>
+    <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`Delete ${BILL_NAMES[deleteTarget?.type] || 'Bill'}`}>
       <div className="space-y-5">
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-charcoal">
           <p>Delete <strong>{deleteTarget?.invoiceNumber}</strong> for <strong>{deleteTarget?.patientName}</strong>?</p>
