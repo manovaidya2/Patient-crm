@@ -370,7 +370,7 @@ function App() {
         <Route
           path="receptionist-checklist"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
               <ReceptionistChecklist />
             </ProtectedRoute>
           }

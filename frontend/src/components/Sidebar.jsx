@@ -51,7 +51,7 @@ export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
   { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT] },
-  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Receptionist Checklist', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
   { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/enquiries', icon: ClipboardList, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
