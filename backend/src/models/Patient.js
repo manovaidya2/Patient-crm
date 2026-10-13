@@ -124,6 +124,10 @@ const medicineRequestSchema = new mongoose.Schema(
     requestedByName: { type: String, trim: true, default: '' },
     inProcessAt: { type: Date, default: null },
     inProcessByName: { type: String, trim: true, default: '' },
+    // Last date the medicine department committed to have the medicine ready by.
+    readyByDate: { type: Date, default: null },
+    readyBySetByName: { type: String, trim: true, default: '' },
+    readyBySetAt: { type: Date, default: null },
     madeAt: { type: Date, default: null },
     madeByName: { type: String, trim: true, default: '' },
     medicineImageUrl: { type: String, default: null },
@@ -152,7 +156,7 @@ const medicineRequestSchema = new mongoose.Schema(
       receiverPhone: { type: String, trim: true, default: '' },
       address: { type: String, trim: true, default: '' },
       courierPartner: { type: String, trim: true, default: '' },
-      deliveryMode: { type: String, enum: ['courier', 'self'], default: 'courier' },
+      deliveryMode: { type: String, enum: ['courier', 'self', 'porter'], default: 'courier' },
       selfPickupByName: { type: String, trim: true, default: '' },
       trackingNumber: { type: String, trim: true, default: '' },
       packageImageUrl: { type: String, default: null },
@@ -180,6 +184,57 @@ const medicineRequestSchema = new mongoose.Schema(
         default: [],
       },
     },
+  },
+  { _id: false }
+);
+
+// In-transit tracking for one phase: the steps between "PO + payment added" and "treatment activated"
+// that no other screen records. Everything else (payments, medicine request, courier, explanation date)
+// is read from the existing fields so both views always agree.
+const transitSchema = new mongoose.Schema(
+  {
+    expectedReadyDate: { type: Date, default: null },
+    preparationStartedAt: { type: Date, default: null },
+    preparationStartedByName: { type: String, trim: true, default: '' },
+    financialReleasedAt: { type: Date, default: null },
+    financialReleasedByName: { type: String, trim: true, default: '' },
+    financialReleaseNote: { type: String, trim: true, default: '' },
+    fulfilmentMode: { type: String, enum: ['', 'courier', 'pickup', 'porter'], default: '' },
+    fulfilmentSetAt: { type: Date, default: null },
+    fulfilmentSetByName: { type: String, trim: true, default: '' },
+    pickupScheduledAt: { type: Date, default: null },
+    pickupNote: { type: String, trim: true, default: '' },
+    pickupScheduledByName: { type: String, trim: true, default: '' },
+    explanationScheduledAt: { type: Date, default: null },
+    explanationScheduledByName: { type: String, trim: true, default: '' },
+    explanationAckAt: { type: Date, default: null },
+    explanationAckByName: { type: String, trim: true, default: '' },
+    explanationCompletedAt: { type: Date, default: null },
+    explanationCompletedByName: { type: String, trim: true, default: '' },
+    explainedByName: { type: String, trim: true, default: '' },
+    explanationNote: { type: String, trim: true, default: '' },
+    activatedAt: { type: Date, default: null },
+    activatedByName: { type: String, trim: true, default: '' },
+    calls: {
+      type: [{
+        at: { type: Date, default: Date.now },
+        outcome: { type: String, enum: ['connected', 'not_reachable', 'busy', 'call_back', 'wrong_number'], required: true },
+        notes: { type: String, trim: true, default: '', maxlength: 2000 },
+        nextCallAt: { type: Date, default: null },
+        byName: { type: String, trim: true, default: '' },
+      }],
+      default: [],
+    },
+    assignedAt: { type: Date, default: null },
+    assignedByName: { type: String, trim: true, default: '' },
+    // Admin can take a phase out of In Transit without touching any patient data.
+    removedAt: { type: Date, default: null },
+    removedByName: { type: String, trim: true, default: '' },
+    removedReason: { type: String, trim: true, default: '' },
+    holdActive: { type: Boolean, default: false },
+    holdReason: { type: String, trim: true, default: '' },
+    holdAt: { type: Date, default: null },
+    holdByName: { type: String, trim: true, default: '' },
   },
   { _id: false }
 );
@@ -230,6 +285,7 @@ const stageEntrySchema = new mongoose.Schema(
     },
     recordPdfPageCount: { type: Number, default: 0, min: 0 },
     recordPdfUpdatedAt: { type: Date, default: null },
+    transit: { type: transitSchema, default: () => ({}) },
     medicineRequest: { type: medicineRequestSchema, default: () => ({}) },
     medicineRequests: { type: [medicineRequestSchema], default: [] },
     // Follow-ups and Family Sessions scheduled specifically for this stage

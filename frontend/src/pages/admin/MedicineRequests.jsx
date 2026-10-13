@@ -7,7 +7,7 @@ const MedicineRequests = () => (
     statuses={['requested', 'in_process', 'made', 'cancelled']}
     emptyText="No new medicine requests."
     actions={[
-      { from: ['requested'], status: 'in_process', label: 'Mark In Process', variant: 'outline' },
+      { from: ['requested'], status: 'in_process', label: 'Accept (set ready date)', variant: 'outline' },
       { from: ['requested', 'in_process'], status: 'made', label: 'Medicine Made', requiresImage: true },
     ]}
   />

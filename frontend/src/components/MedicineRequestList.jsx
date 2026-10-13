@@ -86,6 +86,9 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   const [imageAction, setImageAction] = useState(null);
   const [imageFiles, setImageFiles] = useState([]);
   const [imageError, setImageError] = useState('');
+  const [madeByName, setMadeByName] = useState('');
+  const [readyAction, setReadyAction] = useState(null);
+  const [readyError, setReadyError] = useState('');
   const [courierAction, setCourierAction] = useState(null);
   const [courierForm, setCourierForm] = useState({ packagedByName: '', chitsWrittenByName: '', lastMedicineCheckedByName: '' });
   const [courierError, setCourierError] = useState('');
@@ -104,7 +107,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     else setError('');
   }, [queryError, data]);
 
-  const updateStatus = async (row, status, files = []) => {
+  const updateStatus = async (row, status, files = [], extra = {}) => {
     const key = `${row.patientId}-${row.stage}-${row.requestId}-${status}`;
     setBusyKey(key);
     try {
@@ -112,14 +115,17 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
         const formData = new FormData();
         formData.append('status', status);
         if (row.requestId) formData.append('requestId', row.requestId);
+        Object.entries(extra).forEach(([key, value]) => { if (value) formData.append(key, value); });
         files.forEach((file) => formData.append('medicineImage', file));
         await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, formData);
       } else {
-        await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { status, requestId: row.requestId });
+        await api.patch(`/medicine/requests/${row.patientId}/stages/${row.stage}`, { status, requestId: row.requestId, ...extra });
       }
       refresh();
+      return true;
     } catch (err) {
       setError(err.response?.data?.message || 'Could not update medicine status.');
+      return false;
     } finally {
       setBusyKey('');
     }
@@ -223,6 +229,22 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     setImageAction({ row, action });
     setImageFiles([]);
     setImageError('');
+    setMadeByName(user?.name || '');
+  };
+
+  const openReadyAction = (row, mode) => {
+    const current = row.medicineRequest?.readyByDate;
+    setReadyAction({ row, mode, date: current ? new Date(current).toISOString().slice(0, 10) : '' });
+    setReadyError('');
+  };
+
+  const submitReadyAction = async (e) => {
+    e.preventDefault();
+    if (!readyAction.date) { setReadyError('Select the date by which the medicine will be ready'); return; }
+    const ok = readyAction.mode === 'accept'
+      ? await updateStatus(readyAction.row, 'in_process', [], { readyByDate: readyAction.date })
+      : await updateStatus(readyAction.row, 'in_process', [], { readyByDate: readyAction.date, action: 'setReadyBy' });
+    if (ok) setReadyAction(null);
   };
 
   const submitImageAction = async (e) => {
@@ -231,7 +253,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
       setImageError('Medicine image is required');
       return;
     }
-    await updateStatus(imageAction.row, imageAction.action.status, imageFiles);
+    await updateStatus(imageAction.row, imageAction.action.status, imageFiles, { madeByName: madeByName.trim() });
     setImageAction(null);
   };
 
@@ -353,6 +375,14 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                         In process: {formatDateTime(request.inProcessAt)} by {request.inProcessByName || '-'}
                       </p>
                     )}
+                    {request.readyByDate && (
+                      <p className={`mt-1 text-xs ${['requested', 'in_process'].includes(request.status) && new Date(request.readyByDate).setHours(23, 59, 59) - Date.now() < 2 * 86400000 ? 'font-semibold text-[#8C3B2E]' : 'text-charcoal/55'}`}>
+                        Ready by: {new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{request.readyBySetByName ? ` (set by ${request.readyBySetByName})` : ''}
+                        {['requested', 'in_process'].includes(request.status) && (
+                          <button type="button" className="ml-2 font-semibold text-sage hover:underline" onClick={() => openReadyAction(row, 'change')}>Change</button>
+                        )}
+                      </p>
+                    )}
                     {request.madeAt && (
                       <p className="mt-1 text-xs text-charcoal/55">
                         Medicine made: {formatDateTime(request.madeAt)} by {request.madeByName || '-'}
@@ -431,6 +461,10 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                             variant={action.variant || 'primary'}
                             disabled={busyKey === key}
                             onClick={() => {
+                              if (action.status === 'in_process') {
+                                openReadyAction(row, 'accept');
+                                return;
+                              }
                               if (action.requiresImage) {
                                 openImageAction(row, action);
                                 return;
@@ -454,12 +488,36 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
         )}
       </Card>
 
+      {readyAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
+          <form onSubmit={submitReadyAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-charcoal">{readyAction.mode === 'accept' ? 'Accept request' : 'Change ready-by date'}</h3>
+            <p className="mt-1 text-sm text-charcoal/60">Last date by which this medicine will be ready. Post counselor, reception and medicine department get a reminder one day before.</p>
+            {readyError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{readyError}</p>}
+            <label className="mt-4 block text-sm font-medium text-charcoal">
+              Medicine ready by
+              <input type="date" required value={readyAction.date} onChange={(e) => setReadyAction({ ...readyAction, date: e.target.value })} className="mt-1.5 w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setReadyAction(null)}>Cancel</Button>
+              <Button type="submit" disabled={!!busyKey}>{busyKey ? 'Saving...' : readyAction.mode === 'accept' ? 'Accept & Mark In Process' : 'Save date'}</Button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {imageAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
           <form onSubmit={submitImageAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
             <h3 className="font-display text-lg font-bold text-charcoal">{imageAction.action.label}</h3>
             <p className="mt-1 text-sm text-charcoal/60">Upload medicine images after the medicine is prepared.</p>
             {imageError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{imageError}</p>}
+            {imageAction.action.status === 'made' && (
+              <label className="mt-4 block text-sm font-medium text-charcoal">
+                Medicine made by
+                <input value={madeByName} onChange={(e) => setMadeByName(e.target.value)} maxLength={120} required className="mt-1.5 w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
+              </label>
+            )}
             <label className="mt-4 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-4 text-sm font-semibold text-sage hover:border-sage">
               Choose medicine images
               <input type="file" accept="image/*" multiple onChange={(e) => appendSelectedFiles(setImageFiles, e.target.files)} className="hidden" />

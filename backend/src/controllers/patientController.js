@@ -98,6 +98,9 @@ const emptyMedicineRequest = () => ({
   requestedByName: '',
   inProcessAt: null,
   inProcessByName: '',
+  readyByDate: null,
+  readyBySetByName: '',
+  readyBySetAt: null,
   madeAt: null,
   madeByName: '',
   medicineImageUrl: null,
@@ -472,6 +475,7 @@ const normalizeStages = (existing = []) => {
       medicineConnectedAt: found?.medicineConnectedAt ?? null,
       medicineConnectedByName: found?.medicineConnectedByName || '',
       payments: found?.payments || [],
+      transit: found?.transit?.toObject?.() || found?.transit || {},
       recordFileUrl: found?.recordFileUrl || null,
       recordFileName: found?.recordFileName || '',
       recordFiles: withLegacyFile(found?.recordFiles || [], found?.recordFileUrl, found?.recordFileName),
@@ -2807,6 +2811,24 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
     return res.status(400).json({ success: false, message: 'Medicine has not been requested for this phase' });
   }
+  const readyByInput = req.body.readyByDate ? new Date(req.body.readyByDate) : null;
+  if (req.body.readyByDate && Number.isNaN(readyByInput.getTime())) {
+    return res.status(400).json({ success: false, message: 'Enter a valid medicine ready-by date' });
+  }
+  if (req.body.action === 'setReadyBy') {
+    if (![MEDICINE_STATUSES.REQUESTED, MEDICINE_STATUSES.IN_PROCESS].includes(currentRequest.status)) {
+      return res.status(400).json({ success: false, message: 'Ready-by date can only be changed before the medicine is made' });
+    }
+    if (!readyByInput) return res.status(400).json({ success: false, message: 'Medicine ready-by date is required' });
+    Object.assign(requestDoc, { readyByDate: readyByInput, readyBySetByName: req.user.name, readyBySetAt: new Date() });
+    addActivity(patient, req.user, `Medicine ready-by date updated for Phase ${stageNum}`, `${readyByInput.toISOString().slice(0, 10)} | Request: ${currentRequest.requestId || 'legacy'}`);
+    await patient.save();
+    await populateAssignments(patient);
+    return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)) });
+  }
+  if (status === MEDICINE_STATUSES.IN_PROCESS && !readyByInput && !currentRequest.readyByDate) {
+    return res.status(400).json({ success: false, message: 'Enter the date by which the medicine will be ready' });
+  }
   if (status === MEDICINE_STATUSES.MADE && ['savePackaging', 'selfPickup'].includes(req.body.action)) {
     if (currentRequest.status !== MEDICINE_STATUSES.MADE) {
       return res.status(400).json({ success: false, message: 'Medicine must be marked made first' });
@@ -2880,10 +2902,11 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     ...currentRequest,
     status,
     ...(status === MEDICINE_STATUSES.IN_PROCESS ? { inProcessAt: new Date(), inProcessByName: req.user.name } : {}),
+    ...(readyByInput && [MEDICINE_STATUSES.IN_PROCESS, MEDICINE_STATUSES.MADE].includes(status) ? { readyByDate: readyByInput, readyBySetByName: req.user.name, readyBySetAt: new Date() } : {}),
     ...(status === MEDICINE_STATUSES.MADE
       ? {
           madeAt: new Date(),
-          madeByName: req.user.name,
+          madeByName: String(req.body.madeByName || '').trim().slice(0, 120) || req.user.name,
           ...(medicineImages.length
             ? {
                 medicineImageUrl: medicineImages[0].url,

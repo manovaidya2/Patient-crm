@@ -107,6 +107,7 @@ module.exports = {
   uploadPrescription: createUpload('prescriptions'),
   uploadMedicineImage: createUpload('medicine', { imagesOnly: true }),
   uploadCourierImage: createUpload('courier', { imagesOnly: true }),
+  uploadTransitFile: createUpload('transit'),
   uploadScheduleCompletion: createUpload('schedule'),
   uploadFollowUpVideo: createUpload('followup-videos', {
     allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/3gpp'],
