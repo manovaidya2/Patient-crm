@@ -157,7 +157,7 @@ const serializeRow = (row, user) => ({
   canDelete: user.role !== ROLES.SALES_TEAM && (user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
   canReschedule: row.status === 'active' && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
   canMarkNotComing: !row.acceptedAt && (row.status === 'active' || row.status === 'not_coming') && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || String(row.createdBy) === String(user._id)),
-  canAccept: [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role),
+  canAccept: row.status === 'active' && !row.acceptedAt && (user.role === ROLES.ADMIN || (user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
   acceptedAt: row.acceptedAt || null, acceptedByName: row.acceptedByName || '',
   entryAt: row.createdAt, lastEditedAt: row.lastEditedAt || null,
   consultationFee: row.consultationFee ?? null,
@@ -401,13 +401,14 @@ const listManagedAppointments = asyncHandler(async (req, res) => {
 const acceptAppointment = asyncHandler(async (req, res) => {
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
-  if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be accepted' });
+  if (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) !== String(req.user._id)) return res.status(403).json({ success: false, message: 'You can only confirm your own appointments' });
+  if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be confirmed' });
   if (!row.acceptedAt) {
     row.acceptedAt = new Date();
     row.acceptedBy = req.user._id;
     row.acceptedByName = req.user.name;
     await row.save();
-    await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment accepted', details: 'Accepted into Appointment Management' });
+    await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment confirmed', details: 'Confirmed by sales into Appointment Management' });
     const managementRow = await AppointmentManagementEntry.findOneAndUpdate({ sourceAppointment: row._id }, { $setOnInsert: { appointmentDate: row.appointmentDate, sourceAppointment: row._id, appointmentCode: row.appointmentCode, entryAt: row.createdAt, acceptedAt: row.acceptedAt, acceptedByName: req.user.name, salesValues: Object.fromEntries(row.values || []), values: {}, createdBy: req.user._id, createdByName: row.createdByName } }, { upsert: true, new: true });
     await recordAudit(req, { sheet: 'management', rowId: managementRow._id, appointmentCode: row.appointmentCode, action: 'Appointment accepted', details: 'Sales appointment added to Appointment Management' });
     emitDateChanged(req, row.appointmentDate);

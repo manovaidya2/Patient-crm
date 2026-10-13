@@ -41,7 +41,7 @@ router.post('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controlle
 router.patch('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.updateManagedAppointment);
 router.delete('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteManagedAppointment);
 router.post('/appointments', controller.createAppointment);
-router.post('/appointments/:id/accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.acceptAppointment);
+router.post('/appointments/:id/accept', authorize(ROLES.ADMIN, ROLES.SALES_TEAM), controller.acceptAppointment);
 router.post('/management/:id/cancel-accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.cancelAcceptance);
 router.post('/appointments/:id/reschedule', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.rescheduleAppointment);
 router.post('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.markNotComing);
