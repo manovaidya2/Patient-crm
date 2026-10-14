@@ -11,9 +11,9 @@ import LedgerView from '../../components/inventory/LedgerView.jsx';
 import MatrixView from '../../components/inventory/MatrixView.jsx';
 import ReorderView from '../../components/inventory/ReorderView.jsx';
 import StockList from '../../components/inventory/StockList.jsx';
-import { unitText } from '../../components/inventory/helpers.js';
+import { PACKABLE, PACKING_CATEGORY, categoryLabel, inputClass, unitText } from '../../components/inventory/helpers.js';
 
-const VIEWS = [['stock', 'Stock list'], ['entry', 'Entry: In / Use / Adjust / Pack'], ['matrix', 'Bottle size view'], ['ledger', 'Stock ledger'], ['reorder', 'Reorder / Purchase list'], ['master', 'Categories & naya item']];
+const VIEWS = [['stock', 'Stock list'], ['entry', 'Entry: In / Use / Adjust / Pack'], ['matrix', 'Bottle size view'], ['ledger', 'Stock ledger'], ['reorder', 'Reorder / Purchase list'], ['master', 'Medicine categories']];
 const DEFAULT_FILTERS = { q: '', category: 'all', status: 'attention', size: '' };
 
 const MedicineInventory = () => {
@@ -24,6 +24,10 @@ const MedicineInventory = () => {
   const [ledgerType, setLedgerType] = useState('all');
   const [preset, setPreset] = useState(null);
   const [itemModal, setItemModal] = useState(null); // { mode, item }
+  const [categoryModal, setCategoryModal] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({ name: '', unit: 'gram', usesPackSizes: false });
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState('');
   const [detailId, setDetailId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,23 +49,37 @@ const MedicineInventory = () => {
   const detailItem = useMemo(() => items.find((i) => i.id === detailId) || null, [items, detailId]);
   const act = (type, item) => { setDetailId(null); setPreset({ act: type, itemId: item.id, nonce: Date.now() }); setView('entry'); };
   const deleteItem = async (item) => {
-    const warning = item.currentStock > 0 ? `\n\nIs dawa ka ${item.currentStock} ${item.unit} stock abhi bacha hai.` : '';
-    if (!window.confirm(`"${item.name}" ko inventory se delete karein?${warning}\n\nPurani ledger entries history me rahengi.`)) return;
+    const warning = item.currentStock > 0 ? `\n\nThis medicine still has ${item.currentStock} ${item.unit} in stock.` : '';
+    if (!window.confirm(`Delete "${item.name}" from the inventory?${warning}\n\nPrevious ledger entries will remain in history.`)) return;
     try {
       await api.delete(`/medicine/inventory/${item.id}`);
       setDetailId(null);
-      refresh(`${item.name} delete ho gayi`);
-    } catch (err) { setDetailId(null); setError(err.response?.data?.message || 'Medicine delete nahi hui'); }
+      refresh(`${item.name} was deleted`);
+    } catch (err) { setDetailId(null); setError(err.response?.data?.message || 'Could not delete the medicine'); }
   };
   const showStock = (patch) => { setFilters({ ...DEFAULT_FILTERS, ...patch }); setView('stock'); };
+  const openCategoryModal = () => {
+    setCategoryForm({ name: '', unit: 'gram', usesPackSizes: false });
+    setCategoryError('');
+    setCategoryModal(true);
+  };
+  const saveCategory = async (event) => {
+    event.preventDefault(); setCategorySaving(true); setCategoryError('');
+    try {
+      await api.post('/medicine/inventory/categories', categoryForm);
+      setCategoryModal(false);
+      refresh(`${categoryForm.name} category was added`);
+    } catch (err) { setCategoryError(err.response?.data?.message || 'Could not add the category'); }
+    finally { setCategorySaving(false); }
+  };
 
   const t = meta.totals || {};
   const tiles = [
-    { label: 'Kul medicines', value: t.items || 0, note: `${meta.categories.length} categories`, icon: Boxes, tone: 'text-sage', go: () => showStock({ status: 'all' }) },
-    { label: 'Critical / Out', value: t.critical || 0, note: `${t.emergencyCritical || 0} Emergency dawaiyaan`, icon: Siren, tone: 'text-[#8C3B2E]', alert: t.critical > 0, go: () => showStock({ status: 'critical' }) },
-    { label: 'Reorder level par', value: t.reorder || 0, note: 'Purchase list me', icon: AlertTriangle, tone: 'text-amber-700', go: () => setView('reorder') },
-    { label: 'Max se upar', value: t.over || 0, note: 'Zyada stock, expiry risk', icon: Boxes, tone: 'text-violet-700', go: () => showStock({ status: 'over' }) },
-    { label: 'Expiry ≤ 90 din', value: t.expiring || 0, note: 'Pehle yahi nikalein', icon: Timer, tone: 'text-amber-700', go: () => showStock({ status: 'expiry' }) },
+    { label: 'Total medicines', value: t.items || 0, note: `${meta.categories.length} categories`, icon: Boxes, tone: 'text-sage', go: () => showStock({ status: 'all' }) },
+    { label: 'Critical / Out', value: t.critical || 0, note: `${t.emergencyCritical || 0} emergency medicines`, icon: Siren, tone: 'text-[#8C3B2E]', alert: t.critical > 0, go: () => showStock({ status: 'critical' }) },
+    { label: 'At reorder level', value: t.reorder || 0, note: 'Included in purchase list', icon: AlertTriangle, tone: 'text-amber-700', go: () => setView('reorder') },
+    { label: 'Above maximum', value: t.over || 0, note: 'Excess stock and expiry risk', icon: Boxes, tone: 'text-violet-700', go: () => showStock({ status: 'over' }) },
+    { label: 'Expiry within 90 days', value: t.expiring || 0, note: 'Issue these first', icon: Timer, tone: 'text-amber-700', go: () => showStock({ status: 'expiry' }) },
     { label: 'Approval pending', value: t.pending || 0, note: 'Adjust entries', icon: ClipboardCheck, tone: 'text-violet-700', alert: t.pending > 0, go: () => { setLedgerType('pending'); setView('ledger'); } },
   ];
 
@@ -70,7 +88,7 @@ const MedicineInventory = () => {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 font-display text-xl font-bold text-charcoal sm:text-2xl"><PackageOpen size={22} className="text-sage" />Medicine Inventory (Store)</h1>
-          <p className="mt-1 text-sm text-charcoal/60">Har dawa apni कल्पना me · ml / g / tablet ke saath bottle–शीशी–jar size alag-alag · Min, Reorder, Max level.</p>
+          <p className="mt-1 text-sm text-charcoal/60">Track every medicine by category, unit, pack size and stock level.</p>
         </div>
         <Button onClick={() => setItemModal({ mode: 'add' })}><Plus size={16} />Add medicine</Button>
       </div>
@@ -93,19 +111,19 @@ const MedicineInventory = () => {
       {loading ? <p className="rounded-xl border border-cardline bg-white p-10 text-center text-sm text-charcoal/55">Loading inventory...</p> : (
         <>
           {view === 'stock' && <StockList items={items} filters={filters} setFilters={setFilters} onAction={act} onOpen={(i) => setDetailId(i.id)} onHistory={(i) => setDetailId(i.id)} onEdit={(item) => setItemModal({ mode: 'edit', item })} />}
-          {view === 'entry' && <EntryForm items={items} categories={meta.categories} canApprove={meta.canApprove} preset={preset} onSaved={(res) => { refresh(`${res.created.length} ledger row save hui${res.pending ? ` · ${res.pending} approval ke liye gayi` : ''}`); setLedgerType(res.pending ? 'pending' : 'all'); setView('ledger'); }} />}
+          {view === 'entry' && <EntryForm items={items} categories={meta.categories} canApprove={meta.canApprove} preset={preset} onSaved={(res) => { refresh(`${res.created.length} ledger row${res.created.length === 1 ? '' : 's'} saved${res.pending ? ` · ${res.pending} awaiting approval` : ''}`); setLedgerType(res.pending ? 'pending' : 'all'); setView('ledger'); }} />}
           {view === 'matrix' && <MatrixView items={items} master={meta.packSizeMaster} onOpen={(i) => setDetailId(i.id)} onSize={(size) => showStock({ status: 'all', size })} onSizesChanged={refresh} onError={setError} canRemove={meta.canApprove} />}
           {view === 'ledger' && <LedgerView type={ledgerType} onTypeChange={setLedgerType} canApprove={meta.canApprove} onOpenItem={(id) => setDetailId(id)} reloadKey={reloadKey} onChanged={refresh} />}
           {view === 'reorder' && <ReorderView items={items} onOpen={(i) => setDetailId(i.id)} onChanged={refresh} onError={setError} />}
           {view === 'master' && (
             <section className="space-y-3 rounded-xl border border-cardline bg-white p-3 sm:p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-base font-bold text-charcoal">Category master (आयुर्वेदिक कल्पना)</h3><p className="text-xs text-charcoal/55">Category chunne par base unit aur bottle sizes apne-aap aate hain. Nayi category dawa banate waqt likh sakte hain.</p></div><Button onClick={() => setItemModal({ mode: 'add' })}><Plus size={16} />Naya item / dawa</Button></div>
+              <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-base font-bold text-charcoal">Medicine categories</h3><p className="text-xs text-charcoal/55">Add and configure categories here. Medicines are added from the main Add medicine button.</p></div><Button onClick={openCategoryModal}><Plus size={16} />Add category</Button></div>
               <div className="overflow-x-auto rounded-lg border border-cardline">
                 <table className="w-full min-w-[640px] text-left text-sm">
-                  <thead className="bg-offwhite-200 text-xs uppercase tracking-wide text-charcoal/55"><tr>{['कल्पना', 'English', 'Base unit', 'Pack sizes', 'Items'].map((h) => <th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead>
+                  <thead className="bg-offwhite-200 text-xs uppercase tracking-wide text-charcoal/55"><tr>{['Category', 'Base unit', 'Pack sizes', 'Items'].map((h) => <th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead>
                   <tbody>
-                    {meta.categoryConfig.map((c) => <tr key={c.hi} className="border-t border-cardline"><td className="px-3 py-2.5 font-semibold">{c.hi}</td><td className="px-3 py-2.5 text-charcoal/70">{c.en}</td><td className="px-3 py-2.5">{unitText(c.unit)}</td><td className="px-3 py-2.5 text-xs text-charcoal/70">{c.sizes.length ? c.sizes.map((s) => `${s} ${unitText(c.unit)}`).join(', ') : c.hi === 'Packing सामग्री' ? 'Har container alag item (size ke saath)' : 'Loose hi'}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{items.filter((i) => i.category === c.hi).length}</td></tr>)}
-                    {meta.categories.filter((c) => !meta.categoryConfig.some((k) => k.hi === c)).map((c) => <tr key={c} className="border-t border-cardline"><td className="px-3 py-2.5 font-semibold">{c}</td><td className="px-3 py-2.5 text-charcoal/50">Custom</td><td className="px-3 py-2.5">—</td><td className="px-3 py-2.5 text-xs text-charcoal/70">Item me chuni jaati hai</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{items.filter((i) => i.category === c).length}</td></tr>)}
+                    {meta.categoryConfig.map((c) => <tr key={c.hi} className="border-t border-cardline"><td className="px-3 py-2.5 font-semibold">{categoryLabel(c.hi)}</td><td className="px-3 py-2.5">{unitText(c.unit)}</td><td className="px-3 py-2.5 text-xs text-charcoal/70">{c.sizes.length ? c.sizes.map((s) => `${s} ${unitText(c.unit)}`).join(', ') : c.hi === PACKING_CATEGORY ? 'Each container is a separate item with its size' : 'Loose stock only'}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{items.filter((i) => i.category === c.hi).length}</td></tr>)}
+                    {meta.categories.filter((c) => !meta.categoryConfig.some((k) => k.hi === c)).map((c) => <tr key={c} className="border-t border-cardline"><td className="px-3 py-2.5 font-semibold">{categoryLabel(c)}</td><td className="px-3 py-2.5">—</td><td className="px-3 py-2.5 text-xs text-charcoal/70">Configured on the item</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{items.filter((i) => i.category === c).length}</td></tr>)}
                   </tbody>
                 </table>
               </div>
@@ -117,7 +135,30 @@ const MedicineInventory = () => {
       <Modal open={Boolean(itemModal)} onClose={() => setItemModal(null)} title={itemModal?.mode === 'edit' ? `Edit ${itemModal.item.name}` : 'Add medicine'} className="max-w-3xl">
         {itemModal && <ItemForm key={itemModal.item?.id || itemModal.prefill?.name || 'new'} mode={itemModal.mode} item={itemModal.item} prefill={itemModal.prefill} items={items} meta={meta} onSizesChanged={() => refresh()} onClose={() => setItemModal(null)} onSaved={(message) => { setItemModal(null); refresh(message); }} />}
       </Modal>
-      <Drawer open={Boolean(detailItem)} onClose={() => setDetailId(null)} title={detailItem ? `${detailItem.name}${detailItem.nameHindi ? ` · ${detailItem.nameHindi}` : ''}` : ''} widthClass="max-w-lg">
+      <Modal open={categoryModal} onClose={() => setCategoryModal(false)} title="Add medicine category" className="max-w-lg">
+        <form onSubmit={saveCategory} className="space-y-4">
+          {categoryError && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{categoryError}</p>}
+          <label className="block space-y-1 text-sm font-medium text-charcoal">
+            <span>Category name *</span>
+            <input className={inputClass} required maxLength={80} pattern="[A-Za-z0-9][A-Za-z0-9 /&()+.'-]*" value={categoryForm.name} onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })} placeholder="Example: Herbal Tea" />
+            <span className="block text-[11px] font-normal text-charcoal/50">Use an English category name.</span>
+          </label>
+          <label className="block space-y-1 text-sm font-medium text-charcoal">
+            <span>Base unit *</span>
+            <select className={inputClass} value={categoryForm.unit} onChange={(e) => setCategoryForm({ ...categoryForm, unit: e.target.value, usesPackSizes: PACKABLE.includes(e.target.value) ? categoryForm.usesPackSizes : false })}>
+              {meta.unitOptions.map((unit) => <option key={unit} value={unit}>{unitText(unit)}</option>)}
+            </select>
+          </label>
+          {PACKABLE.includes(categoryForm.unit) && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-cardline bg-white px-3 py-3 text-sm text-charcoal">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-sage" checked={categoryForm.usesPackSizes} onChange={(e) => setCategoryForm({ ...categoryForm, usesPackSizes: e.target.checked })} />
+              <span><b className="block">Uses bottle / jar sizes</b><span className="text-xs text-charcoal/55">Show standard {unitText(categoryForm.unit)} pack sizes when adding medicines in this category.</span></span>
+            </label>
+          )}
+          <div className="flex justify-end gap-2 border-t border-cardline pt-3"><Button variant="outline" onClick={() => setCategoryModal(false)} disabled={categorySaving}>Cancel</Button><Button type="submit" disabled={categorySaving}>{categorySaving ? 'Saving...' : 'Add category'}</Button></div>
+        </form>
+      </Modal>
+      <Drawer open={Boolean(detailItem)} onClose={() => setDetailId(null)} title={detailItem?.name || ''} widthClass="max-w-lg">
         {detailItem && <ItemDetail item={detailItem} items={items} onAction={act} onDelete={meta.canApprove ? deleteItem : undefined} onEdit={(item) => { setDetailId(null); setItemModal({ mode: 'edit', item }); }} />}
       </Drawer>
     </div>

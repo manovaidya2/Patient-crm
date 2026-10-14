@@ -31,7 +31,7 @@ const transactionSchema = new mongoose.Schema(
 const packSchema = new mongoose.Schema(
   {
     size: { type: Number, required: true, min: 0.001 },
-    kind: { type: String, enum: ['Bottle', 'शीशी', 'Jar', 'Packet', 'Pouch', 'Tin'], default: 'Bottle' },
+    kind: { type: String, enum: ['Bottle', 'Vial', 'शीशी', 'Jar', 'Packet', 'Pouch', 'Tin'], default: 'Bottle' },
     count: { type: Number, default: 0, min: 0 },
   },
   { _id: true }

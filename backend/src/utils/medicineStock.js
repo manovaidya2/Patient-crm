@@ -25,8 +25,8 @@ const DEFAULT_CATEGORIES = CATEGORY_CONFIG.map((c) => c.hi);
 const PACKING_CATEGORY = 'Packing सामग्री';
 const ITEM_TYPES = ['Classical', 'Proprietary', 'Raw herb', 'Packaging'];
 const PACKABLE_UNITS = ['ml', 'gram'];
-const CONTAINER_KINDS = ['Bottle', 'शीशी', 'Jar', 'Pouch', 'Label'];
-const PACK_KINDS = ['Bottle', 'शीशी', 'Jar'];
+const CONTAINER_KINDS = ['Bottle', 'Vial', 'Jar', 'Pouch', 'Label'];
+const PACK_KINDS = ['Bottle', 'Vial', 'Jar'];
 const TRANSACTION_TYPES = ['add', 'consume', 'adjust', 'pack'];
 const APPROVER_ROLES = ['admin', 'doctor'];
 const ADJUST_APPROVAL_PERCENT = 0.05;
@@ -37,7 +37,7 @@ const fail = (message) => { throw Object.assign(new Error(message), { statusCode
 const plain = (value) => (value?.toObject ? value.toObject() : value);
 const sizeUnitOf = (unit) => (unit === 'gram' ? 'g' : unit === 'ml' ? 'ml' : '');
 const unitText = (unit) => (unit === 'gram' ? 'g' : unit);
-const kindFor = (unit, size) => (unit === 'gram' ? 'Jar' : size <= 15 ? 'शीशी' : 'Bottle');
+const kindFor = (unit, size) => (unit === 'gram' ? 'Jar' : size <= 15 ? 'Vial' : 'Bottle');
 const packLabel = (size, unit) => `${round(size)} ${unitText(unit)} ${kindFor(unit, size)}`;
 const sameSize = (a, b) => Math.abs(Number(a) - Number(b)) < 1e-9;
 
@@ -178,7 +178,7 @@ function applyLine(act, item, line, ctx) {
         if (looseStock(raw) + 1e-9 < need) fail(`${item.name}: production needs ${need} ${unitText(raw.unit)} ${raw.name}, but only ${looseStock(raw)} is loose`);
         const before = round(raw.currentStock);
         raw.currentStock = round(before - need);
-        pushRow(ctx, raw, rowBase(raw, 'consume', ctx, { previousStock: before, quantity: need, delta: -need, newStock: raw.currentStock, subType: 'Production', detail: 'Production में खपत (recipe)', ref: `${ctx.ref || 'Batch'} (${item.name})` }));
+        pushRow(ctx, raw, rowBase(raw, 'consume', ctx, { previousStock: before, quantity: need, delta: -need, newStock: raw.currentStock, subType: 'Production', detail: 'Production consumption (recipe)', ref: `${ctx.ref || 'Batch'} (${item.name})` }));
       });
     }
     return;
@@ -225,7 +225,7 @@ function applyLine(act, item, line, ctx) {
   if (!container) return;
   const before = round(container.currentStock);
   container.currentStock = round(before - qty);
-  pushRow(ctx, container, rowBase(container, 'consume', ctx, { previousStock: before, quantity: qty, delta: -qty, newStock: container.currentStock, subType: 'Packing', detail: 'खाली container packing में लगे', ref: `${ctx.ref || 'Packing'} (${item.name})` }));
+  pushRow(ctx, container, rowBase(container, 'consume', ctx, { previousStock: before, quantity: qty, delta: -qty, newStock: container.currentStock, subType: 'Packing', detail: 'Empty containers used for packing', ref: `${ctx.ref || 'Packing'} (${item.name})` }));
 }
 
 // Accepts or rejects a waiting adjustment. Returns nothing; mutates the item and the ledger row.

@@ -79,6 +79,7 @@ const formatInventory = (item, now = new Date(), { history = 8 } = {}) => ({
 // ---------- bottle / jar size master ----------
 // One shared list per unit. Adding a size here makes it appear in Add medicine and in the Bottle size view.
 const SIZE_KEY = 'pack-sizes';
+const CATEGORY_KEY = 'medicine-categories';
 const sizeUnits = { ml: 'ml', gram: 'gram', g: 'gram' };
 const sortedSizes = (list) => [...new Set(list.map((n) => round(Number(n))).filter((n) => n > 0))].sort((a, b) => a - b);
 async function loadSizeMaster() {
@@ -86,6 +87,15 @@ async function loadSizeMaster() {
   return { ml: sortedSizes(doc?.value?.ml || ML_SIZES), gram: sortedSizes(doc?.value?.gram || G_SIZES) };
 }
 const saveSizeMaster = (master) => InventorySetting.findOneAndUpdate({ key: SIZE_KEY }, { $set: { value: master } }, { upsert: true, new: true });
+async function loadCustomCategories() {
+  const doc = await InventorySetting.findOne({ key: CATEGORY_KEY }).lean();
+  return (Array.isArray(doc?.value) ? doc.value : []).filter((c) => c?.name && UNITS.includes(c.unit)).map((c) => ({
+    name: text(c.name, 80), unit: c.unit, usesPackSizes: Boolean(c.usesPackSizes && PACKABLE_UNITS.includes(c.unit)),
+  }));
+}
+const saveCustomCategories = (categories) => InventorySetting.findOneAndUpdate(
+  { key: CATEGORY_KEY }, { $set: { value: categories } }, { upsert: true, new: true }
+);
 const readSize = (body) => {
   const unit = sizeUnits[body.unit];
   const size = round(Number(body.size));
@@ -111,6 +121,21 @@ const removePackSize = asyncHandler(async (req, res) => {
   master[unit] = master[unit].filter((s) => !sameSize(s, size));
   await saveSizeMaster(master);
   res.json({ success: true, packSizeMaster: master });
+});
+
+const addCategory = asyncHandler(async (req, res) => {
+  const name = text(req.body.name, 80);
+  const unit = String(req.body.unit || '');
+  if (!name) fail('Category name is required');
+  if (!/^[A-Za-z0-9][A-Za-z0-9 /&()+.'-]*$/.test(name)) fail('Enter the category name in English');
+  if (!UNITS.includes(unit)) fail('Choose a valid base unit');
+  const custom = await loadCustomCategories();
+  const exists = [...CATEGORY_CONFIG.map((c) => c.en), ...CATEGORY_CONFIG.map((c) => c.hi), ...custom.map((c) => c.name)]
+    .some((value) => value.toLowerCase() === name.toLowerCase());
+  if (exists) fail('This category already exists');
+  const category = { name, unit, usesPackSizes: Boolean(req.body.usesPackSizes && PACKABLE_UNITS.includes(unit)) };
+  await saveCustomCategories([...custom, category]);
+  res.status(201).json({ success: true, category });
 });
 
 // @desc    Whole inventory with computed status; the page filters it on screen
@@ -139,12 +164,16 @@ const listInventory = asyncHandler(async (req, res) => {
     },
     { items: 0, lowStock: 0, critical: 0, emergencyCritical: 0, reorder: 0, over: 0, expiring: 0, pending: 0 }
   );
-  const used = [...new Set((await MedicineInventory.distinct('category', { isActive: { $ne: false } })).filter(Boolean))];
-  const known = CATEGORY_CONFIG.map((c) => c.hi);
-  const categories = [...known, ...used.filter((c) => !known.includes(c)).sort()];
   const packSizeMaster = await loadSizeMaster();
+  const customCategories = await loadCustomCategories();
+  const used = [...new Set((await MedicineInventory.distinct('category', { isActive: { $ne: false } })).filter(Boolean))];
+  const known = [...CATEGORY_CONFIG.map((c) => c.hi), ...customCategories.map((c) => c.name)];
+  const categories = [...known, ...used.filter((c) => !known.includes(c)).sort()];
   // Categories that are normally bottled use the shared size list of their unit.
-  const categoryConfig = CATEGORY_CONFIG.map((c) => (c.sizes.length ? { ...c, sizes: packSizeMaster[c.unit] } : c));
+  const categoryConfig = [
+    ...CATEGORY_CONFIG.map((c) => (c.sizes.length ? { ...c, sizes: packSizeMaster[c.unit] } : c)),
+    ...customCategories.map((c) => ({ hi: c.name, en: c.name, unit: c.unit, sizes: c.usesPackSizes ? (packSizeMaster[c.unit] || []) : [], custom: true })),
+  ];
   res.status(200).json({
     success: true, count: formatted.length, totals, categories, categoryConfig, packSizeMaster, itemTypes: ITEM_TYPES,
     containerKinds: CONTAINER_KINDS, unitOptions: UNITS, expiryWarnDays: EXPIRY_WARN_DAYS, canApprove: APPROVER_ROLES.includes(req.user.role), items: formatted,
@@ -201,6 +230,8 @@ async function readRecipe(body, selfId) {
   return { per, ingredients: raw.ingredients.map((i) => ({ item: i.itemId, qty: parseFloat(i.qty) })).filter((i) => i.qty > 0) };
 }
 
+const recipeAllowed = (unit, category) => unit !== 'ml' && category !== PACKING_CATEGORY;
+
 function checkContainerFields(fields, category) {
   if (category === PACKING_CATEGORY && fields.containerKind !== 'Label') {
     if (!(fields.containerSize > 0) || !fields.containerUnit) fail('Packing item: enter the container size and unit (e.g. 150 ml)');
@@ -234,7 +265,7 @@ const createInventoryItem = asyncHandler(async (req, res) => {
   if (fields.packSizes.length && !PACKABLE_UNITS.includes(unit)) fail('Bottle sizes are available for ml / gram items only');
   const packedTotal = round(packs.reduce((sum, p) => sum + p.size * p.count, 0));
   const total = round(openingStock + packedTotal);
-  const recipe = await readRecipe(req.body, null);
+  const recipe = recipeAllowed(unit, fields.category) ? await readRecipe(req.body, null) : null;
 
   const item = new MedicineInventory({
     name, unit, ...fields, packs, recipe: recipe || null,
@@ -273,7 +304,8 @@ const updateInventoryItem = asyncHandler(async (req, res) => {
     (item.packs || []).filter((p) => p.count > 0).forEach((p) => { if (!fields.packSizes.some((s) => sameSize(s, p.size))) fields.packSizes.push(p.size); });
   }
   checkContainerFields({ containerKind: fields.containerKind ?? item.containerKind, containerSize: fields.containerSize ?? item.containerSize, containerUnit: fields.containerUnit ?? item.containerUnit }, fields.category ?? item.category);
-  const recipe = await readRecipe(req.body, item._id);
+  const finalCategory = fields.category ?? item.category;
+  const recipe = recipeAllowed(item.unit, finalCategory) ? await readRecipe(req.body, item._id) : null;
   Object.assign(item, fields);
   if (recipe !== undefined) item.recipe = recipe;
   item.editedByName = req.user.name;
@@ -329,7 +361,7 @@ const addEntry = asyncHandler(async (req, res) => {
     meta: { expiryDate: req.body.expiryDate, batchNo: req.body.batchNo },
     byId: (id) => byId.get(id) || null,
     findContainer: (item, size) => containers.find((c) => c.containerUnit === (item.unit === 'gram' ? 'g' : 'ml') && sameSize(c.containerSize, size)
-      && (item.unit === 'gram' ? c.containerKind === 'Jar' : ['Bottle', 'शीशी'].includes(c.containerKind))) || null,
+      && (item.unit === 'gram' ? c.containerKind === 'Jar' : ['Bottle', 'Vial', 'शीशी'].includes(c.containerKind))) || null,
   };
   const errors = [];
   lines.forEach((line, index) => {
@@ -416,5 +448,5 @@ const raisePurchaseRequest = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  listInventory, createInventoryItem, updateInventoryItem, deleteInventoryItem, addEntry, addPackSize, removePackSize, listLedger, decideTransaction, getItemHistory, raisePurchaseRequest, formatInventory,
+  listInventory, createInventoryItem, updateInventoryItem, deleteInventoryItem, addEntry, addCategory, addPackSize, removePackSize, listLedger, decideTransaction, getItemHistory, raisePurchaseRequest, formatInventory,
 };

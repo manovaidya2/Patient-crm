@@ -6,6 +6,7 @@ const {
   updateInventoryItem,
   deleteInventoryItem,
   addEntry,
+  addCategory,
   addPackSize,
   removePackSize,
   listLedger,
@@ -24,6 +25,7 @@ router.use(protect, authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTME
 router.get('/inventory', listInventory);
 router.post('/inventory', createInventoryItem);
 router.post('/inventory/entry', addEntry);
+router.post('/inventory/categories', addCategory);
 router.post('/inventory/pack-sizes', addPackSize);
 router.delete('/inventory/pack-sizes', authorize(ROLES.ADMIN, ROLES.DOCTOR), removePackSize);
 router.get('/inventory/ledger', listLedger);

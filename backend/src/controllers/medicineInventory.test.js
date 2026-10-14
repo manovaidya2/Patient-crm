@@ -102,6 +102,21 @@ test('bottle size master: add a size, refuse a duplicate, and refuse removing a 
   assert.equal(removed.res.body.packSizeMaster.ml.includes(250), false);
 });
 
+test('category master saves an English category with its unit and rejects duplicates', async () => {
+  const InventorySetting = require('../models/InventorySetting');
+  let saved = [];
+  mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: saved }) }));
+  mock.method(InventorySetting, 'findOneAndUpdate', async (_filter, update) => { saved = update.$set.value; return { value: saved }; });
+
+  const added = await run(controller.addCategory, { body: { name: 'Herbal Tea', unit: 'gram', usesPackSizes: true } });
+  assert.equal(added.failure, undefined);
+  assert.equal(added.res.statusCode, 201);
+  assert.deepEqual(saved, [{ name: 'Herbal Tea', unit: 'gram', usesPackSizes: true }]);
+  assert.match((await run(controller.addCategory, { body: { name: 'herbal tea', unit: 'gram' } })).failure.message, /already exists/);
+  assert.match((await run(controller.addCategory, { body: { name: 'नई श्रेणी', unit: 'gram' } })).failure.message, /in English/);
+  assert.match((await run(controller.addCategory, { body: { name: 'Drops', unit: 'litre' } })).failure.message, /valid base unit/);
+});
+
 test('admin / doctor delete hides the medicine but is refused while it is a recipe ingredient or has an adjustment waiting', async () => {
   const herb = doc({ name: 'Brahmi', unit: 'gram', currentStock: 100 });
   mock.method(MedicineInventory, 'findById', async () => herb);
@@ -121,4 +136,21 @@ test('admin / doctor delete hides the medicine but is refused while it is a reci
   assert.equal(herb.deletedByName, 'Dr Rao');
   assert.equal(herb.transactions.length, 1); // ledger history is kept
   assert.match((await run(controller.deleteInventoryItem, { params: { id: String(herb._id) } })).failure.message, /not found/);
+});
+
+test('liquid and oil medicines cannot keep a production recipe', async () => {
+  const ingredientId = new mongoose.Types.ObjectId();
+  const oil = doc({
+    recipe: { per: 1000, ingredients: [{ item: ingredientId, qty: 100 }] },
+  });
+  mock.method(MedicineInventory, 'findById', async () => oil);
+
+  const { failure } = await run(controller.updateInventoryItem, {
+    params: { id: String(oil._id) },
+    body: { recipe: { per: 1000, ingredients: [{ itemId: String(ingredientId), qty: 200 }] } },
+  });
+
+  assert.equal(failure, undefined);
+  assert.equal(oil.recipe, null);
+  assert.equal(oil.save.mock.callCount(), 1);
 });
