@@ -4,7 +4,7 @@ const { mock } = require('node:test');
 const Receipt = require('../models/ConsultationReceipt');
 const Appointment = require('../models/AppointmentManagementEntry');
 const Patient = require('../models/Patient');
-const { day, ledgerMatch, ledgerPipeline, createReceipt, reviewReceipt, deleteReceipt, getLedger } = require('./financialLedgerController');
+const { day, ledgerMatch, ledgerPipeline, createReceipt, reviewReceipt, deleteReceipt, deleteReceiptFile, getLedger } = require('./financialLedgerController');
 const id = '507f1f77bcf86cd799439011';
 const user = { _id: id, name: 'Accountant' };
 const invoke = async (handler, body = {}, extra = {}) => {
@@ -118,4 +118,20 @@ test('deleting a missing consultation receipt returns not found', async () => {
   mock.method(Receipt, 'findByIdAndDelete', async () => null);
   const result = await invoke(deleteReceipt);
   assert.equal(result.status, 404);
+});
+
+test('admin can remove one consultation proof without deleting the receipt', async () => {
+  const receipt = new Receipt({
+    appointmentCode: 'APT-101', patientName: 'Visitor', amount: 600, date: new Date(), paymentMode: 'online',
+    recordedBy: id, recordedByName: 'Accountant', submissionKey: 'proof-delete-test',
+    files: [
+      { url: '/uploads/consultation-fees/wrong.jpg', fileName: 'wrong.jpg' },
+      { url: '/uploads/consultation-fees/right.jpg', fileName: 'right.jpg' },
+    ],
+  });
+  receipt.save = async () => receipt;
+  mock.method(Receipt, 'findById', async () => receipt);
+  const result = await invoke(deleteReceiptFile, { url: '/uploads/consultation-fees/wrong.jpg' });
+  assert.equal(result.data.success, true);
+  assert.deepEqual(receipt.files.map((file) => file.url), ['/uploads/consultation-fees/right.jpg']);
 });

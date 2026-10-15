@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const fs = require('fs/promises');
+const path = require('path');
 const Patient = require('../models/Patient');
 const Appointment = require('../models/AppointmentManagementEntry');
 const Bank = require('../models/BankAccount');
@@ -12,6 +13,16 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const badRequest = (message) => Object.assign(new Error(message), { statusCode: 400 });
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const validId = (value) => /^[a-f\d]{24}$/i.test(String(value || ''));
+const receiptFilePath = (url) => {
+  if (!/^\/uploads\/consultation-fees\/[a-zA-Z0-9_.-]+$/.test(String(url || ''))) return null;
+  const root = path.resolve(__dirname, '../../uploads/consultation-fees');
+  const target = path.resolve(__dirname, '../..', String(url).replace(/^\//, ''));
+  return target.toLowerCase().startsWith(`${root.toLowerCase()}${path.sep}`) ? target : null;
+};
+const removeReceiptFile = async (url) => {
+  const target = receiptFilePath(url);
+  if (target) await fs.unlink(target).catch((error) => { if (error.code !== 'ENOENT') throw error; });
+};
 const day = (value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) throw badRequest('Enter a valid date');
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -209,7 +220,22 @@ const deleteReceipt = asyncHandler(async (req, res) => {
   if (!validId(req.params.id)) throw badRequest('Invalid receipt');
   const receipt = await Receipt.findByIdAndDelete(req.params.id);
   if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+  await Promise.all((receipt.files || []).map((file) => removeReceiptFile(file.url)));
   res.json({ success: true });
 });
 
-module.exports = { getLedger, references, banks, createReceipt, reviewReceipt, deleteReceipt, ledgerMatch, ledgerPipeline, day };
+const deleteReceiptFile = asyncHandler(async (req, res) => {
+  if (!validId(req.params.id)) throw badRequest('Invalid receipt');
+  const url = String(req.body?.url || '').trim();
+  if (!receiptFilePath(url)) throw badRequest('Select a valid payment proof');
+  const receipt = await Receipt.findById(req.params.id);
+  if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+  const before = receipt.files.length;
+  receipt.files = receipt.files.filter((file) => file.url !== url);
+  if (receipt.files.length === before) return res.status(404).json({ message: 'Payment proof not found' });
+  await receipt.save();
+  await removeReceiptFile(url);
+  res.json({ success: true, files: receipt.files });
+});
+
+module.exports = { getLedger, references, banks, createReceipt, reviewReceipt, deleteReceipt, deleteReceiptFile, ledgerMatch, ledgerPipeline, day };

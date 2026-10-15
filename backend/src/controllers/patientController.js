@@ -2466,6 +2466,46 @@ const deleteUploadedFileByUrl = async (url) => {
   }
 };
 
+const removeAttachmentReferences = (value, targetUrl) => {
+  if (!value || typeof value !== 'object') return 0;
+  let removed = 0;
+
+  if (Array.isArray(value)) {
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+      const item = value[index];
+      if (item && typeof item === 'object' && item.url === targetUrl) {
+        value.splice(index, 1);
+        removed += 1;
+      } else {
+        removed += removeAttachmentReferences(item, targetUrl);
+      }
+    }
+    return removed;
+  }
+
+  for (const [key, item] of Object.entries(value)) {
+    if (key.toLowerCase().endsWith('url') && item === targetUrl) {
+      value[key] = null;
+      removed += 1;
+    } else if (item && typeof item === 'object') {
+      removed += removeAttachmentReferences(item, targetUrl);
+    }
+  }
+  return removed;
+};
+
+const hasAttachmentReference = (value, targetUrl) => {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) {
+    return value.some((item) => (item && typeof item === 'object' && item.url === targetUrl)
+      || hasAttachmentReference(item, targetUrl));
+  }
+  return Object.entries(value).some(([key, item]) => (
+    (key.toLowerCase().endsWith('url') && item === targetUrl)
+    || (item && typeof item === 'object' && hasAttachmentReference(item, targetUrl))
+  ));
+};
+
 const stageMedicineRequests = (stage) => [
   ...(stage.medicineRequest && stage.medicineRequest.status !== MEDICINE_STATUSES.NOT_REQUESTED
     ? [stage.medicineRequest] : []),
@@ -2537,6 +2577,50 @@ const regenerateStageRecordPdf = async (patient, stageEntry, stageNum) => {
   stageEntry.recordPdfPageCount = scans.length;
   stageEntry.recordPdfUpdatedAt = new Date();
 };
+
+// @desc    Delete one uploaded patient attachment without deleting its parent record
+// @route   DELETE /api/patients/:id/attachments
+// @access  Private/Admin
+const deletePatientAttachment = asyncHandler(async (req, res) => {
+  const targetUrl = String(req.body?.url || '').trim();
+  if (!/^\/uploads\/[a-zA-Z0-9/_\-.]+$/.test(targetUrl) || !getUploadsFilePathFromUrl(targetUrl)) {
+    return res.status(400).json({ success: false, message: 'Select a valid uploaded file' });
+  }
+
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+
+  if (!patient.stages || patient.stages.length !== STAGES.length) {
+    patient.stages = normalizeStages(patient.stages);
+  }
+
+  for (const stage of patient.stages) {
+    const scanIndex = (stage.recordScanFiles || []).findIndex((scan) => scan.url === targetUrl);
+    if (scanIndex !== -1) {
+      const [removedScan] = stage.recordScanFiles.splice(scanIndex, 1);
+      await deleteUploadedFileByUrl(targetUrl);
+      await regenerateStageRecordPdf(patient, stage, stage.number);
+      addActivity(patient, req.user, `Record scan deleted for Phase ${stage.number}`, removedScan.fileName || 'Scanned page removed');
+      await patient.save();
+      await populateAssignments(patient);
+      return res.json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+    }
+    if (stage.recordFileUrl === targetUrl) {
+      return res.status(409).json({ success: false, message: 'Delete the scanned pages individually so the record PDF can be rebuilt correctly' });
+    }
+  }
+
+  const stages = patient.stages.map((stage) => stage.toObject?.() || stage);
+  const removed = removeAttachmentReferences(stages, targetUrl);
+  if (!removed) return res.status(404).json({ success: false, message: 'Attachment not found on this patient' });
+
+  patient.stages = stages;
+  addActivity(patient, req.user, 'Uploaded attachment deleted', path.basename(targetUrl));
+  await patient.save();
+  if (!hasAttachmentReference(patient.toObject().stages, targetUrl)) await deleteUploadedFileByUrl(targetUrl);
+  await populateAssignments(patient);
+  res.json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
 
 const uploadStageRecord = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
@@ -3709,6 +3793,7 @@ module.exports = {
   getRefundsLedger,
   getPatientById,
   deletePatient,
+  deletePatientAttachment,
   getPatientCallLogs,
   createPatient,
   getPendingApprovals,

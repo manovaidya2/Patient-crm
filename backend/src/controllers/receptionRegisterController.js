@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 const { ReceptionRegister, ReceptionEntry } = require('../models/ReceptionRegister');
 const { asyncHandler } = require('../middleware/errorHandler');
 
@@ -68,6 +70,21 @@ const save = asyncHandler(async (req, res) => {
   } else row = await ReceptionEntry.create({ kind: req.params.kind, date: req.body.date, values, imageUrl, createdByName: req.user.name, updatedByName: req.user.name });
   res.status(req.params.id ? 200 : 201).json({ row });
 });
+const deleteImage = asyncHandler(async (req, res) => {
+  const row = await ReceptionEntry.findOne({ _id: req.params.id, kind: req.params.kind });
+  if (!row) return res.status(404).json({ message: 'Entry not found' });
+  if (!row.imageUrl) return res.status(404).json({ message: 'Image not found' });
+  const url = row.imageUrl;
+  row.imageUrl = undefined;
+  row.updatedByName = req.user.name;
+  await row.save();
+  if (/^\/uploads\/courier\/[a-zA-Z0-9_.-]+$/.test(url)) {
+    const root = path.resolve(__dirname, '../../uploads/courier');
+    const target = path.resolve(__dirname, '../..', url.replace(/^\//, ''));
+    if (target.toLowerCase().startsWith(`${root.toLowerCase()}${path.sep}`)) await fs.unlink(target).catch(() => {});
+  }
+  res.json({ success: true, row });
+});
 const addColumn = asyncHandler(async (req, res) => {
   const column = cleanColumn(req.body);
   const register = await getRegister(req.params.kind);
@@ -85,4 +102,4 @@ const reorderColumns = asyncHandler(async (req, res) => {
   await ReceptionRegister.updateOne({ _id: register._id }, { $set: { columns: keys.map((key) => byKey.get(key)) } });
   res.json({ success: true });
 });
-module.exports = { list, save, addColumn, reorderColumns, cleanValues, cleanColumn, validDate };
+module.exports = { list, save, deleteImage, addColumn, reorderColumns, cleanValues, cleanColumn, validDate };

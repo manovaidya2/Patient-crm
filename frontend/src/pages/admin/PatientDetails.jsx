@@ -132,8 +132,8 @@ const mergeTimelineEntries = (activityEntries = [], callLogs = []) =>
     })),
   ].sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
 
-const FileLinks = ({ files = [], fallbackUrl, fallbackName = 'View file', label = 'Files' }) => (
-  <CompactAttachments files={files} fallbackUrl={fallbackUrl} fallbackName={fallbackName} label={label} />
+const FileLinks = ({ files = [], fallbackUrl, fallbackName = 'View file', label = 'Files', deleteUrl = '', onDeleted }) => (
+  <CompactAttachments files={files} fallbackUrl={fallbackUrl} fallbackName={fallbackName} label={label} deleteUrl={deleteUrl} onDeleted={onDeleted} />
 );
 
 const emptyPaymentForm = {
@@ -969,7 +969,7 @@ const MedicineRequestModal = ({ open, onClose, request, onRequest }) => {
 
 // One medicine request as a compact collapsible row — summary always visible,
 // full medicine / packaging / courier detail only when expanded.
-const MedicineRequestRow = ({ request, label, canRequest, onRequest }) => {
+const MedicineRequestRow = ({ request, label, canRequest, onRequest, deleteUrl, onAttachmentDeleted }) => {
   const [open, setOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -1022,8 +1022,8 @@ const MedicineRequestRow = ({ request, label, canRequest, onRequest }) => {
                 <p className="mt-1">Filled by: <span className="font-semibold text-charcoal">{request.packagingDetailsFilledByName || '-'}</span></p>
               </div>
             )}
-            <FileLinks files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescriptions" />
-            <FileLinks files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine image'} label="Medicine Images" />
+            <FileLinks files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescriptions" deleteUrl={deleteUrl} onDeleted={onAttachmentDeleted} />
+            <FileLinks files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine image'} label="Medicine Images" deleteUrl={deleteUrl} onDeleted={onAttachmentDeleted} />
           </div>
           <div className="rounded-lg border border-cardline bg-offwhite-200 p-3.5 text-sm text-charcoal/70">
             <p className="font-semibold text-charcoal">{request.courier?.deliveryMode === 'self' ? 'Self Pickup' : 'Courier'}</p>
@@ -1035,8 +1035,8 @@ const MedicineRequestRow = ({ request, label, canRequest, onRequest }) => {
             {request.courier?.deliveryMode !== 'self' && <p className="mt-1">Dispatched: {request.courier?.dispatchedAt ? formatDateTime(request.courier.dispatchedAt) : '-'}</p>}
             <p className="mt-1">Delivered: {request.courier?.deliveredAt ? formatDateTime(request.courier.deliveredAt) : '-'}</p>
             <p className="mt-1">Received by: {request.courier?.receivedByName || request.courier?.receiverName || '-'}</p>
-            <FileLinks files={request.courier?.packageImages} fallbackUrl={request.courier?.packageImageUrl} fallbackName={request.courier?.packageImageFileName || 'Package image'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Package Images'} />
-            <FileLinks files={request.courier?.deliveryProofImages} fallbackUrl={request.courier?.deliveryProofUrl} fallbackName={request.courier?.deliveryProofFileName || 'Delivery proof'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Delivery Proofs'} />
+            <FileLinks files={request.courier?.packageImages} fallbackUrl={request.courier?.packageImageUrl} fallbackName={request.courier?.packageImageFileName || 'Package image'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Package Images'} deleteUrl={deleteUrl} onDeleted={onAttachmentDeleted} />
+            <FileLinks files={request.courier?.deliveryProofImages} fallbackUrl={request.courier?.deliveryProofUrl} fallbackName={request.courier?.deliveryProofFileName || 'Delivery proof'} label={request.courier?.deliveryMode === 'self' ? 'Images' : 'Delivery Proofs'} deleteUrl={deleteUrl} onDeleted={onAttachmentDeleted} />
           </div>
         </div>
       )}
@@ -1049,7 +1049,7 @@ const MedicineRequestRow = ({ request, label, canRequest, onRequest }) => {
 // All of a phase's medicine requests in ONE card — the whole card collapses, and each
 // request inside is its own collapsible row so several requests don't stack into
 // several huge cards.
-const MedicineRequestsSection = ({ requests = [], canRequest, isAdmin = false, onNewRequest, onUpdateRequest }) => {
+const MedicineRequestsSection = ({ requests = [], canRequest, isAdmin = false, onNewRequest, onUpdateRequest, deleteUrl, onAttachmentDeleted }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const total = requests.length;
@@ -1093,6 +1093,8 @@ const MedicineRequestsSection = ({ requests = [], canRequest, isAdmin = false, o
               label={`Request ${total - index}`}
               canRequest={canRequest && (isAdmin || !MEDICINE_DONE_STATUSES.includes(request.status))}
               onRequest={(payload) => onUpdateRequest(request, payload)}
+              deleteUrl={deleteUrl}
+              onAttachmentDeleted={onAttachmentDeleted}
             />
           ))}
         </div>
@@ -1127,6 +1129,7 @@ const ScheduleCard = ({
   allowShortFollowUp = false,
   patient,
   stageNumber,
+  onAttachmentDeleted,
 }) => {
   const completionPaperRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -1596,16 +1599,7 @@ const ScheduleCard = ({
                     <p>
                       <span className="font-semibold text-charcoal">{e.completionName}</span> · {formatDateTime(e.completedAt)}
                     </p>
-                    {e.completionPdfUrl && (
-                      <a
-                        href={`${SERVER_BASE}${e.completionPdfUrl}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 font-semibold text-sage hover:text-charcoal"
-                      >
-                        <FileText size={13} /> PDF
-                      </a>
-                    )}
+                    {e.completionPdfUrl && <CompactAttachments files={[{ url: e.completionPdfUrl, fileName: e.completionPdfName || 'Completion PDF' }]} label="PDF" deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />}
                     {e.meetRecordingUrl && (
                       <a
                         href={e.meetRecordingUrl}
@@ -1650,18 +1644,10 @@ const ScheduleCard = ({
                         >
                           Your browser cannot play this video.
                         </video>
-                        <a
-                          href={`${SERVER_BASE}${e.videoUrl}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1.5 inline-flex items-center gap-1 font-semibold text-sage hover:text-charcoal"
-                        >
-                          <Play size={13} /> Open video
-                          {e.videoSize ? ` (${(e.videoSize / (1024 * 1024)).toFixed(1)} MB)` : ''}
-                        </a>
+                        <CompactAttachments files={[{ url: e.videoUrl, fileName: e.videoFileName || 'Follow-up video' }]} label={e.videoSize ? `Video (${(e.videoSize / (1024 * 1024)).toFixed(1)} MB)` : 'Video'} deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />
                       </div>
                     )}
-                    <CompactAttachments files={e.completionFiles || []} label="Uploads" />
+                    <CompactAttachments files={e.completionFiles || []} label="Uploads" deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />
                     <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-charcoal/60">{e.completionDetails}</p>
                   </div>
                 )}
@@ -3472,6 +3458,8 @@ const PatientDetails = () => {
                 isAdmin={isAdmin}
                 onNewRequest={(payload) => handleRequestMedicine({ ...payload, createNew: true })}
                 onUpdateRequest={(request, payload) => handleRequestMedicine({ ...payload, requestId: request.id })}
+                deleteUrl={isAdmin ? `/patients/${patient.id || patient._id}/attachments` : ''}
+                onAttachmentDeleted={() => loadPatientData({ silent: true })}
               />
 
               {!isLimitedViewer && <>
@@ -3492,6 +3480,7 @@ const PatientDetails = () => {
                 formType="followup_full"
                 patient={patient}
                 stageNumber={activeStage.number}
+                onAttachmentDeleted={() => loadPatientData({ silent: true })}
               />
               <ScheduleCard
                 icon={HeartHandshake}
@@ -3509,6 +3498,7 @@ const PatientDetails = () => {
                 allowShortFollowUp
                 patient={patient}
                 stageNumber={activeStage.number}
+                onAttachmentDeleted={() => loadPatientData({ silent: true })}
               />
               <AdvicePanel
                 rows={activeStageAdviceRows}
@@ -3615,10 +3605,10 @@ const PatientDetails = () => {
                     {refund.paidAt && <p>Paid by {refund.paidByName} on {formatDateTime(refund.paidAt)} via {refund.paymentMode}{refund.referenceNumber ? ` | Ref: ${refund.referenceNumber}` : ''}</p>}
                     {refund.payoutNote && <p>Note: {refund.payoutNote}</p>}
                     {refund.settledAt && <p>Settled by {refund.settledByName} on {formatDateTime(refund.settledAt)}</p>}
-                    <CompactAttachments files={refund.proofFiles || []} label="Refund images" />
+                    <CompactAttachments files={refund.proofFiles || []} label="Refund images" deleteUrl={isAdmin ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={() => loadPatientData({ silent: true })} />
                   </div>
                 ))}
-                <FileLinks files={pay.screenshotFiles} fallbackUrl={pay.screenshotUrl} fallbackName="Payment screenshot" label="Screenshots" />
+                <FileLinks files={pay.screenshotFiles} fallbackUrl={pay.screenshotUrl} fallbackName="Payment screenshot" label="Screenshots" deleteUrl={isAdmin ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={() => loadPatientData({ silent: true })} />
                 {patient.canApprove && pay.approvalStatus !== 'cancelled' && (
                   <div className="mt-2 flex flex-wrap gap-2 border-t border-cardline-soft pt-2">
                     {(pay.refunds || []).length === 0 && <Button size="sm" variant="outline" onClick={() => openFinancialAction('cancel', pay)}>Cancel payment</Button>}

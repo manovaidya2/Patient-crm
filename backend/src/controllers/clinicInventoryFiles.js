@@ -42,4 +42,16 @@ const view = asyncHandler(async (req, res, next) => {
   res.set({ 'Content-Type': file.mimeType, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
   res.sendFile(file.filename, { root }, (error) => { if (error) next(error); });
 });
-module.exports = { upload, view, detectType };
+const remove = asyncHandler(async (req, res) => {
+  const item = await Model.findOne({ _id: req.params.id, deletedAt: null });
+  if (!item) return res.status(404).json({ message: 'Clinic inventory item not found' });
+  const filename = item.softCopy?.filename;
+  if (!filename) return res.status(404).json({ message: 'Soft copy not found' });
+  item.softCopy = undefined;
+  await item.save();
+  if (path.basename(filename) === filename) {
+    await Promise.all([fs.unlink(path.join(root, filename)).catch(() => {}), fs.unlink(path.join(legacyRoot, filename)).catch(() => {})]);
+  }
+  res.json({ success: true });
+});
+module.exports = { upload, view, remove, detectType };

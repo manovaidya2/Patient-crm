@@ -15,6 +15,7 @@ router.post('/', controller.create);
 router.patch('/:id', authorize(ROLES.ADMIN), controller.update);
 router.delete('/:id', authorize(ROLES.ADMIN), controller.remove);
 router.post('/:id/documents', uploadRecordRoomImages.array('documents', 30), optimizeRecordRoomImages, controller.uploadDocuments);
+router.delete('/:id/documents/:documentId', authorize(ROLES.ADMIN), controller.deleteDocument);
 router.post('/:id/issue', controller.issue);
 router.post('/:id/collect/:issueId', controller.collect);
 

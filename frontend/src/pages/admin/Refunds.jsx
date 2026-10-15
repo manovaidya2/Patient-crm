@@ -8,6 +8,8 @@ import Modal from '../../components/ui/Modal.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import RefundImages from '../../components/RefundImages.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 
 const money = (amount) => `Rs ${Number(amount || 0).toLocaleString('en-IN')}`;
 const dateTime = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
@@ -16,6 +18,8 @@ const colors = { initiated: 'bg-amber-50 text-amber-900', paid: 'bg-sky-50 text-
 const inputClass = 'w-full rounded-md border border-cardline bg-offwhite-100 px-3 py-2 text-sm text-charcoal';
 
 const Refunds = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === ROLES.ADMIN;
   const [rows, setRows] = useState([]);
   const [totals, setTotals] = useState({ initiated: 0, paid: 0, settled: 0 });
   const [status, setStatus] = useState('all');
@@ -123,7 +127,7 @@ const Refunds = () => {
         {selected?.status === 'initiated' ? <>
           <label className="block">Refund mode<select className={`${inputClass} mt-1`} value={form.paymentMode} onChange={(event) => setForm({ ...form, paymentMode: event.target.value })}><option value="online">Online</option><option value="cash">Cash</option></select></label>
           <label className="block">{form.paymentMode === 'online' ? 'UTR / transaction reference (optional)' : 'Cash receipt reference (optional)'}<input className={`${inputClass} mt-1`} value={form.referenceNumber} onChange={(event) => setForm({ ...form, referenceNumber: event.target.value })} /></label>
-          <CompactAttachments files={selected?.proofFiles || []} label="Saved images" />
+          <CompactAttachments files={selected?.proofFiles || []} label="Saved images" deleteUrl={isAdmin && selected?.patientId ? `/patients/${selected.patientId}/attachments` : ''} onDeleted={() => load()} />
           <RefundImages files={files} onChange={setFiles} disabled={saving} />
           <label className="block">Note (optional)<textarea rows={2} maxLength={2000} className={`${inputClass} mt-1`} value={form.payoutNote} onChange={(event) => setForm({ ...form, payoutNote: event.target.value })} /></label>
           <p className="text-xs text-charcoal/70">Confirm only after returning the money to the patient.</p>
@@ -141,7 +145,7 @@ const Refunds = () => {
         ].map(([label, date, name]) => <div key={label} className={`border-l-2 pl-3 ${date ? 'border-sage' : 'border-cardline'}`}><p className="font-semibold">{label}</p><p className="mt-1 text-xs">{date ? `${dateTime(date)} | ${name || '-'}` : 'Pending'}</p></div>)}
         {history.referenceNumber && <p>Transaction reference: {history.referenceNumber}</p>}
         {history.payoutNote && <p>Note: {history.payoutNote}</p>}
-        <CompactAttachments files={history.proofFiles || []} label="Refund images" />
+        <CompactAttachments files={history.proofFiles || []} label="Refund images" deleteUrl={isAdmin && history.patientId ? `/patients/${history.patientId}/attachments` : ''} onDeleted={() => load()} />
       </div>}
     </Drawer>
   </div>;

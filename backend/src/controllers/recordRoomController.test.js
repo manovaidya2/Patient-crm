@@ -181,3 +181,21 @@ test('delete removes records whose paper has been returned', async () => {
   assert.equal(result.response.data.success, true);
   assert.equal(deleted, true);
 });
+
+test('admin can delete one record-room image and empty the generated PDF state', async () => {
+  const patient = record();
+  patient.documents.push({ url: '/uploads/records/wrong.jpg', fileName: 'wrong.jpg' });
+  const documentId = String(patient.documents[0]._id);
+  patient.pdfUrl = '/uploads/records/record.pdf';
+  patient.pdfName = 'Record.pdf';
+  patient.pdfPageCount = 1;
+  patient.pdfUpdatedAt = new Date();
+  patient.save = async () => patient;
+  RecordRoom.findById = async () => patient;
+  const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(data) { this.data = data; } };
+  await controller.deleteDocument({ params: { id: String(patient._id), documentId }, user: { name: 'Admin' } }, response, (error) => { throw error; });
+  assert.equal(response.data.success, true);
+  assert.equal(patient.documents.length, 0);
+  assert.equal(patient.pdfUrl, '');
+  assert.equal(patient.pdfPageCount, 0);
+});

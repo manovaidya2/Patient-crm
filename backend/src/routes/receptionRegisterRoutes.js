@@ -10,4 +10,5 @@ router.put('/:kind/columns/order', controller.reorderColumns);
 const { uploadCourierImage } = require('../middleware/fileUploads');
 router.post('/:kind/entries', uploadCourierImage.single('image'), controller.save);
 router.patch('/:kind/entries/:id', uploadCourierImage.single('image'), controller.save);
+router.delete('/:kind/entries/:id/image', authorize(ROLES.ADMIN), controller.deleteImage);
 module.exports = router;

@@ -430,8 +430,8 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
                   <Row label="Filled by" value={med.packagingDetailsFilledByName ? `${med.packagingDetailsFilledByName}, ${dateTime(med.packagingDetailsFilledAt)}` : ''} />
                 </div>
               )}
-              <CompactAttachments files={med.prescriptionFiles} label="Prescription" />
-              <CompactAttachments files={med.medicineImages} label="Medicine photos" />
+              <CompactAttachments files={med.prescriptionFiles} label="Prescription" deleteUrl={isAdmin ? `/patients/${item.patientId}/attachments` : ''} onDeleted={refresh} />
+              <CompactAttachments files={med.medicineImages} label="Medicine photos" deleteUrl={isAdmin ? `/patients/${item.patientId}/attachments` : ''} onDeleted={refresh} />
               {!['made', 'sent_to_courier'].includes(med.status) && <p className="mt-2 text-xs text-charcoal/55">Medicine department marks it made (with photo) and fills packing details on their page. It updates here automatically.</p>}
             </> : <p className="text-sm text-charcoal/50">No medicine request yet.</p>}
           </Card>
@@ -446,8 +446,8 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
                 <Row label="Deliver to" value={[courier.receiverName, courier.receiverPhone].filter(Boolean).join(', ')} />
                 <Row label="Address" value={courier.address} />
                 <Row label="Received by" value={courier.receivedByName ? `${courier.receivedByName}, ${dateTime(courier.deliveredAt)}` : ''} />
-                <CompactAttachments files={courier.packageImages} label="Package" />
-                <CompactAttachments files={courier.deliveryProofImages} label="Proof" />
+                <CompactAttachments files={courier.packageImages} label="Package" deleteUrl={isAdmin ? `/patients/${item.patientId}/attachments` : ''} onDeleted={refresh} />
+                <CompactAttachments files={courier.deliveryProofImages} label="Proof" deleteUrl={isAdmin ? `/patients/${item.patientId}/attachments` : ''} onDeleted={refresh} />
               </>}
             </> : <p className="text-sm text-charcoal/50">Mode is confirmed on the call with the patient.</p>}
           </Card>

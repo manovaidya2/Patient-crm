@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Pencil, Plus, RefreshCw, Save, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Pencil, Plus, RefreshCw, Save, Search, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 
 const today = () => { const date = new Date(); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const input = 'w-full min-w-0 rounded-md border border-cardline bg-offwhite-100 px-3 py-2 text-sm';
@@ -11,6 +13,8 @@ const fileHref = (value) => `${(import.meta.env.VITE_API_URL || 'http://localhos
 const blankColumn = { label: '', type: 'text', required: false, options: '' };
 
 export default function ReceptionRegister({ kind }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === ROLES.ADMIN;
   const [data, setData] = useState({ columns: [], rows: [], total: 0 });
   const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
@@ -69,6 +73,11 @@ export default function ReceptionRegister({ kind }) {
     catch (err) { setModalError(err.response?.data?.message || 'Could not move column'); }
     finally { setSaving(false); }
   };
+  const deleteImage = async (row) => {
+    if (!isAdmin || !window.confirm('Remove this parcel image?')) return;
+    try { await api.delete(`${endpoint}/entries/${row._id}/image`); setRevision((value) => value + 1); }
+    catch (err) { setError(err.response?.data?.message || 'Image could not be removed'); }
+  };
   const change = (key, value) => setDraft((current) => ({ ...current, values: { ...current.values, [key]: value } }));
   const field = (item) => {
     const props = { className: input, value: draft.values[item.key] || '', required: item.required, onChange: (event) => change(item.key, event.target.value) };
@@ -87,7 +96,7 @@ export default function ReceptionRegister({ kind }) {
     </div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     <div className="overflow-x-auto rounded-lg border border-cardline"><table className="w-full border-collapse text-center text-sm"><thead className="bg-[#56695D] text-xs font-bold text-white"><tr><th className="p-3">#</th><th className="min-w-[125px] p-3">Entry date</th>{data.columns.map((item) => <th key={item.key} className="min-w-[160px] p-3">{item.label}{item.required ? ' *' : ''}</th>)}{hasImage && <th className="p-3">Image</th>}<th className="min-w-[175px] p-3">Recorded by</th><th className="p-3">Actions</th></tr></thead><tbody>
-      {loading ? <tr><td className="p-8" colSpan={data.columns.length + 4 + (hasImage ? 1 : 0)}>Loading...</td></tr> : data.rows.map((row, index) => <tr key={row._id} className="border-t border-cardline bg-offwhite-100 hover:bg-sage/5"><td className="p-3">{(page - 1) * 25 + index + 1}</td><td className="p-3">{row.date}</td>{data.columns.map((item) => <td key={item.key} className="max-w-[280px] border-l border-cardline p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{item.type === 'checkbox' ? (row.values?.[item.key] === 'true' ? 'Yes' : 'No') : row.values?.[item.key] || '-'}</td>)}{hasImage && <td className="p-3">{row.imageUrl ? <a href={fileHref(row.imageUrl)} target="_blank" rel="noreferrer"><img src={fileHref(row.imageUrl)} alt="Parcel" className="mx-auto h-14 w-14 rounded object-cover" /></a> : '-'}</td>}<td className="p-3 text-xs"><strong>{row.createdByName}</strong><span className="mt-1 block">{new Date(row.createdAt).toLocaleString('en-IN')}</span>{row.updatedAt !== row.createdAt && <span className="mt-1 block">Updated by {row.updatedByName}<br />{new Date(row.updatedAt).toLocaleString('en-IN')}</span>}</td><td className="p-3"><button title="Edit entry" aria-label="Edit entry" onClick={() => { setModalError(''); setImage(null); setDraft({ ...row, values: { ...row.values } }); }} className="rounded p-2 text-sage"><Pencil size={16} /></button></td></tr>)}
+      {loading ? <tr><td className="p-8" colSpan={data.columns.length + 4 + (hasImage ? 1 : 0)}>Loading...</td></tr> : data.rows.map((row, index) => <tr key={row._id} className="border-t border-cardline bg-offwhite-100 hover:bg-sage/5"><td className="p-3">{(page - 1) * 25 + index + 1}</td><td className="p-3">{row.date}</td>{data.columns.map((item) => <td key={item.key} className="max-w-[280px] border-l border-cardline p-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{item.type === 'checkbox' ? (row.values?.[item.key] === 'true' ? 'Yes' : 'No') : row.values?.[item.key] || '-'}</td>)}{hasImage && <td className="p-3">{row.imageUrl ? <span className="relative mx-auto inline-flex"><a href={fileHref(row.imageUrl)} target="_blank" rel="noreferrer"><img src={fileHref(row.imageUrl)} alt="Parcel" className="h-14 w-14 rounded object-cover" /></a>{isAdmin && <button type="button" onClick={() => deleteImage(row)} className="absolute -right-2 -top-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[#9B3D30] text-white shadow" title="Remove image" aria-label="Remove parcel image"><X size={12} strokeWidth={3} /></button>}</span> : '-'}</td>}<td className="p-3 text-xs"><strong>{row.createdByName}</strong><span className="mt-1 block">{new Date(row.createdAt).toLocaleString('en-IN')}</span>{row.updatedAt !== row.createdAt && <span className="mt-1 block">Updated by {row.updatedByName}<br />{new Date(row.updatedAt).toLocaleString('en-IN')}</span>}</td><td className="p-3"><button title="Edit entry" aria-label="Edit entry" onClick={() => { setModalError(''); setImage(null); setDraft({ ...row, values: { ...row.values } }); }} className="rounded p-2 text-sage"><Pencil size={16} /></button></td></tr>)}
       {!loading && !error && !data.rows.length && <tr><td colSpan={data.columns.length + 4 + (hasImage ? 1 : 0)} className="p-8 text-charcoal/70">No entries found.</td></tr>}
     </tbody></table></div>
     <footer className="flex items-center justify-between text-xs"><span>{data.total} entries · Page {page} of {Math.max(1, Math.ceil(data.total / 25))}</span><div className="flex gap-2"><button title="Previous page" aria-label="Previous page" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)} className="p-2 disabled:opacity-30"><ChevronLeft size={18} /></button><button title="Next page" aria-label="Next page" disabled={page * 25 >= data.total || loading} onClick={() => setPage(page + 1)} className="p-2 disabled:opacity-30"><ChevronRight size={18} /></button></div></footer>

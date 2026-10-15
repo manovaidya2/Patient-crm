@@ -8,6 +8,8 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 
 const categoryTone = (category) => (category === PATIENT_CATEGORIES.AUTISM_ADHD ? 'teal' : 'amber');
 
@@ -35,6 +37,8 @@ const DetailItem = ({ label, value }) => (
 //  - it's already live, but a later payment on some stage still needs sign-off —
 //    the patient itself stays visible everywhere, only that payment is flagged.
 const PatientApprovals = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === ROLES.ADMIN;
   const { data, loading, error, refresh: fetchPending, setData } = useApiQuery('/patients/pending-approvals');
   const patients = data?.patients || [];
   const loadError = error && !data ? error.response?.data?.message || 'Could not load pending approvals.' : '';
@@ -246,7 +250,7 @@ const PatientApprovals = () => {
 
                           {payment.screenshotFiles?.length > 0 && (
                             <div className="mt-3.5 border-t border-cardline-soft pt-3.5">
-                              <CompactAttachments files={payment.screenshotFiles} label="Screenshots" />
+                              <CompactAttachments files={payment.screenshotFiles} label="Screenshots" deleteUrl={isAdmin ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={fetchPending} />
                             </div>
                           )}
                         </div>

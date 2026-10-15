@@ -199,7 +199,12 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
       </section>
       {selected.notes && <div><h3 className="text-xs font-semibold">Notes</h3><p className="mt-1 whitespace-pre-wrap break-words text-sm">{selected.notes}</p></div>}
       {selected.cancellationReason && <p className="text-sm text-red-700">Cancelled: {selected.cancellationReason} ({stamp(selected.cancelledAt)})</p>}
-      <CompactAttachments files={selected.files || []} label="Payment proofs" />
+      <CompactAttachments
+        files={selected.files || []}
+        label="Payment proofs"
+        deleteUrl={isAdmin ? (selected.kind === 'consultation' ? `/accounts/consultation-receipts/${selected._id}/files` : `/patients/${selected.patientId}/attachments`) : ''}
+        onDeleted={(file) => { setSelected((current) => ({ ...current, files: current.files.filter((item) => item.url !== file.url) })); setReload((old) => old + 1); }}
+      />
       {selected.refunds?.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Refund history</h3>{selected.refunds.map((refund, index) => <div key={refund._id || index} className="border-t border-cardline py-2 text-sm"><p>{money(refund.amount)} | {refund.status} | {stamp(refund.paidAt || refund.createdAt)}</p><p className="break-words text-xs">{refund.reason}</p></div>)}</div>}
       {selected.patientId && <Link className="inline-block text-sm font-semibold text-sage underline" to={`/admin/patients/${selected.patientId}`}>Open patient details</Link>}
       {isAdmin && selected.refunds?.length > 0 && <p className="text-xs text-charcoal/70">This payment has refund history and cannot be deleted.</p>}

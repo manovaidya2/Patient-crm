@@ -348,8 +348,8 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                     <p className="mt-1">Received by: {courier.receivedByName || '-'}</p>
                     <p className="mt-1">Delivered: {formatDateTime(courier.deliveredAt)}</p>
                     <div className="mt-2 flex flex-wrap gap-3">
-                      <CompactAttachments files={courier.packageImages} fallbackUrl={courier.packageImageUrl} fallbackName={courier.packageImageFileName || 'Package'} label="Package" />
-                      <CompactAttachments files={courier.deliveryProofImages} fallbackUrl={courier.deliveryProofUrl} fallbackName={courier.deliveryProofFileName || 'Delivery Proof'} label="Delivery proof" />
+                      <CompactAttachments files={courier.packageImages} fallbackUrl={courier.packageImageUrl} fallbackName={courier.packageImageFileName || 'Package'} label="Package" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
+                      <CompactAttachments files={courier.deliveryProofImages} fallbackUrl={courier.deliveryProofUrl} fallbackName={courier.deliveryProofFileName || 'Delivery Proof'} label="Delivery proof" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
                     </div>
                   </div>
                   <div className="flex flex-wrap items-start gap-2 xl:justify-end">

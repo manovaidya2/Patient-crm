@@ -203,6 +203,18 @@ const uploadDocuments = asyncHandler(async (req, res) => {
   res.json({ success: true, record: serialize(record) });
 });
 
+const deleteDocument = asyncHandler(async (req, res) => {
+  const record = await RecordRoom.findById(req.params.id);
+  if (!record) return res.status(404).json({ success: false, message: 'Record room entry not found' });
+  const index = record.documents.findIndex((document) => String(document._id) === String(req.params.documentId));
+  if (index === -1) return res.status(404).json({ success: false, message: 'Document image not found' });
+  const [document] = record.documents.splice(index, 1);
+  await rebuildPdf(record);
+  await record.save();
+  await removeFile(document.url);
+  res.json({ success: true, record: serialize(record) });
+});
+
 const issue = asyncHandler(async (req, res) => {
   const givenTo = String(req.body.givenTo || '').trim();
   const reason = String(req.body.reason || '').trim();
@@ -231,4 +243,4 @@ const collect = asyncHandler(async (req, res) => {
   await record.save(); res.json({ success: true, record: serialize(record) });
 });
 
-module.exports = { list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, issue, collect };
+module.exports = { list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, deleteDocument, issue, collect };

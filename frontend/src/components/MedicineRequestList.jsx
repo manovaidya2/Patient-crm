@@ -407,8 +407,8 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                     <p className="font-semibold text-charcoal">Medicines</p>
                     <p className="mt-1 whitespace-pre-line">{request.medicines}</p>
                     {request.notes && <p className="mt-2 whitespace-pre-line text-xs text-charcoal/55">{request.notes}</p>}
-                    <CompactAttachments files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescription" />
-                    <CompactAttachments files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine Image'} label="Medicine images" />
+                    <CompactAttachments files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescription" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
+                    <CompactAttachments files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine Image'} label="Medicine images" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
                     {request.status === 'made' && request.courier?.deliveryMode === 'self' && request.courier?.status === 'delivered' && (
                       <div className="mt-3 rounded-lg border border-cardline bg-offwhite-200 p-3 text-xs text-charcoal/65">
                         <p className="font-semibold text-charcoal">Self pickup</p>
@@ -416,7 +416,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                         <p className="mt-1">Phone: {request.courier.receiverPhone || '-'}</p>
                         <p className="mt-1">Handed over: {formatDateTime(request.courier.deliveredAt)} by {request.courier.deliveredByName || '-'}</p>
                         {request.courier.notes && <p className="mt-1">Notes: {request.courier.notes}</p>}
-                        <CompactAttachments files={request.courier.deliveryProofImages} fallbackUrl={request.courier.deliveryProofUrl} fallbackName="Pickup proof" label="Pickup proof" />
+                        <CompactAttachments files={request.courier.deliveryProofImages} fallbackUrl={request.courier.deliveryProofUrl} fallbackName="Pickup proof" label="Pickup proof" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
                       </div>
                     )}
                     {request.status === 'sent_to_courier' && (

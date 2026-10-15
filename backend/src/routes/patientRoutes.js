@@ -8,6 +8,7 @@ const {
   getRefundsLedger,
   getPatientById,
   deletePatient,
+  deletePatientAttachment,
   getPatientCallLogs,
   createPatient,
   getPendingApprovals,
@@ -71,6 +72,7 @@ router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCO
 router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
+router.delete('/:id/attachments', authorize(ROLES.ADMIN), deletePatientAttachment);
 router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), approvePatient);
 router.patch('/:id/status', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR), updatePatientStatus);
 router.patch('/:id', authorize(...PATIENT_WRITE_ROLES, ROLES.ACCOUNTANT), updatePatient);

@@ -10,10 +10,19 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isSalesConfirmationColumn } = require('../utils/appointmentSections');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
+const fs = require('fs/promises');
+const path = require('path');
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const idValid = (id) => /^[a-f\d]{24}$/i.test(String(id || ''));
 const modelFor = (sheet) => sheet === 'sales' ? Sales : Management;
+const deleteManagedUpload = async (url) => {
+  if (!/^\/uploads\/records\/[a-zA-Z0-9_.-]+$/.test(String(url || ''))) return;
+  const root = path.resolve(__dirname, '../../uploads/records');
+  const target = path.resolve(__dirname, '../..', String(url).replace(/^\//, ''));
+  if (!target.toLowerCase().startsWith(`${root.toLowerCase()}${path.sep}`)) return;
+  await fs.unlink(target).catch((error) => { if (error.code !== 'ENOENT') throw error; });
+};
 const canWrite = (sheet, row, user) => user.role === ROLES.ADMIN || (sheet === 'management'
   ? user.role === ROLES.RECEPTIONIST
   : !row.acceptedAt && row.status === 'active' && (user.role === ROLES.RECEPTIONIST || (user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))));
@@ -110,6 +119,7 @@ const updateField = asyncHandler(async (req, res) => {
   const permissions = target.sheet === 'sales' && req.user.role !== ROLES.ADMIN ? { status: 'active', acceptedAt: null } : {};
   const updated = await modelFor(target.sheet).findOneAndUpdate({ _id: target.row._id, ...condition, ...permissions }, { $set: { [field]: value, updatedByName: req.user.name, lastEditedAt: new Date() } }, { new: true });
   if (!updated) fail('This field changed. Reopen the appointment before saving.', 409);
+  if (column.type === 'file' && previous && previous !== value) await deleteManagedUpload(previous);
   await Audit.create({ sheet: target.sheet, rowId: target.row._id, appointmentCode: target.row.appointmentCode, action: 'Field updated', details: `${column.label}: ${column.type === 'file' ? 'Attachment changed' : `${previous || '(empty)'} -> ${value || '(empty)'}`}`, changedBy: req.user._id, changedByName: req.user.name });
   req.app.get('io')?.to(dateRoom(target.row.appointmentDate)).emit('sales-sheet:date-changed', { date: target.row.appointmentDate });
   res.json({ success: true, value });

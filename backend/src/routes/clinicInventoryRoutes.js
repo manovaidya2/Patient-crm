@@ -9,6 +9,7 @@ const files = require('../controllers/clinicInventoryFiles');
 const upload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 router.post('/:id/soft-copy', upload.single('file'), files.upload);
 router.get('/:id/soft-copy', files.view);
+router.delete('/:id/soft-copy', authorize(ROLES.ADMIN), files.remove);
 router.get('/', controller.listClinicInventory);
 router.post('/', controller.createClinicInventoryItem);
 router.patch('/:id', controller.updateClinicInventoryItem);

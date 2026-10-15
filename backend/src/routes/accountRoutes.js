@@ -16,6 +16,7 @@ router.get('/ledger/banks', ledger.banks);
 router.post('/consultation-receipts', uploadConsultationFeeProof.array('proof', 5), ledger.createReceipt);
 router.patch('/consultation-receipts/:id', ledger.reviewReceipt);
 router.delete('/consultation-receipts/:id', authorize(ROLES.ADMIN), ledger.deleteReceipt);
+router.delete('/consultation-receipts/:id/files', authorize(ROLES.ADMIN), ledger.deleteReceiptFile);
 router.post('/entries', createAccountEntry);
 router.patch('/entries/:id', updateAccountEntry);
 
