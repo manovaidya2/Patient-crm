@@ -606,6 +606,26 @@ const RecordFileField = ({ fileUrl, fileName, pageCount = 0, updatedAt, onUpload
           className="hidden"
         />
       )}
+      {roomFiles.length > 0 && (
+        <div className="mt-1.5 space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/45">Records Room</p>
+          {roomFiles.map((file) => (
+            <div key={file.id}>
+              <a href={`${SERVER_BASE}${file.pdfUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
+                <FileText size={13} className="shrink-0" />
+                <span className="truncate">{file.pdfName}</span>
+              </a>
+              <p className="text-[11px] font-semibold text-charcoal/55">
+                {file.pdfPageCount ? `${file.pdfPageCount} page${file.pdfPageCount === 1 ? '' : 's'}` : 'PDF'}
+                {file.fileNumber ? ` | File ${file.fileNumber}` : ''}
+                {file.shelfNumber ? ` | Shelf ${file.shelfNumber}` : ''}
+                {file.appointmentId ? ` | ${file.appointmentId}` : ''}
+                {file.pdfUpdatedAt ? ` | Updated ${formatDate(file.pdfUpdatedAt)}` : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
       {fileUrl ? (
         <div className="mt-1">
           <a href={`${SERVER_BASE}${fileUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
@@ -639,6 +659,7 @@ const RecordFileField = ({ fileUrl, fileName, pageCount = 0, updatedAt, onUpload
 };
 
 const ScannedRecordFileField = ({
+  roomFiles = [],
   fileUrl,
   fileName,
   pageCount = 0,
@@ -713,6 +734,26 @@ const ScannedRecordFileField = ({
           />
         </>
       )}
+      {roomFiles.length > 0 && (
+        <div className="mt-1.5 space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/45">Records Room</p>
+          {roomFiles.map((file) => (
+            <div key={file.id}>
+              <a href={`${SERVER_BASE}${file.pdfUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
+                <FileText size={13} className="shrink-0" />
+                <span className="truncate">{file.pdfName}</span>
+              </a>
+              <p className="text-[11px] font-semibold text-charcoal/55">
+                {file.pdfPageCount ? `${file.pdfPageCount} page${file.pdfPageCount === 1 ? '' : 's'}` : 'PDF'}
+                {file.fileNumber ? ` | File ${file.fileNumber}` : ''}
+                {file.shelfNumber ? ` | Shelf ${file.shelfNumber}` : ''}
+                {file.appointmentId ? ` | ${file.appointmentId}` : ''}
+                {file.pdfUpdatedAt ? ` | Updated ${formatDate(file.pdfUpdatedAt)}` : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
       {fileUrl ? (
         <div className="mt-1">
           <a href={`${SERVER_BASE}${fileUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
@@ -725,7 +766,7 @@ const ScannedRecordFileField = ({
           </p>
         </div>
       ) : (
-        <p className="mt-1 text-sm font-bold italic text-charcoal/35">No scanned PDF yet</p>
+        !roomFiles.length && <p className="mt-1 text-sm font-bold italic text-charcoal/35">No scanned PDF yet</p>
       )}
       {(canUpload || !!scanFiles.length) && (
         <button
@@ -2420,6 +2461,7 @@ const PatientDetails = () => {
   const [refundFiles, setRefundFiles] = useState([]);
   const [refundMode, setRefundMode] = useState('full');
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
+  const [recordRoomFiles, setRecordRoomFiles] = useState([]);
   const [deletingPatient, setDeletingPatient] = useState(false);
   const [deletePatientError, setDeletePatientError] = useState('');
 
@@ -2430,14 +2472,17 @@ const PatientDetails = () => {
         setLoadError('');
       }
       try {
-        const [patientRes, callsRes, adviceRes] = await Promise.all([
+        const [patientRes, callsRes, adviceRes, roomRes] = await Promise.all([
           api.get(`/patients/${id}`),
           isLimitedViewer ? Promise.resolve({ data: { callLogs: [] } }) : api.get(`/patients/${id}/calls`),
           isLimitedViewer ? Promise.resolve({ data: { rows: [] } }) : api.get(`/advice/patients/${id}`),
+          // Records Room PDFs are a bonus on this page: if they fail to load, the rest of the patient still opens.
+          api.get(`/patients/${id}/record-room`).catch(() => ({ data: { records: [] } })),
         ]);
         setPatient(patientRes.data.patient);
         setCallLogs(callsRes.data.callLogs || []);
         setAdviceRows(adviceRes.data.rows || []);
+        setRecordRoomFiles(roomRes.data.records || []);
         if (!silent) setLoadError('');
       } catch (err) {
         if (!silent) setLoadError(err.response?.data?.message || 'Could not load this patient.');
@@ -3336,6 +3381,7 @@ const PatientDetails = () => {
                     </div>
                   )}
                   <ScannedRecordFileField
+                    roomFiles={recordRoomFiles}
                     fileUrl={activeStage.recordFileUrl}
                     fileName={activeStage.recordFileName}
                     pageCount={activeStage.recordPdfPageCount}

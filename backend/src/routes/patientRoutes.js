@@ -10,6 +10,7 @@ const {
   deletePatient,
   deletePatientAttachment,
   getPatientCallLogs,
+  getPatientRecordRoom,
   createPatient,
   getPendingApprovals,
   approvePatient,
@@ -70,6 +71,7 @@ router.get('/payments-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUN
 router.get('/refunds-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getRefundsLedger);
 router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT), getPendingApprovals);
 router.get('/:id/calls', getPatientCallLogs);
+router.get('/:id/record-room', getPatientRecordRoom);
 router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
 router.delete('/:id/attachments', authorize(ROLES.ADMIN), deletePatientAttachment);

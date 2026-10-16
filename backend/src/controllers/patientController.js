@@ -1,6 +1,7 @@
 const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
+const RecordRoom = require('../models/RecordRoom');
 const { parseCallTimestamp } = require('../utils/callTimestamp');
 const AdviceRequest = require('../models/AdviceRequest');
 const DigitalMarketingReview = require('../models/DigitalMarketingReview');
@@ -1465,6 +1466,24 @@ const getPatientCallLogs = asyncHandler(async (req, res) => {
     .limit(100)
     .lean();
   res.status(200).json({ success: true, callLogs: callLogs.map(formatCallLog) });
+});
+
+// @desc    PDFs built in the Records Room for this patient (matched by the linked patient or by patient ID)
+// @route   GET /api/patients/:id/record-room
+const getPatientRecordRoom = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.params.id).select('patientCode assignedDoctor assignedPsychologist approvalStatus').lean();
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'You can only view records of assigned patients' });
+  const code = String(patient.patientCode || '').trim();
+  const match = [{ patient: patient._id }];
+  if (code) match.push({ patientId: { $regex: `^${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
+  const records = await RecordRoom.find({ $or: match, pdfUrl: { $ne: '' } })
+    .select('patientId appointmentId shelfNumber fileNumber indexNumber treatmentStatus pdfUrl pdfName pdfPageCount pdfUpdatedAt updatedAt')
+    .sort({ pdfUpdatedAt: -1, updatedAt: -1 }).lean();
+  res.json({ success: true, records: records.map((r) => ({
+    id: String(r._id), appointmentId: r.appointmentId || '', shelfNumber: r.shelfNumber || '', fileNumber: r.fileNumber || '', indexNumber: r.indexNumber || '',
+    treatmentStatus: r.treatmentStatus || 'bought', pdfUrl: r.pdfUrl, pdfName: r.pdfName || 'Records Room PDF', pdfPageCount: r.pdfPageCount || 0, pdfUpdatedAt: r.pdfUpdatedAt || r.updatedAt || null,
+  })) });
 });
 
 // @desc    Manually create a patient when it was not received from the CRM webhook
@@ -3795,6 +3814,7 @@ module.exports = {
   deletePatient,
   deletePatientAttachment,
   getPatientCallLogs,
+  getPatientRecordRoom,
   createPatient,
   getPendingApprovals,
   approvePatient,
