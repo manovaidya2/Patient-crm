@@ -148,7 +148,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       receiverPhone: courier.receiverPhone || row.patientNumber || '',
       address: courier.address || '',
       courierPartner: courier.courierPartner || '',
-      deliveryMode: 'courier',
+      deliveryMode: courier.deliveryMode === 'self' ? 'self' : 'courier',
       selfPickupByName: courier.selfPickupByName || '',
       trackingNumber: courier.trackingNumber || '',
       paymentPaidBy: courier.paymentPaidBy || 'clinic',
@@ -365,7 +365,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
                         </Button>
                       </>
                     )}
-                    {courier.status === 'pending' && <Button size="sm" onClick={() => openDispatch(row)}><Truck size={14} /> Dispatch</Button>}
+                    {courier.status === 'pending' && <Button size="sm" onClick={() => openDispatch(row)}><Truck size={14} /> Dispatch / Self Pickup</Button>}
                     {courier.status === 'dispatched' && <Button size="sm" onClick={() => openDeliver(row)}><PackageCheck size={14} /> Mark Delivered</Button>}
                   </div>
                 </div>
@@ -375,11 +375,22 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
         )}
       </Card>
 
-      <Modal open={!!dispatchRow} onClose={() => setDispatchRow(null)} title="Dispatch Courier" className="max-w-2xl">
+      <Modal open={!!dispatchRow} onClose={() => setDispatchRow(null)} title="Dispatch / Self Pickup" className="max-w-2xl">
         <form onSubmit={submitDispatch} className="space-y-4">
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-charcoal">How will the patient get this medicine?</p>
+            <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Delivery mode">
+              {[['courier', 'Send by courier', 'Courier partner, tracking number, package photo'], ['self', 'Self pickup', 'Patient or family collects it from the clinic']].map(([value, label, hint]) => (
+                <button key={value} type="button" role="radio" aria-checked={form.deliveryMode === value} onClick={() => setForm({ ...form, deliveryMode: value })} className={`rounded-lg border px-3.5 py-2.5 text-left transition ${form.deliveryMode === value ? 'border-sage bg-sage/10 ring-1 ring-sage/30' : 'border-cardline bg-offwhite-200 hover:border-sage/60'}`}>
+                  <span className={`block text-sm font-bold ${form.deliveryMode === value ? 'text-sage' : 'text-charcoal'}`}>{label}</span>
+                  <span className="block text-xs text-charcoal/55">{hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           {modalError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{modalError}</div>}
           <div className="grid gap-3 sm:grid-cols-2">
-            <Input label="Receiver Name" value={form.receiverName} onChange={(e) => setForm({ ...form, receiverName: e.target.value })} required />
+            <Input label={form.deliveryMode === 'self' ? 'Collected by (name)' : 'Receiver Name'} value={form.receiverName} onChange={(e) => setForm({ ...form, receiverName: e.target.value })} required />
             <Input label="Receiver Phone" value={form.receiverPhone} onChange={(e) => setForm({ ...form, receiverPhone: e.target.value })} required />
             {form.deliveryMode !== 'self' && (
               <>
@@ -403,7 +414,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
             <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
           )}
           <label className="block rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-4 text-center text-sm font-semibold text-sage cursor-pointer">
-            Upload package images
+            {form.deliveryMode === 'self' ? 'Add pickup proof (optional)' : 'Upload package images'}
             <input type="file" accept="image/*" multiple onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
           </label>
           <label className="block rounded-lg border border-dashed border-cardline bg-offwhite-200 px-4 py-4 text-center text-sm font-semibold text-sage cursor-pointer">
@@ -411,7 +422,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
             <input type="file" accept="image/*" capture="environment" onChange={(e) => appendSelectedFiles(setFiles, e.target.files)} className="hidden" />
           </label>
           <SelectedAttachments files={files} onRemove={(index) => removeSelectedFile(setFiles, index)} />
-          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setDispatchRow(null)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : form.deliveryMode === 'self' ? 'Mark Delivered' : 'Dispatch'}</Button></div>
+          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setDispatchRow(null)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : form.deliveryMode === 'self' ? 'Mark Handed Over' : 'Dispatch'}</Button></div>
         </form>
       </Modal>
 

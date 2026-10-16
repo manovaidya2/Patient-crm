@@ -258,7 +258,7 @@ function App() {
         <Route
           path="courier"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST]}>
               <CourierRequests />
             </ProtectedRoute>
           }
@@ -266,7 +266,7 @@ function App() {
         <Route
           path="courier-delivered"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST]}>
               <CourierDelivered />
             </ProtectedRoute>
           }
