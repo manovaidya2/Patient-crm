@@ -87,12 +87,14 @@ const PostCounselingDone = () => {
                   <Card key={patient.id} className="space-y-2 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0"><p className="truncate font-display text-base font-bold text-charcoal">{patient.patientName}</p><p className="text-sm font-semibold text-sage">{patient.patientId}</p></div>
-                      <div className="flex flex-wrap gap-1.5"><Badge>{CATEGORY[patient.category] || patient.category}</Badge>{patient.decision && <Badge tone={patient.decision === 'Proceeding' ? 'active' : patient.decision === 'Not Proceeding' ? 'danger' : 'amber'}>{patient.decision}</Badge>}</div>
+                      <div className="flex flex-wrap gap-1.5"><Badge>{CATEGORY[patient.category] || patient.category}</Badge>{patient.outcome && <Badge tone={patient.outcome.kind === 'converted' ? 'active' : 'danger'}>{patient.outcome.kind === 'converted' ? 'Converted' : 'Package not purchased'}</Badge>}{patient.decision && <Badge tone={patient.decision === 'Proceeding' ? 'active' : patient.decision === 'Not Proceeding' ? 'danger' : 'amber'}>{patient.decision}</Badge>}</div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
                       <div><p className="font-semibold uppercase tracking-wide text-charcoal/45">Reference value</p><p className="text-sm font-bold text-charcoal">{rupees(patient.referenceValue)}</p></div>
                       <div><p className="font-semibold uppercase tracking-wide text-charcoal/45">Approved fee</p><p className="text-sm font-bold text-charcoal">{rupees(patient.approvedProgramFee)}</p></div>
                       <div><p className="font-semibold uppercase tracking-wide text-charcoal/45">Payment plan</p><p className="text-sm font-bold text-charcoal">{patient.paymentPlan || '-'}</p></div>
+                      {patient.purchaseSaved && <div><p className="font-semibold uppercase tracking-wide text-charcoal/45">Received now</p><p className="text-sm font-bold text-charcoal">{rupees(patient.amountReceivedNow)}</p></div>}
+                      {patient.poNo && <div><p className="font-semibold uppercase tracking-wide text-charcoal/45">PO No.</p><p className="text-sm font-bold text-charcoal">{patient.poNo}</p></div>}
                     </div>
                     {patient.components.length > 0 && <p className="text-xs text-charcoal/65"><b>{patient.components.length} components:</b> {patient.components.join(', ')}</p>}
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-cardline pt-2">

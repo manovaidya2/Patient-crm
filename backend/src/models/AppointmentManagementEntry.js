@@ -26,6 +26,16 @@ const postCounselingSchema = new mongoose.Schema({
   savedAt: { type: Date, default: null },
   savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   savedByName: { type: String, trim: true, default: '' },
+  // Purchase order / payment details (sections F, G, H) filled after the record
+  purchase: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  // What was decided at the end: the patient was converted, or did not buy the package
+  outcome: {
+    kind: { type: String, enum: ['converted', 'not_purchased'], default: undefined },
+    at: { type: Date, default: null },
+    byName: { type: String, trim: true, default: '' },
+    patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
+    packageNotBought: { type: mongoose.Schema.Types.ObjectId, ref: 'PackageNotBoughtPatient', default: null },
+  },
 }, { _id: false });
 
 const schema = new mongoose.Schema({

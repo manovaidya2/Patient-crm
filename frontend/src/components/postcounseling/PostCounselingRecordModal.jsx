@@ -3,6 +3,7 @@ import { ArrowRight, Check, Save } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
+import PurchaseOrderStep from './PurchaseOrderStep.jsx';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
 const rupees = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
@@ -34,11 +35,12 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [saved, setSaved] = useState(false);
+  const [step, setStep] = useState('record');
 
   useEffect(() => {
     if (!patient) return undefined;
     let live = true;
-    setData(null); setRecord(null); setError(''); setNotice(''); setSaved(false);
+    setData(null); setRecord(null); setError(''); setNotice(''); setSaved(false); setStep('record');
     api.get(`/post-counseling/patients/${patient.id}/record`, { skipCache: true })
       .then((response) => { if (!live) return; setData(response.data); setRecord(response.data.record); setSaved(response.data.saved); })
       .catch((err) => live && setError(err.response?.data?.message || 'Could not load the record'));
@@ -47,7 +49,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
 
   const defs = data?.definitions;
   const totals = useMemo(() => (record && defs ? calculate(record, defs) : { reference: 0, approved: 0 }), [record, defs]);
-  const editable = Boolean(data?.canEdit) && !readOnly;
+  const editable = Boolean(data?.canEdit) && !readOnly && !data?.outcome;
 
   const change = (updater) => { setRecord((current) => updater(structuredClone(current))); setSaved(false); setNotice(''); };
   const toggleChoice = (key, option) => change((next) => {
@@ -78,7 +80,13 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
     <Modal open={Boolean(patient)} onClose={onClose} title="Post-counselling record" className="max-w-5xl">
       {!record && !error && <p className="py-10 text-center text-sm text-charcoal/55">Loading...</p>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-      {record && defs && (
+      {record && defs && step === 'purchase' && !readOnly && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-sage/40 bg-sage/10 px-3 py-2 text-sm"><span className="text-charcoal/60">Step 2 of 2 · Purchase order / payment</span> <b className="ml-2 text-charcoal">{patient.patientName}</b> <span className="ml-2 font-semibold text-sage">{patient.patientId}</span></div>
+          <PurchaseOrderStep patient={patient} data={data} readOnly={false} onData={(next) => setData(next)} onBack={() => setStep('record')} onDecided={onSaved} />
+        </div>
+      )}
+      {record && defs && (step === 'record' || readOnly) && (
         <div className="space-y-6">
           <div className="rounded-lg border border-sage/40 bg-sage/10 px-3 py-2 text-sm">
             <span className="text-charcoal/60">Patient</span> <b className="ml-1 text-charcoal">{patient.patientName}</b> <span className="ml-2 font-semibold text-sage">{patient.patientId}</span>
@@ -186,11 +194,19 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
             </div>
           </section>
 
+          {readOnly && data.saved && (
+            <section className="space-y-3">
+              <SectionTitle letter="F-H">Purchase order &amp; payment</SectionTitle>
+              {data.purchase.saved ? <PurchaseOrderStep patient={patient} data={data} readOnly onData={() => {}} /> : <p className="text-sm text-charcoal/60">The purchase order details have not been filled yet.</p>}
+              {!data.purchase.saved && data.outcome && <p className="text-sm font-semibold text-charcoal">{data.outcome.kind === 'converted' ? 'Converted to patient' : 'Moved to Package Not Bought'} by {data.outcome.byName}</p>}
+            </section>
+          )}
+
           <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-cardline bg-offwhite-100 pt-3">
             {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
             <Button variant="outline" onClick={onClose}>Close</Button>
             {editable && <Button onClick={save} disabled={busy}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
-            {saved && !readOnly && <Button onClick={() => setNotice('The next step will be added soon')}>Next <ArrowRight size={15} /></Button>}
+            {(saved || (readOnly && data.saved)) && !readOnly && <Button onClick={() => setStep('purchase')}>Next <ArrowRight size={15} /></Button>}
           </div>
         </div>
       )}

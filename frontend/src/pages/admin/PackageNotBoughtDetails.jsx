@@ -102,7 +102,7 @@ const PackageNotBoughtDetails = () => {
   const openConvert = () => {
     setConvertError('');
     setConvertForm({
-      patientCode: '', category: '', age: row.age || '', number: row.fatherNumber || '', alternateNumber: row.motherNumber || '',
+      patientCode: row.patientId || '', category: row.category || '', age: row.age || '', number: row.fatherNumber || '', alternateNumber: row.motherNumber || '',
       guardianName: row.parentName || '', relativeName: '', patientHistoryBy: '', centerName: '', centerId: '', consultationDate: '',
       postCounselor: user?.role === ROLES.POST_COUNSELOR ? user._id || user.id || '' : '', conversionDetails: '',
     });
@@ -224,6 +224,20 @@ const PackageNotBoughtDetails = () => {
               </Card>
             )}
 
+            {row.packageDetails && (
+              <Card className="lg:col-span-2">
+                <h2 className="font-display text-base font-bold text-charcoal">Package offered{row.patientId ? ` · ${row.patientId}` : ''}</h2>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[['Reference value', row.packageDetails.referenceValue], ['Concession', row.packageDetails.concession], ['Approved fee', row.packageDetails.approvedProgramFee], ['Received', row.packageDetails.amountReceivedNow]].map(([label, value]) => (
+                    <div key={label}><p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">{label}</p><p className="text-sm font-bold text-charcoal">Rs {Number(value || 0).toLocaleString('en-IN')}</p></div>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-charcoal/60">Plan: {row.packageDetails.paymentPlan || '-'} · Decision: {row.packageDetails.decision || '-'}{row.packageDetails.poNo ? ` · PO ${row.packageDetails.poNo}` : ''}</p>
+                <ul className="mt-3 divide-y divide-cardline rounded-lg border border-cardline">
+                  {(row.packageDetails.components || []).map((item) => <li key={item.name} className="flex justify-between gap-3 px-3 py-2 text-sm"><span>{item.name}</span><span className="font-semibold">{item.price ? `Rs ${Number(item.price).toLocaleString('en-IN')}` : '-'}</span></li>)}
+                </ul>
+              </Card>
+            )}
             <Card className={canManageFollowUps && !isConverted ? '' : 'lg:col-span-2'}>
               <div className="flex items-center gap-2">
                 <CalendarClock size={18} className="text-sage" />

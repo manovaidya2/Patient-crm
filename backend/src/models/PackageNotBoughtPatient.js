@@ -30,6 +30,12 @@ const packageNotBoughtPatientSchema = new mongoose.Schema(
     convertedByName: { type: String, trim: true, default: '' },
     conversionDetails: { type: String, trim: true, default: '' },
     convertedPatient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
+    // Set when the record comes from post-counselling: the patient's ID/category and the package that was offered
+    patientId: { type: String, trim: true, default: '' },
+    category: { type: String, trim: true, default: '' },
+    sourceEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'AppointmentManagementEntry', default: undefined, unique: true, sparse: true },
+    packageDetails: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    profile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     createdByName: { type: String, trim: true, default: '' },
     updatedByName: { type: String, trim: true, default: '' },

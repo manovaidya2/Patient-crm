@@ -155,7 +155,8 @@ const listPostCounselors = asyncHandler(async (req, res) => {
 // @route GET /api/post-counseling/patients
 // A Post Counselor sees only the patients sent to them; Admin / Doctor / Manager see everyone's.
 const listPostCounselingPatients = asyncHandler(async (req, res) => {
-  const filter = { 'registration.status': 'sent' };
+  // Once the outcome is decided (converted / package not purchased) the patient leaves this list; they stay in Post Counseling Done.
+  const filter = { 'registration.status': 'sent', 'postCounseling.outcome.kind': { $in: [null, ''] } };
   if (req.user.role === ROLES.POST_COUNSELOR) filter['registration.postCounselor'] = req.user._id;
   else if (validId(req.query.counselor)) filter['registration.postCounselor'] = req.query.counselor;
   const rows = await Management.find(filter).sort({ 'registration.sentAt': -1 }).limit(500);

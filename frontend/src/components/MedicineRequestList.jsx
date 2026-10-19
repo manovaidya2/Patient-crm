@@ -182,6 +182,59 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     }
   };
 
+  const openImageAction = (row, action) => {
+    setImageAction({ row, action });
+    setImageFiles([]);
+    setImageError('');
+    setMadeByName(user?.name || '');
+  };
+
+  const openReadyAction = (row, mode) => {
+    const current = row.medicineRequest?.readyByDate;
+    setReadyAction({ row, mode, date: current ? new Date(current).toISOString().slice(0, 10) : '' });
+    setReadyError('');
+  };
+
+  const submitReadyAction = async (e) => {
+    e.preventDefault();
+    if (!readyAction.date) { setReadyError('Select the date by which the medicine will be ready'); return; }
+    const ok = readyAction.mode === 'accept'
+      ? await updateStatus(readyAction.row, 'in_process', [], { readyByDate: readyAction.date })
+      : await updateStatus(readyAction.row, 'in_process', [], { readyByDate: readyAction.date, action: 'setReadyBy' });
+    if (ok) setReadyAction(null);
+  };
+
+  const submitImageAction = async (e) => {
+    e.preventDefault();
+    if (!imageFiles.length) {
+      setImageError('Medicine image is required');
+      return;
+    }
+    await updateStatus(imageAction.row, imageAction.action.status, imageFiles, { madeByName: madeByName.trim() });
+    setImageAction(null);
+  };
+
+  const openCourierAction = (row) => {
+    const request = row.medicineRequest || {};
+    setCourierAction(row);
+    setCourierForm({
+      packagedByName: request.packagedByName || '',
+      chitsWrittenByName: request.chitsWrittenByName || '',
+      lastMedicineCheckedByName: request.lastMedicineCheckedByName || '',
+    });
+    setCourierError('');
+  };
+
+  const submitCourierAction = async (e) => {
+    e.preventDefault();
+    if (!courierForm.packagedByName.trim() || !courierForm.chitsWrittenByName.trim() || !courierForm.lastMedicineCheckedByName.trim()) {
+      setCourierError('Packaging by, chits written by and last medicine checking by are required');
+      return;
+    }
+    const saved = await savePackaging(courierAction, courierForm);
+    if (saved) setCourierAction(null);
+  };
+
   const activeDateValue = dateMode === 'week' ? weekValue : dateMode === 'month' ? monthValue : dateValue;
   const activeRange = useMemo(() => getDateRange(dateMode, activeDateValue), [dateMode, activeDateValue]);
   const filteredRows = useMemo(
