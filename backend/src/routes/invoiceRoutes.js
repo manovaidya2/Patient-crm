@@ -1,11 +1,12 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
-const { findPatients, listInvoices, createInvoice, updateInvoice, deleteInvoice, getPdf, getSettings, updateSettings } = require('../controllers/invoiceController');
+const { findPatients, getPatientConsultationPayments, listInvoices, createInvoice, updateInvoice, deleteInvoice, getPdf, getSettings, updateSettings } = require('../controllers/invoiceController');
 
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST));
 router.get('/patients', findPatients);
+router.get('/patients/:id/consultation-payments', getPatientConsultationPayments);
 router.get('/settings', getSettings);
 router.put('/settings', authorize(ROLES.ADMIN), updateSettings);
 router.get('/', listInvoices);

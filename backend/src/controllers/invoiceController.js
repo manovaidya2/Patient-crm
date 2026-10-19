@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { randomUUID } = require('crypto');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
+const ConsultationReceipt = require('../models/ConsultationReceipt');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { validateReceipt, renderReceipt, receiptFileName, validDate } = require('../utils/partPaymentReceipt');
 const { validateFinalBill, renderFinalBill } = require('../utils/finalBill');
@@ -57,6 +58,27 @@ const findPatients = asyncHandler(async (req, res) => {
   const patients = await Patient.find({ $or: [{ patientCode: regex }, { patientName: regex }] })
     .select('patientName patientCode guardianName relativeName age gender currentStage stages.number stages.purchaseOrder').sort({ patientName: 1 }).limit(20).lean();
   res.json({ patients: patients.map((p) => ({ id: p._id, patientName: p.patientName, patientCode: p.patientCode || '', guardianName: p.guardianName || p.relativeName || '', age: p.age || '', gender: p.gender || '', purchaseOrder: ((p.stages || []).find((s) => s.number === p.currentStage)?.purchaseOrder) || [...(p.stages || [])].reverse().find((s) => s.purchaseOrder)?.purchaseOrder || '' })) });
+});
+
+const getPatientConsultationPayments = asyncHandler(async (req, res) => {
+  if (!mongoose.isObjectIdOrHexString(req.params.id)) return res.status(404).json({ message: 'Patient not found' });
+  const patient = await Patient.findById(req.params.id).select('patientCode').lean();
+  if (!patient) return res.status(404).json({ message: 'Patient not found' });
+  const links = [{ patient: patient._id }];
+  if (patient.patientCode) links.push({ patientCode: patient.patientCode });
+  const receipts = await ConsultationReceipt.find({ status: 'approved', $or: links }).sort({ date: 1, createdAt: 1 }).lean();
+  res.json({
+    payments: receipts.map((receipt) => ({
+      id: receipt._id,
+      amount: receipt.amount,
+      date: receipt.date,
+      paymentMode: receipt.paymentMode,
+      bankName: receipt.bankName || '',
+      reference: receipt.reference || '',
+      cashReceivedByName: receipt.cashReceivedByName || '',
+      approvedByName: receipt.approvedByName || '',
+    })),
+  });
 });
 
 const listInvoices = asyncHandler(async (req, res) => {
@@ -231,4 +253,4 @@ const deleteInvoice = asyncHandler(async (req, res) => {
   res.json({ message: 'Bill deleted', id: String(invoice._id), invoiceNumber: invoice.invoiceNumber });
 });
 
-module.exports = { findPatients, listInvoices, createInvoice, updateInvoice, deleteInvoice, getPdf, getSettings, updateSettings };
+module.exports = { findPatients, getPatientConsultationPayments, listInvoices, createInvoice, updateInvoice, deleteInvoice, getPdf, getSettings, updateSettings };

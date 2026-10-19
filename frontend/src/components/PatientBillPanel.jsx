@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Eye, FileText, Printer, Receipt } from 'lucide-react';
+import { Download, Eye, FileText, Plus, Printer, Receipt, Trash2 } from 'lucide-react';
 import api from '../api/axios.js';
 import Button from './ui/Button.jsx';
 import Modal from './ui/Modal.jsx';
 import InvoicePdfStyleSelector from './InvoicePdfStyleSelector.jsx';
 import { calculateFinalBill } from '../utils/finalBillMath.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const DEFAULT_CONSULTATION_FEE = 599;
 const CARD_RATE = 0.03;
@@ -187,9 +188,11 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
   const [cardOn, setCardOn] = useState(false);
   const [cardCharge, setCardCharge] = useState('0.00');
   const [rows, setRows] = useState(() => approved.map((pay, index) => ({
-    key: pay.id, include: true, date: dateOnly(pay.date), received: amountText(pay.amount),
+    key: `treatment-${pay.id}`, source: 'treatment', include: true, date: dateOnly(pay.date), received: amountText(pay.amount),
     particulars: index === approved.length - 1 && Number(stage.remainingAmount || 0) <= 0 ? 'Final Instalment' : `First Instalment - ${pay.paymentMode === 'cash' ? 'Cash' : 'Online'}`,
   })));
+  const [consultationLoading, setConsultationLoading] = useState(stage.number === 1);
+  const [consultationError, setConsultationError] = useState('');
   const [statusOverride, setStatusOverride] = useState(null);
   const [pdfStyle, setPdfStyle] = useState('black-white');
   const [saving, setSaving] = useState(false);
@@ -199,6 +202,32 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
   useEffect(() => {
     api.get('/invoices/settings', { skipCache: true }).then(({ data }) => { setParticulars(data.paymentParticulars); setStatuses(data.paymentStatuses); }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (stage.number !== 1) { setConsultationLoading(false); return undefined; }
+    let active = true;
+    setConsultationLoading(true);
+    setConsultationError('');
+    api.get(`/invoices/patients/${patient.id}/consultation-payments`, { skipCache: true })
+      .then(({ data }) => {
+        if (!active) return;
+        const consultationRows = (data.payments || []).map((payment) => ({
+          key: `consultation-${payment.id}`,
+          source: 'consultation',
+          include: true,
+          date: dateOnly(payment.date),
+          received: amountText(payment.amount),
+          particulars: 'Consultation Fee',
+        }));
+        const consultationTotal = consultationRows.reduce((sum, row) => sum + toNumber(row.received), 0);
+        setConsultationFee(amountText(consultationTotal));
+        setRows((current) => [...consultationRows, ...current.filter((row) => row.source !== 'consultation')]
+          .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)));
+      })
+      .catch(() => { if (active) setConsultationError('Verified consultation payment could not be loaded. Add the missing payment manually below.'); })
+      .finally(() => { if (active) setConsultationLoading(false); });
+    return () => { active = false; };
+  }, [patient.id, stage.number]);
 
   const pick = (value) => (particulars.includes(value) ? value : particulars[0]);
   const cardRow = cardOn && toNumber(cardCharge) > 0 ? [{ date: info.date, particulars: 'Card Processing Charge', received: amountText(cardCharge) }] : [];
@@ -213,10 +242,24 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
   const autoStatus = totals.amountReceived <= 0 ? 'UNPAID' : totals.outstanding > 0 || totals.excessReceived > 0 ? 'PARTIALLY PAID' : 'FULLY PAID';
   const paymentStatus = statusOverride ?? autoStatus;
   const setRow = (key, field, value) => setRows((old) => old.map((row) => (row.key === key ? { ...row, [field]: value } : row)));
+  const addPaymentRow = () => setRows((current) => current.length >= 100 ? current : [...current, {
+    key: `manual-${newKey()}`,
+    source: 'manual',
+    include: true,
+    date: '',
+    received: '',
+    particulars: particulars.includes('Consultation Fee') ? 'Consultation Fee' : (particulars[0] || ''),
+  }]);
+  const removePaymentRow = (key) => setRows((current) => current.filter((row) => row.key !== key));
 
   const submit = async (event) => {
     event.preventDefault();
     setError('');
+    const includedRows = rows.filter((row) => row.include);
+    if (!includedRows.length) return setError('Add or select at least one payment receipt');
+    if (includedRows.some((row) => !row.date || !row.particulars || toNumber(row.received) <= 0)) {
+      return setError('Complete the date, payment particulars and received amount for every selected payment row');
+    }
     setSaving(true);
     try {
       const details = {
@@ -257,14 +300,25 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-sm font-bold text-charcoal">Payment receipts - all verified payments of Phase {stage.number}</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-charcoal">Payment receipts - all verified payments of Phase {stage.number}</h3>
+            <p className="mt-0.5 text-xs text-charcoal/55">Fetched payments are filled automatically. Add a row if a payment is missing.</p>
+          </div>
+          <Button type="button" size="sm" variant="outline" disabled={rows.length >= 100} onClick={addPaymentRow}><Plus size={15} />Add payment row</Button>
+        </div>
+        {consultationLoading && <p className="rounded-md bg-offwhite-200 p-3 text-sm text-charcoal/65">Loading verified consultation payment...</p>}
+        {consultationError && <p className="rounded-md bg-[#8C3B2E]/8 p-3 text-sm text-[#8C3B2E]">{consultationError}</p>}
         {rows.length === 0 && <p className="rounded-md bg-offwhite-200 p-3 text-sm text-charcoal/65">No verified payment yet.</p>}
         {rows.map((row) => (
-          <div key={row.key} className={`grid gap-3 rounded-md border p-3 sm:grid-cols-[28px_1fr_1.4fr_1fr] sm:items-end ${row.include ? 'border-sage bg-sage/5' : 'border-cardline bg-white opacity-60'}`}>
+          <div key={row.key} className={`grid gap-3 rounded-md border p-3 sm:grid-cols-[28px_1fr_1.4fr_1fr_40px] sm:items-end ${row.include ? 'border-sage bg-sage/5' : 'border-cardline bg-white opacity-60'}`}>
             <input type="checkbox" className="mb-3" checked={row.include} onChange={(e) => setRow(row.key, 'include', e.target.checked)} title="Show on bill" />
             <Field title="Date"><input className={inputClass} type="date" value={row.date} onChange={(e) => setRow(row.key, 'date', e.target.value)} /></Field>
             <Field title="Payment particulars"><select className={inputClass} value={pick(row.particulars)} onChange={(e) => setRow(row.key, 'particulars', e.target.value)}>{particulars.map((p) => <option key={p}>{p}</option>)}</select></Field>
             <Field title="Received (Rs.)"><input className={inputClass} type="number" min="0" step="0.01" value={row.received} onChange={(e) => setRow(row.key, 'received', e.target.value)} /></Field>
+            {row.source === 'manual'
+              ? <button type="button" className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-md border border-cardline bg-white text-[#8C3B2E] hover:bg-[#8C3B2E]/5" title="Remove payment row" aria-label="Remove manual payment row" onClick={() => removePaymentRow(row.key)}><Trash2 size={16} /></button>
+              : <span className="hidden h-10 w-10 sm:block" aria-hidden="true" />}
           </div>
         ))}
         <div className="grid gap-2 rounded-md bg-offwhite-200 p-3 text-sm sm:grid-cols-3">
@@ -278,18 +332,22 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
       <InvoicePdfStyleSelector value={pdfStyle} onChange={setPdfStyle} />
       <div className="flex flex-wrap justify-end gap-2 border-t border-cardline pt-4">
         <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button type="submit" disabled={saving || !rows.length}><FileText size={15} />{saving ? 'Creating...' : 'Create final bill'}</Button>
+        <Button type="submit" disabled={saving || consultationLoading || !rows.length}><FileText size={15} />{saving ? 'Creating...' : 'Create final bill'}</Button>
       </div>
     </form>
   );
 }
 
 export default function PatientBillPanel({ patient, stage }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [formKind, setFormKind] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const frame = useRef(null);
   const previewUrl = useRef(null);
 
@@ -309,10 +367,25 @@ export default function PatientBillPanel({ patient, stage }) {
       const { data } = await api.get(`/invoices/${bill.id}/pdf`, { responseType: 'blob', skipCache: true });
       if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
       previewUrl.current = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-      setPreview({ url: previewUrl.current, name: bill.fileName, number: bill.invoiceNumber });
+      setPreview({ id: bill.id, url: previewUrl.current, name: bill.fileName, number: bill.invoiceNumber });
     } catch { setError('PDF could not be opened'); }
   };
   const saved = (invoice) => { setFormKind(null); load(); openPdf(invoice); };
+  const deleteBill = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setError('');
+    try {
+      await api.delete(`/invoices/${deleteTarget.id}`);
+      if (preview?.id === deleteTarget.id) setPreview(null);
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Bill could not be deleted');
+    } finally {
+      setDeleting(false);
+    }
+  };
   const print = () => { try { frame.current.contentWindow.focus(); frame.current.contentWindow.print(); } catch { setError('Use the download button to print this bill'); } };
   const formTitle = formKind === 'final' ? 'Final bill' : 'Part-payment bill';
 
@@ -338,7 +411,10 @@ export default function PatientBillPanel({ patient, stage }) {
                 <p className="text-xs text-charcoal/65">{label(bill.date)} - Received {inr(bill.details?.amountReceived)} - Outstanding {inr(bill.details?.outstanding)}</p>
                 {bill.type !== 'final-bill' && bill.details?.paymentNote && <p className="truncate text-xs text-charcoal/55" title={bill.details.paymentNote}>{bill.details.paymentNote}</p>}
               </div>
-              <Button size="sm" variant="outline" onClick={() => openPdf(bill)}><Eye size={14} />View</Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => openPdf(bill)}><Eye size={14} />View</Button>
+                {isAdmin && <Button size="sm" variant="danger" onClick={() => setDeleteTarget(bill)} title={`Delete ${bill.invoiceNumber}`}><Trash2 size={14} />Delete</Button>}
+              </div>
             </li>
           ))}
         </ul>
@@ -353,6 +429,18 @@ export default function PatientBillPanel({ patient, stage }) {
           <div className="flex gap-2"><a href={preview.url} download={preview.name}><Button size="sm" variant="outline" type="button"><Download size={14} />Download</Button></a><Button size="sm" variant="outline" onClick={print}><Printer size={14} />Print</Button></div>
           <iframe ref={frame} title="Bill PDF" src={preview.url} className="h-[70dvh] w-full rounded border border-cardline bg-gray-100" />
         </div>}
+      </Modal>
+      <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title="Delete saved bill">
+        <div className="space-y-5">
+          <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-charcoal">
+            <p>Delete <strong>{deleteTarget?.invoiceNumber}</strong> for <strong>{patient.patientName}</strong>?</p>
+            <p className="mt-2 text-charcoal/65">The saved PDF and all previous PDF revisions will also be removed.</p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={deleting} onClick={() => setDeleteTarget(null)}>Back</Button>
+            <Button variant="danger" disabled={deleting} onClick={deleteBill}><Trash2 size={16} />{deleting ? 'Deleting...' : 'Delete bill'}</Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

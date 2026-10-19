@@ -4,8 +4,9 @@ const fs = require('fs/promises');
 const path = require('path');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
+const ConsultationReceipt = require('../models/ConsultationReceipt');
 const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
-const { createInvoice, updateInvoice, deleteInvoice, listInvoices, findPatients, getPdf, getSettings, updateSettings } = require('./invoiceController');
+const { createInvoice, updateInvoice, deleteInvoice, listInvoices, findPatients, getPatientConsultationPayments, getPdf, getSettings, updateSettings } = require('./invoiceController');
 const invoiceRouter = require('../routes/invoiceRoutes');
 const id = '507f1f77bcf86cd799439011';
 const details = { patientName: 'Test Patient', date: '2026-10-05', totalPayable: '599', amountReceived: '99', outstanding: '500', paymentModes: ['online'] };
@@ -106,6 +107,25 @@ test('patient lookup returns only basic editable details, with relative fallback
   const result = await invoke(findPatients, { query: { q: 'Example' } });
   assert.equal(result.body.patients[0].guardianName, 'Parent');
   assert.equal(result.body.patients[0].gender, '');
+});
+
+test('final bill lookup returns all approved consultation receipts linked by patient or patient ID', async () => {
+  mock.method(Patient, 'findById', (patientId) => {
+    assert.equal(patientId, id);
+    return { select: () => ({ lean: async () => ({ _id: id, patientCode: 'P1' }) }) };
+  });
+  mock.method(ConsultationReceipt, 'find', (filter) => {
+    assert.equal(filter.status, 'approved');
+    assert.deepEqual(filter.$or, [{ patient: id }, { patientCode: 'P1' }]);
+    return { sort: () => ({ lean: async () => [
+      { _id: '507f1f77bcf86cd799439012', amount: 99, date: new Date('2026-09-18'), paymentMode: 'online', reference: 'UTR-1' },
+      { _id: '507f1f77bcf86cd799439013', amount: 500, date: new Date('2026-09-19'), paymentMode: 'cash', cashReceivedByName: 'Desk' },
+    ] }) };
+  });
+  const result = await invoke(getPatientConsultationPayments, { params: { id } });
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.body.payments.map((payment) => payment.amount), [99, 500]);
+  assert.equal(result.body.payments[0].reference, 'UTR-1');
 });
 
 test('invalid PDF ids return not found', async () => {
