@@ -34,7 +34,7 @@ const record = () => cleanRecord({ components: { selected: ['dosDontsDiet', 'ayu
 const baseFields = { patientName: 'Riddhima', age: '4', category: 'autism_adhd', fatherName: 'Rajnish', motherName: 'Sonam', fatherNumber: '8800611900', motherNumber: '6265219550', city: 'Delhi', pinCode: '110021', patientHistoryBy: 'Mother' };
 const makeEntry = (extra = {}) => {
   const rec = record();
-  const purchase = cleanPurchase({ mode: 'Online', amountReceivedNow: '10000', utrReference: '166901178274', poNo: 'PO-9', poDate: '2026-10-18', orderedTreatment: 'Autism / Phase 1', paymentTime: '15:10', paymentVerifiedBy: 'Accounts', transactionId: 'TXN-77', payToBank: 'b1'.padEnd(24, '0'), paymentDate: '2026-10-19', paymentNotes: 'first part', screenshots: [{ url: '/uploads/payments/1-2.png', fileName: 'proof.png' }, { url: 'https://evil.test/x.png', fileName: 'bad' }] }, rec.totals.approvedProgramFee);
+  const purchase = cleanPurchase({ mode: 'Online', amountReceivedNow: '10000', utrReference: '166901178274', poNo: 'PO-9', poDate: '2026-10-18', orderedTreatment: 'Autism / Phase 1', medicineReadyDate: '2026-10-30', paymentTime: '15:10', paymentVerifiedBy: 'Accounts', transactionId: 'TXN-77', payToBank: 'b1'.padEnd(24, '0'), paymentDate: '2026-10-19', paymentNotes: 'first part', screenshots: [{ url: '/uploads/payments/1-2.png', fileName: 'proof.png' }, { url: 'https://evil.test/x.png', fileName: 'bad' }] }, rec.totals.approvedProgramFee);
   purchase.values.payToBankName = 'Manovaidya Ayurveda';
   return {
     _id: OID, appointmentCode: 'APT-1', appointmentDate: '2026-10-18',
@@ -98,6 +98,11 @@ test('convert: creates the patient with registration details, Phase 1 package, P
   assert.match(phase.payments[0].notes, /first part/);
   assert.equal(phase.payments[0].approvalStatus, 'pending');
   assert.match(phase.payments[0].notes, /PO PO-9/);
+  assert.equal(new Date(phase.transit.expectedReadyDate).toISOString(), '2026-10-29T18:30:00.000Z', 'the medicine ready date is the In Transit ready-by date');
+  assert.equal(phase.poPaper.values.poNo, 'PO-9', 'the PO paper is kept on the phase for Patient Details');
+  assert.equal(phase.poPaper.totals.approvedProgramFee, 42000);
+  assert.equal(phase.poPaper.source, 'post_counseling');
+  assert.equal(phase.poPaper.savedByName, 'Abhishek');
   assert.deepEqual(log.claims[0].filter['postCounseling.outcome.kind'], { $in: [null, ''] });
   assert.equal(log.claims[0].update.$set['postCounseling.outcome.kind'], 'converted');
   assert.equal(res.body.patientId, PATIENT_OID);

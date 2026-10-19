@@ -251,6 +251,8 @@ const stageEntrySchema = new mongoose.Schema(
     packageName: { type: String, trim: true, default: '' },
     patientHistoryBy: { type: String, trim: true, default: '' },
     purchaseOrder: { type: String, trim: true, default: '', maxlength: 80 },
+    // The purchase order paper this phase was started with (saved when the patient was converted); see utils/purchaseOrderRecord.js
+    poPaper: { type: mongoose.Schema.Types.Mixed, default: null },
     totalAmount: { type: Number, default: 0, min: 0 },
     postCounselor: {
       type: mongoose.Schema.Types.ObjectId,

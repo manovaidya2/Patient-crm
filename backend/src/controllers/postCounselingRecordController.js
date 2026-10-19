@@ -162,7 +162,7 @@ const convertToPatient = asyncHandler(async (req, res) => {
   let created;
   try {
     created = await createConvertedPatient({
-      input, fee, values, cardCharge: entry.postCounseling.purchase.totals?.cardCharge, user: req.user,
+      input, fee, values, totals: entry.postCounseling.purchase.totals || {}, source: 'post_counseling', user: req.user,
       activityDetails: `Converted from Post Counseling (${entry.appointmentCode || 'appointment'}) by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {

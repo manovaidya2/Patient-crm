@@ -332,7 +332,7 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
   let created;
   try {
     created = await createConvertedPatient({
-      input: details, fee, values: cleaned.values, cardCharge: cleaned.totals.cardCharge, user: req.user,
+      input: details, fee, values: cleaned.values, totals: cleaned.totals, source: 'package_not_bought', user: req.user,
       activityDetails: `Converted from Package Not Bought by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {

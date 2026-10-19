@@ -11,6 +11,7 @@ const {
   deletePatientAttachment,
   getPatientCallLogs,
   getPatientRecordRoom,
+  addPoPaperImages,
   createPatient,
   getPendingApprovals,
   approvePatient,
@@ -79,6 +80,7 @@ router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTA
 router.patch('/:id/status', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR), updatePatientStatus);
 router.patch('/:id', authorize(...PATIENT_WRITE_ROLES, ROLES.ACCOUNTANT), updatePatient);
 router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER), updatePatientStage);
+router.post('/:id/stages/:number/po-paper/images', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPaymentScreenshot.array('screenshot', 10), addPoPaperImages);
 router.post('/:id/stages/:number/payments', authorize(...PAYMENT_ADD_ROLES), uploadPaymentScreenshot.array('screenshot', 10), addStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
 router.delete('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN), deleteStagePayment);

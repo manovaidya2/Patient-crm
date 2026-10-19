@@ -132,6 +132,75 @@ const mergeTimelineEntries = (activityEntries = [], callLogs = []) =>
     })),
   ].sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
 
+// The purchase order paper this phase was started with: the paper image(s) and the main PO details. The money lines are
+// worked out from this phase's payments, so they change as payments are added, approved or refunded.
+const PoPaperCard = ({ poPaper, stage, canAdd, onAddImages }) => {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  if (!poPaper) return null;
+  const addImages = async (event) => {
+    const chosen = [...(event.target.files || [])];
+    event.target.value = '';
+    if (!chosen.length) return;
+    setUploading(true); setUploadError('');
+    try { await onAddImages(chosen); } catch (err) { setUploadError(err.response?.data?.message || 'Image could not be added'); } finally { setUploading(false); }
+  };
+  const pending = (stage.payments || []).filter((pay) => pay.approvalStatus === 'pending').reduce((sum, pay) => sum + Number(pay.amount || 0), 0);
+  const money = [
+    ['PO value', stage.totalAmount],
+    ['Part payment (paid so far)', stage.amountPaid],
+    ...(pending > 0 ? [['Awaiting accounts approval', pending]] : []),
+    ['Outstanding', stage.remainingAmount],
+  ];
+  return (
+    <details open className="border-t border-cardline">
+      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-bold text-charcoal">
+        <span>PO Paper{poPaper.poNo ? ` · ${poPaper.poNo}` : ''}</span>
+        <span className="text-xs font-normal text-charcoal/55">{poPaper.savedByName ? `Filled by ${poPaper.savedByName}` : ''}{poPaper.savedAt ? ` · ${formatDate(poPaper.savedAt)}` : ''}</span>
+      </summary>
+      <div className="space-y-4 px-4 pb-4">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-cardline bg-cardline sm:grid-cols-4">
+          {money.map(([label, value]) => (
+            <div key={label} className="bg-offwhite-100 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/50">{label}</p>
+              <p className="mt-0.5 text-sm font-bold text-charcoal">{formatMoney(value)}</p>
+            </div>
+          ))}
+        </div>
+        {poPaper.details.length > 0 && (
+          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-cardline bg-cardline sm:grid-cols-2 lg:grid-cols-4">
+            {poPaper.details.map((item) => (
+              <div key={item.label} className="bg-offwhite-100 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/50">{item.label}</p>
+                <p className="mt-0.5 break-words text-sm font-bold text-charcoal">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">PO paper image</p>
+          {poPaper.images.length ? (
+            <div className="flex flex-wrap gap-2">
+              {poPaper.images.map((file) => (
+                <a key={file.url} href={`${SERVER_BASE}${file.url}`} target="_blank" rel="noreferrer" title={file.fileName} className="block overflow-hidden rounded-lg border border-cardline bg-white">
+                  <img src={`${SERVER_BASE}${file.url}`} alt={file.fileName || 'PO paper'} className="h-32 w-auto max-w-[220px] object-cover" loading="lazy" />
+                </a>
+              ))}
+            </div>
+          ) : <p className="text-sm italic text-charcoal/40">No PO paper image uploaded</p>}
+          {canAdd && (
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-cardline bg-offwhite-200 px-3 py-1.5 text-xs font-semibold text-sage hover:border-sage/60">
+              <Paperclip size={13} />{uploading ? 'Uploading...' : 'Add PO paper image'}
+              <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={addImages} />
+            </label>
+          )}
+          {uploadError && <p className="mt-1 text-xs text-red-700">{uploadError}</p>}
+        </div>
+      </div>
+    </details>
+  );
+};
+
 const FileLinks = ({ files = [], fallbackUrl, fallbackName = 'View file', label = 'Files', deleteUrl = '', onDeleted }) => (
   <CompactAttachments files={files} fallbackUrl={fallbackUrl} fallbackName={fallbackName} label={label} deleteUrl={deleteUrl} onDeleted={onDeleted} />
 );
@@ -3413,6 +3482,17 @@ const PatientDetails = () => {
                   />
                 </div>
                 {canMakeBills && <PatientBillPanel patient={patient} stage={activeStage} />}
+                <PoPaperCard
+                  poPaper={activeStage.poPaper}
+                  stage={activeStage}
+                  canAdd={[ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role)}
+                  onAddImages={async (files) => {
+                    const body = new FormData();
+                    files.forEach((file) => body.append('screenshot', file));
+                    const { data } = await api.post(`/patients/${id}/stages/${activeStage.number}/po-paper/images`, body);
+                    setPatient(data.patient);
+                  }}
+                />
               </div>
 
               <div

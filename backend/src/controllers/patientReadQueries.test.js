@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Patient = require('../models/Patient');
+const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
 const controller = require('./patientController');
 const { ROLES } = require('../constants/roles');
 
@@ -25,6 +26,8 @@ test('patient viewer routes allow only list and details reads', () => {
 
 test('reception and sales patient details omit schedules and activity while keeping medicine status', async () => {
   const original = Patient.findById;
+  const originalEntry = AppointmentManagementEntry.findOne;
+  AppointmentManagementEntry.findOne = () => ({ select: () => ({ lean: async () => null }) });
   Patient.findById = () => ({ populate() { return this; }, lean: async () => ({
     _id: '507f1f77bcf86cd799439011', patientName: 'Test', category: 'autism_adhd', currentStage: 1,
     stages: [{ number: 1, totalAmount: 599, payments: [], followUps: [{ _id: 'private-followup' }], familySessions: [{ _id: 'private-session' }] }],
@@ -42,7 +45,7 @@ test('reception and sales patient details omit schedules and activity while keep
       assert.deepEqual(body.patient.stages[0].familySessions, []);
       assert.ok(Array.isArray(body.patient.stages[0].medicineRequests));
     }
-  } finally { Patient.findById = original; }
+  } finally { Patient.findById = original; AppointmentManagementEntry.findOne = originalEntry; }
 });
 
 async function invoke(handler, { query = {}, role = ROLES.ADMIN, patients = [] } = {}) {

@@ -46,7 +46,7 @@ const withBankName = async (values) => {
 
 // Creates the patient and fills Phase 1 (package, PO, total, the payment received now). If anything fails after the
 // patient exists, the patient is removed again, so a failed conversion never leaves a half-made patient behind.
-const createConvertedPatient = async ({ input, fee, values, cardCharge = 0, user, activityDetails }) => {
+const createConvertedPatient = async ({ input, fee, values, totals = {}, cardCharge = totals.cardCharge || 0, source = '', user, activityDetails }) => {
   const received = Number(values.amountReceivedNow || 0);
   const patient = await createPatientRecord(input, user, { activityDetails });
   try {
@@ -54,6 +54,13 @@ const createConvertedPatient = async ({ input, fee, values, cardCharge = 0, user
     phase.packageName = text(values.orderedTreatment, 120);
     phase.purchaseOrder = text(values.poNo, 80);
     phase.totalAmount = fee;
+    // The medicine ready date becomes the In Transit "ready by" date, which also drives its automatic reminder.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(values.medicineReadyDate || ''))) {
+      const readyBy = new Date(`${values.medicineReadyDate}T00:00:00.000+05:30`);
+      if (phase.transit) phase.transit.expectedReadyDate = readyBy; else phase.transit = { expectedReadyDate: readyBy };
+    }
+    // Keep the whole PO paper (and its image) with the phase, so Patient Details can show it.
+    phase.poPaper = { values, totals: { ...totals, approvedProgramFee: fee }, savedAt: new Date(), savedByName: user.name, source };
     if (received > 0) {
       const cash = values.mode === 'Cash';
       const notes = [

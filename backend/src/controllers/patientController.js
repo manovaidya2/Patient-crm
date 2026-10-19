@@ -6,6 +6,7 @@ const AppointmentManagementEntry = require('../models/AppointmentManagementEntry
 const { recordRoomConditions, looseSource } = require('../utils/recordRoomMatch');
 const { RECEPTION_IDS } = require('../utils/receptionFlow');
 const { PROFILE_FIELDS, profileOf, cleanProfileValue } = require('../utils/patientProfile');
+const { describePoPaper } = require('../utils/purchaseOrderRecord');
 const { parseCallTimestamp } = require('../utils/callTimestamp');
 const AdviceRequest = require('../models/AdviceRequest');
 const DigitalMarketingReview = require('../models/DigitalMarketingReview');
@@ -467,6 +468,7 @@ const normalizeStages = (existing = []) => {
       packageName: found?.packageName || '',
       patientHistoryBy: found?.patientHistoryBy || '',
       purchaseOrder: found?.purchaseOrder || '',
+      poPaper: found?.poPaper ?? null,
       totalAmount: found?.totalAmount || 0,
       postCounselor: found?.postCounselor || null,
       medicineMonthsGiven: found?.medicineMonthsGiven || 0,
@@ -553,6 +555,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       packageName: s.packageName,
       patientHistoryBy: s.patientHistoryBy || (s.number === 1 ? p.patientHistoryBy || '' : ''),
       purchaseOrder: s.purchaseOrder || '',
+      poPaper: describePoPaper(s.poPaper),
       totalAmount: s.totalAmount,
       postCounselor: formatAssignedUser(s.postCounselor),
       medicineMonthsGiven: s.medicineMonthsGiven || 0,
@@ -1430,6 +1433,35 @@ const getRefundsLedger = asyncHandler(async (req, res) => {
 // @desc    Get a single patient by id
 // @route   GET /api/patients/:id
 // @access  Private/Admin, Doctor, Accountant, Post Counselor
+const legacyPoPaper = async (patientId) => {
+  const source = await AppointmentManagementEntry.findOne({ 'postCounseling.outcome.patient': patientId }).select('postCounseling.purchase').lean();
+  return source?.postCounseling?.purchase?.values ? { ...source.postCounseling.purchase, source: 'post_counseling' } : null;
+};
+
+// @desc    Attach more PO paper images to a phase's PO paper (e.g. when the photo was not added at conversion)
+// @route   POST /api/patients/:id/stages/:number/po-paper/images
+// @access  Private/Admin, Post Counselor
+const addPoPaperImages = asyncHandler(async (req, res) => {
+  const stageNum = parseInt(req.params.number, 10);
+  if (!STAGES.includes(stageNum)) return res.status(400).json({ success: false, message: 'Invalid phase number' });
+  const files = toFileItems(filesFromRequest(req), 'payments');
+  if (!files.length) return res.status(400).json({ success: false, message: 'Choose an image first' });
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  if (!patient.stages || patient.stages.length !== STAGES.length) patient.stages = normalizeStages(patient.stages);
+  const stage = patient.stages.find((item) => item.number === stageNum);
+  const poPaper = stage.poPaper || (stageNum === 1 ? await legacyPoPaper(patient._id) : null);
+  if (!poPaper?.values) return res.status(404).json({ success: false, message: 'This phase has no PO paper' });
+  const images = [...(poPaper.values.paperImages || []), ...files].slice(0, 10);
+  stage.poPaper = { ...poPaper, values: { ...poPaper.values, paperImages: images } };
+  patient.markModified('stages');
+  addActivity(patient, req.user, `PO paper image added for Phase ${stageNum}`, `${files.length} image(s)`);
+  await patient.save();
+  await populateAssignments(patient);
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
 const getPatientById = asyncHandler(async (req, res) => {
   // .lean() skips building a full Mongoose document (with getters/subdocument wrappers
   // for every payment/follow-up/activity entry) — this is the single heaviest read on
@@ -1447,6 +1479,10 @@ const getPatientById = asyncHandler(async (req, res) => {
   if (!canAccessPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
+
+  // Patients converted before the PO paper was kept on the phase: the paper is still on the post-counselling record.
+  const first = (patient.stages || []).find((stage) => stage.number === 1);
+  if (first && !first.poPaper) first.poPaper = await legacyPoPaper(patient._id);
 
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
@@ -3842,6 +3878,7 @@ module.exports = {
   getPatientRecordRoom,
   createPatient,
   createPatientRecord,
+  addPoPaperImages,
   getPendingApprovals,
   approvePatient,
   updatePatientStatus,

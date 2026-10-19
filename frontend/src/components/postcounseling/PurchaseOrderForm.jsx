@@ -32,7 +32,8 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
   const outstanding = Math.max(Number(fee || 0) - received, 0);
   const visible = (field) => (!field.onlyFor || field.onlyFor.includes(values.mode)) && (!field.hideFor || !field.hideFor.includes(values.mode));
 
-  const uploadScreenshots = async (event) => {
+  // Each upload field keeps its own list: the PO paper image and the payment screenshots must never mix.
+  const uploadFiles = (key) => async (event) => {
     const chosen = [...(event.target.files || [])];
     event.target.value = '';
     if (!chosen.length) return;
@@ -41,7 +42,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
       const body = new FormData();
       chosen.forEach((file) => body.append('screenshot', file));
       const { data } = await api.post('/post-counseling/upload', body);
-      onChange('screenshots', [...(values.screenshots || []), ...data.files]);
+      onChange(key, [...(values[key] || []), ...data.files]);
     } catch (err) { onError?.(err.response?.data?.message || 'Screenshot could not be uploaded'); }
     finally { setUploading(false); }
   };
@@ -68,8 +69,8 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
           <div className="space-y-2">
             {editable && (
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-semibold text-sage hover:border-sage/60">
-                <Paperclip size={14} />{uploading ? 'Uploading...' : 'Attach screenshots'}
-                <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={uploadScreenshots} />
+                <Paperclip size={14} />{uploading ? 'Uploading...' : field.key === 'paperImages' ? 'Attach PO paper image' : 'Attach screenshots'}
+                <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={uploadFiles(field.key)} />
               </label>
             )}
             {files.length > 0 ? (
@@ -82,7 +83,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
                   </li>
                 ))}
               </ul>
-            ) : <p className="text-xs text-charcoal/45">No screenshot attached</p>}
+            ) : <p className="text-xs text-charcoal/45">{field.key === 'paperImages' ? 'No PO paper image attached' : 'No screenshot attached'}</p>}
           </div>
         </div>
       );

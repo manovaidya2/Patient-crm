@@ -37,10 +37,12 @@ const SECTION_G = [
   { key: 'emiNote', label: 'EMI note', type: 'text', wide: true },
 ];
 const SECTION_H = [
+  { key: 'paperImages', label: 'PO paper (image)', type: 'files', wide: true },
   { key: 'poNo', label: 'PO No.', type: 'text' },
   { key: 'poDate', label: 'PO date', type: 'date' },
   { key: 'orderedTreatment', label: 'Ordered treatment / phase', type: 'text', wide: true },
   { key: 'formulationRef', label: 'Customized formulation / medicine order ref.', type: 'text', wide: true },
+  { key: 'medicineReadyDate', label: 'Medicine ready expected date', type: 'date' },
   { key: 'guardianName', label: 'Patient / guardian name', type: 'text' },
   { key: 'relationship', label: 'Relationship', type: 'text' },
   { key: 'guardianMobile', label: 'Mobile', type: 'text' },
@@ -129,4 +131,20 @@ const cleanPurchase = (raw = {}, approvedFee) => {
 
 const definitions = () => ({ sectionF: SECTION_F, sectionG: SECTION_G, sectionH: SECTION_H, cardRate: CARD_RATE });
 
-module.exports = { MODES, PLANS, EMI_STATUSES, ALL_FIELDS, totals, defaults, cleanPurchase, definitions };
+// A saved PO paper as Patient Details shows it: the paper image(s) and the main PO details only. The amounts (PO value,
+// paid, outstanding) are not copied here: the page works them out from the phase's own payments, so they stay current.
+const PO_DETAIL_KEYS = ['poNo', 'poDate', 'orderedTreatment', 'medicineReadyDate', 'formulationRef'];
+const describePoPaper = (poPaper) => {
+  if (!poPaper?.values) return null;
+  const values = poPaper.values;
+  const details = SECTION_H.filter((field) => PO_DETAIL_KEYS.includes(field.key))
+    .filter((field) => values[field.key] !== '' && values[field.key] !== undefined && values[field.key] !== null)
+    .map((field) => ({ label: field.label, value: String(values[field.key]) }));
+  return {
+    poNo: values.poNo || '', details,
+    images: Array.isArray(values.paperImages) ? values.paperImages : [],
+    savedAt: poPaper.savedAt || null, savedByName: poPaper.savedByName || '', source: poPaper.source || '',
+  };
+};
+
+module.exports = { describePoPaper, MODES, PLANS, EMI_STATUSES, ALL_FIELDS, totals, defaults, cleanPurchase, definitions };
