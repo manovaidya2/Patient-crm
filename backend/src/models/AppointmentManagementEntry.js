@@ -20,7 +20,16 @@ const registrationSchema = new mongoose.Schema({
   consultationDate: { type: String, default: '' },
 }, { _id: false });
 
+// The post-counselling record filled in by the Post Counselor (see utils/postCounselingRecord.js).
+const postCounselingSchema = new mongoose.Schema({
+  record: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  savedAt: { type: Date, default: null },
+  savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  savedByName: { type: String, trim: true, default: '' },
+}, { _id: false });
+
 const schema = new mongoose.Schema({
+  postCounseling: { type: postCounselingSchema, default: undefined },
   registration: { type: registrationSchema, default: undefined },
   appointmentDate: { type: String, required: true, index: true },
   sourceAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesAppointment', default: undefined, unique: true, sparse: true },

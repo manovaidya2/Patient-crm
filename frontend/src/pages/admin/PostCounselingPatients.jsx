@@ -4,6 +4,8 @@ import { Inbox, Phone, Search } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Badge from '../../components/ui/Badge.jsx';
+import Button from '../../components/ui/Button.jsx';
+import PostCounselingRecordModal from '../../components/postcounseling/PostCounselingRecordModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 
@@ -24,6 +26,7 @@ const PostCounselingPatients = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [recordPatient, setRecordPatient] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -95,9 +98,14 @@ const PostCounselingPatients = () => {
                   </div>
                 );
               })}
-              <p className="border-t border-cardline pt-2 text-xs text-charcoal/50">Sent by {patient.sentByName || 'Reception'} · {formatStamp(patient.sentAt)} · {patient.appointmentCode}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-cardline pt-3">
+                <span className={`rounded px-2 py-1 text-xs font-semibold ${patient.recordSavedAt ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{patient.recordSavedAt ? 'Record saved' : 'Record not filled'}</span>
+                <Button size="sm" onClick={() => setRecordPatient(patient)}>{patient.recordSavedAt ? 'Open post counseling record' : 'Fill post counseling record'}</Button>
+              </div>
+              <p className="pt-2 text-xs text-charcoal/50">Sent by {patient.sentByName || 'Reception'} · {formatStamp(patient.sentAt)} · {patient.appointmentCode}</p>
             </Card>
           ))}</div>}
+      <PostCounselingRecordModal patient={recordPatient} onClose={() => setRecordPatient(null)} onSaved={load} />
     </div>
   );
 };

@@ -170,6 +170,7 @@ const listPostCounselingPatients = asyncHandler(async (req, res) => {
       primaryConcern: valueOf(entry, RECEPTION_IDS.primaryConcern),
       consultationDate: view.consultationDate, sentAt: view.sentAt, sentByName: entry.registration?.sentByName || '',
       postCounselor: view.postCounselor, postCounselorName: view.postCounselorName,
+      recordSavedAt: entry.postCounseling?.savedAt || null,
     };
   }).filter((patient) => !query || [patient.patientName, patient.patientId, patient.fields.fatherNumber, patient.fields.motherNumber, patient.fields.whatsappNumber, patient.fields.fatherName, patient.fields.motherName].some((value) => String(value || '').toLowerCase().includes(query)));
   res.json({ success: true, patients, fieldDefs: REGISTRATION_FIELDS, groups: FIELD_GROUPS });
