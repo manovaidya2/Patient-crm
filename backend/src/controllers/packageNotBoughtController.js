@@ -1,7 +1,12 @@
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
-const { createPatientRecord } = require('./patientController');
+const Management = require('../models/AppointmentManagementEntry');
+const purchaseOrder = require('../utils/purchaseOrderRecord');
+const { patientInputFromRegistration, assertPurchaseComplete, withBankName, createConvertedPatient, linkConsultationReceipts } = require('../utils/convertPatient');
+const { registrationView } = require('./receptionFlowController');
+const { postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
+const { istDate } = require('../utils/receptionFlow');
 
 const ACCESS_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
 const FOLLOWUP_WRITE_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
@@ -239,8 +244,64 @@ const completePackageNotBoughtFollowUp = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, row: formatRow(row) });
 });
 
+// The patient's details for a Package Not Bought record. A record that came from post-counselling uses its registration;
+// an older, hand-made record falls back to what it holds (plus anything typed in `body`).
+const patientDetailsFor = (row, entry, body = {}, user = {}) => {
+  if (entry?.registration?.fields) return patientInputFromRegistration(registrationView(entry), body);
+  const profile = row.profile || {};
+  return {
+    ...profile, ...body,
+    patientCode: String(body.patientCode || row.patientId || '').trim(),
+    category: body.category || row.category || '',
+    patientName: String(body.patientName || row.patientName || '').trim(),
+    age: body.age ?? row.age,
+    number: String(body.number || row.fatherNumber || '').trim(),
+    alternateNumber: body.alternateNumber ?? row.motherNumber,
+    guardianName: String(body.guardianName || row.parentName || '').trim(),
+    postCounselor: body.postCounselor || (user.role === ROLES.POST_COUNSELOR ? String(user._id) : undefined),
+  };
+};
+// What is still missing for a patient to be created, so only that is asked for on the PO paper step.
+const missingPatientFields = (details) => {
+  const missing = [];
+  if (!String(details.patientCode || '').trim()) missing.push('patientCode');
+  if (!details.category) missing.push('category');
+  if (!String(details.age ?? '').trim()) missing.push('age');
+  if (!String(details.number || '').trim()) missing.push('number');
+  if (details.category !== 'mental_health' && !String(details.guardianName || '').trim()) missing.push('guardianName');
+  return missing;
+};
+
+// What the PO paper needs to open: the approved fee (from the package that was offered), the contacts and the prefilled values.
+const purchaseFormData = async (row, user) => {
+  const entry = row.sourceEntry ? await Management.findById(row.sourceEntry) : null;
+  const registration = entry
+    ? registrationView(entry).fields
+    : { fatherName: row.parentName || '', fatherNumber: row.fatherNumber || '', motherNumber: row.motherNumber || '', category: row.category || '', patientName: row.patientName };
+  const record = entry?.postCounseling?.record || { e: { paymentPlan: row.packageDetails?.paymentPlan || '' } };
+  const values = purchaseOrder.defaults({ record, registration, counselorName: user.name, today: istDate() });
+  const fee = Number(row.packageDetails?.approvedProgramFee || 0);
+  return { entry, registration, values, fee };
+};
+
+// @route GET /api/package-not-bought/:id/purchase-form
+const getPurchaseForm = asyncHandler(async (req, res) => {
+  const row = await PackageNotBoughtPatient.findById(req.params.id);
+  if (!row) return res.status(404).json({ success: false, message: 'Record not found' });
+  const { entry, registration, values, fee } = await purchaseFormData(row, req.user);
+  const details = patientDetailsFor(row, entry, {}, req.user);
+  res.json({
+    success: true, definitions: purchaseOrder.definitions(), values, fee, feeKnown: fee > 0,
+    needs: missingPatientFields(details),
+    prefill: { patientCode: details.patientCode || '', category: details.category || '', age: String(details.age ?? ''), number: details.number || '', guardianName: details.guardianName || '' },
+    registration: { fatherNumber: registration.fatherNumber || '', motherNumber: registration.motherNumber || '' },
+  });
+});
+
 // Converting a Package Not Bought record creates the patient (pending accounts approval, like "Add patient") and links it.
-// The record is claimed first, so pressing the button twice can never create two patients.
+// The whole PO paper has to be filled in first (PO number, payment mode and the payment details); the payment details go
+// to Phase 1 and a PO number starts In Transit. The record is claimed first, so pressing the button twice can never
+// create two patients.
 const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
   const row = await PackageNotBoughtPatient.findById(req.params.id);
   if (!row) {
@@ -250,14 +311,16 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'This record is already converted' });
   }
   const input = req.body || {};
-  const details = {
-    ...input,
-    patientName: String(input.patientName || row.patientName || '').trim(),
-    age: input.age ?? row.age,
-    number: String(input.number || row.fatherNumber || '').trim(),
-    alternateNumber: input.alternateNumber ?? row.motherNumber,
-    guardianName: String(input.guardianName || row.parentName || '').trim(),
-  };
+  const entry = row.sourceEntry ? await Management.findById(row.sourceEntry) : null;
+  const details = patientDetailsFor(row, entry, input, req.user);
+  const missing = missingPatientFields(details);
+  if (missing.length) return res.status(400).json({ success: false, message: `These are needed to create the patient: ${missing.join(', ')}` });
+
+  const fee = Number(row.packageDetails?.approvedProgramFee || 0) || Number(String(input.approvedProgramFee ?? '').replace(/,/g, '')) || 0;
+  if (!(fee > 0)) return res.status(400).json({ success: false, message: 'Enter the approved program fee' });
+  const cleaned = purchaseOrder.cleanPurchase(input.purchase, fee);
+  assertPurchaseComplete(cleaned.values);
+  cleaned.values = await withBankName(cleaned.values);
 
   const claimed = await PackageNotBoughtPatient.findOneAndUpdate(
     { _id: row._id, status: { $ne: 'converted' } },
@@ -266,17 +329,33 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
   );
   if (!claimed) return res.status(400).json({ success: false, message: 'This record is already converted' });
 
-  let patient;
+  let created;
   try {
-    patient = await createPatientRecord(details, req.user, { activityDetails: `Converted from Package Not Bought by ${req.user.name} — pending accounts approval` });
+    created = await createConvertedPatient({
+      input: details, fee, values: cleaned.values, cardCharge: cleaned.totals.cardCharge, user: req.user,
+      activityDetails: `Converted from Package Not Bought by ${req.user.name} — pending accounts approval`,
+    });
   } catch (error) {
     await PackageNotBoughtPatient.updateOne({ _id: row._id }, { $set: { status: 'open', convertedAt: null, convertedByName: '', conversionDetails: row.conversionDetails || '', convertedPatient: null } });
     throw error;
   }
-  claimed.convertedPatient = patient._id;
+  claimed.convertedPatient = created.patient._id;
+  claimed.packageDetails = { ...(claimed.packageDetails || {}), approvedProgramFee: fee, amountReceivedNow: Number(cleaned.values.amountReceivedNow || 0), mode: cleaned.values.mode || '', poNo: cleaned.values.poNo || '', outstandingBalance: cleaned.totals.outstandingBalance };
   await claimed.save();
 
-  res.status(200).json({ success: true, row: formatRow(claimed), patientId: String(patient._id) });
+  // If it came from post-counselling, that record becomes "converted" too and keeps the PO paper, so Post Counseling Done has everything.
+  if (row.sourceEntry) {
+    if (entry) {
+      await Management.updateOne({ _id: entry._id }, { $set: {
+        'postCounseling.outcome.kind': 'converted', 'postCounseling.outcome.at': new Date(), 'postCounseling.outcome.byName': req.user.name, 'postCounseling.outcome.patient': created.patient._id,
+        'postCounseling.purchase': { values: cleaned.values, totals: cleaned.totals, savedAt: new Date(), savedByName: req.user.name },
+      } });
+      await linkConsultationReceipts(entry, created.patient);
+      req.app?.get?.('io')?.to(postCounselingUserRoom(entry.registration?.postCounselor)).to(POST_COUNSELING_ALL_ROOM).emit('post-counseling:changed', { id: String(entry._id) });
+    }
+  }
+
+  res.status(200).json({ success: true, row: formatRow(claimed), patientId: String(created.patient._id), inTransit: created.inTransit });
 });
 
 const deletePackageNotBought = asyncHandler(async (req, res) => {
@@ -301,5 +380,6 @@ module.exports = {
   addPackageNotBoughtFollowUp,
   completePackageNotBoughtFollowUp,
   markPackageNotBoughtConverted,
+  getPurchaseForm,
   deletePackageNotBought,
 };

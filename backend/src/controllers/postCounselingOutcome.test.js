@@ -173,3 +173,20 @@ test('not purchased: needs a reason, then creates the Package Not Bought record 
   assert.equal(again.error.statusCode, 409);
   assert.equal(again.log.pnb.length, 0);
 });
+
+test('convert needs the PO number and payment mode from the PO paper, and a PO number with a payment starts In Transit', async () => {
+  const noPo = makeEntry();
+  noPo.postCounseling.purchase.values = { ...noPo.postCounseling.purchase.values, poNo: '' };
+  const refused = await run(controller.convertToPatient, {}, noPo);
+  assert.match(refused.error.message, /PO number/);
+  assert.equal(refused.log.patients.length, 0);
+  assert.equal(refused.log.claims.length, 0, 'nothing is claimed when the paper is incomplete');
+  const noMode = makeEntry();
+  noMode.postCounseling.purchase.values = { ...noMode.postCounseling.purchase.values, mode: '' };
+  assert.match((await run(controller.convertToPatient, {}, noMode)).error.message, /payment mode/);
+  const ok = await run(controller.convertToPatient, {}, makeEntry());
+  assert.equal(ok.res.body.inTransit, true);
+  const unpaid = makeEntry();
+  unpaid.postCounseling.purchase.values = { ...unpaid.postCounseling.purchase.values, amountReceivedNow: '' };
+  assert.equal((await run(controller.convertToPatient, {}, unpaid)).res.body.inTransit, false);
+});

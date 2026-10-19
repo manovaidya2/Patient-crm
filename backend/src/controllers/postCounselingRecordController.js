@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 const Management = require('../models/AppointmentManagementEntry');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
-const BankAccount = require('../models/BankAccount');
-const ConsultationReceipt = require('../models/ConsultationReceipt');
-const SalesAppointment = require('../models/SalesAppointment');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
@@ -12,7 +9,7 @@ const purchase = require('../utils/purchaseOrderRecord');
 const { REGISTRATION_FIELDS, FIELD_GROUPS, CATEGORY_LABEL, RECEPTION_IDS, istDate } = require('../utils/receptionFlow');
 const { PROFILE_KEYS } = require('../utils/patientProfile');
 const { registrationView } = require('./receptionFlowController');
-const { createPatientRecord } = require('./patientController');
+const { patientInputFromRegistration, assertPurchaseComplete, withBankName, createConvertedPatient, linkConsultationReceipts } = require('../utils/convertPatient');
 const { postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 
 const fail = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
@@ -106,12 +103,7 @@ const savePurchase = asyncHandler(async (req, res) => {
   if (!entry.postCounseling?.savedAt) throw fail('Save the post-counselling record first');
   if (entry.postCounseling?.outcome?.kind) throw fail('This patient has already been converted or marked package not purchased', 409);
   const cleaned = purchase.cleanPurchase(req.body.purchase, entry.postCounseling.record?.totals?.approvedProgramFee);
-  cleaned.values.payToBankName = '';
-  if (cleaned.values.payToBank) {
-    const bank = await BankAccount.findOne({ _id: cleaned.values.payToBank, isActive: true }).lean();
-    if (!bank) throw fail('Select an active bank');
-    cleaned.values.payToBankName = bank.displayName || bank.name;
-  }
+  cleaned.values = await withBankName(cleaned.values);
   const now = new Date();
   const updated = await Management.findOneAndUpdate({ _id: entry._id }, {
     $set: { 'postCounseling.purchase': { values: cleaned.values, totals: cleaned.totals, savedAt: now, savedByName: req.user.name } },
@@ -152,79 +144,36 @@ const packageSummary = (entry) => {
   };
 };
 
-// The consultation fee (e.g. Rs 599) was paid against the appointment. Attach those receipts to the new patient so the
-// final bill and the ledger find them. Never lets a problem here undo the conversion.
-const linkConsultationReceipts = async (entry, patient) => {
-  try {
-    const salesIds = entry.sourceAppointment ? [entry.sourceAppointment] : [];
-    const accounts = salesIds.length ? await SalesAppointment.find({ _id: { $in: salesIds } }).select('consultationAccount').lean() : [];
-    const sales = [...new Set([...salesIds, ...accounts.map((row) => row.consultationAccount).filter(Boolean)].map(String))];
-    const match = [{ appointment: entry._id }, ...(sales.length ? [{ salesAppointment: { $in: sales } }] : [])];
-    await ConsultationReceipt.updateMany({ $or: match, patient: null }, { $set: { patient: patient._id, patientCode: patient.patientCode || '' } });
-  } catch (error) {
-    console.error('Consultation receipts could not be linked to the patient:', error.message);
-  }
-};
-
 // @route POST /api/post-counseling/patients/:id/outcome/convert
 // Creates the patient (pending accounts approval) with the registration details, and puts the package, purchase order
-// and the payment received now into Phase 1.
+// and the payment received now into Phase 1. The PO paper has to be filled in first; a PO number starts In Transit.
 const convertToPatient = asyncHandler(async (req, res) => {
   const { entry, canEdit } = await loadAccessible(req);
   if (!canEdit) throw fail('Only the assigned Post Counselor can do this', 403);
   requireReady(entry, true);
   const fee = Number(entry.postCounseling.record?.totals?.approvedProgramFee || 0);
   if (!(fee > 0)) throw fail('Select the treatment components first: the approved program fee is Rs 0');
-  const registration = registrationView(entry);
-  const f = registration.fields;
-  const body = req.body || {};
-  const input = {
-    ...Object.fromEntries(PROFILE_KEYS.map((key) => [key, f[key]])),
-    patientCode: registration.patientId,
-    patientName: f.patientName, category: f.category, age: f.age,
-    number: text(body.number) || f.fatherNumber || f.whatsappNumber || f.motherNumber,
-    guardianName: text(body.guardianName) || f.fatherName || f.motherName || f.primaryCaregiver,
-    alternateNumber: f.motherNumber, relativeName: f.relativeName, patientHistoryBy: f.patientHistoryBy,
-    centerName: f.centerName, centerId: f.centerId,
-    consultationDate: /^\d{4}-\d{2}-\d{2}$/.test(registration.consultationDate) ? registration.consultationDate : undefined,
-    postCounselor: registration.postCounselor || undefined,
-    currentStage: 1,
-  };
   const values = entry.postCounseling.purchase.values || {};
-  const received = Number(values.amountReceivedNow || 0);
+  assertPurchaseComplete(values);
+  const registration = registrationView(entry);
+  const input = patientInputFromRegistration(registration, req.body);
 
   await claimOutcome(entry, 'converted', req.user);
-  let patient = null;
+  let created;
   try {
-    patient = await createPatientRecord(input, req.user, { activityDetails: `Converted from Post Counseling (${entry.appointmentCode || 'appointment'}) by ${req.user.name} — pending accounts approval` });
-    const phase = patient.stages.find((stage) => stage.number === 1);
-    phase.packageName = text(values.orderedTreatment, 120);
-    phase.purchaseOrder = text(values.poNo, 80);
-    phase.totalAmount = fee;
-    if (received > 0) {
-      const cash = values.mode === 'Cash';
-      const notes = [`Mode: ${values.mode || 'Not set'}`, values.mode === 'Card (+3%)' ? `3% card charge Rs ${entry.postCounseling.purchase.totals?.cardCharge || 0}` : '', values.poNo ? `PO ${values.poNo}` : '', values.paymentTime ? `Time ${values.paymentTime}` : '', values.paymentVerifiedBy ? `Verified by ${values.paymentVerifiedBy}` : '', text(values.paymentNotes, 500)].filter(Boolean).join(' | ');
-      const screenshots = !cash && Array.isArray(values.screenshots) ? values.screenshots : [];
-      phase.payments.push({
-        amount: received, date: (values.paymentDate || values.poDate) ? new Date(`${values.paymentDate || values.poDate}T12:00:00.000Z`) : new Date(), paymentMode: cash ? 'cash' : 'online',
-        payToBank: !cash && values.payToBank ? values.payToBank : null, payToBankName: cash ? '' : text(values.payToBankName),
-        utr: cash ? '' : text(values.utrReference), transactionId: cash ? '' : text(values.transactionId), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : '',
-        screenshotUrl: screenshots[0]?.url || null, screenshotFiles: screenshots,
-        notes, recordedByName: req.user.name, approvalStatus: 'pending',
-      });
-      patient.activityLog.push({ action: 'Payment added for Phase 1', details: `${received} via ${values.mode || 'Online'} — pending accounts approval`, actorName: req.user.name, actorRole: req.user.role || '' });
-    }
-    await patient.save();
+    created = await createConvertedPatient({
+      input, fee, values, cardCharge: entry.postCounseling.purchase.totals?.cardCharge, user: req.user,
+      activityDetails: `Converted from Post Counseling (${entry.appointmentCode || 'appointment'}) by ${req.user.name} — pending accounts approval`,
+    });
   } catch (error) {
-    if (patient) await patient.deleteOne();
     await releaseOutcome(entry);
     throw error;
   }
-  await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': patient._id } });
-  await linkConsultationReceipts(entry, patient);
-  await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}`);
+  await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': created.patient._id } });
+  await linkConsultationReceipts(entry, created.patient);
+  await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}${created.inTransit ? ' — In Transit started' : ''}`);
   emitChanged(req, entry);
-  res.json({ success: true, patientId: String(patient._id) });
+  res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit });
 });
 
 // @route POST /api/post-counseling/patients/:id/outcome/not-purchased

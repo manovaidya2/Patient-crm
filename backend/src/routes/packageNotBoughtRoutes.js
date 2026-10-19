@@ -9,6 +9,7 @@ const {
   addPackageNotBoughtFollowUp,
   completePackageNotBoughtFollowUp,
   markPackageNotBoughtConverted,
+  getPurchaseForm,
   deletePackageNotBought,
 } = require('../controllers/packageNotBoughtController');
 const { protect, authorize } = require('../middleware/auth');
@@ -23,6 +24,7 @@ router.get('/:id', getPackageNotBoughtById);
 router.patch('/:id', updatePackageNotBought);
 router.post('/:id/followups', authorize(...FOLLOWUP_WRITE_ROLES), addPackageNotBoughtFollowUp);
 router.patch('/:id/followups/:followUpId/complete', authorize(...FOLLOWUP_WRITE_ROLES), completePackageNotBoughtFollowUp);
+router.get('/:id/purchase-form', getPurchaseForm);
 router.patch('/:id/convert', markPackageNotBoughtConverted);
 router.delete('/:id', deletePackageNotBought);
 

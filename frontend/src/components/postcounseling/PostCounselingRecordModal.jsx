@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Check, Save } from 'lucide-react';
+import { Check, PackageX, Save, UserCheck } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
 import PurchaseOrderStep from './PurchaseOrderStep.jsx';
+import OutcomeBanner from './OutcomeBanner.jsx';
+import Input from '../ui/Input.jsx';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
 const rupees = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
@@ -39,11 +41,15 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
   const [notice, setNotice] = useState('');
   const [saved, setSaved] = useState(false);
   const [step, setStep] = useState('record');
+  const [dialog, setDialog] = useState(false);
+  const [form, setForm] = useState({});
+  const [deciding, setDeciding] = useState(false);
+  const [result, setResult] = useState(null);
 
   useEffect(() => {
     if (!patient) return undefined;
     let live = true;
-    setData(null); setRecord(null); setError(''); setNotice(''); setSaved(false); setStep('record');
+    setData(null); setRecord(null); setError(''); setNotice(''); setSaved(false); setStep('record'); setDialog(false); setResult(null);
     api.get(`/post-counseling/patients/${patient.id}/record`, { skipCache: true })
       .then((response) => { if (!live) return; setData(response.data); setRecord(response.data.record); setSaved(response.data.saved); })
       .catch((err) => live && setError(err.response?.data?.message || 'Could not load the record'));
@@ -69,6 +75,18 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
     if (!next.components.selected.includes(defs.customPriceKey)) next.components.ayurvedicPrice = '';
     return next;
   });
+
+  const openNotPurchased = () => { setError(''); setForm({ reason: '', followUpDate: '', notes: '' }); setDialog(true); };
+  const markNotPurchased = async () => {
+    setDeciding(true); setError('');
+    try {
+      const { data: response } = await api.post(`/post-counseling/patients/${patient.id}/outcome/not-purchased`, form);
+      setResult({ kind: 'notPurchased', ...response }); setDialog(false); onSaved?.();
+      const refreshed = await api.get(`/post-counseling/patients/${patient.id}/record`, { skipCache: true });
+      setData(refreshed.data);
+    } catch (err) { setError(err.response?.data?.message || 'Could not complete this'); }
+    finally { setDeciding(false); }
+  };
 
   const save = async () => {
     setBusy(true); setError(''); setNotice('');
@@ -99,6 +117,8 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
             {data.savedAt && <span className="ml-3 text-xs text-charcoal/50">Last saved {new Date(data.savedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}{data.savedByName ? ` by ${data.savedByName}` : ''}</span>}
             {!editable && <span className="ml-3 text-xs font-semibold text-amber-800">View only</span>}
           </div>
+
+          {!readOnly && <OutcomeBanner outcome={data.outcome} result={result} />}
 
           {readOnly && data.registration && (
             <details className="rounded-lg border border-cardline bg-white/60 p-3" open>
@@ -212,10 +232,26 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
             {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
             <Button variant="outline" onClick={onClose}>Close</Button>
             {editable && <Button onClick={save} disabled={busy}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
-            {(saved || (readOnly && data.saved)) && !readOnly && <Button onClick={() => setStep('purchase')}>Next <ArrowRight size={15} /></Button>}
+            {saved && !readOnly && data.canEdit && !data.outcome && (
+              <>
+                <Button variant="outline" onClick={openNotPurchased}><PackageX size={15} /> Package not purchased</Button>
+                <Button onClick={() => setStep('purchase')}><UserCheck size={15} /> Convert to patient</Button>
+              </>
+            )}
           </div>
         </div>
       )}
+
+      <Modal open={dialog} onClose={() => !deciding && setDialog(false)} title="Package not purchased" className="max-w-lg">
+        <div className="space-y-3">
+          <p className="text-sm text-charcoal/70"><b>{patient.patientName}</b> will move to Package Not Bought with the details and the package that was offered, so it can be followed up. If they decide to buy later, convert them from there.</p>
+          {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          <div><label className="mb-1.5 block text-sm font-medium text-charcoal">Why was it not purchased? *</label><textarea rows={3} value={form.reason || ''} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} className={inputClass} /></div>
+          <Input label="Next follow-up date" type="date" value={form.followUpDate || ''} onChange={(event) => setForm((current) => ({ ...current, followUpDate: event.target.value }))} />
+          <div><label className="mb-1.5 block text-sm font-medium text-charcoal">Notes</label><textarea rows={2} value={form.notes || ''} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className={inputClass} /></div>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDialog(false)} disabled={deciding}>Cancel</Button><Button onClick={markNotPurchased} disabled={deciding}>{deciding ? 'Moving...' : 'Move to Package Not Bought'}</Button></div>
+        </div>
+      </Modal>
     </Modal>
   );
 };

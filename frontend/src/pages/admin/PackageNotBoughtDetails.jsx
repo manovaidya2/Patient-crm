@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Input from '../../components/ui/Input.jsx';
+import PurchaseOrderForm from '../../components/postcounseling/PurchaseOrderForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 
@@ -46,9 +47,14 @@ const PackageNotBoughtDetails = () => {
   const [completeError, setCompleteError] = useState('');
   const [convertOpen, setConvertOpen] = useState(false);
   const [convertForm, setConvertForm] = useState({});
-  const [counselors, setCounselors] = useState([]);
   const [convertError, setConvertError] = useState('');
   const [savingConvert, setSavingConvert] = useState(false);
+  // Converting is one step: the purchase order / payment paper. The patient's details come from post-counselling.
+  const [convertMessage, setConvertMessage] = useState('');
+  const [paper, setPaper] = useState(null);
+  const [paperValues, setPaperValues] = useState({});
+  const [feeInput, setFeeInput] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   const loadRow = async () => {
     setLoading(true);
@@ -98,27 +104,34 @@ const PackageNotBoughtDetails = () => {
     }
   };
 
-  // Converting creates the patient, so the patient details are asked here (pre-filled from this record).
   const openConvert = () => {
     setConvertError('');
-    setConvertForm({
-      patientCode: row.patientId || '', category: row.category || '', age: row.age || '', number: row.fatherNumber || '', alternateNumber: row.motherNumber || '',
-      guardianName: row.parentName || '', relativeName: '', patientHistoryBy: '', centerName: '', centerId: '', consultationDate: '',
-      postCounselor: user?.role === ROLES.POST_COUNSELOR ? user._id || user.id || '' : '', conversionDetails: '',
-    });
+    setConvertForm({});
+    setPaper(null); setPaperValues({}); setFeeInput('');
     setConvertOpen(true);
-    api.get('/users/post-counselors').then(({ data }) => setCounselors(data.postCounselors || [])).catch(() => setCounselors([]));
+    api.get(`/package-not-bought/${id}/purchase-form`)
+      .then(({ data }) => { setPaper(data); setPaperValues(data.values); setConvertForm(data.prefill || {}); })
+      .catch((err) => setConvertError(err.response?.data?.message || 'The purchase order paper could not be loaded.'));
   };
   const setConvert = (key) => (event) => setConvertForm((current) => ({ ...current, [key]: event.target.value }));
+  const setPaperValue = (key, value) => setPaperValues((current) => ({ ...current, [key]: value }));
+  const approvedFee = paper?.feeKnown ? Number(paper.fee) : Number(String(feeInput).replace(/,/g, '')) || 0;
+  const needs = paper?.needs || [];
 
-  const markConverted = async (e) => {
-    e.preventDefault();
-    setSavingConvert(true);
+  const markConverted = async () => {
     setConvertError('');
+    if (!paper) return;
+    if (!(approvedFee > 0)) { setConvertError('Enter the approved program fee'); return; }
+    if (!paperValues.poNo?.trim()) { setConvertError('Enter the PO number to convert'); return; }
+    if (!paperValues.mode) { setConvertError('Select the payment mode to convert'); return; }
+    const asked = Object.fromEntries(needs.map((key) => [key, convertForm[key] || '']));
+    if (needs.some((key) => !String(asked[key] || '').trim())) { setConvertError('Fill the patient details asked above'); return; }
+    setSavingConvert(true);
     try {
-      const { data } = await api.patch(`/package-not-bought/${id}/convert`, convertForm);
+      const { data } = await api.patch(`/package-not-bought/${id}/convert`, { ...asked, purchase: paperValues, ...(paper.feeKnown ? {} : { approvedProgramFee: approvedFee }) });
       setRow(data.row);
       setConvertOpen(false);
+      setConvertMessage(data.inTransit ? 'Converted to patient. In Transit has started for this PO.' : 'Converted to patient.');
     } catch (err) {
       setConvertError(err.response?.data?.message || 'Could not convert this record.');
     } finally {
@@ -150,6 +163,7 @@ const PackageNotBoughtDetails = () => {
                 <p className="mt-1 text-sm text-charcoal/60">
                   Added by {row.createdByName || '-'} on {formatDateTime(row.createdAt)}
                 </p>
+                {convertMessage && <p className="mt-1 text-xs font-semibold text-emerald-800">{convertMessage}</p>}
                 {isConverted && (
                   <p className="mt-1 text-xs font-semibold text-sage">
                     Converted by {row.convertedByName || '-'} on {formatDateTime(row.convertedAt)}
@@ -316,53 +330,41 @@ const PackageNotBoughtDetails = () => {
         </form>
       </Modal>
 
-      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to Patient" className="max-w-2xl">
-        <form onSubmit={markConverted} className="space-y-4">
+      <Modal open={convertOpen} onClose={() => !savingConvert && setConvertOpen(false)} title="Convert to Patient · Purchase order" className="max-w-4xl">
+        <div className="space-y-5">
           {convertError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{convertError}</div>}
-          <p className="text-sm text-charcoal/65">This creates <b>{row?.patientName}</b> in All Patients (pending accounts approval) and marks this record converted.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input label="Patient ID *" value={convertForm.patientCode || ''} onChange={setConvert('patientCode')} required />
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-charcoal">Category *</label>
-              <select value={convertForm.category || ''} onChange={setConvert('category')} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" required>
-                <option value="">Select category</option>
-                <option value="autism_adhd">Autism / ADHD</option>
-                <option value="mental_health">Mental Health</option>
-              </select>
-            </div>
-            <Input label="Age *" value={convertForm.age || ''} onChange={setConvert('age')} required />
-            <Input label="Father's number *" value={convertForm.number || ''} onChange={setConvert('number')} required />
-            {convertForm.category === 'mental_health'
-              ? <Input label="Relative name" value={convertForm.relativeName || ''} onChange={setConvert('relativeName')} />
-              : <Input label={convertForm.category === 'autism_adhd' ? 'Father / Mother name *' : 'Father / Mother name'} value={convertForm.guardianName || ''} onChange={setConvert('guardianName')} required={convertForm.category === 'autism_adhd'} />}
-            <Input label="Mother's number" value={convertForm.alternateNumber || ''} onChange={setConvert('alternateNumber')} />
-            <Input label="Patient history by" value={convertForm.patientHistoryBy || ''} onChange={setConvert('patientHistoryBy')} />
-            <Input label="Consultation date" type="date" value={convertForm.consultationDate || ''} onChange={setConvert('consultationDate')} />
-            <Input label="Center name" value={convertForm.centerName || ''} onChange={setConvert('centerName')} />
-            <Input label="Center ID" value={convertForm.centerId || ''} onChange={setConvert('centerId')} />
-            <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-sm font-medium text-charcoal">Post Counselor</label>
-              <select value={convertForm.postCounselor || ''} onChange={setConvert('postCounselor')} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
-                <option value="">Not assigned</option>
-                {counselors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </div>
+          {!paper && !convertError && <p className="py-6 text-center text-sm text-charcoal/55">Loading...</p>}
+          {paper && (
+            <>
+              <p className="text-sm text-charcoal/65">The patient is created from the post-counselling details. Fill the purchase order paper: the payment details go to the Phase 1 package, and a PO number with a payment starts In Transit.</p>
+              {(needs.length > 0 || !paper.feeKnown) && (
+                <div className="grid gap-3 rounded-lg border border-cardline bg-white/60 p-3 sm:grid-cols-2">
+                  <p className="text-xs font-semibold text-charcoal/70 sm:col-span-2">This record does not have these yet:</p>
+                  {needs.includes('patientCode') && <Input label="Patient ID *" value={convertForm.patientCode || ''} onChange={setConvert('patientCode')} />}
+                  {needs.includes('category') && (
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-charcoal">Category *</label>
+                      <select value={convertForm.category || ''} onChange={setConvert('category')} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
+                        <option value="">Select category</option>
+                        <option value="autism_adhd">Autism / ADHD</option>
+                        <option value="mental_health">Mental Health</option>
+                      </select>
+                    </div>
+                  )}
+                  {needs.includes('age') && <Input label="Age *" value={convertForm.age || ''} onChange={setConvert('age')} />}
+                  {needs.includes('number') && <Input label="Father's number *" value={convertForm.number || ''} onChange={setConvert('number')} />}
+                  {needs.includes('guardianName') && <Input label="Father / Mother name *" value={convertForm.guardianName || ''} onChange={setConvert('guardianName')} />}
+                  {!paper.feeKnown && <Input label="Approved program fee (Rs) *" inputMode="decimal" value={feeInput} onChange={(event) => setFeeInput(event.target.value)} />}
+                </div>
+              )}
+              <PurchaseOrderForm defs={paper.definitions} values={paperValues} onChange={setPaperValue} fee={approvedFee} contacts={paper.registration} editable showEmi={false} onError={setConvertError} onUploading={setUploading} />
+            </>
+          )}
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-cardline bg-offwhite-100 pt-3">
+            <Button type="button" variant="ghost" onClick={() => setConvertOpen(false)} disabled={savingConvert}>Cancel</Button>
+            <Button type="button" onClick={markConverted} disabled={!paper || savingConvert || uploading}>{savingConvert ? 'Converting...' : 'Convert to Patient'}</Button>
           </div>
-          <div>
-            <label htmlFor="pnb-conversion-details" className="mb-1.5 block text-sm font-medium text-charcoal">Conversion Details</label>
-            <textarea
-              id="pnb-conversion-details"
-              rows={3}
-              value={convertForm.conversionDetails || ''}
-              onChange={setConvert('conversionDetails')}
-              className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal transition focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setConvertOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={savingConvert}>{savingConvert ? 'Converting...' : 'Convert to Patient'}</Button>
-          </div>
-        </form>
+        </div>
       </Modal>
     </div>
   );
