@@ -1489,10 +1489,10 @@ const getPatientRecordRoom = asyncHandler(async (req, res) => {
   })) });
 });
 
-// @desc    Manually create a patient when it was not received from the CRM webhook
-// @route   POST /api/patients
-// @access  Private/Admin, Manager, Post Counselor
-const createPatient = asyncHandler(async (req, res) => {
+// Creates a patient (pending accounts approval) from manually entered details. Throws an error with a statusCode when the details are not valid.
+const httpError = (message, statusCode) => Object.assign(new Error(message), { statusCode });
+const profileValues = (input) => Object.fromEntries(PROFILE_FIELDS.map((definition) => [definition.key, cleanProfileValue(definition, input?.[definition.key])]));
+const createPatientRecord = async (input, user, { activityDetails } = {}) => {
   const {
     patientCode,
     patientName,
@@ -1506,37 +1506,37 @@ const createPatient = asyncHandler(async (req, res) => {
     currentStage,
     consultationDate,
     postCounselor,
-  } = req.body;
+  } = input;
   const ageText = String(age ?? '').trim();
 
   if (!patientCode || !patientName || !category || !ageText || !number) {
-    return res.status(400).json({ success: false, message: "Patient ID, patient name, category, age and father's number are required" });
+    throw httpError("Patient ID, patient name, category, age and father's number are required", 400);
   }
 
   const normalizedPatientCode = String(patientCode).trim().toUpperCase();
   const existingCode = await Patient.findOne({ patientCode: normalizedPatientCode });
   if (existingCode) {
-    return res.status(400).json({ success: false, message: 'Patient ID already exists' });
+    throw httpError('Patient ID already exists', 400);
   }
 
   if (!ALL_CATEGORIES.includes(category)) {
-    return res.status(400).json({ success: false, message: 'Invalid patient category' });
+    throw httpError('Invalid patient category', 400);
   }
 
   if (category === 'autism_adhd' && !guardianName) {
-    return res.status(400).json({ success: false, message: 'Father/Mother name is required for Autism/ADHD patients' });
+    throw httpError('Father/Mother name is required for Autism/ADHD patients', 400);
   }
 
   const stageNum = Number(currentStage || 1);
   if (!STAGES.includes(stageNum)) {
-    return res.status(400).json({ success: false, message: `Phase must be one of: ${STAGES.join(', ')}` });
+    throw httpError(`Phase must be one of: ${STAGES.join(', ')}`, 400);
   }
 
   let selectedPostCounselor = null;
   if (postCounselor) {
     selectedPostCounselor = await User.findOne({ _id: postCounselor, role: ROLES.POST_COUNSELOR, isActive: true });
     if (!selectedPostCounselor) {
-      return res.status(400).json({ success: false, message: 'Select a valid, active Post Counselor' });
+      throw httpError('Select a valid, active Post Counselor', 400);
     }
   }
 
@@ -1546,7 +1546,7 @@ const createPatient = asyncHandler(async (req, res) => {
   if (consultationDate) {
     const parsedConsultationDate = new Date(`${consultationDate}T00:00:00.000Z`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(consultationDate) || Number.isNaN(parsedConsultationDate.getTime()) || parsedConsultationDate.toISOString().slice(0, 10) !== consultationDate) {
-      return res.status(400).json({ success: false, message: 'Invalid consultation date' });
+      throw httpError('Invalid consultation date', 400);
     }
     stageEntry.consultationDate = consultationDate;
   }
@@ -1555,14 +1555,15 @@ const createPatient = asyncHandler(async (req, res) => {
   }
 
   for (const [key, max] of [['centerName', 120], ['centerId', 80]]) {
-    if (req.body[key] !== undefined && (typeof req.body[key] !== 'string' || req.body[key].trim().length > max)) {
-      return res.status(400).json({ message: `${key} must be text up to ${max} characters` });
+    if (input[key] !== undefined && (typeof input[key] !== 'string' || input[key].trim().length > max)) {
+      throw httpError(`${key} must be text up to ${max} characters`, 400);
     }
   }
   const patient = await Patient.create({
     patientCode: normalizedPatientCode,
-    centerName: req.body.centerName,
-    centerId: req.body.centerId,
+    centerName: input.centerName,
+    centerId: input.centerId,
+    ...profileValues(input),
     patientName,
     category,
     age: ageText,
@@ -1577,19 +1578,27 @@ const createPatient = asyncHandler(async (req, res) => {
     activityLog: [
       {
         action: 'Patient manually added',
-        details: `Created in All Patients by ${req.user?.name || 'Unknown'} — pending accounts approval`,
-        actorName: req.user?.name || 'System',
-        actorRole: req.user?.role || '',
+        details: activityDetails || `Created in All Patients by ${user?.name || 'Unknown'} — pending accounts approval`,
+        actorName: user?.name || 'System',
+        actorRole: user?.role || '',
       },
       ...(consultationDate ? [{
         action: `Phase ${stageNum} consultation date set`,
         details: consultationDate,
-        actorName: req.user?.name || 'System',
-        actorRole: req.user?.role || '',
+        actorName: user?.name || 'System',
+        actorRole: user?.role || '',
       }] : []),
     ],
   });
 
+  return patient;
+};
+
+// @desc    Manually create a patient when it was not received from the CRM webhook
+// @route   POST /api/patients
+// @access  Private/Admin, Manager, Post Counselor
+const createPatient = asyncHandler(async (req, res) => {
+  const patient = await createPatientRecord(req.body, req.user);
   await populateAssignments(patient);
   res.status(201).json({ success: true, patient: formatPatient(patient, req.user) });
 });
@@ -3827,6 +3836,7 @@ module.exports = {
   getPatientCallLogs,
   getPatientRecordRoom,
   createPatient,
+  createPatientRecord,
   getPendingApprovals,
   approvePatient,
   updatePatientStatus,

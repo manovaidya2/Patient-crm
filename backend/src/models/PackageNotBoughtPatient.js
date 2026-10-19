@@ -29,6 +29,7 @@ const packageNotBoughtPatientSchema = new mongoose.Schema(
     convertedAt: { type: Date, default: null },
     convertedByName: { type: String, trim: true, default: '' },
     conversionDetails: { type: String, trim: true, default: '' },
+    convertedPatient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     createdByName: { type: String, trim: true, default: '' },
     updatedByName: { type: String, trim: true, default: '' },

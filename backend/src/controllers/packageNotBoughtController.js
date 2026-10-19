@@ -1,6 +1,7 @@
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
+const { createPatientRecord } = require('./patientController');
 
 const ACCESS_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
 const FOLLOWUP_WRITE_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
@@ -34,6 +35,7 @@ const formatRow = (row) => ({
   convertedAt: row.convertedAt || null,
   convertedByName: row.convertedByName || '',
   conversionDetails: row.conversionDetails || '',
+  convertedPatientId: row.convertedPatient ? String(row.convertedPatient) : null,
   createdByName: row.createdByName || '',
   updatedByName: row.updatedByName || '',
   createdAt: row.createdAt,
@@ -234,20 +236,44 @@ const completePackageNotBoughtFollowUp = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, row: formatRow(row) });
 });
 
+// Converting a Package Not Bought record creates the patient (pending accounts approval, like "Add patient") and links it.
+// The record is claimed first, so pressing the button twice can never create two patients.
 const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
   const row = await PackageNotBoughtPatient.findById(req.params.id);
   if (!row) {
     return res.status(404).json({ success: false, message: 'Record not found' });
   }
+  if ((row.status || 'open') === 'converted') {
+    return res.status(400).json({ success: false, message: 'This record is already converted' });
+  }
+  const input = req.body || {};
+  const details = {
+    ...input,
+    patientName: String(input.patientName || row.patientName || '').trim(),
+    age: input.age ?? row.age,
+    number: String(input.number || row.fatherNumber || '').trim(),
+    alternateNumber: input.alternateNumber ?? row.motherNumber,
+    guardianName: String(input.guardianName || row.parentName || '').trim(),
+  };
 
-  row.status = 'converted';
-  row.convertedAt = new Date();
-  row.convertedByName = req.user.name;
-  row.conversionDetails = String(req.body.conversionDetails || '').trim();
-  row.updatedByName = req.user.name;
-  await row.save();
+  const claimed = await PackageNotBoughtPatient.findOneAndUpdate(
+    { _id: row._id, status: { $ne: 'converted' } },
+    { $set: { status: 'converted', convertedAt: new Date(), convertedByName: req.user.name, conversionDetails: String(input.conversionDetails || '').trim(), updatedByName: req.user.name } },
+    { new: true },
+  );
+  if (!claimed) return res.status(400).json({ success: false, message: 'This record is already converted' });
 
-  res.status(200).json({ success: true, row: formatRow(row) });
+  let patient;
+  try {
+    patient = await createPatientRecord(details, req.user, { activityDetails: `Converted from Package Not Bought by ${req.user.name} — pending accounts approval` });
+  } catch (error) {
+    await PackageNotBoughtPatient.updateOne({ _id: row._id }, { $set: { status: 'open', convertedAt: null, convertedByName: '', conversionDetails: row.conversionDetails || '', convertedPatient: null } });
+    throw error;
+  }
+  claimed.convertedPatient = patient._id;
+  await claimed.save();
+
+  res.status(200).json({ success: true, row: formatRow(claimed), patientId: String(patient._id) });
 });
 
 const deletePackageNotBought = asyncHandler(async (req, res) => {

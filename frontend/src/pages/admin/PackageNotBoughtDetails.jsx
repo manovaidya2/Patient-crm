@@ -6,6 +6,7 @@ import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import Input from '../../components/ui/Input.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 
@@ -44,7 +45,8 @@ const PackageNotBoughtDetails = () => {
   const [completionDetails, setCompletionDetails] = useState('');
   const [completeError, setCompleteError] = useState('');
   const [convertOpen, setConvertOpen] = useState(false);
-  const [conversionDetails, setConversionDetails] = useState('');
+  const [convertForm, setConvertForm] = useState({});
+  const [counselors, setCounselors] = useState([]);
   const [convertError, setConvertError] = useState('');
   const [savingConvert, setSavingConvert] = useState(false);
 
@@ -96,17 +98,29 @@ const PackageNotBoughtDetails = () => {
     }
   };
 
+  // Converting creates the patient, so the patient details are asked here (pre-filled from this record).
+  const openConvert = () => {
+    setConvertError('');
+    setConvertForm({
+      patientCode: '', category: '', age: row.age || '', number: row.fatherNumber || '', alternateNumber: row.motherNumber || '',
+      guardianName: row.parentName || '', relativeName: '', patientHistoryBy: '', centerName: '', centerId: '', consultationDate: '',
+      postCounselor: user?.role === ROLES.POST_COUNSELOR ? user._id || user.id || '' : '', conversionDetails: '',
+    });
+    setConvertOpen(true);
+    api.get('/users/post-counselors').then(({ data }) => setCounselors(data.postCounselors || [])).catch(() => setCounselors([]));
+  };
+  const setConvert = (key) => (event) => setConvertForm((current) => ({ ...current, [key]: event.target.value }));
+
   const markConverted = async (e) => {
     e.preventDefault();
     setSavingConvert(true);
     setConvertError('');
     try {
-      const { data } = await api.patch(`/package-not-bought/${id}/convert`, { conversionDetails });
+      const { data } = await api.patch(`/package-not-bought/${id}/convert`, convertForm);
       setRow(data.row);
       setConvertOpen(false);
-      setConversionDetails('');
     } catch (err) {
-      setConvertError(err.response?.data?.message || 'Could not mark converted.');
+      setConvertError(err.response?.data?.message || 'Could not convert this record.');
     } finally {
       setSavingConvert(false);
     }
@@ -139,12 +153,13 @@ const PackageNotBoughtDetails = () => {
                 {isConverted && (
                   <p className="mt-1 text-xs font-semibold text-sage">
                     Converted by {row.convertedByName || '-'} on {formatDateTime(row.convertedAt)}
+                    {row.convertedPatientId && <> · <Link to={`/admin/patients/${row.convertedPatientId}`} className="underline">Open patient</Link></>}
                   </p>
                 )}
               </div>
               {!isConverted && (
-                <Button onClick={() => setConvertOpen(true)}>
-                  <PackageCheck size={16} /> Mark Converted
+                <Button onClick={openConvert}>
+                  <PackageCheck size={16} /> Convert to Patient
                 </Button>
               )}
             </div>
@@ -287,22 +302,51 @@ const PackageNotBoughtDetails = () => {
         </form>
       </Modal>
 
-      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Mark Converted">
+      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to Patient" className="max-w-2xl">
         <form onSubmit={markConverted} className="space-y-4">
           {convertError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{convertError}</div>}
+          <p className="text-sm text-charcoal/65">This creates <b>{row?.patientName}</b> in All Patients (pending accounts approval) and marks this record converted.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input label="Patient ID *" value={convertForm.patientCode || ''} onChange={setConvert('patientCode')} required />
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-charcoal">Category *</label>
+              <select value={convertForm.category || ''} onChange={setConvert('category')} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" required>
+                <option value="">Select category</option>
+                <option value="autism_adhd">Autism / ADHD</option>
+                <option value="mental_health">Mental Health</option>
+              </select>
+            </div>
+            <Input label="Age *" value={convertForm.age || ''} onChange={setConvert('age')} required />
+            <Input label="Father's number *" value={convertForm.number || ''} onChange={setConvert('number')} required />
+            {convertForm.category === 'mental_health'
+              ? <Input label="Relative name" value={convertForm.relativeName || ''} onChange={setConvert('relativeName')} />
+              : <Input label={convertForm.category === 'autism_adhd' ? 'Father / Mother name *' : 'Father / Mother name'} value={convertForm.guardianName || ''} onChange={setConvert('guardianName')} required={convertForm.category === 'autism_adhd'} />}
+            <Input label="Mother's number" value={convertForm.alternateNumber || ''} onChange={setConvert('alternateNumber')} />
+            <Input label="Patient history by" value={convertForm.patientHistoryBy || ''} onChange={setConvert('patientHistoryBy')} />
+            <Input label="Consultation date" type="date" value={convertForm.consultationDate || ''} onChange={setConvert('consultationDate')} />
+            <Input label="Center name" value={convertForm.centerName || ''} onChange={setConvert('centerName')} />
+            <Input label="Center ID" value={convertForm.centerId || ''} onChange={setConvert('centerId')} />
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-sm font-medium text-charcoal">Post Counselor</label>
+              <select value={convertForm.postCounselor || ''} onChange={setConvert('postCounselor')} className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20">
+                <option value="">Not assigned</option>
+                {counselors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </div>
+          </div>
           <div>
             <label htmlFor="pnb-conversion-details" className="mb-1.5 block text-sm font-medium text-charcoal">Conversion Details</label>
             <textarea
               id="pnb-conversion-details"
-              rows={5}
-              value={conversionDetails}
-              onChange={(e) => setConversionDetails(e.target.value)}
+              rows={3}
+              value={convertForm.conversionDetails || ''}
+              onChange={setConvert('conversionDetails')}
               className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal transition focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
             />
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setConvertOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={savingConvert}>{savingConvert ? 'Saving...' : 'Mark Converted'}</Button>
+            <Button type="submit" disabled={savingConvert}>{savingConvert ? 'Converting...' : 'Convert to Patient'}</Button>
           </div>
         </form>
       </Modal>
