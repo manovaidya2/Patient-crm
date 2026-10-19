@@ -225,6 +225,8 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
           ...(sheet === 'management' ? [['Accepted', data?.acceptedAt ? stamp(data.acceptedAt) : '-']] : []),
           ['Added by', data?.createdByName || 'Current user'],
           ...(data?.status === 'rescheduled' ? [['Rescheduled to', data.rescheduledTo || '-'], ['Rescheduled by', data.rescheduledByName || '-']] : []),
+          ...(data?.rescheduledFromDate ? [['Rescheduled from', data.rescheduledFromDate]] : []),
+          ...(data?.rescheduleNote ? [['Reschedule note', data.rescheduleNote]] : []),
           ...(data?.status === 'not_coming' ? [['Not coming marked by', data.notComingByName || '-'], ['Marked at', stamp(data.notComingAt)]] : []),
         ].map(([label, text]) => <div key={label} className="min-w-0"><dt className="text-xs font-medium text-charcoal/75">{label}</dt><dd className="mt-1 break-words text-xs font-semibold leading-5 text-charcoal sm:text-sm">{text}</dd></div>)}
       </dl>

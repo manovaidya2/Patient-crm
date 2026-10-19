@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarDays, Columns3, History, Pencil, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, CalendarDays, Columns3, History, Pencil, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { io } from 'socket.io-client';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
@@ -211,8 +211,26 @@ const ReceptionistDashboard = () => {
   const addFilter = () => setFilters((current) => [...current, { id: Date.now(), field: '', operator: 'contains', value: '' }]);
   const removeFilter = (id) => setFilters((current) => current.length === 1 ? [{ id: Date.now(), field: '', operator: 'contains', value: '' }] : current.filter((item) => item.id !== id));
   const [arrivalRow, setArrivalRow] = useState(null);
+  const [rescheduleRow, setRescheduleRow] = useState(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleNote, setRescheduleNote] = useState('');
+  const [rescheduling, setRescheduling] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState('');
   const [registrationRow, setRegistrationRow] = useState(null);
   const canFlow = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
+  // Only an appointment whose patient has not arrived can be moved to another day.
+  const canReschedule = (row) => canFlow && !row.patientId && row.arrivalStatus !== 'Arrived' && !row.registrationStatus;
+  const openReschedule = (row) => { setRescheduleRow(row); setRescheduleDate(''); setRescheduleNote(''); setRescheduleError(''); };
+  const submitReschedule = async (event) => {
+    event.preventDefault();
+    setRescheduling(true); setRescheduleError('');
+    try {
+      await api.post(`/sales-sheet/management/${rescheduleRow.id}/reschedule`, { appointmentDate: rescheduleDate, note: rescheduleNote });
+      setRescheduleRow(null);
+      loadRows().catch(() => {});
+    } catch (err) { setRescheduleError(err.response?.data?.message || 'The appointment could not be rescheduled'); }
+    finally { setRescheduling(false); }
+  };
   const orderedColumns = useMemo(() => {
     const base = [
       { key: 'actions', label: 'Actions', width: 235 },
@@ -283,14 +301,23 @@ const ReceptionistDashboard = () => {
           receptionCalls: <td className="min-w-[155px] max-w-[210px] px-4 py-3 text-xs"><button className="font-semibold text-sage" onClick={() => setFormRow({ ...row, initialTab: 'reception-confirmation' })}>{row.numberOfCalls || 0} calls</button><p className="mt-1 capitalize text-charcoal/70">{(row.callStatus || 'pending').replaceAll('_', ' ')}</p>{row.lastCallAt && <p className="mt-1 text-charcoal/70">{displayDateTime(row.lastCallAt)}</p>}{row.lastCallNotes && <p className="mt-1 truncate text-charcoal/80" title={row.lastCallNotes}>{row.lastCallNotes}</p>}</td>,
           arrival: <td className="px-4 py-3 text-xs">{row.arrivalStatus ? <p className="font-semibold">{row.arrivalStatus}{row.arrivalTime ? ` · ${row.arrivalTime}` : ''}</p> : <p className="text-charcoal/55">Not marked</p>}{row.patientId && <p className="mt-1 font-bold text-sage">{row.patientId}</p>}{canFlow && <Button size="sm" variant={row.patientId ? 'outline' : 'primary'} className="mt-2" onClick={() => setArrivalRow({ ...row, patientName: row.salesValues?.[patientColumn?.id] || '' })}>{row.patientId ? 'Edit arrival' : 'Mark arrival'}</Button>}</td>,
           registration: <td className="px-4 py-3 text-xs">{row.registrationStatus === 'sent' ? <><span className="inline-block rounded bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">Sent</span><p className="mt-1 text-charcoal/70">To {row.registrationPostCounselorName || 'Post Counselor'}</p><button className="mt-1 font-semibold text-sage" onClick={() => setRegistrationRow(row)}>View</button></> : row.patientId ? <><p className="mb-2 text-charcoal/60">{row.registrationStatus === 'draft' ? 'Saved, not sent' : 'Not filled'}</p>{canFlow && <Button size="sm" onClick={() => setRegistrationRow(row)}>Fill registration</Button>}</> : <p className="text-charcoal/50">Mark arrival first</p>}</td>,
-          status: <td className="px-4 py-3 text-xs"><span className="inline-block whitespace-nowrap rounded bg-sage/10 px-2 py-1 font-semibold text-charcoal">{row.sourceAppointmentId ? 'Accepted from sales' : 'Direct reception entry'}</span>{row.acceptedAt && <p className="mt-2 truncate" title={row.acceptedByName || ''}>Accepted by {row.acceptedByName || '-'}</p>}{row.acceptedAt && <p className="mt-1 whitespace-nowrap text-charcoal/70">{displayDateTime(row.acceptedAt)}</p>}</td>,
-          actions: <td className="px-4 py-3"><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" className="max-sm:!whitespace-nowrap" onClick={() => setFormRow(row)}>Open appointment</Button>{[ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role) && row.sourceAppointmentId && <button title="Cancel acceptance and return to Sales" aria-label="Cancel acceptance and return to Sales" onClick={() => cancelAcceptance(row)} className="p-2 text-amber-800"><RotateCcw size={15} /></button>}{!isSalesTeam && <button title="Delete appointment" onClick={() => deleteRow(row)} className="p-2 text-red-700"><Trash2 size={15} /></button>}</div></td>,
+          status: <td className="px-4 py-3 text-xs"><span className="inline-block whitespace-nowrap rounded bg-sage/10 px-2 py-1 font-semibold text-charcoal">{row.sourceAppointmentId ? 'Accepted from sales' : 'Direct reception entry'}</span>{row.rescheduledFromDate && <p className="mt-2 text-sky-900">Rescheduled from {bookedDate(row.rescheduledFromDate)}{row.rescheduleNote ? ` — ${row.rescheduleNote}` : ''}</p>}{row.acceptedAt && <p className="mt-2 truncate" title={row.acceptedByName || ''}>Accepted by {row.acceptedByName || '-'}</p>}{row.acceptedAt && <p className="mt-1 whitespace-nowrap text-charcoal/70">{displayDateTime(row.acceptedAt)}</p>}</td>,
+          actions: <td className="px-4 py-3"><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" className="max-sm:!whitespace-nowrap" onClick={() => setFormRow(row)}>Open appointment</Button>{canReschedule(row) && <Button size="sm" variant="outline" className="max-sm:!whitespace-nowrap" onClick={() => openReschedule(row)}><CalendarClock size={14} /> Reschedule</Button>}{[ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role) && row.sourceAppointmentId && <button title="Cancel acceptance and return to Sales" aria-label="Cancel acceptance and return to Sales" onClick={() => cancelAcceptance(row)} className="p-2 text-amber-800"><RotateCcw size={15} /></button>}{!isSalesTeam && <button title="Delete appointment" onClick={() => deleteRow(row)} className="p-2 text-red-700"><Trash2 size={15} /></button>}</div></td>,
           history: <td className="px-4 py-3"><button type="button" onClick={() => openTimeline(row)} className="inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-cardline bg-white px-3 py-2 text-xs font-semibold text-sage hover:bg-sage/5" title="View appointment history"><History size={15} />View history</button></td>,
         };
         return <tr key={row.id} className={`border-t border-cardline ${rowIsHighlighted(row) ? 'bg-emerald-100/70' : 'bg-white/40'}`}>
           {orderedColumns.map((item) => <Fragment key={item.key}>{cells[item.key]}</Fragment>)}
         </tr>;
       })}{!loading && !filteredRows.length && <tr><td colSpan={orderedColumns.length} className="p-8 text-center">No appointments match this filter</td></tr>}</tbody></table></div>
+      <Modal open={Boolean(rescheduleRow)} onClose={() => !rescheduling && setRescheduleRow(null)} title="Reschedule appointment">
+        <form onSubmit={submitReschedule} className="space-y-4">
+          <div><p className="text-sm font-semibold text-charcoal">{rescheduleRow?.appointmentCode}</p><p className="mt-1 text-xs text-charcoal/60">{rescheduleRow?.sourceAppointmentId ? 'It leaves Appointment Management and shows on the new date in the Sales sheet, with all details and calls copied.' : 'It moves to the new date in Appointment Management.'}</p></div>
+          {rescheduleError && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{rescheduleError}</div>}
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">New appointment date</span><input type="date" required min={localIsoDate()} value={rescheduleDate} onChange={(event) => setRescheduleDate(event.target.value)} className="w-full rounded border border-cardline bg-cream px-3 py-2 text-sm" /></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Note *</span><textarea required rows={3} maxLength={1000} value={rescheduleNote} onChange={(event) => setRescheduleNote(event.target.value)} placeholder="Why is it being rescheduled?" className="w-full rounded border border-cardline bg-cream px-3 py-2 text-sm" /></label>
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={rescheduling} onClick={() => setRescheduleRow(null)}>Cancel</Button><Button type="submit" disabled={rescheduling || !rescheduleDate || rescheduleNote.trim().length < 3}>{rescheduling ? 'Rescheduling...' : 'Reschedule'}</Button></div>
+        </form>
+      </Modal>
       {canFlow && <ArrivalModal row={arrivalRow} onClose={() => setArrivalRow(null)} onSaved={() => loadRows().catch(() => {})} />}
       {canFlow && <RegistrationModal row={registrationRow} onClose={() => setRegistrationRow(null)} onChanged={() => loadRows().catch(() => {})} />}
       {formRow && <AppointmentForm key={formRow.id || 'new'} onCreated={() => { setFormRow(null); loadRows().catch(() => {}); }} sheet="management" row={formRow} onClose={() => { setFormRow(null); loadRows().catch(() => {}); }} onChanged={() => loadRows().catch(() => {})} />}

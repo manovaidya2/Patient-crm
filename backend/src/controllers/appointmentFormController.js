@@ -63,6 +63,8 @@ const getForm = asyncHandler(async (req, res) => {
     acceptedByName: target.row.acceptedByName || '',
     status: target.source?.status || target.row.status || 'active',
     rescheduledTo: target.source?.rescheduledTo || '',
+    rescheduleNote: target.row?.rescheduleNote || target.source?.rescheduleNote || '',
+    rescheduledFromDate: target.row?.rescheduledFromDate || '',
     rescheduledByName: target.source?.rescheduledByName || '',
     notComingReason: target.source?.notComingReason || '',
     notComingAt: target.source?.notComingAt || null,

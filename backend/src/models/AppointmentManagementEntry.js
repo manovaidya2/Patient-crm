@@ -44,6 +44,9 @@ const schema = new mongoose.Schema({
   appointmentDate: { type: String, required: true, index: true },
   sourceAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesAppointment', default: undefined, unique: true, sparse: true },
   appointmentCode: { type: String, trim: true, default: '' },
+  // Set when Reception moves a direct entry to another date
+  rescheduleNote: { type: String, trim: true, default: '', maxlength: 1000 },
+  rescheduledFromDate: { type: String, default: '' },
   consultationFee: { type: Number, default: null, min: 0 },
   entryAt: { type: Date, default: Date.now },
   acceptedAt: { type: Date, default: null },

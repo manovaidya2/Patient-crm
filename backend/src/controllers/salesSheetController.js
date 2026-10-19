@@ -144,6 +144,7 @@ const serializeManagementEntry = (entry, user) => ({
   arrivalTime: String(entry.values?.get?.(RECEPTION_IDS.arrivalTime) || ''),
   registrationStatus: entry.registration?.status || '',
   registrationPostCounselorName: entry.registration?.postCounselorName || '',
+  rescheduleNote: entry.rescheduleNote || '', rescheduledFromDate: entry.rescheduledFromDate || '',
   lastCallAt: entry.sourceAppointment?.lastCallAt || entry.lastCallAt || null,
   numberOfCalls: entry.sourceAppointment?.numberOfCalls || entry.numberOfCalls || 0,
   callStatus: entry.sourceAppointment?.callStatus || entry.callStatus || 'pending',
@@ -174,7 +175,7 @@ const serializeRow = (row, user) => ({
   status: row.status || 'active', notComingReason: row.notComingReason || '', notComingAt: row.notComingAt || null, notComingByName: row.notComingByName || '', rescheduledTo: row.rescheduledTo || '',
   lastCallAt: row.lastCallAt || null, numberOfCalls: row.numberOfCalls || 0,
   callStatus: row.callStatus || 'pending', lastCallNotes: row.lastCallNotes || '',
-  rescheduledAt: row.rescheduledAt || null, rescheduledByName: row.rescheduledByName || '',
+  rescheduledAt: row.rescheduledAt || null, rescheduledByName: row.rescheduledByName || '', rescheduleNote: row.rescheduleNote || '', rescheduledFromDate: row.rescheduledFromDate || '',
   createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
@@ -404,6 +405,26 @@ const cancelAcceptance = asyncHandler(async (req, res) => {
   res.json({ success: true, appointment: serializeRow(reverted, req.user) });
 });
 
+// Moves a Sales appointment to another date: the new date gets a copy (calls and details included), the old row is marked
+// rescheduled with the note, and the Reception entry for the old date is removed.
+const moveSalesAppointment = async (req, row, nextDate, note) => {
+  const replacement = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: nextDate, consultationAccount: row.consultationAccount || row._id, values: Object.fromEntries(row.values || []), createdBy: row.createdBy, createdByName: row.createdByName, updatedByName: req.user.name, rescheduleNote: note, rescheduledFromDate: row.appointmentDate, lastCallAt: row.lastCallAt, numberOfCalls: row.numberOfCalls, callStatus: row.callStatus, lastCallNotes: row.lastCallNotes, callHistory: row.callHistory || [], salesLastCallAt: row.salesLastCallAt, salesNumberOfCalls: row.salesNumberOfCalls, salesCallStatus: row.salesCallStatus, salesLastCallNotes: row.salesLastCallNotes, salesCallHistory: row.salesCallHistory || [] });
+  row.status = 'rescheduled';
+  row.rescheduledTo = nextDate;
+  row.rescheduledAt = new Date();
+  row.rescheduledByName = req.user.name;
+  row.rescheduleNote = note;
+  row.rescheduledAppointment = replacement._id;
+  await row.save();
+  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment rescheduled', details: `Moved to ${nextDate}; replacement ${replacement.appointmentCode}` });
+  await recordAudit(req, { sheet: 'sales', rowId: replacement._id, appointmentCode: replacement.appointmentCode, action: 'Rescheduled appointment created', details: `Created from ${row.appointmentCode}` });
+  // Whatever Reception collected against this appointment stays with the patient's consultation account, so nothing is orphaned.
+  const entry = await AppointmentManagementEntry.findOne({ sourceAppointment: row._id }).select('_id').lean();
+  if (entry) await ConsultationReceipt.updateMany({ appointment: entry._id }, { $set: { salesAppointment: replacement.consultationAccount, appointment: null } });
+  await AppointmentManagementEntry.deleteOne({ sourceAppointment: row._id });
+  return replacement;
+};
+
 const rescheduleAppointment = asyncHandler(async (req, res) => {
   const nextDate = String(req.body.appointmentDate || '');
   if (!validDate(nextDate)) return res.status(400).json({ success: false, message: 'Valid reschedule date is required' });
@@ -415,21 +436,48 @@ const rescheduleAppointment = asyncHandler(async (req, res) => {
   if (!allowed) return res.status(403).json({ success: false, message: 'You cannot reschedule this appointment' });
   if (nextDate === row.appointmentDate) return res.status(400).json({ success: false, message: 'Choose a different appointment date' });
 
-  const replacement = await SalesAppointment.create({ appointmentCode: createAppointmentCode(), appointmentDate: nextDate, consultationAccount: row.consultationAccount || row._id, values: Object.fromEntries(row.values || []), createdBy: row.createdBy, createdByName: row.createdByName, updatedByName: req.user.name, lastCallAt: row.lastCallAt, numberOfCalls: row.numberOfCalls, callStatus: row.callStatus, lastCallNotes: row.lastCallNotes, callHistory: row.callHistory || [], salesLastCallAt: row.salesLastCallAt, salesNumberOfCalls: row.salesNumberOfCalls, salesCallStatus: row.salesCallStatus, salesLastCallNotes: row.salesLastCallNotes, salesCallHistory: row.salesCallHistory || [] });
-  row.status = 'rescheduled';
-  row.rescheduledTo = nextDate;
-  row.rescheduledAt = new Date();
-  row.rescheduledByName = req.user.name;
-  row.rescheduledAppointment = replacement._id;
-  await row.save();
-  await recordAudit(req, { sheet: 'sales', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment rescheduled', details: `Moved to ${nextDate}; replacement ${replacement.appointmentCode}` });
-  await recordAudit(req, { sheet: 'sales', rowId: replacement._id, appointmentCode: replacement.appointmentCode, action: 'Rescheduled appointment created', details: `Created from ${row.appointmentCode}` });
-  await AppointmentManagementEntry.deleteOne({ sourceAppointment: row._id });
+  const note = String(req.body.note || '').trim().slice(0, 1000);
+  const replacement = await moveSalesAppointment(req, row, nextDate, note);
   emitDateChanged(req, row.appointmentDate);
   emitDateChanged(req, nextDate);
   res.status(201).json({ success: true, appointment: serializeRow(replacement, req.user) });
 });
 
+// Reception moves an appointment that has not arrived yet. It leaves Appointment Management and shows on the new date in the
+// Sales sheet (direct reception entries simply move to the new date).
+const rescheduleManagedAppointment = asyncHandler(async (req, res) => {
+  const nextDate = String(req.body.appointmentDate || '');
+  const note = String(req.body.note || '').trim().slice(0, 1000);
+  if (!validDate(nextDate)) return res.status(400).json({ success: false, message: 'Valid reschedule date is required' });
+  if (note.length < 3) return res.status(400).json({ success: false, message: 'Write a note for the reschedule' });
+  const entry = await AppointmentManagementEntry.findById(req.params.id);
+  if (!entry) return res.status(404).json({ success: false, message: 'Appointment not found' });
+  if (nextDate === entry.appointmentDate) return res.status(400).json({ success: false, message: 'Choose a different appointment date' });
+  const arrived = entry.values?.get(RECEPTION_IDS.arrivalStatus) === 'Arrived' || entry.values?.get(RECEPTION_IDS.patientId) || entry.registration?.status;
+  if (arrived) return res.status(409).json({ success: false, message: 'This patient has already arrived, so the appointment cannot be rescheduled' });
+
+  const previousDate = entry.appointmentDate;
+  if (!entry.sourceAppointment) {
+    entry.appointmentDate = nextDate;
+    entry.rescheduleNote = note;
+    entry.rescheduledFromDate = previousDate;
+    entry.updatedByName = req.user.name;
+    entry.lastEditedAt = new Date();
+    await entry.save();
+    await recordAudit(req, { sheet: 'management', rowId: entry._id, appointmentCode: entry.appointmentCode, action: 'Appointment rescheduled', details: `Moved from ${previousDate} to ${nextDate}. Note: ${note}` });
+    emitDateChanged(req, previousDate);
+    emitDateChanged(req, nextDate);
+    return res.json({ success: true, movedTo: nextDate, inSales: false });
+  }
+
+  const source = await SalesAppointment.findById(entry.sourceAppointment);
+  if (!source || source.status !== 'active') return res.status(409).json({ success: false, message: 'This appointment is no longer active in Sales' });
+  const replacement = await moveSalesAppointment(req, source, nextDate, note);
+  await recordAudit(req, { sheet: 'management', rowId: entry._id, appointmentCode: entry.appointmentCode, action: 'Rescheduled by Reception', details: `Moved to ${nextDate} in the Sales sheet. Note: ${note}` });
+  emitDateChanged(req, previousDate);
+  emitDateChanged(req, nextDate);
+  res.json({ success: true, movedTo: nextDate, inSales: true, salesAppointmentCode: replacement.appointmentCode });
+});
 const markNotComing = asyncHandler(async (req, res) => {
   const reason = String(req.body.reason || '').trim();
   if (!reason) return res.status(400).json({ success: false, message: 'Not coming reason is required' });
@@ -679,4 +727,4 @@ const deleteAppointment = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, uploadConsultationFeeProof, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, cancelAcceptance, rescheduleAppointment, markNotComing, clearNotComing, logCall, listCalls, logSalesCall, listSalesCalls, logManagementCall, listManagementCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, uploadConsultationFeeProof, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, cancelAcceptance, rescheduleAppointment, rescheduleManagedAppointment, markNotComing, clearNotComing, logCall, listCalls, logSalesCall, listSalesCalls, logManagementCall, listManagementCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };

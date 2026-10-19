@@ -34,6 +34,9 @@ const salesAppointmentSchema = new mongoose.Schema(
     salesCallHistory: { type: [callEntrySchema], default: [] },
     salesCallStatus: { type: String, enum: ['pending', 'connected', 'no_answer', 'follow_up'], default: 'pending' },
     rescheduledTo: { type: String, default: '' },
+    // Why it was moved (written by Reception / Sales) and, on the new row, where it was moved from
+    rescheduleNote: { type: String, trim: true, default: '', maxlength: 1000 },
+    rescheduledFromDate: { type: String, default: '' },
     rescheduledAt: { type: Date, default: null },
     rescheduledByName: { type: String, trim: true, default: '' },
     rescheduledAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesAppointment', default: null },
