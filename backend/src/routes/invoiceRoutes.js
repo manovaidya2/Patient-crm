@@ -11,7 +11,7 @@ router.get('/settings', getSettings);
 router.put('/settings', authorize(ROLES.ADMIN), updateSettings);
 router.get('/', listInvoices);
 router.post('/', createInvoice);
-router.put('/:id', authorize(ROLES.ADMIN), updateInvoice);
+router.put('/:id', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), updateInvoice);
 router.delete('/:id', authorize(ROLES.ADMIN), deleteInvoice);
 router.get('/:id/revisions/:revision/pdf', getPdf);
 router.get('/:id/pdf', getPdf);

@@ -174,6 +174,19 @@ test('invoice routes allow admin, accountant, post counselor, doctor and recepti
   }
 });
 
+test('saved bills can be edited by Admin and Post Counselor, but only Admin can delete or change settings', () => {
+  const guard = (method, path) => {
+    const layer = invoiceRouter.stack.find((item) => item.route?.path === path && item.route.methods[method]);
+    return layer.route.stack[0].handle;
+  };
+  const allowed = (handler, role) => { let permitted = false; handler({ user: { role } }, { status() { return this; }, json() {} }, () => { permitted = true; }); return permitted; };
+  for (const role of ['admin', 'post_counselor']) assert.equal(allowed(guard('put', '/:id'), role), true, role);
+  for (const role of ['accountant', 'doctor', 'receptionist']) assert.equal(allowed(guard('put', '/:id'), role), false, role);
+  assert.equal(allowed(guard('delete', '/:id'), 'post_counselor'), false);
+  assert.equal(allowed(guard('delete', '/:id'), 'admin'), true);
+  assert.equal(allowed(guard('put', '/settings'), 'post_counselor'), false);
+});
+
 test('final bill creation calculates totals, uses own number series, and persists its PDF', async () => {
   stubSave();
   mock.method(InvoiceSettings, 'findById', () => ({ lean: async () => null }));
@@ -267,13 +280,13 @@ test('concurrent edit conflict removes new PDF and preserves previous revision',
   assert.equal(fs.unlink.mock.callCount(), 1);
 });
 
-test('edit route allows only admin, while readers can still view both bill pages', () => {
+test('edit route allows admin and post counselor, while readers can still view both bill pages', () => {
   const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/:id' && layer.route.methods.put);
   const guard = route.route.stack[0].handle;
   for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
     let allowed = false;
     guard({ user: { role } }, { status() { return this; }, json() {} }, () => { allowed = true; });
-    assert.equal(allowed, role === 'admin');
+    assert.equal(allowed, ['admin', 'post_counselor'].includes(role));
   }
 });
 

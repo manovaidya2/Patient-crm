@@ -41,6 +41,8 @@ function Section({ title, icon: Icon, children }) {
 export default function Invoices({ type }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // Admin and Post Counselor can correct a saved bill; only Admin can delete one.
+  const canEdit = isAdmin || user?.role === 'post_counselor';
   const title = `${BILL_NAMES[type]}s`;
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -118,7 +120,7 @@ export default function Invoices({ type }) {
     submissionKey.current = newKey(); setEditingRow(null); setError(''); setNotice(''); setEditing(true);
   }
   function editReceipt(row) {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     setDetails({ ...blankDetails(), ...row.details });
     setPdfStyle(row.pdfStyle || 'black-white');
     setPatient(row.patient ? { id: row.patient, patientName: row.patientName, patientCode: row.patientCode } : null);
@@ -269,7 +271,7 @@ export default function Invoices({ type }) {
           <thead className="bg-teal-900 text-white"><tr>{['Invoice / Type', 'Patient', 'Invoice date', 'Received', 'Outstanding', 'Issued by', 'PDF'].map((text) => <th key={text} className="whitespace-nowrap px-4 py-3 font-semibold">{text}</th>)}</tr></thead>
           <tbody>{loading ? <tr><td colSpan={7} className="p-10 text-center text-charcoal/60">Loading bills...</td></tr> : rows.length ? rows.map((row) => <tr key={row.id} className="border-b border-cardline last:border-0 hover:bg-white">
             <td className="whitespace-nowrap px-4 py-4 font-semibold">{row.invoiceNumber}<span className="block text-xs font-normal text-charcoal/60">{row.revision > 1 ? `Revision ${row.revision}` : title.slice(0, -1)}</span><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.pdfStyle === 'color' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-charcoal/65'}`}>{row.pdfStyle === 'color' ? 'Color PDF' : 'Black & white'}</span></td><td className="px-4 py-4"><span className="font-semibold">{row.patientName}</span><span className="block text-xs text-charcoal/60">{row.patientCode || '-'}</span></td><td className="whitespace-nowrap px-4 py-4">{dateLabel(row.date)}</td><td className="whitespace-nowrap px-4 py-4 text-teal-700">{money(row.details.amountReceived)}</td><td className="whitespace-nowrap px-4 py-4">{money(row.details.outstanding)}</td><td className="px-4 py-4"><span>{row.createdByName || '-'}</span>{row.editedByName && <span className="block text-xs text-charcoal/60">Edited by {row.editedByName}</span>}</td>
-            <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print bill" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button>{isAdmin && <><button className={buttonClass} title="Edit saved bill" aria-label={`Edit ${row.invoiceNumber}`} onClick={() => editReceipt(row)}><Pencil size={17} /></button><button className={`${buttonClass} !border-red-200 !text-red-700 hover:!bg-red-50`} title="Delete saved bill" aria-label={`Delete ${row.invoiceNumber}`} onClick={() => setDeleteTarget(row)}><Trash2 size={17} /></button></>}</div>{row.revisionHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer text-teal-700">Previous PDFs</summary><div className="mt-1 flex flex-wrap gap-1">{row.revisionHistory.map((item) => <button key={item.revision} type="button" className="rounded border border-cardline px-2 py-1 hover:bg-teal-50" onClick={() => openPdf(row, false, item.revision)}>v{item.revision}</button>)}</div></details>}</td>
+            <td className="px-4 py-4"><div className="flex gap-2"><button className={buttonClass} title="View / print bill" aria-label={`View ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row)}><Eye size={17} /></button><button className={buttonClass} title="Download PDF" aria-label={`Download ${row.invoiceNumber}`} disabled={!!pdfBusy} onClick={() => openPdf(row, true)}><Download size={17} /></button>{canEdit && <button className={buttonClass} title="Edit saved bill" aria-label={`Edit ${row.invoiceNumber}`} onClick={() => editReceipt(row)}><Pencil size={17} /></button>}{isAdmin && <button className={`${buttonClass} !border-red-200 !text-red-700 hover:!bg-red-50`} title="Delete saved bill" aria-label={`Delete ${row.invoiceNumber}`} onClick={() => setDeleteTarget(row)}><Trash2 size={17} /></button>}</div>{row.revisionHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer text-teal-700">Previous PDFs</summary><div className="mt-1 flex flex-wrap gap-1">{row.revisionHistory.map((item) => <button key={item.revision} type="button" className="rounded border border-cardline px-2 py-1 hover:bg-teal-50" onClick={() => openPdf(row, false, item.revision)}>v{item.revision}</button>)}</div></details>}</td>
           </tr>) : <tr><td colSpan={7} className="p-12 text-center text-charcoal/60">No receipts found.</td></tr>}</tbody>
         </table>
       </div>
