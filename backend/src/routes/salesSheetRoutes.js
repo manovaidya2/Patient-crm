@@ -4,6 +4,7 @@ const { ROLES } = require('../constants/roles');
 const controller = require('../controllers/salesSheetController');
 const appointmentForm = require('../controllers/appointmentFormController');
 const financialLedger = require('../controllers/financialLedgerController');
+const receptionFlow = require('../controllers/receptionFlowController');
 const { uploadStageRecord, uploadConsultationFeeProof } = require('../middleware/fileUploads');
 
 const router = express.Router();
@@ -38,6 +39,11 @@ router.post('/management-columns', authorize(ROLES.ADMIN), controller.createMana
 router.patch('/management-columns/:id', authorize(ROLES.ADMIN), controller.updateManagementColumn);
 router.delete('/management-columns/:id', authorize(ROLES.ADMIN), controller.deleteManagementColumn);
 router.post('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.createManagedAppointment);
+router.post('/management/:id/arrival', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.markArrival);
+router.get('/management/:id/registration', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.getRegistration);
+router.put('/management/:id/registration', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.saveRegistration);
+router.post('/management/:id/registration/send', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.sendRegistration);
+router.get('/post-counselors', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.listPostCounselors);
 router.patch('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.updateManagedAppointment);
 router.delete('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteManagedAppointment);
 router.post('/appointments', controller.createAppointment);

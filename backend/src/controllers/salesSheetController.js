@@ -13,6 +13,9 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
+const { RECEPTION_IDS } = require('../utils/receptionFlow');
+const { isFixedSalesColumn, isFixedReceptionColumn, fixedMessage } = require('../utils/fixedColumns');
+const fieldsAreFixed = (res) => res.status(403).json({ success: false, message: fixedMessage });
 
 const emitColumnsChanged = (req) => req.app.get('io')?.to('sales-sheet').emit('sales-sheet:columns-changed');
 const emitDateChanged = (req, date) => req.app.get('io')?.to(dateRoom(date)).emit('sales-sheet:date-changed', { date });
@@ -122,6 +125,7 @@ const recordAudit = async (req, { sheet, rowId, appointmentCode, action, details
 const serializeColumn = (column) => ({
   id: String(column._id), label: column.label, type: column.type, options: column.options || [],
   required: Boolean(column.required), order: column.order, section: column.section || '',
+  fixed: isFixedSalesColumn(column._id) || isFixedReceptionColumn(column._id),
   highlightValue: column.highlightValue || (column.type === 'select' && column.label?.trim().toLowerCase() === 'package status' ? 'Package Purchased' : ''),
 });
 const serializeManagementEntry = (entry, user) => ({
@@ -135,6 +139,11 @@ const serializeManagementEntry = (entry, user) => ({
   acceptedAt: entry.acceptedAt || null, acceptedByName: entry.acceptedByName || '',
   consultationFee: entry.consultationFee ?? null,
   lastEditedAt: entry.lastEditedAt || null,
+  patientId: String(entry.values?.get?.(RECEPTION_IDS.patientId) || ''),
+  arrivalStatus: String(entry.values?.get?.(RECEPTION_IDS.arrivalStatus) || ''),
+  arrivalTime: String(entry.values?.get?.(RECEPTION_IDS.arrivalTime) || ''),
+  registrationStatus: entry.registration?.status || '',
+  registrationPostCounselorName: entry.registration?.postCounselorName || '',
   lastCallAt: entry.sourceAppointment?.lastCallAt || entry.lastCallAt || null,
   numberOfCalls: entry.sourceAppointment?.numberOfCalls || entry.numberOfCalls || 0,
   callStatus: entry.sourceAppointment?.callStatus || entry.callStatus || 'pending',
@@ -203,6 +212,7 @@ const listManagementColumns = asyncHandler(async (req, res) => {
   res.json({ success: true, columns: columns.map(serializeColumn) });
 });
 const createManagementColumn = asyncHandler(async (req, res) => {
+  if (req.body.section === 'confirmation') return fieldsAreFixed(res);
   const label = String(req.body.label || '').trim();
   if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
   const type = String(req.body.type || 'text');
@@ -218,6 +228,7 @@ const createManagementColumn = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, column: serializeColumn(column) });
 });
 const updateManagementColumn = asyncHandler(async (req, res) => {
+  if (isFixedReceptionColumn(req.params.id) || req.body.section === 'confirmation') return fieldsAreFixed(res);
   const column = await AppointmentManagementColumn.findOne({ _id: req.params.id, isActive: true });
   if (!column) return res.status(404).json({ success: false, message: 'Column not found' });
   if (req.body.label !== undefined) column.label = String(req.body.label || '').trim();
@@ -242,6 +253,7 @@ const updateManagementColumn = asyncHandler(async (req, res) => {
   res.json({ success: true, column: serializeColumn(column) });
 });
 const deleteManagementColumn = asyncHandler(async (req, res) => {
+  if (isFixedReceptionColumn(req.params.id)) return fieldsAreFixed(res);
   const column = await AppointmentManagementColumn.findById(req.params.id);
   if (!column) return res.status(404).json({ success: false, message: 'Column not found' });
   column.isActive = false; await column.save(); emitColumnsChanged(req);
@@ -265,59 +277,9 @@ const updateLayout = asyncHandler(async (req, res) => {
   res.json({ success: true, columns: layout.columns });
 });
 
-const createColumn = asyncHandler(async (req, res) => {
-  const label = String(req.body.label || '').trim();
-  if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
-  const type = String(req.body.type || 'text');
-  const allowed = COLUMN_TYPES;
-  if (!allowed.includes(type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
-  if (req.body.section && !['details', 'confirmation', 'payments'].includes(req.body.section)) return res.status(400).json({ success: false, message: 'Invalid form section' });
-  const last = await SalesSheetColumn.findOne({ isActive: true }).sort({ order: -1 }).lean();
-  const column = await SalesSheetColumn.create({
-    label, type, section: req.body.section || undefined, required: Boolean(req.body.required),
-    options: normalizeOptions(req.body.options || [], type),
-    order: (last?.order ?? -1) + 1, createdBy: req.user._id,
-  });
-  emitColumnsChanged(req);
-  res.status(201).json({ success: true, column: serializeColumn(column) });
-});
-
-const updateColumn = asyncHandler(async (req, res) => {
-  const column = await SalesSheetColumn.findOne({ _id: req.params.id, isActive: true });
-  if (!column) return res.status(404).json({ success: false, message: 'Column not found' });
-  if (req.body.label !== undefined) {
-    const label = String(req.body.label || '').trim();
-    if (!label) return res.status(400).json({ success: false, message: 'Column name is required' });
-    column.label = label;
-  }
-  if (req.body.type !== undefined) {
-    if (!COLUMN_TYPES.includes(req.body.type)) return res.status(400).json({ success: false, message: 'Invalid column type' });
-    column.type = req.body.type;
-  }
-  if (req.body.required !== undefined) column.required = Boolean(req.body.required);
-  if (req.body.section !== undefined) {
-    if (!['details', 'confirmation', 'payments'].includes(req.body.section)) return res.status(400).json({ success: false, message: 'Invalid form section' });
-    column.section = req.body.section;
-  }
-  if (req.body.options !== undefined && !Array.isArray(req.body.options)) return res.status(400).json({ success: false, message: 'Options must be a list' });
-  if (req.body.order !== undefined) column.order = Number(req.body.order);
-  if (req.body.options !== undefined) column.options = normalizeOptions(req.body.options, column.type);
-  if (!OPTION_TYPES.includes(column.type)) column.options = [];
-  else if (column.type === 'multi_select') column.options = normalizeOptions(column.options, column.type);
-  await column.save();
-  emitColumnsChanged(req);
-  res.json({ success: true, column: serializeColumn(column) });
-});
-
-const deleteColumn = asyncHandler(async (req, res) => {
-  const column = await SalesSheetColumn.findById(req.params.id);
-  if (!column) return res.status(404).json({ success: false, message: 'Column not found' });
-  column.isActive = false;
-  await column.save();
-  emitColumnsChanged(req);
-  res.json({ success: true });
-});
-
+const createColumn = asyncHandler(async (req, res) => fieldsAreFixed(res));
+const updateColumn = asyncHandler(async (req, res) => fieldsAreFixed(res));
+const deleteColumn = asyncHandler(async (req, res) => fieldsAreFixed(res));
 const listAppointments = asyncHandler(async (req, res) => {
   if (req.query.date && !validDate(req.query.date)) return res.status(400).json({ success: false, message: 'Valid date is required' });
   const rows = await SalesAppointment.find(req.query.date ? { appointmentDate: req.query.date } : {}).select('-callHistory -salesCallHistory').sort({ createdAt: 1 });

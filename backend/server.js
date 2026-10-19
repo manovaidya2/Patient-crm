@@ -32,9 +32,13 @@ const knowledgeRoutes = require('./src/routes/knowledgeRoutes');
 const receptionistChecklistRoutes = require('./src/routes/receptionistChecklistRoutes');
 const clinicInventoryRoutes = require('./src/routes/clinicInventoryRoutes');
 const recordRoomRoutes = require('./src/routes/recordRoomRoutes');
+const postCounselingRoutes = require('./src/routes/postCounselingRoutes');
 const { registerSalesSheetSocket } = require('./src/realtime/salesSheetSocket');
+const { syncFixedColumns } = require('./src/utils/fixedColumns');
 
-connectDB();
+connectDB()
+  .then(() => syncFixedColumns())
+  .catch((error) => console.error(`Fixed appointment fields could not be synced: ${error.message}`));
 
 const app = express();
 const server = http.createServer(app);
@@ -101,6 +105,7 @@ app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/receptionist-checklist', receptionistChecklistRoutes);
 app.use('/api/clinic-inventory', clinicInventoryRoutes);
 app.use('/api/record-room', recordRoomRoutes);
+app.use('/api/post-counseling', postCounselingRoutes);
 app.use('/api/reception-registers', require('./src/routes/receptionRegisterRoutes'));
 app.use('/api/crm-history', require('./src/routes/crmHistoryRoutes'));
 app.use('/api/hr', require('./src/routes/hrRoutes'));

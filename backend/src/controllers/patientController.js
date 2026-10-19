@@ -2,6 +2,7 @@ const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
 const RecordRoom = require('../models/RecordRoom');
+const { PROFILE_FIELDS, profileOf, cleanProfileValue } = require('../utils/patientProfile');
 const { parseCallTimestamp } = require('../utils/callTimestamp');
 const AdviceRequest = require('../models/AdviceRequest');
 const DigitalMarketingReview = require('../models/DigitalMarketingReview');
@@ -517,6 +518,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   centerId: p.centerId || '',
   alternateNumber: p.alternateNumber || null,
   relativeName: p.relativeName || null,
+  ...profileOf(p),
+  profileFields: PROFILE_FIELDS,
   currentStage: p.currentStage || 1,
   currentStageLabel: STAGE_LABELS[p.currentStage || 1],
   approvalStatus: p.approvalStatus || 'approved',
@@ -1826,6 +1829,14 @@ const updatePatient = asyncHandler(async (req, res) => {
       if (typeof value !== 'string' || value.trim().length > max) return res.status(400).json({ message: `${label} must be text up to ${max} characters` });
       updateField(key, value.trim(), label);
     }
+  }
+  for (const definition of PROFILE_FIELDS) {
+    const raw = req.body[definition.key];
+    if (raw === undefined) continue;
+    if (typeof raw !== 'string') return res.status(400).json({ success: false, message: `${definition.label} must be text` });
+    const value = cleanProfileValue(definition, raw);
+    if (raw.trim() && !value) return res.status(400).json({ success: false, message: `Enter a valid ${definition.label.toLowerCase()}` });
+    updateField(definition.key, value, definition.label);
   }
   updateField('number', number, "Father's number");
   updateField('guardianName', guardianName, 'Father/Mother name');

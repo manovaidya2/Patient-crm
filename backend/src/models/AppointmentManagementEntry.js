@@ -7,7 +7,21 @@ const callEntrySchema = new mongoose.Schema({
   calledByName: { type: String, required: true },
 });
 
+// Reception registration, sent to a Post Counselor. One sub-document per appointment (single source of truth).
+const registrationSchema = new mongoose.Schema({
+  fields: { type: Map, of: String, default: {} },
+  status: { type: String, enum: ['draft', 'sent'], default: 'draft' },
+  savedAt: { type: Date, default: null },
+  savedByName: { type: String, trim: true, default: '' },
+  postCounselor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  postCounselorName: { type: String, trim: true, default: '' },
+  sentAt: { type: Date, default: null },
+  sentByName: { type: String, trim: true, default: '' },
+  consultationDate: { type: String, default: '' },
+}, { _id: false });
+
 const schema = new mongoose.Schema({
+  registration: { type: registrationSchema, default: undefined },
   appointmentDate: { type: String, required: true, index: true },
   sourceAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesAppointment', default: undefined, unique: true, sparse: true },
   appointmentCode: { type: String, trim: true, default: '' },

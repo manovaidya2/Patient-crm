@@ -10,6 +10,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isSalesConfirmationColumn } = require('../utils/appointmentSections');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
+const { isFixedSalesColumn, isFixedReceptionColumn } = require('../utils/fixedColumns');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -42,7 +43,7 @@ const loadTarget = async (req) => {
 const receiptFilter = ({ sheet, row, root }) => root
   ? { $or: [{ salesAppointment: root }, ...(sheet === 'management' ? [{ appointment: row._id }] : [])] }
   : { appointment: row._id };
-const serializeColumn = (column, required = Boolean(column.required)) => ({ id: String(column._id), label: column.label, type: column.type, required, options: column.options || [], section: column.section || '' });
+const serializeColumn = (column, required = Boolean(column.required)) => ({ id: String(column._id), label: column.label, type: column.type, required, options: column.options || [], section: column.section || '', fixed: isFixedSalesColumn(column._id) || isFixedReceptionColumn(column._id) });
 const valuesOf = (values) => Object.fromEntries(values || []);
 const listBanks = asyncHandler(async (req, res) => {
   const banks = await Bank.find({ isActive: true }).select('name displayName').sort({ name: 1 }).lean();

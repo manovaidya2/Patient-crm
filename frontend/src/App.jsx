@@ -38,6 +38,7 @@ const Worksheet = lazy(() => import('./pages/admin/Worksheet.jsx'));
 const CrmChatGPT = lazy(() => import('./pages/admin/CrmChatGPT.jsx'));
 const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx'));
 const PackageNotBought = lazy(() => import('./pages/admin/PackageNotBought.jsx'));
+const PostCounselingPatients = lazy(() => import('./pages/admin/PostCounselingPatients.jsx'));
 const PackageNotBoughtDetails = lazy(() => import('./pages/admin/PackageNotBoughtDetails.jsx'));
 const PaymentSettings = lazy(() => import('./pages/admin/PaymentSettings.jsx'));
 const SalesWorkspace = lazy(() => import('./pages/SalesWorkspace.jsx'));
@@ -300,6 +301,14 @@ function App() {
           element={
             <ProtectedRoute roles={INACTIVE_PATIENTS_ROLES}>
               <InactivePatients />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="post-counseling-patients"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER]}>
+              <PostCounselingPatients />
             </ProtectedRoute>
           }
         />

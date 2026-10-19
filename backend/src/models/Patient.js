@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { profileSchemaFields } = require('../utils/patientProfile');
 const { ALL_CATEGORIES, CATEGORIES } = require('../constants/patientCategories');
 const { STAGES, STAGE_STATUSES, ALL_STAGE_STATUSES } = require('../constants/treatmentStages');
 const { PAYMENT_MODES, ALL_PAYMENT_MODES } = require('../constants/paymentModes');
@@ -321,6 +322,8 @@ const patientSchema = new mongoose.Schema(
     },
     centerName: { type: String, trim: true, default: '', maxlength: 120 },
     centerId: { type: String, trim: true, default: '', maxlength: 80 },
+    // Child & family details from the clinical history sheet (see utils/patientProfile.js)
+    ...profileSchemaFields(),
     category: {
       type: String,
       enum: ALL_CATEGORIES,

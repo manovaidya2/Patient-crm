@@ -3148,6 +3148,25 @@ const PatientDetails = () => {
               </div>
             )}
           </div>
+          {(patient.profileFields || []).length > 0 && (
+            <div className="border-t border-cardline">
+              <p className="px-3.5 pt-4 text-xs font-bold uppercase tracking-wide text-sage sm:px-6">Child &amp; family details</p>
+              <div className="mt-3 grid grid-cols-1 gap-px bg-cardline border-t border-cardline sm:grid-cols-3 lg:grid-cols-4">
+                {patient.profileFields.map((definition) => (
+                  <EditableField
+                    key={definition.key}
+                    label={definition.label}
+                    type={definition.type === 'select' ? 'select' : definition.type === 'date' ? 'date' : 'text'}
+                    options={definition.type === 'select' ? [{ value: '', label: 'Not added' }, ...definition.options.map((option) => ({ value: option, label: option }))] : undefined}
+                    value={patient[definition.key] || ''}
+                    placeholder="Not added"
+                    onSave={(val) => saveField(definition.key, val)}
+                    readOnly={!canEditPatientDetails}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
