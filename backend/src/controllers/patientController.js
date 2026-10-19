@@ -2,6 +2,9 @@ const Patient = require('../models/Patient');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
 const RecordRoom = require('../models/RecordRoom');
+const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
+const { recordRoomConditions, looseSource } = require('../utils/recordRoomMatch');
+const { RECEPTION_IDS } = require('../utils/receptionFlow');
 const { PROFILE_FIELDS, profileOf, cleanProfileValue } = require('../utils/patientProfile');
 const { parseCallTimestamp } = require('../utils/callTimestamp');
 const AdviceRequest = require('../models/AdviceRequest');
@@ -1478,9 +1481,11 @@ const getPatientRecordRoom = asyncHandler(async (req, res) => {
   if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
   if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'You can only view records of assigned patients' });
   const code = String(patient.patientCode || '').trim();
-  const match = [{ patient: patient._id }];
-  if (code) match.push({ patientId: { $regex: `^${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
-  const records = await RecordRoom.find({ $or: match, pdfUrl: { $ne: '' } })
+  // Also follow the Patient ID to the appointment(s) that carry it: the Records Room may be filed under the appointment code.
+  const source = looseSource(code);
+  const entries = source ? await AppointmentManagementEntry.find({ [`values.${RECEPTION_IDS.patientId}`]: { $regex: source, $options: 'i' } }).select('appointmentCode').lean() : [];
+  const match = recordRoomConditions({ patientRef: patient._id, patientCode: code, appointmentCodes: entries.map((entry) => entry.appointmentCode) });
+  const records = await RecordRoom.find({ $or: match, pdfUrl: { $nin: ['', null] } })
     .select('patientId appointmentId shelfNumber fileNumber indexNumber treatmentStatus pdfUrl pdfName pdfPageCount pdfUpdatedAt updatedAt')
     .sort({ pdfUpdatedAt: -1, updatedAt: -1 }).lean();
   res.json({ success: true, records: records.map((r) => ({

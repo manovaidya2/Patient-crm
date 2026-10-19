@@ -5,6 +5,9 @@ const { randomUUID } = require('crypto');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
+const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
+const SalesAppointment = require('../models/SalesAppointment');
+const { RECEPTION_IDS } = require('../utils/receptionFlow');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { validateReceipt, renderReceipt, receiptFileName, validDate } = require('../utils/partPaymentReceipt');
 const { validateFinalBill, renderFinalBill } = require('../utils/finalBill');
@@ -65,7 +68,19 @@ const getPatientConsultationPayments = asyncHandler(async (req, res) => {
   const patient = await Patient.findById(req.params.id).select('patientCode').lean();
   if (!patient) return res.status(404).json({ message: 'Patient not found' });
   const links = [{ patient: patient._id }];
-  if (patient.patientCode) links.push({ patientCode: patient.patientCode });
+  if (patient.patientCode) {
+    links.push({ patientCode: patient.patientCode });
+    // Receipts are often only attached to the appointment. The appointment carries the Patient ID that reception
+    // generated, so follow it from the patient's ID to the appointment (and the sales appointment behind it).
+    const entries = await AppointmentManagementEntry.find({ [`values.${RECEPTION_IDS.patientId}`]: { $regex: `^${escapeRegex(patient.patientCode.trim())}$`, $options: 'i' } }).select('_id sourceAppointment').lean();
+    if (entries.length) {
+      const salesIds = entries.map((entry) => entry.sourceAppointment).filter(Boolean);
+      const accounts = salesIds.length ? await SalesAppointment.find({ _id: { $in: salesIds } }).select('consultationAccount').lean() : [];
+      const salesAll = [...new Set([...salesIds, ...accounts.map((row) => row.consultationAccount).filter(Boolean)].map(String))];
+      links.push({ appointment: { $in: entries.map((entry) => entry._id) } });
+      if (salesAll.length) links.push({ salesAppointment: { $in: salesAll } });
+    }
+  }
   const receipts = await ConsultationReceipt.find({ status: 'approved', $or: links }).sort({ date: 1, createdAt: 1 }).lean();
   res.json({
     payments: receipts.map((receipt) => ({

@@ -6,6 +6,8 @@ const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const Patient = require('../models/Patient');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const User = require('../models/User');
+const ConsultationReceipt = require('../models/ConsultationReceipt');
+const SalesAppointment = require('../models/SalesAppointment');
 const { cleanRecord } = require('../utils/postCounselingRecord');
 const { cleanPurchase, totals } = require('../utils/purchaseOrderRecord');
 
@@ -37,6 +39,7 @@ const makeEntry = (extra = {}) => {
   return {
     _id: OID, appointmentCode: 'APT-1', appointmentDate: '2026-10-18',
     values: new Map([['6abb6329297d3a5387593670', 'R-3440']]), salesValues: new Map(),
+    sourceAppointment: 's'.repeat(24),
     registration: { status: 'sent', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', consultationDate: '2026-10-18', sentByName: 'Prachi', fields: new Map(Object.entries(baseFields)) },
     postCounseling: { savedAt: new Date(), record: rec, purchase: { savedAt: new Date(), values: purchase.values, totals: purchase.totals } },
     ...extra,
@@ -45,12 +48,14 @@ const makeEntry = (extra = {}) => {
 const run = async (handler, body, entry, options = {}) => {
   const restore = [];
   const stub = (target, name, fn) => { const old = target[name]; target[name] = fn; restore.push(() => { target[name] = old; }); };
-  const log = { claims: [], updates: [], patients: [], deleted: false, pnb: [] };
+  const log = { claims: [], updates: [], patients: [], deleted: false, pnb: [], receiptLinks: [] };
   stub(Management, 'findById', async () => entry);
   stub(Management, 'findOneAndUpdate', async (filter, update) => { log.claims.push({ filter, update }); return options.claim === null ? null : entry; });
   stub(Management, 'updateOne', async (filter, update) => { log.updates.push(update); return {}; });
   stub(SalesSheetAudit, 'create', async () => ({}));
   stub(Patient, 'findOne', async () => null);
+  stub(ConsultationReceipt, 'updateMany', async (filter, update) => { log.receiptLinks.push({ filter, update }); return {}; });
+  stub(SalesAppointment, 'find', () => ({ select: () => ({ lean: async () => [{ _id: 's'.repeat(24), consultationAccount: 'k'.repeat(24) }] }) }));
   stub(User, 'findOne', async () => ({ _id: COUNSELOR, name: 'Abhishek' }));
   stub(Patient, 'create', async (doc) => {
     const created = { _id: PATIENT_OID, ...doc, stages: doc.stages.map((stage) => ({ ...stage, payments: [...(stage.payments || [])] })), activityLog: [...doc.activityLog], save: async () => {}, deleteOne: async () => { log.deleted = true; } };
@@ -96,6 +101,13 @@ test('convert: creates the patient with registration details, Phase 1 package, P
   assert.deepEqual(log.claims[0].filter['postCounseling.outcome.kind'], { $in: [null, ''] });
   assert.equal(log.claims[0].update.$set['postCounseling.outcome.kind'], 'converted');
   assert.equal(res.body.patientId, PATIENT_OID);
+  // the consultation fee (e.g. Rs 599) paid against the appointment now belongs to the patient
+  const link = log.receiptLinks[0];
+  assert.deepEqual(link.filter.$or[0], { appointment: OID });
+  assert.deepEqual(link.filter.$or[1], { salesAppointment: { $in: ['s'.repeat(24), 'k'.repeat(24)] } });
+  assert.equal(link.filter.patient, null, 'receipts already linked to someone are left alone');
+  assert.equal(String(link.update.$set.patient), PATIENT_OID);
+  assert.equal(link.update.$set.patientCode, 'R-3440');
 });
 
 test('convert: a cash payment is saved as cash, and no payment is made when nothing was received', async () => {

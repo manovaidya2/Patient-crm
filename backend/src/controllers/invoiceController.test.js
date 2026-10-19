@@ -4,6 +4,8 @@ const fs = require('fs/promises');
 const path = require('path');
 const { Invoice, InvoiceCounter } = require('../models/Invoice');
 const Patient = require('../models/Patient');
+const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
+const SalesAppointment = require('../models/SalesAppointment');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
 const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
 const { createInvoice, updateInvoice, deleteInvoice, listInvoices, findPatients, getPatientConsultationPayments, getPdf, getSettings, updateSettings } = require('./invoiceController');
@@ -110,6 +112,7 @@ test('patient lookup returns only basic editable details, with relative fallback
 });
 
 test('final bill lookup returns all approved consultation receipts linked by patient or patient ID', async () => {
+  mock.method(AppointmentManagementEntry, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
   mock.method(Patient, 'findById', (patientId) => {
     assert.equal(patientId, id);
     return { select: () => ({ lean: async () => ({ _id: id, patientCode: 'P1' }) }) };
@@ -126,6 +129,34 @@ test('final bill lookup returns all approved consultation receipts linked by pat
   assert.equal(result.error, undefined);
   assert.deepEqual(result.body.payments.map((payment) => payment.amount), [99, 500]);
   assert.equal(result.body.payments[0].reference, 'UTR-1');
+});
+
+test('final bill lookup also finds receipts that are only attached to the appointment carrying the patient ID', async () => {
+  const entryId = '507f1f77bcf86cd799439021';
+  const salesId = '507f1f77bcf86cd799439022';
+  const accountId = '507f1f77bcf86cd799439023';
+  mock.method(Patient, 'findById', () => ({ select: () => ({ lean: async () => ({ _id: id, patientCode: 'A-3432' }) }) }));
+  mock.method(AppointmentManagementEntry, 'find', (filter) => {
+    const condition = filter['values.6abb6329297d3a5387593670'];
+    assert.equal(String(condition.$regex), '^A-3432$');
+    assert.equal(condition.$options, 'i');
+    return { select: () => ({ lean: async () => [{ _id: entryId, sourceAppointment: salesId }] }) };
+  });
+  mock.method(SalesAppointment, 'find', () => ({ select: () => ({ lean: async () => [{ _id: salesId, consultationAccount: accountId }] }) }));
+  mock.method(ConsultationReceipt, 'find', (filter) => {
+    assert.equal(filter.status, 'approved');
+    assert.deepEqual(filter.$or[0], { patient: id });
+    assert.deepEqual(filter.$or[1], { patientCode: 'A-3432' });
+    assert.deepEqual(filter.$or[2], { appointment: { $in: [entryId] } });
+    assert.deepEqual(filter.$or[3], { salesAppointment: { $in: [salesId, accountId] } });
+    return { sort: () => ({ lean: async () => [
+      { _id: '507f1f77bcf86cd799439031', amount: 99, date: new Date('2026-10-08'), paymentMode: 'online' },
+      { _id: '507f1f77bcf86cd799439032', amount: 500, date: new Date('2026-10-11'), paymentMode: 'online' },
+    ] }) };
+  });
+  const result = await invoke(getPatientConsultationPayments, { params: { id } });
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.body.payments.map((payment) => payment.amount), [99, 500], 'the 599 consultation fee is returned');
 });
 
 test('invalid PDF ids return not found', async () => {

@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const Management = require('../models/AppointmentManagementEntry');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const BankAccount = require('../models/BankAccount');
+const ConsultationReceipt = require('../models/ConsultationReceipt');
+const SalesAppointment = require('../models/SalesAppointment');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
@@ -150,6 +152,20 @@ const packageSummary = (entry) => {
   };
 };
 
+// The consultation fee (e.g. Rs 599) was paid against the appointment. Attach those receipts to the new patient so the
+// final bill and the ledger find them. Never lets a problem here undo the conversion.
+const linkConsultationReceipts = async (entry, patient) => {
+  try {
+    const salesIds = entry.sourceAppointment ? [entry.sourceAppointment] : [];
+    const accounts = salesIds.length ? await SalesAppointment.find({ _id: { $in: salesIds } }).select('consultationAccount').lean() : [];
+    const sales = [...new Set([...salesIds, ...accounts.map((row) => row.consultationAccount).filter(Boolean)].map(String))];
+    const match = [{ appointment: entry._id }, ...(sales.length ? [{ salesAppointment: { $in: sales } }] : [])];
+    await ConsultationReceipt.updateMany({ $or: match, patient: null }, { $set: { patient: patient._id, patientCode: patient.patientCode || '' } });
+  } catch (error) {
+    console.error('Consultation receipts could not be linked to the patient:', error.message);
+  }
+};
+
 // @route POST /api/post-counseling/patients/:id/outcome/convert
 // Creates the patient (pending accounts approval) with the registration details, and puts the package, purchase order
 // and the payment received now into Phase 1.
@@ -205,6 +221,7 @@ const convertToPatient = asyncHandler(async (req, res) => {
     throw error;
   }
   await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': patient._id } });
+  await linkConsultationReceipts(entry, patient);
   await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}`);
   emitChanged(req, entry);
   res.json({ success: true, patientId: String(patient._id) });
