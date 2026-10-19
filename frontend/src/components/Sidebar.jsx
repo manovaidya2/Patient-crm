@@ -46,6 +46,11 @@ import { HR_ACCESS_ROLES, ROLES } from '../constants/roles.js';
 import api from '../api/axios.js';
 import BrandLogo from './BrandLogo.jsx';
 
+// Pages shown at the very top of a role's menu, in this order.
+const ROLE_FIRST_PAGES = {
+  [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/post-counseling-done'],
+};
+
 export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
@@ -238,9 +243,13 @@ const Sidebar = ({ mobile = false, onClose }) => {
   const [urgentAdviceCount, setUrgentAdviceCount] = useState(0);
   const isAdmin = user?.role === ROLES.ADMIN;
   const canSeeAdviceCount = [ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role);
-  const visibleNavItems = navItems.filter(
+  const roleItems = navItems.filter(
     (item) => (!item.adminOnly || isAdmin) && (!item.roles || item.roles.includes(user?.role)) && !item.hiddenFor?.includes(user?.role)
   );
+  // Some roles want their daily pages first; everything else follows in the usual order.
+  const firstPages = ROLE_FIRST_PAGES[user?.role] || [];
+  const rank = (item) => { const at = firstPages.indexOf(item.to); return at === -1 ? firstPages.length : at; };
+  const visibleNavItems = firstPages.length ? [...roleItems].sort((x, y) => rank(x) - rank(y)) : roleItems;
   if (user?.role === ROLES.ACCOUNTANT) {
     const rank = (item) => {
       const index = accountantNavOrder.indexOf(item.to);

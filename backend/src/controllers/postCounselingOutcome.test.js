@@ -32,7 +32,8 @@ const record = () => cleanRecord({ components: { selected: ['dosDontsDiet', 'ayu
 const baseFields = { patientName: 'Riddhima', age: '4', category: 'autism_adhd', fatherName: 'Rajnish', motherName: 'Sonam', fatherNumber: '8800611900', motherNumber: '6265219550', city: 'Delhi', pinCode: '110021', patientHistoryBy: 'Mother' };
 const makeEntry = (extra = {}) => {
   const rec = record();
-  const purchase = cleanPurchase({ mode: 'Online', amountReceivedNow: '10000', utrReference: '166901178274', poNo: 'PO-9', poDate: '2026-10-18', orderedTreatment: 'Autism / Phase 1', paymentTime: '15:10', paymentVerifiedBy: 'Accounts' }, rec.totals.approvedProgramFee);
+  const purchase = cleanPurchase({ mode: 'Online', amountReceivedNow: '10000', utrReference: '166901178274', poNo: 'PO-9', poDate: '2026-10-18', orderedTreatment: 'Autism / Phase 1', paymentTime: '15:10', paymentVerifiedBy: 'Accounts', transactionId: 'TXN-77', payToBank: 'b1'.padEnd(24, '0'), paymentDate: '2026-10-19', paymentNotes: 'first part', screenshots: [{ url: '/uploads/payments/1-2.png', fileName: 'proof.png' }, { url: 'https://evil.test/x.png', fileName: 'bad' }] }, rec.totals.approvedProgramFee);
+  purchase.values.payToBankName = 'Manovaidya Ayurveda';
   return {
     _id: OID, appointmentCode: 'APT-1', appointmentDate: '2026-10-18',
     values: new Map([['6abb6329297d3a5387593670', 'R-3440']]), salesValues: new Map(),
@@ -83,6 +84,13 @@ test('convert: creates the patient with registration details, Phase 1 package, P
   assert.equal(phase.payments[0].amount, 10000);
   assert.equal(phase.payments[0].paymentMode, 'online');
   assert.equal(phase.payments[0].utr, '166901178274');
+  assert.equal(phase.payments[0].transactionId, 'TXN-77');
+  assert.equal(phase.payments[0].payToBankName, 'Manovaidya Ayurveda');
+  assert.equal(String(phase.payments[0].payToBank), 'b1'.padEnd(24, '0'));
+  assert.deepEqual(phase.payments[0].screenshotFiles, [{ url: '/uploads/payments/1-2.png', fileName: 'proof.png' }], 'only uploaded screenshots are kept');
+  assert.equal(phase.payments[0].screenshotUrl, '/uploads/payments/1-2.png');
+  assert.equal(new Date(phase.payments[0].date).toISOString().slice(0, 10), '2026-10-19');
+  assert.match(phase.payments[0].notes, /first part/);
   assert.equal(phase.payments[0].approvalStatus, 'pending');
   assert.match(phase.payments[0].notes, /PO PO-9/);
   assert.deepEqual(log.claims[0].filter['postCounseling.outcome.kind'], { $in: [null, ''] });
@@ -97,6 +105,8 @@ test('convert: a cash payment is saved as cash, and no payment is made when noth
   const payment = cash.log.patients[0].stages.find((stage) => stage.number === 1).payments[0];
   assert.equal(payment.paymentMode, 'cash');
   assert.equal(payment.receivedBy, 'Prachi');
+  assert.equal(payment.payToBank, null, 'a cash payment has no bank');
+  assert.deepEqual(payment.screenshotFiles, []);
   const zero = makeEntry();
   zero.postCounseling.purchase.values = { ...zero.postCounseling.purchase.values, amountReceivedNow: '' };
   const none = await run(controller.convertToPatient, {}, zero);

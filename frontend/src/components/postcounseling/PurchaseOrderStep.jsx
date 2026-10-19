@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Check, Save, UserCheck, PackageX } from 'lucide-react';
+import { ArrowLeft, Check, FileText, Paperclip, Save, UserCheck, PackageX, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Input from '../ui/Input.jsx';
 import Modal from '../ui/Modal.jsx';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
+const serverBase = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 const rupees = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 
 const SectionTitle = ({ letter, children, hint }) => (
@@ -30,8 +31,27 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
   const [dialog, setDialog] = useState(null);
   const [form, setForm] = useState({});
   const [result, setResult] = useState(null);
+  const [banks, setBanks] = useState([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => { setValues(data.purchase.values); setSaved(data.purchase.saved); }, [data.purchase]);
+  useEffect(() => {
+    api.get('/banks', { params: { active: 'true' } }).then(({ data: response }) => setBanks(response.banks || [])).catch(() => setBanks([]));
+  }, []);
+
+  const uploadScreenshots = async (event) => {
+    const chosen = [...(event.target.files || [])];
+    event.target.value = '';
+    if (!chosen.length) return;
+    setUploading(true); setError('');
+    try {
+      const body = new FormData();
+      chosen.forEach((file) => body.append('screenshot', file));
+      const { data: response } = await api.post('/post-counseling/upload', body);
+      set('screenshots', [...(values.screenshots || []), ...response.files]);
+    } catch (err) { setError(err.response?.data?.message || 'Screenshot could not be uploaded'); }
+    finally { setUploading(false); }
+  };
 
   const fee = Number(data.record?.totals?.approvedProgramFee || 0);
   const received = Number(values.amountReceivedNow || 0);
@@ -72,6 +92,44 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
   const renderField = (field) => {
     if (!visible(field)) return null;
     const wrap = field.wide ? 'md:col-span-2' : '';
+    if (field.type === 'bank') {
+      return (
+        <div key={field.key} className={wrap}>
+          <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}</p>
+          <select disabled={!editable} value={values[field.key] || ''} onChange={(event) => set(field.key, event.target.value)} className={inputClass}>
+            <option value="">Select bank</option>
+            {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
+          </select>
+        </div>
+      );
+    }
+    if (field.type === 'files') {
+      const files = values[field.key] || [];
+      return (
+        <div key={field.key} className={wrap}>
+          <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}</p>
+          <div className="space-y-2">
+            {editable && (
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-semibold text-sage hover:border-sage/60">
+                <Paperclip size={14} />{uploading ? 'Uploading...' : 'Attach screenshots'}
+                <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={uploadScreenshots} />
+              </label>
+            )}
+            {files.length > 0 ? (
+              <ul className="flex flex-wrap gap-2">
+                {files.map((file) => (
+                  <li key={file.url} className="inline-flex items-center gap-1 rounded-full border border-cardline bg-white px-3 py-1 text-xs">
+                    <FileText size={12} className="text-sage" />
+                    <a href={`${serverBase}${file.url}`} target="_blank" rel="noreferrer" className="max-w-[180px] truncate font-semibold text-sage hover:underline">{file.fileName}</a>
+                    {editable && <button type="button" aria-label={`Remove ${file.fileName}`} onClick={() => set(field.key, files.filter((item) => item.url !== file.url))} className="text-charcoal/50 hover:text-red-700"><X size={12} /></button>}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-xs text-charcoal/45">No screenshot attached</p>}
+          </div>
+        </div>
+      );
+    }
     if (field.type === 'check') return <label key={field.key} className={`flex items-center gap-2 pt-6 text-sm font-semibold text-charcoal ${wrap}`}><input type="checkbox" disabled={!editable} checked={Boolean(values[field.key])} onChange={(event) => set(field.key, event.target.checked)} className="h-4 w-4 accent-sage" />{field.label}</label>;
     return (
       <div key={field.key} className={wrap}>
@@ -150,7 +208,7 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
       <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-cardline bg-offwhite-100 pt-3">
         {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
         {onBack && <Button variant="outline" onClick={onBack}><ArrowLeft size={15} /> Back</Button>}
-        {editable && <Button onClick={save} disabled={busy}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
+        {editable && <Button onClick={save} disabled={busy || uploading}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
       </div>
 
       <Modal open={dialog === 'convert'} onClose={() => !busy && setDialog(null)} title="Convert to patient" className="max-w-lg">

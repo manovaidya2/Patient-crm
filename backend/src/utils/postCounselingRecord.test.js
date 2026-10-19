@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { COMPONENTS, SECTION_A, cleanRecord, emptyRecord } = require('./postCounselingRecord');
+const { COMPONENTS, SECTION_A, cleanRecord, emptyRecord, normalizeRecord } = require('./postCounselingRecord');
 const controller = require('../controllers/postCounselingRecordController');
 const Management = require('../models/AppointmentManagementEntry');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
@@ -32,7 +32,7 @@ test('record: Ayurvedic price is needed when it is selected, and ignored when it
 });
 
 test('record: bad values are rejected or dropped', () => {
-  assert.throws(() => cleanRecord({ components: { selected: ['dosDontsDiet'] }, e: { concession: '30000' } }), /concession/);
+  assert.throws(() => cleanRecord({ components: { selected: ['dosDontsDiet'] }, e: { approvedProgramFee: '30000' } }), /approved program fee/);
   assert.throws(() => cleanRecord({ e: { part1Amount: '-5' } }), /Part 1/);
   assert.throws(() => cleanRecord({ b: { decisionDate: 'tomorrow' } }), /date/);
   const question = SECTION_A[0];
@@ -107,4 +107,28 @@ test('done list: only saved records, filtered by consultation date, and a counse
     assert.equal(seen['registration.postCounselor'], undefined);
     assert.deepEqual(admin.body.patients.map((patient) => patient.patientName), ['Vyom']);
   } finally { Management.find = find; }
+});
+
+test('approved fee is typed in and the concession is worked out from it', () => {
+  const components = { selected: ['dosDontsDiet', 'panchakarmaKit', 'ayurvedicFormulations'], ayurvedicPrice: '68000' };
+  const typed = cleanRecord({ components, e: { approvedProgramFee: '62,000', concession: '1' } });
+  assert.equal(typed.totals.referenceValue, 104000);
+  assert.equal(typed.totals.approvedProgramFee, 62000);
+  assert.equal(typed.totals.concession, 42000);
+  assert.equal(typed.e.concession, 42000, 'a concession sent by the browser is ignored');
+  const none = cleanRecord({ components, e: {} });
+  assert.equal(none.totals.approvedProgramFee, 104000);
+  assert.equal(none.totals.concession, 0);
+  const equal = cleanRecord({ components, e: { approvedProgramFee: '104000' } });
+  assert.equal(equal.totals.concession, 0);
+  assert.throws(() => cleanRecord({ components, e: { approvedProgramFee: '104001' } }), /cannot be more/);
+});
+
+test('older records that only have a concession still show the right approved fee', () => {
+  const old = { components: { selected: ['dosDontsDiet', 'panchakarmaKit'], ayurvedicPrice: '' }, e: { concession: 6000, paymentPlan: '' }, totals: { referenceValue: 36000, approvedProgramFee: 30000 } };
+  const fixed = normalizeRecord(old);
+  assert.equal(fixed.e.approvedProgramFee, 30000);
+  assert.equal(fixed.totals.approvedProgramFee, 30000);
+  assert.equal(fixed.totals.concession, 6000);
+  assert.equal(normalizeRecord({ ...old, e: { concession: 0 } }).e.approvedProgramFee, '');
 });

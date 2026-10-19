@@ -68,13 +68,15 @@ const pickOne = (value, options) => (options.includes(value) ? value : '');
 const pickMany = (values, options) => (Array.isArray(values) ? options.filter((option) => values.includes(option)) : []);
 
 // The money side, always worked out here so the saved totals can never disagree with the selection.
-const totals = ({ selected, ayurvedicPrice, concession }) => {
+// The approved program fee is typed in; the concession / adjustment is whatever it is below the reference value.
+// An empty approved fee means no concession (it equals the reference value).
+const totals = ({ selected, ayurvedicPrice, approvedFee }) => {
   const reference = COMPONENTS.reduce((sum, component) => {
     if (!selected.includes(component.key)) return sum;
     return sum + (component.key === CUSTOM_PRICE_KEY ? Number(ayurvedicPrice || 0) : Number(component.price || 0));
   }, 0);
-  const adjustment = Number(concession || 0);
-  return { referenceValue: reference, programFeeBeforeConcession: reference, approvedProgramFee: Math.max(reference - adjustment, 0) };
+  const approved = approvedFee === '' || approvedFee === undefined || approvedFee === null ? reference : Number(approvedFee);
+  return { referenceValue: reference, programFeeBeforeConcession: reference, approvedProgramFee: approved, concession: Math.max(reference - approved, 0) };
 };
 
 const emptyRecord = () => ({
@@ -82,9 +84,18 @@ const emptyRecord = () => ({
   b: Object.fromEntries(SECTION_B.map((field) => [field.key, field.type === 'check' ? false : ''])),
   components: { selected: [], ayurvedicPrice: '' },
   otherComponent: '',
-  e: { concession: '', paymentPlan: '', part1Amount: '', part1Due: '', part2Amount: '', part2Due: '', part3Amount: '', part3Due: '', otherPlan: '' },
-  totals: totals({ selected: [], ayurvedicPrice: '', concession: '' }),
+  e: { approvedProgramFee: '', concession: 0, paymentPlan: '', part1Amount: '', part1Due: '', part2Amount: '', part2Due: '', part3Amount: '', part3Due: '', otherPlan: '' },
+  totals: totals({ selected: [], ayurvedicPrice: '', approvedFee: '' }),
 });
+
+// Records saved before the approved fee was typed in only have a concession: work the approved fee out from it.
+const normalizeRecord = (record) => {
+  if (!record?.e || record.e.approvedProgramFee !== undefined) return record;
+  const reference = Number(record.totals?.referenceValue || 0);
+  const concession = Number(record.e.concession || 0);
+  const approved = concession ? Math.max(reference - concession, 0) : '';
+  return { ...record, e: { ...record.e, approvedProgramFee: approved }, totals: totals({ selected: record.components?.selected || [], ayurvedicPrice: record.components?.ayurvedicPrice, approvedFee: approved }) };
+};
 
 // Cleans what the browser sent into a record we are willing to store. Unknown keys are dropped.
 const cleanRecord = (raw = {}) => {
@@ -107,15 +118,20 @@ const cleanRecord = (raw = {}) => {
   record.otherComponent = text(raw?.otherComponent, 300);
   const e = raw?.e || {};
   record.e = {
-    concession: money(e.concession, 'Approved concession / adjustment'),
+    approvedProgramFee: '', concession: 0,
     paymentPlan: pickOne(e.paymentPlan, PAYMENT_PLANS),
     part1Amount: money(e.part1Amount, 'Part 1'), part1Due: text(e.part1Due, 100),
     part2Amount: money(e.part2Amount, 'Part 2'), part2Due: text(e.part2Due, 100),
     part3Amount: money(e.part3Amount, 'Part 3'), part3Due: text(e.part3Due, 100),
     otherPlan: text(e.otherPlan, 500),
   };
-  record.totals = totals({ selected, ayurvedicPrice, concession: record.e.concession });
-  if (Number(record.e.concession || 0) > record.totals.referenceValue) throw fail('The concession cannot be more than the selected components value');
+  const reference = totals({ selected, ayurvedicPrice, approvedFee: '' }).referenceValue;
+  let approved = money(e.approvedProgramFee, 'Approved program fee');
+  if (approved === '' && e.approvedProgramFee === undefined && Number(e.concession || 0) > 0) approved = Math.max(reference - Number(money(e.concession, 'Approved concession / adjustment') || 0), 0); // older clients
+  if (approved !== '' && approved > reference) throw fail('The approved program fee cannot be more than the selected components value');
+  record.e.approvedProgramFee = approved;
+  record.totals = totals({ selected, ayurvedicPrice, approvedFee: approved });
+  record.e.concession = record.totals.concession;
   return record;
 };
 
@@ -123,4 +139,4 @@ const definitions = () => ({
   sectionA: SECTION_A, sectionB: SECTION_B, components: COMPONENTS, customPriceKey: CUSTOM_PRICE_KEY, paymentPlans: PAYMENT_PLANS,
 });
 
-module.exports = { SECTION_A, SECTION_B, COMPONENTS, CUSTOM_PRICE_KEY, PAYMENT_PLANS, emptyRecord, cleanRecord, totals, definitions };
+module.exports = { SECTION_A, SECTION_B, COMPONENTS, CUSTOM_PRICE_KEY, PAYMENT_PLANS, emptyRecord, cleanRecord, normalizeRecord, totals, definitions };

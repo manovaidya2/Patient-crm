@@ -6,15 +6,20 @@ const EMI_STATUSES = ['Approved', 'Pending', 'Declined'];
 const CARD_RATE = 0.03;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-// type: text | money | date | time | single
+// type: text | money | date | time | single | check | bank (an active bank account id) | files (uploaded payment screenshots)
 const SECTION_F = [
   { key: 'mode', label: 'Mode', type: 'single', options: MODES },
   { key: 'amountReceivedNow', label: 'Amount received now (Rs)', type: 'money' },
   { key: 'utrReference', label: 'UTR / payment / tracking reference', type: 'text', hideFor: ['Cash'] },
+  { key: 'transactionId', label: 'Transaction ID', type: 'text', hideFor: ['Cash'] },
+  { key: 'payToBank', label: 'Paid to bank', type: 'bank', hideFor: ['Cash'] },
+  { key: 'screenshots', label: 'Payment screenshots', type: 'files', hideFor: ['Cash'], wide: true },
   { key: 'cashHandedTo', label: 'Cash handed to', type: 'text', onlyFor: ['Cash'] },
   { key: 'cashReceiver', label: 'Cash receiver / signature', type: 'text', onlyFor: ['Cash'] },
+  { key: 'paymentDate', label: 'Payment date', type: 'date' },
   { key: 'paymentTime', label: 'Time', type: 'time' },
   { key: 'paymentVerifiedBy', label: 'Payment verified by', type: 'text' },
+  { key: 'paymentNotes', label: 'Payment notes', type: 'text', wide: true },
   { key: 'plan', label: 'Approved plan', type: 'single', options: PLANS },
   { key: 'part1Amount', label: 'Part 1 (Rs)', type: 'money' }, { key: 'part1Due', label: 'Part 1 due', type: 'text' },
   { key: 'part2Amount', label: 'Part 2 (Rs)', type: 'money' }, { key: 'part2Due', label: 'Part 2 due', type: 'text' },
@@ -73,7 +78,7 @@ const defaults = ({ record, registration, counselorName, today }) => {
   const e = record?.e || {};
   const emi = e.paymentPlan === 'EMI';
   const categoryLabel = registration?.category === 'mental_health' ? 'Mental Health' : 'Autism / ADHD';
-  const base = Object.fromEntries(ALL_FIELDS.map((field) => [field.key, field.type === 'check' ? false : '']));
+  const base = Object.fromEntries(ALL_FIELDS.map((field) => [field.key, field.type === 'check' ? false : field.type === 'files' ? [] : '']));
   return {
     ...base,
     mode: emi ? 'EMI' : '',
@@ -81,7 +86,7 @@ const defaults = ({ record, registration, counselorName, today }) => {
     part1Amount: e.part1Amount ?? '', part1Due: e.part1Due || '',
     part2Amount: e.part2Amount ?? '', part2Due: e.part2Due || '',
     part3Amount: e.part3Amount ?? '', part3Due: e.part3Due || '',
-    poDate: today, consentDate: today,
+    poDate: today, consentDate: today, paymentDate: today,
     orderedTreatment: `${categoryLabel} / Phase 1`,
     guardianName: registration?.fatherName || registration?.motherName || '',
     guardianMobile: registration?.fatherNumber || registration?.motherNumber || '',
@@ -96,6 +101,16 @@ const cleanPurchase = (raw = {}, approvedFee) => {
     if (field.type === 'check') values[field.key] = value === true || value === 'true';
     else if (field.type === 'single') values[field.key] = field.options.includes(value) ? value : '';
     else if (field.type === 'money') values[field.key] = money(value, field.label);
+    else if (field.type === 'bank') {
+      const id = text(value, 24);
+      if (id && !/^[a-f0-9]{24}$/i.test(id)) throw fail('Select a valid bank');
+      values[field.key] = id;
+    } else if (field.type === 'files') {
+      values[field.key] = (Array.isArray(value) ? value : [])
+        .filter((file) => /^\/uploads\/payments\/[A-Za-z0-9._-]+$/.test(String(file?.url || '')))
+        .slice(0, 10)
+        .map((file) => ({ url: String(file.url), fileName: text(file.fileName || 'Payment screenshot', 255) }));
+    }
     else if (field.type === 'date') {
       const v = text(value, 10);
       if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw fail(`Enter a valid date for ${field.label}`);
@@ -106,7 +121,7 @@ const cleanPurchase = (raw = {}, approvedFee) => {
       values[field.key] = v;
     } else values[field.key] = text(value, field.wide ? 500 : 200);
   }
-  if (values.mode === 'Cash') values.utrReference = '';
+  if (values.mode === 'Cash') { values.utrReference = ''; values.transactionId = ''; values.payToBank = ''; values.screenshots = []; }
   else { values.cashHandedTo = ''; values.cashReceiver = ''; }
   if (Number(values.amountReceivedNow || 0) > Number(approvedFee || 0)) throw fail('The amount received cannot be more than the approved program fee');
   return { values, totals: totals(values, approvedFee) };

@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 const Management = require('../models/AppointmentManagementEntry');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
+const BankAccount = require('../models/BankAccount');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
-const { emptyRecord, cleanRecord, definitions, COMPONENTS } = require('../utils/postCounselingRecord');
+const { emptyRecord, cleanRecord, normalizeRecord, definitions, COMPONENTS } = require('../utils/postCounselingRecord');
 const purchase = require('../utils/purchaseOrderRecord');
 const { REGISTRATION_FIELDS, FIELD_GROUPS, CATEGORY_LABEL, RECEPTION_IDS, istDate } = require('../utils/receptionFlow');
 const { PROFILE_KEYS } = require('../utils/patientProfile');
@@ -55,7 +56,7 @@ const view = (entry, canEdit) => {
   const saved = entry.postCounseling?.record;
   const registration = registrationView(entry);
   return {
-    record: saved ? { ...emptyRecord(), ...saved } : emptyRecord(),
+    record: saved ? normalizeRecord({ ...emptyRecord(), ...saved }) : emptyRecord(),
     saved: Boolean(entry.postCounseling?.savedAt),
     savedAt: entry.postCounseling?.savedAt || null,
     savedByName: entry.postCounseling?.savedByName || '',
@@ -89,6 +90,13 @@ const saveRecord = asyncHandler(async (req, res) => {
   res.json({ success: true, ...view(updated, canEdit) });
 });
 
+// @route POST /api/post-counseling/upload   (payment screenshots for the purchase order step)
+const uploadScreenshots = asyncHandler(async (req, res) => {
+  const files = (req.files || []).map((file) => ({ url: `/uploads/payments/${file.filename}`, fileName: file.originalname }));
+  if (!files.length) throw fail('Choose a screenshot first');
+  res.status(201).json({ success: true, files });
+});
+
 // @route PUT /api/post-counseling/patients/:id/purchase
 const savePurchase = asyncHandler(async (req, res) => {
   const { entry, canEdit } = await loadAccessible(req);
@@ -96,6 +104,12 @@ const savePurchase = asyncHandler(async (req, res) => {
   if (!entry.postCounseling?.savedAt) throw fail('Save the post-counselling record first');
   if (entry.postCounseling?.outcome?.kind) throw fail('This patient has already been converted or marked package not purchased', 409);
   const cleaned = purchase.cleanPurchase(req.body.purchase, entry.postCounseling.record?.totals?.approvedProgramFee);
+  cleaned.values.payToBankName = '';
+  if (cleaned.values.payToBank) {
+    const bank = await BankAccount.findOne({ _id: cleaned.values.payToBank, isActive: true }).lean();
+    if (!bank) throw fail('Select an active bank');
+    cleaned.values.payToBankName = bank.displayName || bank.name;
+  }
   const now = new Date();
   const updated = await Management.findOneAndUpdate({ _id: entry._id }, {
     $set: { 'postCounseling.purchase': { values: cleaned.values, totals: cleaned.totals, savedAt: now, savedByName: req.user.name } },
@@ -124,7 +138,7 @@ const requireReady = (entry, needPurchase) => {
 
 // The package that was offered, kept with the record so it is on the Package Not Bought page too.
 const packageSummary = (entry) => {
-  const record = entry.postCounseling?.record || emptyRecord();
+  const record = normalizeRecord(entry.postCounseling?.record || emptyRecord());
   const names = new Map(COMPONENTS.map((component) => [component.key, component.label]));
   const values = entry.postCounseling?.purchase?.values || {};
   return {
@@ -173,10 +187,13 @@ const convertToPatient = asyncHandler(async (req, res) => {
     phase.totalAmount = fee;
     if (received > 0) {
       const cash = values.mode === 'Cash';
-      const notes = [`Mode: ${values.mode || 'Not set'}`, values.mode === 'Card (+3%)' ? `3% card charge Rs ${entry.postCounseling.purchase.totals?.cardCharge || 0}` : '', values.poNo ? `PO ${values.poNo}` : '', values.paymentTime ? `Time ${values.paymentTime}` : '', values.paymentVerifiedBy ? `Verified by ${values.paymentVerifiedBy}` : ''].filter(Boolean).join(' | ');
+      const notes = [`Mode: ${values.mode || 'Not set'}`, values.mode === 'Card (+3%)' ? `3% card charge Rs ${entry.postCounseling.purchase.totals?.cardCharge || 0}` : '', values.poNo ? `PO ${values.poNo}` : '', values.paymentTime ? `Time ${values.paymentTime}` : '', values.paymentVerifiedBy ? `Verified by ${values.paymentVerifiedBy}` : '', text(values.paymentNotes, 500)].filter(Boolean).join(' | ');
+      const screenshots = !cash && Array.isArray(values.screenshots) ? values.screenshots : [];
       phase.payments.push({
-        amount: received, date: values.poDate ? new Date(`${values.poDate}T12:00:00.000Z`) : new Date(), paymentMode: cash ? 'cash' : 'online',
-        utr: cash ? '' : text(values.utrReference), receivedBy: cash ? text(values.cashHandedTo || values.cashReceiver) : '',
+        amount: received, date: (values.paymentDate || values.poDate) ? new Date(`${values.paymentDate || values.poDate}T12:00:00.000Z`) : new Date(), paymentMode: cash ? 'cash' : 'online',
+        payToBank: !cash && values.payToBank ? values.payToBank : null, payToBankName: cash ? '' : text(values.payToBankName),
+        utr: cash ? '' : text(values.utrReference), transactionId: cash ? '' : text(values.transactionId), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : '',
+        screenshotUrl: screenshots[0]?.url || null, screenshotFiles: screenshots,
         notes, recordedByName: req.user.name, approvalStatus: 'pending',
       });
       patient.activityLog.push({ action: 'Payment added for Phase 1', details: `${received} via ${values.mode || 'Online'} — pending accounts approval`, actorName: req.user.name, actorRole: req.user.role || '' });
@@ -246,7 +263,7 @@ const listDone = asyncHandler(async (req, res) => {
   const names = new Map(COMPONENTS.map((component) => [component.key, component.label]));
   const patients = rows.map((entry) => {
     const r = registrationView(entry);
-    const record = { ...emptyRecord(), ...(entry.postCounseling?.record || {}) };
+    const record = normalizeRecord({ ...emptyRecord(), ...(entry.postCounseling?.record || {}) });
     const bought = entry.postCounseling?.purchase?.values || {};
     return {
       id: r.id, patientId: r.patientId, patientName: r.fields.patientName, age: r.fields.age, category: r.fields.category,
@@ -263,4 +280,4 @@ const listDone = asyncHandler(async (req, res) => {
   res.json({ success: true, patients });
 });
 
-module.exports = { getRecord, saveRecord, savePurchase, convertToPatient, markNotPurchased, listDone };
+module.exports = { getRecord, saveRecord, savePurchase, uploadScreenshots, convertToPatient, markNotPurchased, listDone };

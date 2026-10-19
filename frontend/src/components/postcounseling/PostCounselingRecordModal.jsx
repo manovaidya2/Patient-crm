@@ -25,7 +25,10 @@ const calculate = (record, defs) => {
     if (!selected.includes(component.key)) return sum;
     return sum + (component.key === defs.customPriceKey ? Number(record.components.ayurvedicPrice || 0) : Number(component.price || 0));
   }, 0);
-  return { reference, approved: Math.max(reference - Number(record.e.concession || 0), 0) };
+  // The approved fee is typed in; an empty one means no concession. The concession is the difference.
+  const typed = String(record.e.approvedProgramFee ?? '').replace(/,/g, '').trim();
+  const approved = typed === '' ? reference : Number(typed) || 0;
+  return { reference, approved, concession: Math.max(reference - approved, 0), tooHigh: approved > reference };
 };
 
 const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false }) => {
@@ -76,8 +79,11 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
     finally { setBusy(false); }
   };
 
+  // Closed: nothing to draw. (The old record is still in state for a moment and would read the missing patient.)
+  if (!patient) return null;
+
   return (
-    <Modal open={Boolean(patient)} onClose={onClose} title="Post-counselling record" className="max-w-5xl">
+    <Modal open onClose={onClose} title="Post-counselling record" className="max-w-5xl">
       {!record && !error && <p className="py-10 text-center text-sm text-charcoal/55">Loading...</p>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {record && defs && step === 'purchase' && !readOnly && (
@@ -142,7 +148,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
                 </div>
               ))}
               <div>
-                <p className="mb-1 text-xs font-semibold text-charcoal/70">Approved program fee <span className="font-normal text-charcoal/45">(auto, from section E)</span></p>
+                <p className="mb-1 text-xs font-semibold text-charcoal/70">Approved program fee <span className="font-normal text-charcoal/45">(from section E)</span></p>
                 <p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.approved)}</p>
               </div>
             </div>
@@ -178,8 +184,8 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
             <div className="grid gap-3 md:grid-cols-2">
               <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Selected components reference value <span className="font-normal text-charcoal/45">(auto)</span></p><p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.reference)}</p></div>
               <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Program fee before concession <span className="font-normal text-charcoal/45">(auto)</span></p><p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.reference)}</p></div>
-              <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Approved concession / adjustment (Rs)</p><input disabled={!editable} inputMode="decimal" value={record.e.concession} onChange={(event) => setE('concession', event.target.value)} className={inputClass} /></div>
-              <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Approved program fee <span className="font-normal text-charcoal/45">(auto)</span></p><p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.approved)}</p></div>
+              <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Approved program fee (Rs)</p><input disabled={!editable} inputMode="decimal" value={record.e.approvedProgramFee ?? ''} onChange={(event) => setE('approvedProgramFee', event.target.value)} placeholder={rupees(totals.reference)} className={inputClass} />{totals.tooHigh && <p className="mt-1 text-xs font-semibold text-red-700">It cannot be more than the reference value.</p>}</div>
+              <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Approved concession / adjustment <span className="font-normal text-charcoal/45">(auto)</span></p><p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.concession)}</p></div>
               <div className="md:col-span-2">
                 <p className="mb-1 text-xs font-semibold text-charcoal/70">Payment plan</p>
                 <div className="flex flex-wrap gap-1.5">{defs.paymentPlans.map((plan) => <Chip key={plan} disabled={!editable} active={record.e.paymentPlan === plan} onClick={() => setE('paymentPlan', record.e.paymentPlan === plan ? '' : plan)}>{plan}</Chip>)}</div>
