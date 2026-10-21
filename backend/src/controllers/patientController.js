@@ -137,7 +137,7 @@ const canAccessPatient = (user, patient) => {
   return String(assignedId) === String(user._id);
 };
 
-const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
+const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(user?.role);
 const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
 const paidRefundAmount = (payment = {}) => (payment.refunds || [])
@@ -278,13 +278,13 @@ const canSeeMedicineDeliveryReminder = (user, patient) => {
 };
 
 const canEditPackageStage = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(user?.role);
 
 const canEditPatientRecords = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canAddStagePayment = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canEditPatientIdentity = (user) =>
   [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
@@ -498,10 +498,10 @@ const normalizeStages = (existing = []) => {
 };
 
 const shouldShowFollowUps = (user) =>
-  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.SALES_TEAM].includes(user.role);
 
 const shouldShowFamilySessions = (user) =>
-  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.SALES_TEAM].includes(user.role);
 
 const cannotSeeScheduleType = (user, fieldKey) =>
   fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST;
@@ -634,7 +634,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     };
   }),
-  ...(includeActivity && ![ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user?.role)
+  ...(includeActivity && user?.role !== ROLES.SALES_TEAM
     ? {
         activityLog: (p.activityLog || [])
           .map(formatActivityEntry)
@@ -692,7 +692,7 @@ const formatPatientListItem = (p, user = null) => {
 
 // @desc    List patients received via webhook (search, filter by category, paginated)
 // @route   GET /api/patients
-// @access  Private/Admin, Doctor, Accountant, Post Counselor
+// @access  Private/Admin, Doctor, Receptionist, Post Counselor
 const getPatients = asyncHandler(async (req, res) => {
   const { search = '', category, stage, receivedDate, consultationDate, amountStatus, status, page = 1, limit = 10 } = req.query;
 
@@ -1432,7 +1432,7 @@ const getRefundsLedger = asyncHandler(async (req, res) => {
 
 // @desc    Get a single patient by id
 // @route   GET /api/patients/:id
-// @access  Private/Admin, Doctor, Accountant, Post Counselor
+// @access  Private/Admin, Doctor, Receptionist, Post Counselor
 const legacyPoPaper = async (patientId) => {
   const source = await AppointmentManagementEntry.findOne({ 'postCounseling.outcome.patient': patientId }).select('postCounseling.purchase').lean();
   return source?.postCounseling?.purchase?.values ? { ...source.postCounseling.purchase, source: 'post_counseling' } : null;
@@ -1648,8 +1648,8 @@ const createPatient = asyncHandler(async (req, res) => {
 //          screenshots haven't been verified yet. Hidden from Assistant Doctor/Psychologist
 //          until approved from here (or from the patient's own details page).
 // @route   GET /api/patients/pending-approvals
-// @access  Private/Admin, Doctor, Accountant
-// Every payment on this patient that still needs Admin/Doctor/Accountant sign-off,
+// @access  Private/Admin, Doctor, Receptionist
+// Every payment on this patient that still needs Admin/Doctor/Receptionist sign-off,
 // with the stage it belongs to — this is the "which phase's payment" detail Accounts needs.
 const pendingPaymentsOf = (patient) => {
   const rows = [];
@@ -1680,7 +1680,7 @@ const pendingPaymentsOf = (patient) => {
 
 const getPendingApprovals = asyncHandler(async (req, res) => {
   if (!canReviewPatientApproval(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Accountant can review patient approvals' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Receptionist can review patient approvals' });
   }
 
   // A patient shows up here either because the patient itself is brand-new and unapproved,
@@ -1724,10 +1724,10 @@ const getPendingApprovals = asyncHandler(async (req, res) => {
 //          other patient (visible to its assigned Assistant Doctor/Psychologist, counted
 //          in dashboards, etc.)
 // @route   PATCH /api/patients/:id/approve
-// @access  Private/Admin, Doctor, Accountant
+// @access  Private/Admin, Doctor, Receptionist
 const approvePatient = asyncHandler(async (req, res) => {
   if (!canReviewPatientApproval(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Accountant can approve a patient' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Receptionist can approve a patient' });
   }
 
   const patient = await Patient.findById(req.params.id);
@@ -1794,13 +1794,13 @@ const updatePatientStatus = asyncHandler(async (req, res) => {
 
 // @desc    Update one or more fields on a patient (used by inline editing on the details page)
 // @route   PATCH /api/patients/:id
-// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped); Accountant assignments only
+// @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped); Receptionist assignments only
 const updatePatient = asyncHandler(async (req, res) => {
-  if (req.user.role === ROLES.ACCOUNTANT) {
+  if (req.user.role === ROLES.RECEPTIONIST) {
     const assignmentFields = new Set(['assignedDoctor', 'assignedPsychologist']);
     const hasDisallowedField = Object.keys(req.body || {}).some((key) => !assignmentFields.has(key));
     if (hasDisallowedField || Object.keys(req.body || {}).length === 0) {
-      return res.status(403).json({ success: false, message: 'Accountant can only assign the Assistant Doctor or Psychologist' });
+      return res.status(403).json({ success: false, message: 'Receptionist can only assign the Assistant Doctor or Psychologist here' });
     }
   }
   const {
@@ -2349,10 +2349,10 @@ const deleteStagePayment = asyncHandler(async (req, res) => {
 //          per-payment approval that keeps firing for an existing, already-approved
 //          patient every time a new payment comes in on any stage.
 // @route   PATCH /api/patients/:id/stages/:number/payments/:paymentId/approve
-// @access  Private/Admin, Doctor, Accountant
+// @access  Private/Admin, Doctor, Receptionist
 const approveStagePayment = asyncHandler(async (req, res) => {
   if (!canReviewPatientApproval(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Accountant can approve a payment' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Receptionist can approve a payment' });
   }
 
   const stageNum = parseInt(req.params.number, 10);
@@ -2802,16 +2802,16 @@ const deleteStageRecordScan = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
-// @desc    Assistant Doctor/Doctor/Admin/Accountant sends a stage medicine request with prescription
+// @desc    Assistant Doctor/Doctor/Admin/Receptionist sends a stage medicine request with prescription
 // @route   POST /api/patients/:id/stages/:number/medicine-request
-// @access  Private/Admin, Doctor, Assistant Doctor (scoped), Accountant
+// @access  Private/Admin, Doctor, Assistant Doctor (scoped), Receptionist
 const requestStageMedicine = asyncHandler(async (req, res) => {
   const stageNum = parseInt(req.params.number, 10);
   if (!STAGES.includes(stageNum)) {
     return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
-  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.ACCOUNTANT].includes(req.user.role)) {
+  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.RECEPTIONIST].includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'You do not have permission to request medicine' });
   }
 

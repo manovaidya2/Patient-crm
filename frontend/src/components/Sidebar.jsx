@@ -55,7 +55,7 @@ export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
-  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT] },
+  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
   { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
   { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/enquiries', icon: ClipboardList, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
@@ -63,13 +63,13 @@ export const navItems = [
   { to: '/admin/visitors', icon: Users, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/outgoing-couriers', icon: FileArchive, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
+  { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
   { to: '/admin/in-transit', icon: Truck, label: 'In Transit', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.RECEPTIONIST] },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: Users, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER] },
   { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER] },
   { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR] },
-  { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
+  { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
   { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
@@ -81,14 +81,15 @@ export const navItems = [
   { to: '/admin/clinic-inventory', icon: PackageOpen, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/courier', icon: Truck, label: 'Courier Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST] },
   { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST] },
-  { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/invoices', type: 'invoices', roles: [ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
-  { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
-  { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT] },
+  { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/invoices', type: 'invoices', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
+  { type: 'accountant', roles: [ROLES.RECEPTIONIST] },
+  { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
   { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING] },
   
@@ -101,22 +102,6 @@ export const navItems = [
 ];
 
 const STORAGE_KEY = 'crm_sidebar_collapsed';
-const accountantNavOrder = [
-  '/admin/accounts',
-  '/admin/patient-approvals',
-  '/admin/payments',
-  '/admin/approved-payments',
-  '/admin/accounts/consultations',
-  '/admin/accounts/treatment',
-  '/admin/invoices',
-  '/admin/appointment-management',
-  '/admin/accounts/expenses',
-  '/admin/accounts/refunds',
-  '/admin/patients',
-  '/admin/enquiries',
-  '/admin/knowledge-library',
-];
-
 // "Patients by Phase" nav item expands into the 6 phase links instead of linking directly.
 export const StageMenu = ({ collapsed, onNavigate }) => {
   const location = useLocation();
@@ -194,6 +179,33 @@ const InvoiceMenu = ({ collapsed, onNavigate }) => {
   </div>;
 };
 
+const ACCOUNTANT_LINKS = [
+  ['/admin/accounts', 'Accounts Dashboard', IndianRupee, true],
+  ['/admin/patient-approvals', 'Patient Approvals', ShieldCheck],
+  ['/admin/payments', 'Payments', CreditCard],
+  ['/admin/approved-payments', 'Approved Payments', BadgeCheck],
+  ['/admin/accounts/consultations', 'Consultation Ledger', BookOpen],
+  ['/admin/accounts/treatment', 'Treatment Ledger', BookOpen],
+  ['/admin/accounts/expenses', 'Expenses', TrendingDown],
+  ['/admin/accounts/refunds', 'Refund Register', RotateCcw],
+];
+
+const AccountantMenu = ({ collapsed, onNavigate }) => {
+  const location = useLocation();
+  const isOnAccountantPage = ACCOUNTANT_LINKS.some(([to, , , end]) => end ? location.pathname === to : location.pathname.startsWith(to));
+  const [open, setOpen] = useState(isOnAccountantPage);
+  useEffect(() => { if (isOnAccountantPage) setOpen(true); }, [isOnAccountantPage]);
+  if (collapsed) return <NavLink to="/admin/accounts" onClick={onNavigate} title="Accountant" aria-label="Accountant" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnAccountantPage ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><IndianRupee size={17} /></NavLink>;
+  return <div>
+    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium ${isOnAccountantPage ? 'bg-teal-800 text-white' : 'text-teal-100/70 hover:bg-teal-800 hover:text-white'}`}>
+      <IndianRupee size={17} /><span className="flex-1 text-left">Accountant</span><ChevronDown size={15} className={open ? 'rotate-180' : ''} />
+    </button>
+    {open && <div className="ml-4 mt-1 space-y-0.5 border-l border-offwhite-100/10 pl-3.5">
+      {ACCOUNTANT_LINKS.map(([to, label, Icon, end]) => <NavLink key={to} to={to} end={Boolean(end)} onClick={onNavigate} className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${isActive ? 'bg-teal-700 text-white shadow-sm' : 'text-teal-100/60 hover:bg-teal-800 hover:text-white'}`}><Icon size={15} />{label}</NavLink>)}
+    </div>}
+  </div>;
+};
+
 const HrMenu = ({ collapsed, onNavigate }) => {
   const location = useLocation();
   const isOnHr = location.pathname.startsWith('/admin/hr');
@@ -250,14 +262,6 @@ const Sidebar = ({ mobile = false, onClose }) => {
   const firstPages = ROLE_FIRST_PAGES[user?.role] || [];
   const rank = (item) => { const at = firstPages.indexOf(item.to); return at === -1 ? firstPages.length : at; };
   const visibleNavItems = firstPages.length ? [...roleItems].sort((x, y) => rank(x) - rank(y)) : roleItems;
-  if (user?.role === ROLES.ACCOUNTANT) {
-    const rank = (item) => {
-      const index = accountantNavOrder.indexOf(item.to);
-      return index < 0 ? accountantNavOrder.length : index;
-    };
-    visibleNavItems.sort((a, b) => rank(a) - rank(b));
-  }
-
   useEffect(() => {
     if (!canSeeAdviceCount) {
       setAdviceUnreadCount(0);
@@ -322,6 +326,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
           }
           if (item.type === 'invoices') {
             return <InvoiceMenu key="invoices" collapsed={isCollapsed} onNavigate={onClose} />;
+          }
+          if (item.type === 'accountant') {
+            return <AccountantMenu key="accountant" collapsed={isCollapsed} onNavigate={onClose} />;
           }
           if (item.type === 'hr') {
             return <HrMenu key="hr" collapsed={isCollapsed} onNavigate={onClose} />;

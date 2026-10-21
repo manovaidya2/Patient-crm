@@ -54,14 +54,13 @@ test('admin can clear a required consent form field in appointment management', 
   assert.equal(result.error, undefined);
   assert.equal(result.body.value, '');
 });
-test('sales can edit only owned active unaccepted rows; accountant stays read-only', () => {
+test('sales can edit only owned active unaccepted rows; reception manages management rows', () => {
   assert.equal(canWrite('sales', row, user), true);
   assert.equal(canWrite('sales', { ...row, createdBy: 'another' }, user), false);
   assert.equal(canWrite('sales', { ...row, acceptedAt: new Date() }, user), false);
   assert.equal(canWrite('sales', { ...row, status: 'rescheduled' }, user), false);
   assert.equal(canWrite('management', row, user), false);
   assert.equal(canWrite('management', row, { role: ROLES.RECEPTIONIST }), true);
-  assert.equal(canWrite('management', row, { role: ROLES.ACCOUNTANT }), false);
 });
 test('sales advance remains the same receipt after acceptance; direct appointments use own ID', () => {
   assert.deepEqual(receiptFilter({ sheet: 'sales', row, root: id }), { $or: [{ salesAppointment: id }] });

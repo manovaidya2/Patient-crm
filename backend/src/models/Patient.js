@@ -86,7 +86,7 @@ const paymentEntrySchema = new mongoose.Schema(
     editedByName: { type: String, trim: true, default: '' },
     editedAt: { type: Date, default: null },
     // Every new payment (on a brand-new patient or one already approved) needs an
-    // Admin/Doctor/Accountant to verify it before it counts as confirmed — mirrors the
+    // Admin/Doctor/Receptionist to verify it before it counts as confirmed — mirrors the
     // patient-level approvalStatus gate but per payment, so an existing, already-live
     // patient doesn't get hidden just because a later payment came in.
     approvalStatus: {
@@ -375,7 +375,7 @@ const patientSchema = new mongoose.Schema(
       default: 1,
     },
     // Financial/intake approval gate. Every manually-created patient (source: 'manual')
-    // starts "pending" until an Admin/Doctor/Accountant reviews payments/screenshots and
+    // starts "pending" until an Admin/Doctor/Receptionist reviews payments/screenshots and
     // approves it — until then it stays hidden from Assistant Doctor/Psychologist.
     // Webhook-received patients default straight to "approved" (unaffected by this gate).
     approvalStatus: {

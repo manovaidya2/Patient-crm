@@ -8,13 +8,7 @@ const receptionFlow = require('../controllers/receptionFlowController');
 const { uploadStageRecord, uploadConsultationFeeProof } = require('../middleware/fileUploads');
 
 const router = express.Router();
-router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST, ROLES.ACCOUNTANT));
-router.use((req, res, next) => {
-  if (req.user.role === ROLES.ACCOUNTANT && (req.method !== 'GET' || (!['/columns', '/layout', '/management', '/management-columns'].includes(req.path) && !/^\/forms\/management\/[a-f\d]{24}$/i.test(req.path)))) {
-    return res.status(403).json({ message: 'Accountant access to the appointment sheet is read-only' });
-  }
-  next();
-});
+router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST));
 router.get('/forms/:sheet/:id', appointmentForm.getForm);
 router.get('/forms/management/:id/calls', controller.listManagementCalls);
 router.post('/forms/management/:id/calls', controller.logManagementCall);
@@ -31,8 +25,8 @@ router.patch('/columns/:id', authorize(ROLES.ADMIN), controller.updateColumn);
 router.delete('/columns/:id', authorize(ROLES.ADMIN), controller.deleteColumn);
 router.get('/appointments', controller.listAppointments);
 router.get('/timeline/:sheet/:id', authorize(ROLES.ADMIN), controller.listTimeline);
-router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT), controller.listManagedAppointments);
-router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT), controller.listManagementColumns);
+router.get('/management', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagedAppointments);
+router.get('/management-columns', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listManagementColumns);
 router.post('/upload', uploadStageRecord.single('file'), controller.uploadManagementAttachment);
 router.post('/consultation-upload', uploadConsultationFeeProof.single('file'), controller.uploadConsultationFeeProof);
 router.post('/management-columns', authorize(ROLES.ADMIN), controller.createManagementColumn);

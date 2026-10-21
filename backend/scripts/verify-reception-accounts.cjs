@@ -11,7 +11,7 @@ async function main() {
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    const user = { id: '507f1f77bcf86cd799439011', name: 'Accountant', role: 'accountant' };
+    const user = { id: '507f1f77bcf86cd799439011', name: 'Reception', role: 'receptionist' };
     const patient = { _id: user.id, patientName: 'Sample Patient', patientCode: 'PT-101' };
     let receipt = { _id: '507f1f77bcf86cd799439012', patientId: patient._id, patientName: patient.patientName, patientCode: patient.patientCode, appointmentCode: 'APT-101', kind: 'consultation', amount: 600, date: new Date().toISOString(), status: 'pending', paymentMode: 'cash', recordedByName: 'Receptionist', notes: 'Consultation received in full', refunded: 0, files: [], refunds: [] };
     let created = 0, approved = 0;
@@ -40,7 +40,7 @@ async function main() {
       if (route.startsWith('/sales-sheet/')) data = { columns: [], appointments: [] };
       request.respond({ status: 200, headers, contentType: 'application/json', body: JSON.stringify(data) });
     });
-    const output = path.resolve(__dirname, '../../artifacts/accountant-ledgers'); fs.mkdirSync(output, { recursive: true });
+    const output = path.resolve(__dirname, '../../artifacts/reception-accounts'); fs.mkdirSync(output, { recursive: true });
     await page.setViewport({ width: 1440, height: 1000 });
     await page.goto(new URL('/admin/accounts/consultations', url).href);
     await page.waitForSelector('button[aria-label="View payment for Sample Patient"]');
@@ -89,7 +89,7 @@ async function main() {
     await page.waitForFunction(() => document.body.textContent.includes('Appointment Management'));
     assert.equal(await page.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.textContent.includes('Add appointment'))), false);
     assert.deepEqual(errors, []);
-    console.log('Mocked accountant UI: receipt create/approve, search, payment pages, read-only appointment access and mobile layout passed.');
+    console.log('Mocked reception accounts UI: receipt create/approve, search, payment pages, appointment access and mobile layout passed.');
   } finally { await browser.close(); }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

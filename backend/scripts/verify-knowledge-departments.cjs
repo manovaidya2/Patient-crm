@@ -5,7 +5,7 @@ async function main() {
   if (!url) throw new Error('Pass the application URL');
   const browser = await puppeteer.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }) });
   try {
-    for (const role of ['admin', 'psychologist', 'assistant_doctor', 'medicine_department', 'dispatch_courier', 'sales_team', 'accountant', 'receptionist', 'post_counselor', 'manager', 'doctor', 'digital_marketing']) {
+    for (const role of ['admin', 'psychologist', 'assistant_doctor', 'medicine_department', 'dispatch_courier', 'sales_team', 'receptionist', 'post_counselor', 'manager', 'doctor', 'digital_marketing']) {
       const page = await browser.newPage();
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));

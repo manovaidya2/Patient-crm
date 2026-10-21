@@ -10,7 +10,6 @@ const ROLES = {
   MEDICINE_DEPARTMENT: 'medicine_department',
   DISPATCH_COURIER: 'dispatch_courier',
   DIGITAL_MARKETING: 'digital_marketing',
-  ACCOUNTANT: 'accountant',
   SALES_TEAM: 'sales_team',
   RECEPTIONIST: 'receptionist',
   HR: 'hr',
@@ -26,7 +25,6 @@ const CREATABLE_ROLES = [
   ROLES.MEDICINE_DEPARTMENT,
   ROLES.DISPATCH_COURIER,
   ROLES.DIGITAL_MARKETING,
-  ROLES.ACCOUNTANT,
   ROLES.SALES_TEAM,
   ROLES.RECEPTIONIST,
   ROLES.HR,
@@ -39,13 +37,13 @@ const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 
 // Roles that can open All Patients / Patient Details and see every patient, same as Admin.
-const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.ACCOUNTANT];
+const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST];
 
 // Assistant Doctor and Psychologist can also open those pages, but only for patients assigned to them.
 const PATIENT_ACCESS_ROLES = [...PATIENT_FULL_ACCESS_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist.
-const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ACCOUNTANT];
+const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.RECEPTIONIST];
 
 const ROLE_LABELS = {
   [ROLES.ADMIN]: 'Admin',
@@ -57,7 +55,6 @@ const ROLE_LABELS = {
   [ROLES.MEDICINE_DEPARTMENT]: 'Medicine Department',
   [ROLES.DISPATCH_COURIER]: 'Dispatch & Courier',
   [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
-  [ROLES.ACCOUNTANT]: 'Accountant',
   [ROLES.SALES_TEAM]: 'Sales Team',
   [ROLES.RECEPTIONIST]: 'Receptionist',
   [ROLES.HR]: 'HR',

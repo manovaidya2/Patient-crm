@@ -6,7 +6,7 @@ const Appointment = require('../models/AppointmentManagementEntry');
 const Patient = require('../models/Patient');
 const { day, ledgerMatch, ledgerPipeline, createReceipt, reviewReceipt, deleteReceipt, deleteReceiptFile, getLedger } = require('./financialLedgerController');
 const id = '507f1f77bcf86cd799439011';
-const user = { _id: id, name: 'Accountant' };
+const user = { _id: id, name: 'Reception' };
 const invoke = async (handler, body = {}, extra = {}) => {
   let data, error, status = 200;
   await handler({ body, user, params: { id }, query: {}, ...extra }, { status(value) { status = value; return this; }, json(value) { data = value; } }, (value) => { error = value; });
@@ -123,7 +123,7 @@ test('deleting a missing consultation receipt returns not found', async () => {
 test('admin can remove one consultation proof without deleting the receipt', async () => {
   const receipt = new Receipt({
     appointmentCode: 'APT-101', patientName: 'Visitor', amount: 600, date: new Date(), paymentMode: 'online',
-    recordedBy: id, recordedByName: 'Accountant', submissionKey: 'proof-delete-test',
+    recordedBy: id, recordedByName: 'Reception', submissionKey: 'proof-delete-test',
     files: [
       { url: '/uploads/consultation-fees/wrong.jpg', fileName: 'wrong.jpg' },
       { url: '/uploads/consultation-fees/right.jpg', fileName: 'right.jpg' },

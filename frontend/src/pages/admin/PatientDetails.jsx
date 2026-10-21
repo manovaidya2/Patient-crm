@@ -2494,7 +2494,7 @@ const PatientDetails = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canAssignDoctor = ASSIGN_DOCTOR_ROLES.includes(user?.role);
-  const isLimitedViewer = [ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(user?.role);
+  const isLimitedViewer = user?.role === ROLES.SALES_TEAM;
   const [patient, setPatient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -2624,18 +2624,18 @@ const PatientDetails = () => {
   const isAutism = patient?.category === PATIENT_CATEGORIES.AUTISM_ADHD;
   const guardianKey = isAutism ? 'guardianName' : 'relativeName';
   const isPsychologist = user?.role === ROLES.PSYCHOLOGIST;
-  const isAccountant = user?.role === ROLES.ACCOUNTANT;
+  const isReceptionistAccounts = user?.role === ROLES.RECEPTIONIST;
   const isAdmin = user?.role === ROLES.ADMIN;
-  const canMakeBills = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canMakeBills = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(user?.role);
   const isPostCounselor = user?.role === ROLES.POST_COUNSELOR;
-  const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(user?.role);
   const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
   const canEditPatientIdentity = [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.ACCOUNTANT].includes(user?.role);
+  const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.RECEPTIONIST].includes(user?.role);
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
-  const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isAccountant;
+  const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isReceptionistAccounts;
   const canEditPostCounselor = isAdmin || isPostCounselor;
   const canEditPayments = isAdmin || isPostCounselor;
 

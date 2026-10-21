@@ -2,7 +2,7 @@ const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 
-const BANK_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR];
+const BANK_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR];
 
 const formatBank = (bank) => ({
   id: bank._id,

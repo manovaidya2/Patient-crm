@@ -26,7 +26,7 @@ const localMonth = () => localDate().slice(0, 7);
 const getPrefetchPlan = (role) => {
   const range = todayRange();
   const plan = [];
-  if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(role)) {
+  if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(role)) {
     plan.push({ url: '/patients', params: { page: 1, limit: 10 } });
   }
   if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR].includes(role)) {
@@ -39,7 +39,7 @@ const getPrefetchPlan = (role) => {
   if ([ROLES.ADMIN, ROLES.DOCTOR].includes(role)) {
     plan.push({ url: '/patients/dashboard-stats', params: { followUpDate: localDate() } });
   }
-  if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT].includes(role)) {
+  if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(role)) {
     plan.push({ url: '/patients/pending-approvals' });
     plan.push({ url: '/patients/payments-ledger', params: { filter: 'all', dateType: 'paid', page: 1, limit: 10 } });
     plan.push({ url: '/accounts/overview', params: { filter: 'month', month: localMonth() } });

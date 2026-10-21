@@ -12,7 +12,7 @@ const { createInvoice, updateInvoice, deleteInvoice, listInvoices, findPatients,
 const invoiceRouter = require('../routes/invoiceRoutes');
 const id = '507f1f77bcf86cd799439011';
 const details = { patientName: 'Test Patient', date: '2026-10-05', totalPayable: '599', amountReceived: '99', outstanding: '500', paymentModes: ['online'] };
-const user = { _id: id, name: 'Accountant', role: 'accountant' };
+const user = { _id: id, name: 'Reception', role: 'receptionist' };
 async function invoke(handler, overrides = {}) {
   let body, error, status = 200;
   const req = { user, params: {}, query: {}, body: { type: 'part-payment', submissionKey: 'sample-submission-123', details }, ...overrides };
@@ -44,7 +44,7 @@ test('creates numbered persistent PDF and snapshot, without altering patient/pay
   assert.equal(result.body.invoice.details.amountReceived, 99);
   assert.equal(result.body.invoice.patient, null);
   assert.equal(result.body.invoice.pdfStyle, 'black-white');
-  assert.equal(result.body.invoice.createdByName, 'Accountant');
+  assert.equal(result.body.invoice.createdByName, 'Reception');
   assert.equal(fs.writeFile.mock.callCount(), 1);
 });
 
@@ -164,12 +164,12 @@ test('invalid PDF ids return not found', async () => {
   assert.equal(result.status, 404);
 });
 
-test('invoice routes allow admin, accountant, post counselor, doctor and receptionist', () => {
+test('invoice routes allow admin, post counselor, doctor and receptionist', () => {
   const accessMiddleware = invoiceRouter.stack[1].handle;
-  for (const role of ['sales_team', 'psychologist', 'medicine_department', 'admin', 'accountant', 'receptionist', 'post_counselor', 'doctor']) {
+  for (const role of ['sales_team', 'psychologist', 'medicine_department', 'admin', 'receptionist', 'post_counselor', 'doctor']) {
     let status, permitted = false;
     accessMiddleware({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
-    assert.equal(permitted, ['admin', 'accountant', 'post_counselor', 'doctor', 'receptionist'].includes(role));
+    assert.equal(permitted, ['admin', 'post_counselor', 'doctor', 'receptionist'].includes(role));
     if (!permitted) assert.equal(status, 403);
   }
 });
@@ -181,7 +181,7 @@ test('saved bills can be edited by Admin and Post Counselor, but only Admin can 
   };
   const allowed = (handler, role) => { let permitted = false; handler({ user: { role } }, { status() { return this; }, json() {} }, () => { permitted = true; }); return permitted; };
   for (const role of ['admin', 'post_counselor']) assert.equal(allowed(guard('put', '/:id'), role), true, role);
-  for (const role of ['accountant', 'doctor', 'receptionist']) assert.equal(allowed(guard('put', '/:id'), role), false, role);
+  for (const role of ['doctor', 'receptionist']) assert.equal(allowed(guard('put', '/:id'), role), false, role);
   assert.equal(allowed(guard('delete', '/:id'), 'post_counselor'), false);
   assert.equal(allowed(guard('delete', '/:id'), 'admin'), true);
   assert.equal(allowed(guard('put', '/settings'), 'post_counselor'), false);
@@ -230,7 +230,7 @@ test('settings default correctly and admin changes are validated', async () => {
 test('invoice settings writes are admin-only at the route', () => {
   const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/settings' && layer.route.methods.put);
   const guard = route.route.stack[0].handle;
-  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
+  for (const role of ['admin', 'doctor', 'post_counselor', 'receptionist']) {
     let permitted = false, status;
     guard({ user: { role } }, { status(n) { status = n; return this; }, json() {} }, () => { permitted = true; });
     assert.equal(permitted, role === 'admin');
@@ -283,7 +283,7 @@ test('concurrent edit conflict removes new PDF and preserves previous revision',
 test('edit route allows admin and post counselor, while readers can still view both bill pages', () => {
   const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/:id' && layer.route.methods.put);
   const guard = route.route.stack[0].handle;
-  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
+  for (const role of ['admin', 'doctor', 'post_counselor', 'receptionist']) {
     let allowed = false;
     guard({ user: { role } }, { status() { return this; }, json() {} }, () => { allowed = true; });
     assert.equal(allowed, ['admin', 'post_counselor'].includes(role));
@@ -293,7 +293,7 @@ test('edit route allows admin and post counselor, while readers can still view b
 test('delete route is admin-only', () => {
   const route = invoiceRouter.stack.find((layer) => layer.route?.path === '/:id' && layer.route.methods.delete);
   const guard = route.route.stack[0].handle;
-  for (const role of ['admin', 'doctor', 'accountant', 'post_counselor', 'receptionist']) {
+  for (const role of ['admin', 'doctor', 'post_counselor', 'receptionist']) {
     let allowed = false, status;
     guard({ user: { role } }, { status(code) { status = code; return this; }, json() {} }, () => { allowed = true; });
     assert.equal(allowed, role === 'admin');

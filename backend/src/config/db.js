@@ -1,8 +1,54 @@
 const mongoose = require('mongoose');
 
+const migrateLegacyAccountants = async (connection) => {
+  const updatedAt = new Date();
+  const usersCollection = connection.collection('users');
+  const categoriesCollection = connection.collection('knowledgecategories');
+  const articlesCollection = connection.collection('knowledgearticles');
+  const users = await usersCollection.updateMany(
+    { role: 'accountant' },
+    { $set: { role: 'receptionist', updatedAt } }
+  );
+  const legacyCategories = await categoriesCollection.find({ department: 'accountant' }).toArray();
+  let knowledgeCategories = 0;
+  let knowledgeArticles = 0;
+  for (const category of legacyCategories) {
+    const receptionCategory = await categoriesCollection.findOne({ department: 'receptionist', name: category.name });
+    if (receptionCategory) {
+      const moved = await articlesCollection.updateMany(
+        { categoryId: category._id },
+        { $set: { categoryId: receptionCategory._id, department: 'receptionist', updatedAt } }
+      );
+      knowledgeArticles += moved.modifiedCount || 0;
+      await categoriesCollection.deleteOne({ _id: category._id });
+    } else {
+      const moved = await categoriesCollection.updateOne(
+        { _id: category._id },
+        { $set: { department: 'receptionist', updatedAt } }
+      );
+      knowledgeCategories += moved.modifiedCount || 0;
+    }
+  }
+  const remainingArticles = await articlesCollection.updateMany(
+    { department: 'accountant' },
+    { $set: { department: 'receptionist', updatedAt } }
+  );
+  knowledgeArticles += remainingArticles.modifiedCount || 0;
+  return {
+    users: users.modifiedCount || 0,
+    knowledgeCategories,
+    knowledgeArticles,
+    modifiedCount: (users.modifiedCount || 0) + knowledgeCategories + knowledgeArticles,
+  };
+};
+
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGO_URI);
+    const migration = await migrateLegacyAccountants(conn.connection);
+    if (migration.modifiedCount) {
+      console.log(`Migrated legacy Accountant data to Receptionist: ${migration.users} user(s), ${migration.knowledgeCategories} knowledge category record(s), ${migration.knowledgeArticles} knowledge article(s)`);
+    }
     console.log(`MongoDB connected: ${conn.connection.host}`);
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
@@ -11,3 +57,4 @@ const connectDB = async () => {
 };
 
 module.exports = connectDB;
+module.exports.migrateLegacyAccountants = migrateLegacyAccountants;

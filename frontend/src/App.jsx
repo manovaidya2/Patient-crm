@@ -63,12 +63,12 @@ const HrWorksheet = lazy(() => import('./pages/hr/HrWorksheet.jsx'));
 const HrIncidents = lazy(() => import('./pages/hr/HrIncidents.jsx'));
 const HrClinicExpenses = lazy(() => import('./pages/hr/HrClinicExpenses.jsx'));
 
-const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
-const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR].includes(role));
+const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(role));
+const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(role));
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
-const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT];
+const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST];
 const INACTIVE_PATIENTS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR];
 const PACKAGE_NOT_BOUGHT_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
 
@@ -151,9 +151,9 @@ function App() {
         />
         <Route path="in-transit" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.RECEPTIONIST]}><Transit /></ProtectedRoute>} />
         <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />
-        <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="final-bill" /></ProtectedRoute>} />
-        <Route path="invoices/consultation" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="consultation" /></ProtectedRoute>} />
-        <Route path="invoices/part-payment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ACCOUNTANT, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="part-payment" /></ProtectedRoute>} />
+        <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="final-bill" /></ProtectedRoute>} />
+        <Route path="invoices/consultation" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="consultation" /></ProtectedRoute>} />
+        <Route path="invoices/part-payment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="part-payment" /></ProtectedRoute>} />
         <Route
           path="payment-settings"
           element={
@@ -189,18 +189,18 @@ function App() {
         <Route
           path="payments"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
               <Payments />
             </ProtectedRoute>
           }
         />
-        <Route path="accounts/refunds" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><Refunds /></ProtectedRoute>} />
-        <Route path="accounts/consultations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><FinancialLedger key="consultation" kind="consultation" /></ProtectedRoute>} />
-        <Route path="accounts/treatment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}><FinancialLedger key="treatment" kind="treatment" /></ProtectedRoute>} />
+        <Route path="accounts/refunds" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Refunds /></ProtectedRoute>} />
+        <Route path="accounts/consultations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><FinancialLedger key="consultation" kind="consultation" /></ProtectedRoute>} />
+        <Route path="accounts/treatment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><FinancialLedger key="treatment" kind="treatment" /></ProtectedRoute>} />
         <Route
           path="approved-payments"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
               <ApprovedPayments />
             </ProtectedRoute>
           }
@@ -208,7 +208,7 @@ function App() {
         <Route
           path="accounts"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
               <Accounts />
             </ProtectedRoute>
           }
@@ -216,7 +216,7 @@ function App() {
         <Route
           path="accounts/income"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
               <Navigate to="/admin/accounts" replace />
             </ProtectedRoute>
           }
@@ -224,7 +224,7 @@ function App() {
         <Route
           path="accounts/expenses"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
               <Expenses />
             </ProtectedRoute>
           }
@@ -380,7 +380,7 @@ function App() {
         <Route
           path="appointment-management"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.ACCOUNTANT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM]}>
               <ReceptionistDashboard />
             </ProtectedRoute>
           }

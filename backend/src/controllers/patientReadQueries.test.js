@@ -5,11 +5,10 @@ const AppointmentManagementEntry = require('../models/AppointmentManagementEntry
 const controller = require('./patientController');
 const { ROLES } = require('../constants/roles');
 
-test('patient viewer routes allow only list and details reads', () => {
+test('sales patient routes allow only list and details reads while reception continues to route permissions', () => {
   const router = require('../routes/patientRoutes');
   const gate = router.stack.find((layer) => layer.handle.name === 'patientViewerAccess').handle;
-  for (const role of [ROLES.RECEPTIONIST, ROLES.SALES_TEAM]) {
-    for (const [method, path, allowed] of [
+  for (const [method, path, allowed] of [
       ['GET', '/', true], ['GET', '/507f1f77bcf86cd799439011', true],
       ['PATCH', '/507f1f77bcf86cd799439011', false], ['POST', '/', false],
       ['DELETE', '/507f1f77bcf86cd799439011', false],
@@ -17,14 +16,18 @@ test('patient viewer routes allow only list and details reads', () => {
       ['POST', '/507f1f77bcf86cd799439011/stages/1/payments', false],
     ]) {
       let nextCalled = false, status;
-      gate({ method, path, user: { role } }, { status(code) { status = code; return this; }, json() {} }, () => { nextCalled = true; });
-      assert.equal(nextCalled, allowed, `${role} ${method} ${path}`);
+      gate({ method, path, user: { role: ROLES.SALES_TEAM } }, { status(code) { status = code; return this; }, json() {} }, () => { nextCalled = true; });
+      assert.equal(nextCalled, allowed, `sales ${method} ${path}`);
       if (!allowed) assert.equal(status, 403);
-    }
+  }
+  for (const [method, path] of [['GET', '/'], ['PATCH', '/507f1f77bcf86cd799439011'], ['POST', '/507f1f77bcf86cd799439011/stages/1/payments']]) {
+    let nextCalled = false;
+    gate({ method, path, user: { role: ROLES.RECEPTIONIST } }, {}, () => { nextCalled = true; });
+    assert.equal(nextCalled, true, `reception ${method} ${path}`);
   }
 });
 
-test('reception and sales patient details omit schedules and activity while keeping medicine status', async () => {
+test('reception receives account controls and full patient details while sales remains limited', async () => {
   const original = Patient.findById;
   const originalEntry = AppointmentManagementEntry.findOne;
   AppointmentManagementEntry.findOne = () => ({ select: () => ({ lean: async () => null }) });
@@ -38,11 +41,17 @@ test('reception and sales patient details omit schedules and activity while keep
       let body;
       await controller.getPatientById({ params: { id: '507f1f77bcf86cd799439011' }, user: { role } }, { status() { return this; }, json(value) { body = value; } }, (err) => { throw err; });
       assert.equal(body.patient.patientName, 'Test');
-      assert.equal(body.patient.canApprove, false);
+      assert.equal(body.patient.canApprove, role === ROLES.RECEPTIONIST);
       assert.equal(body.patient.canToggleActive, false);
-      assert.equal(body.patient.activityLog, undefined);
-      assert.deepEqual(body.patient.stages[0].followUps, []);
-      assert.deepEqual(body.patient.stages[0].familySessions, []);
+      if (role === ROLES.RECEPTIONIST) {
+        assert.equal(body.patient.activityLog.length, 1);
+        assert.equal(body.patient.stages[0].followUps.length, 1);
+        assert.equal(body.patient.stages[0].familySessions.length, 1);
+      } else {
+        assert.equal(body.patient.activityLog, undefined);
+        assert.deepEqual(body.patient.stages[0].followUps, []);
+        assert.deepEqual(body.patient.stages[0].familySessions, []);
+      }
       assert.ok(Array.isArray(body.patient.stages[0].medicineRequests));
     }
   } finally { Patient.findById = original; AppointmentManagementEntry.findOne = originalEntry; }

@@ -546,9 +546,9 @@ const buildCrmFeatureSummary = () => [
   'Phase-wise medicine supply tracking with months given, next connect date, reminder note, connected status and due reminders',
   'Courier workflow with dispatch, delivery, receiver details, proof images, payment and records',
   'Medicine inventory with stock, low-stock alerts, add/use/adjust history and value',
-  'Payments ledger, income, expenses and accountant workflow',
+  'Payments ledger, income, expenses and reception accounts workflow',
   'Team worksheet with auto-filled CRM work and manual columns/rows',
-  'Role-based access for Admin, Doctor, Manager, Assistant Doctor, Psychologist, Medicine, Courier and Accountant',
+  'Role-based access for Admin, Doctor, Manager, Assistant Doctor, Psychologist, Medicine, Courier and Receptionist',
 ];
 
 const buildCrmContext = async (message) => {

@@ -18,7 +18,7 @@ async function invoke(handler, patient, { body = {}, refund = false, files = [],
       params: { id: String(patient._id), ...(!patientWide ? { number: '1', paymentId } : {}), ...(refund ? { refundId } : {}) },
       body,
       files,
-      user: { _id: '68d973568739990000000003', name: 'Accounts', role: ROLES.ACCOUNTANT },
+      user: { _id: '68d973568739990000000003', name: 'Reception', role: ROLES.RECEPTIONIST },
     }, response, (error) => { throw error; });
     return response;
   } finally {

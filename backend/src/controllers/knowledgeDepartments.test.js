@@ -23,7 +23,7 @@ test('every staff role gets one library; only psychologist and assistant doctor 
 
 test('legacy documents are only included in reception filter', () => {
   assert.ok(departmentFilter(ROLES.RECEPTIONIST).$or.some((item) => item.department?.$exists === false));
-  assert.deepEqual(departmentFilter(ROLES.ACCOUNTANT), { department: ROLES.ACCOUNTANT });
+  assert.equal(Object.hasOwn(ROLES, 'ACCOUNTANT'), false);
 });
 
 test('article list scopes search to department instead of replacing its filter', async () => {

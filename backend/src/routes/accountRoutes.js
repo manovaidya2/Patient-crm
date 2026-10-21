@@ -7,7 +7,7 @@ const { uploadConsultationFeeProof } = require('../middleware/fileUploads');
 
 const router = express.Router();
 
-router.use(protect, authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.ACCOUNTANT));
+router.use(protect, authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST));
 
 router.get('/overview', getAccountsOverview);
 router.get('/ledger', ledger.getLedger);

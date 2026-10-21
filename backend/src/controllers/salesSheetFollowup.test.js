@@ -34,7 +34,7 @@ async function invoke(handler, { role = ROLES.SALES_TEAM, body = {}, row = sampl
   } finally { SalesAppointment.findOneAndUpdate = originalUpdate; SalesSheetAudit.create = originalAudit; }
 }
 
-test('not coming keeps the same lead, requires reason, and hides call fields from Sales', async () => {
+test('not coming keeps the same lead, requires reason, and returns empty call defaults', async () => {
   const missing = await invoke(controller.markNotComing, { body: { reason: ' ' } });
   assert.equal(missing.response.statusCode, 400);
   const { row, response } = await invoke(controller.markNotComing, { body: { reason: 'Patient cancelled' } });
@@ -42,10 +42,10 @@ test('not coming keeps the same lead, requires reason, and hides call fields fro
   assert.equal(row.notComingReason, 'Patient cancelled');
   assert.equal(row.appointmentDate, '2026-09-28');
   assert.equal(String(row._id), String(rowId));
-  assert.equal(response.data.appointment.lastCallAt, undefined);
-  assert.equal(response.data.appointment.numberOfCalls, undefined);
-  assert.equal(response.data.appointment.callStatus, undefined);
-  assert.equal(response.data.appointment.lastCallNotes, undefined);
+  assert.equal(response.data.appointment.lastCallAt, null);
+  assert.equal(response.data.appointment.numberOfCalls, 0);
+  assert.equal(response.data.appointment.callStatus, 'pending');
+  assert.equal(response.data.appointment.lastCallNotes, '');
   assert.equal(response.data.appointment.callHistory, undefined);
 });
 
@@ -89,7 +89,7 @@ test('invalid calls and unauthorized callers never increment the count', async (
   assert.equal(row.numberOfCalls, 0);
 });
 
-test('call history preserves legacy counts and is private to Reception/Admin', async () => {
+test('call history preserves legacy counts and is visible to Reception/Admin and the Sales owner', async () => {
   const original = SalesAppointment.findById;
   const row = sample();
   row.numberOfCalls = 3;
@@ -100,7 +100,9 @@ test('call history preserves legacy counts and is private to Reception/Admin', a
     assert.equal(result.response.data.legacyCount, 2);
     assert.equal(result.response.data.calls[0].number, 3);
     assert.equal(result.response.data.calls[0].calledByName, 'Reception');
-    assert.equal((await invoke(controller.listCalls)).response.statusCode, 403);
+    const sales = await invoke(controller.listCalls);
+    assert.equal(sales.response.statusCode, 200);
+    assert.equal(sales.response.data.calls[0].calledByName, 'Reception');
   } finally { SalesAppointment.findById = original; }
 });
 
