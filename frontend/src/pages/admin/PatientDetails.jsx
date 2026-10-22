@@ -3173,7 +3173,7 @@ const PatientDetails = () => {
           <div className="grid grid-cols-2 gap-px border-t border-cardline bg-cardline lg:grid-cols-4">
             {[
               ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers],
-              ['Assistant doctor', patient.assignedDoctor?.name || 'Not assigned', UserRound],
+              ['PCC', patient.assignedDoctor?.name || 'Not assigned', UserRound],
               ['Paid (verified)', formatMoney(stageTotals.paid), IndianRupee],
               ['Balance', formatMoney(stageTotals.left), Clock],
             ].map(([label, value, Icon]) => (
@@ -3241,7 +3241,7 @@ const PatientDetails = () => {
             />
             {canAssignDoctor ? (
               <EditableField
-                label="Assigned Assistant Doctor"
+                label="Assigned PCC (Patient Care Coordinator)"
                 type="select"
                 options={[
                   { value: '', label: 'Unassigned' },

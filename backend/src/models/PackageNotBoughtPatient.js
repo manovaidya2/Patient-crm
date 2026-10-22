@@ -25,7 +25,11 @@ const packageNotBoughtPatientSchema = new mongoose.Schema(
     followUpDate: { type: Date, default: null },
     notes: { type: String, trim: true, default: '' },
     followUps: { type: [followUpSchema], default: [] },
-    status: { type: String, enum: ['open', 'converted'], default: 'open', index: true },
+    status: { type: String, enum: ['open', 'converted', 'closed'], default: 'open', index: true },
+    // Closed = the family is not interested; the record stays for reference and can be reopened.
+    closedAt: { type: Date, default: null },
+    closedByName: { type: String, trim: true, default: '' },
+    closeReason: { type: String, trim: true, default: '' },
     convertedAt: { type: Date, default: null },
     convertedByName: { type: String, trim: true, default: '' },
     conversionDetails: { type: String, trim: true, default: '' },

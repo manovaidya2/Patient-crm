@@ -58,6 +58,18 @@ const connectDB = async () => {
     } catch (error) {
       console.error(`Purchase order import skipped: ${error.message}`);
     }
+    try {
+      const { seedSampleStocks } = require('../utils/stockSeed');
+      await seedSampleStocks({ StockItem: require('../models/StockItem'), StockTransaction: require('../models/StockTransaction'), log: console.log });
+    } catch (error) {
+      console.error(`Sample stocks not loaded: ${error.message}`);
+    }
+    try {
+      const { seedFormulationMaster } = require('../utils/formulationMasterStore');
+      await seedFormulationMaster({ FormulationMaster: require('../models/FormulationMaster'), log: console.log });
+    } catch (error) {
+      console.error(`Formulation Master not loaded: ${error.message}`);
+    }
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
     process.exit(1);

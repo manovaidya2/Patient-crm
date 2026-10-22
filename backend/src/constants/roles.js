@@ -49,7 +49,7 @@ const ROLE_LABELS = {
   [ROLES.ADMIN]: 'Admin',
   [ROLES.MANAGER]: 'Manager',
   [ROLES.POST_COUNSELOR]: 'Post Counselor',
-  [ROLES.ASSISTANT_DOCTOR]: 'Assistant Doctor',
+  [ROLES.ASSISTANT_DOCTOR]: 'PCC (Patient Care Coordinator)', // role key stays assistant_doctor
   [ROLES.DOCTOR]: 'Doctor',
   [ROLES.PSYCHOLOGIST]: 'Psychologist',
   [ROLES.MEDICINE_DEPARTMENT]: 'Medicine Department',

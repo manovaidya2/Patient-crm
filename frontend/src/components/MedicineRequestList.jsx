@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, Inbox, PackageCheck, RefreshCw, Ban, Trash2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, CalendarDays, ClipboardList, Inbox, PackageCheck, RefreshCw, Ban, Trash2 } from 'lucide-react';
 import api from '../api/axios.js';
 import useApiQuery from '../api/useApiQuery.js';
 import Card from './ui/Card.jsx';
@@ -76,6 +76,7 @@ const formatDateTime = (iso) =>
 
 const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [] }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === ROLES.ADMIN;
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState('');
@@ -101,6 +102,16 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     if (queryError && !data) setError(queryError.response?.data?.message || 'Could not load records.');
     else setError('');
   }, [queryError, data]);
+
+  // The 12-stage Medicine Department job of this request (created on first open).
+  const openJob = async (row) => {
+    const key = `${row.patientId}-${row.stage}-${row.requestId}-job`;
+    setBusyKey(key); setError('');
+    try {
+      const { data } = await api.post('/medicine-jobs/for-request', { patientId: row.patientId, phase: row.stage, requestId: row.requestId });
+      navigate(`/admin/medicine-jobs/${data.job.id}`);
+    } catch (err) { setError(err.response?.data?.message || 'Could not open the fulfilment job.'); } finally { setBusyKey(''); }
+  };
 
   const updateStatus = async (row, status, files = [], extra = {}) => {
     const key = `${row.patientId}-${row.stage}-${row.requestId}-${status}`;
@@ -308,8 +319,10 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
           <div className="divide-y divide-cardline-soft">
             {filteredRows.map((row) => {
               const request = row.medicineRequest;
+              // Orange while an action of this page is still open for the request.
+              const pending = actions.some((a) => (a.from || []).includes(request.status));
               return (
-                <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className="grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto]">
+                <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className={`grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto] ${pending ? 'bg-orange-50/70 shadow-[inset_4px_0_0_#f97316]' : ''}`}>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       {isAdmin ? (
@@ -320,6 +333,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                         <span className="font-display text-lg font-bold text-charcoal">{row.patientName}</span>
                       )}
                       <Badge tone="teal">Phase {row.stage}</Badge>
+                      {pending && <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Pending</span>}
                       <Badge tone={statusTone[request.status] || 'default'}>{request.statusLabel}</Badge>
                     </div>
                     {(request.poNumber || request.supplyLabel || request.ageBandLabel) && (
@@ -394,6 +408,11 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                   </div>
 
                   <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                    {request.status !== 'cancelled' && (
+                      <Button size="sm" disabled={busyKey === `${row.patientId}-${row.stage}-${row.requestId}-job`} onClick={() => openJob(row)}>
+                        <ClipboardList size={14} /> {busyKey === `${row.patientId}-${row.stage}-${row.requestId}-job` ? 'Opening...' : 'Open fulfilment job'}
+                      </Button>
+                    )}
                     {isAdmin && (
                       <>
                         {request.status !== 'cancelled' && (

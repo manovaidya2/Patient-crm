@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, CalendarClock, CheckCircle2, Clock, PackageCheck, Plus } from 'lucide-react';
+import { ArrowLeft, CalendarClock, CheckCircle2, Clock, PackageCheck, Plus, RotateCcw, XCircle } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -139,6 +139,22 @@ const PackageNotBoughtDetails = () => {
   };
 
   const isConverted = row?.status === 'converted';
+  const isClosed = row?.status === 'closed';
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState('Not interested');
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState('');
+  // Not interested: close with a reason (kept for reference); a closed record can be reopened.
+  const closeRecord = async () => {
+    setClosing(true); setCloseError('');
+    try { const { data } = await api.patch(`/package-not-bought/${id}/close`, { reason: closeReason }); setRow(data.row); setCloseOpen(false); }
+    catch (err) { setCloseError(err.response?.data?.message || 'Could not close this record'); } finally { setClosing(false); }
+  };
+  const reopenRecord = async () => {
+    setClosing(true); setCloseError('');
+    try { const { data } = await api.patch(`/package-not-bought/${id}/reopen`); setRow(data.row); }
+    catch (err) { setCloseError(err.response?.data?.message || 'Could not reopen this record'); } finally { setClosing(false); }
+  };
 
   return (
     <div>
@@ -157,12 +173,14 @@ const PackageNotBoughtDetails = () => {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="font-display text-2xl font-bold text-charcoal">{row.patientName}</h1>
-                  <Badge tone={isConverted ? 'teal' : 'amber'}>{isConverted ? 'Converted' : 'Open'}</Badge>
+                  <Badge tone={isConverted ? 'teal' : isClosed ? 'inactive' : 'amber'}>{isConverted ? 'Converted' : isClosed ? 'Closed' : 'Open'}</Badge>
                 </div>
                 <p className="mt-1 text-sm text-charcoal/60">
                   Added by {row.createdByName || '-'} on {formatDateTime(row.createdAt)}
                 </p>
                 {convertMessage && <p className="mt-1 text-xs font-semibold text-emerald-800">{convertMessage}</p>}
+                {isClosed && <p className="mt-1 text-xs font-semibold text-charcoal/60">Closed by {row.closedByName || '-'} on {formatDateTime(row.closedAt)}{row.closeReason ? ` · ${row.closeReason}` : ''}</p>}
+                {closeError && <p className="mt-1 text-xs font-semibold text-[#8C3B2E]">{closeError}</p>}
                 {isConverted && (
                   <p className="mt-1 text-xs font-semibold text-sage">
                     Converted by {row.convertedByName || '-'} on {formatDateTime(row.convertedAt)}
@@ -170,11 +188,15 @@ const PackageNotBoughtDetails = () => {
                   </p>
                 )}
               </div>
-              {!isConverted && (
-                <Button onClick={openConvert}>
-                  <PackageCheck size={16} /> Convert to Patient
-                </Button>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {!isConverted && !isClosed && (
+                  <Button onClick={openConvert}>
+                    <PackageCheck size={16} /> Convert to Patient
+                  </Button>
+                )}
+                {!isConverted && !isClosed && <Button variant="outline" disabled={closing} onClick={() => { setCloseReason('Not interested'); setCloseError(''); setCloseOpen(true); }}><XCircle size={16} /> Close</Button>}
+                {isClosed && <Button variant="outline" disabled={closing} onClick={reopenRecord}><RotateCcw size={16} /> {closing ? 'Reopening...' : 'Reopen'}</Button>}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-px border-t border-cardline bg-cardline sm:grid-cols-3 lg:grid-cols-4">
@@ -329,6 +351,14 @@ const PackageNotBoughtDetails = () => {
         </form>
       </Modal>
 
+      <Modal open={closeOpen} onClose={() => !closing && setCloseOpen(false)} title="Close - not interested">
+        <div className="space-y-3">
+          <p className="text-sm text-charcoal/75">{row?.patientName} leaves the open list and the follow-up reminders. The record stays here (filter "Closed") and can be reopened any time.</p>
+          <Input label="Reason" value={closeReason} onChange={(e) => setCloseReason(e.target.value)} placeholder="e.g. Not interested, chose another clinic" />
+          {closeError && <p className="text-sm font-semibold text-[#8C3B2E]">{closeError}</p>}
+          <div className="flex gap-2"><Button disabled={closing || !closeReason.trim()} onClick={closeRecord}><XCircle size={15} /> {closing ? 'Closing...' : 'Close record'}</Button><Button variant="outline" disabled={closing} onClick={() => setCloseOpen(false)}>Cancel</Button></div>
+        </div>
+      </Modal>
       <Modal open={convertOpen} onClose={() => !savingConvert && setConvertOpen(false)} title="Convert to Patient · Purchase order" className="max-w-4xl">
         <div className="space-y-5">
           {convertError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{convertError}</div>}

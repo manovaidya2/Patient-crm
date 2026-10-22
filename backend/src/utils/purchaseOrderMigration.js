@@ -58,7 +58,9 @@ const legacyPurchaseOrder = (patient, stage) => {
 };
 
 const migrateLegacyPurchaseOrders = async ({ Patient, PurchaseOrder, log = () => {} }) => {
-  const patients = await Patient.find({ 'stages.purchaseOrder': { $exists: true, $nin: ['', null] } })
+  // $elemMatch: "some phase has a PO number". A plain `stages.purchaseOrder: { $nin: [''] }` would require every phase
+  // to have one, and the five empty phases of each patient would hide them all.
+  const patients = await Patient.find({ stages: { $elemMatch: { purchaseOrder: { $exists: true, $nin: ['', null] } } } })
     .select('patientName patientCode approvalStatus createdAt stages').lean();
   let created = 0;
   for (const patient of patients) {

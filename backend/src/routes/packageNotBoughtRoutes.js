@@ -6,6 +6,8 @@ const {
   getPackageNotBoughtById,
   createPackageNotBought,
   updatePackageNotBought,
+  closePackageNotBought,
+  reopenPackageNotBought,
   addPackageNotBoughtFollowUp,
   completePackageNotBoughtFollowUp,
   markPackageNotBoughtConverted,
@@ -26,6 +28,8 @@ router.post('/:id/followups', authorize(...FOLLOWUP_WRITE_ROLES), addPackageNotB
 router.patch('/:id/followups/:followUpId/complete', authorize(...FOLLOWUP_WRITE_ROLES), completePackageNotBoughtFollowUp);
 router.get('/:id/purchase-form', getPurchaseForm);
 router.patch('/:id/convert', markPackageNotBoughtConverted);
+router.patch('/:id/close', closePackageNotBought);
+router.patch('/:id/reopen', reopenPackageNotBought);
 router.delete('/:id', deletePackageNotBought);
 
 module.exports = router;

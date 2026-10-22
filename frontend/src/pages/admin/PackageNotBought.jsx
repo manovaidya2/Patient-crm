@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, ClipboardList, Inbox, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, ClipboardList, Inbox, Pencil, Plus, RotateCcw, Search, Trash2, X, XCircle } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -40,9 +40,29 @@ const PackageNotBought = () => {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Converted patients leave this list (they are patients now); the filter still lets you see them.
+  const [statusFilter, setStatusFilter] = useState('open');
+  // Narrow the open list by follow-up state from the summary strip ('' = all open).
+  const [followUpFilter, setFollowUpFilter] = useState('');
+  const [closingId, setClosingId] = useState('');
+  // Not interested: close with a reason (kept for reference, reopen any time).
+  const closeRow = async (row) => {
+    const reason = window.prompt(`Close ${row.patientName} as not interested? Write the reason:`, 'Not interested');
+    if (reason === null) return;
+    if (!reason.trim()) { setLoadError('Write the reason for closing'); return; }
+    setClosingId(row.id); setLoadError('');
+    try { await api.patch(`/package-not-bought/${row.id}/close`, { reason: reason.trim() }); setReloadKey((value) => value + 1); }
+    catch (err) { setLoadError(err.response?.data?.message || 'Could not close this record'); } finally { setClosingId(''); }
+  };
+  const reopenRow = async (row) => {
+    setClosingId(row.id); setLoadError('');
+    try { await api.patch(`/package-not-bought/${row.id}/reopen`); setReloadKey((value) => value + 1); }
+    catch (err) { setLoadError(err.response?.data?.message || 'Could not reopen this record'); } finally { setClosingId(''); }
+  };
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -65,11 +85,12 @@ const PackageNotBought = () => {
       setLoadError('');
       try {
         const { data } = await api.get('/package-not-bought', {
-          params: { page, limit: PAGE_SIZE, search: debouncedSearch || undefined },
+          params: { page, limit: PAGE_SIZE, search: debouncedSearch || undefined, status: statusFilter, followUp: followUpFilter || undefined },
         });
         setRows(data.rows || []);
         setPages(data.pages || 1);
         setTotal(data.total || 0);
+        setSummary(data.summary || null);
       } catch (err) {
         setLoadError(err.response?.data?.message || 'Could not load package not bought records.');
       } finally {
@@ -77,7 +98,7 @@ const PackageNotBought = () => {
       }
     };
     fetchRows();
-  }, [page, debouncedSearch, reloadKey]);
+  }, [page, debouncedSearch, statusFilter, followUpFilter, reloadKey]);
 
   const openAdd = () => {
     setEditingRow(null);
@@ -160,8 +181,31 @@ const PackageNotBought = () => {
         </Button>
       </div>
 
-      <Card className="mt-6" padded={false}>
+      {summary && (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Follow-up summary">
+          {[
+            ['Open', summary.open, 'open', ''],
+            ['Follow-up overdue', summary.overdue, 'overdue', summary.overdue ? 'border-orange-300 bg-orange-50 text-orange-700' : ''],
+            ['Follow-up today', summary.today, 'today', summary.today ? 'border-orange-300 bg-orange-50 text-orange-700' : ''],
+            ['Upcoming', summary.upcoming, 'upcoming', ''],
+            ['No follow-up set', summary.noFollowUp, 'none', summary.noFollowUp ? 'border-amber-300 bg-amber-50 text-amber-800' : ''],
+          ].map(([label, n, key, tone]) => (
+            <button key={key} type="button" onClick={() => { setStatusFilter('open'); setFollowUpFilter((v) => (v === key || key === 'open' ? '' : key)); setPage(1); }} className={`rounded-lg border px-3 py-2 text-left transition hover:shadow-sm ${followUpFilter === key ? 'ring-2 ring-sage/40' : ''} ${tone || 'border-cardline bg-white text-charcoal'}`}>
+              <p className="text-xl font-bold leading-none">{n}</p>
+              <p className="mt-1 text-[11px] font-semibold">{label}</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <Card className="mt-4" padded={false}>
         <div className="flex flex-col gap-3 border-b border-cardline-soft p-4 lg:flex-row lg:items-center">
+          <select aria-label="Status" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none">
+            <option value="open">Open (not converted)</option>
+            <option value="converted">Converted to patient</option>
+            <option value="closed">Closed (not interested)</option>
+            <option value="all">All</option>
+          </select>
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
             <input
@@ -239,7 +283,8 @@ const PackageNotBought = () => {
                       <td className="px-4 py-3.5 text-charcoal/70">{row.age || '-'}</td>
                       <td className="px-4 py-3.5 text-charcoal/70">{row.program || '-'}</td>
                       <td className="px-4 py-3.5">
-                        <Badge tone={row.status === 'converted' ? 'teal' : 'amber'}>{row.status === 'converted' ? 'Converted' : 'Open'}</Badge>
+                        <Badge tone={row.status === 'converted' ? 'teal' : row.status === 'closed' ? 'inactive' : 'amber'}>{row.status === 'converted' ? 'Converted' : row.status === 'closed' ? 'Closed' : 'Open'}</Badge>
+                        {row.status === 'closed' && <p className="mt-1 max-w-[12rem] text-[11px] text-charcoal/55" title={row.closeReason}>{row.closeReason}{row.closedByName ? ` · ${row.closedByName}` : ''}</p>}
                       </td>
                       <td className="px-4 py-3.5 text-charcoal/70">{formatDate(row.followUpDate)}</td>
                       <td className="px-4 py-3.5 text-charcoal/55">{row.createdByName || '-'}</td>
@@ -257,6 +302,16 @@ const PackageNotBought = () => {
                           >
                             <Pencil size={15} />
                           </button>
+                          {row.status === 'open' && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); closeRow(row); }} disabled={closingId === row.id} className="inline-flex h-8 items-center gap-1 rounded-lg border border-cardline px-2.5 text-xs font-semibold text-charcoal/70 hover:border-[#8C3B2E]/40 hover:bg-[#8C3B2E]/5 hover:text-[#8C3B2E] disabled:opacity-50" title="Not interested - close this record">
+                              <XCircle size={13} />Close
+                            </button>
+                          )}
+                          {row.status === 'closed' && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); reopenRow(row); }} disabled={closingId === row.id} className="inline-flex h-8 items-center gap-1 rounded-lg border border-cardline px-2.5 text-xs font-semibold text-sage hover:bg-sage-muted/25 hover:text-charcoal disabled:opacity-50" title="Reopen this record">
+                              <RotateCcw size={13} />Reopen
+                            </button>
+                          )}
                           {isAdmin && (
                             <button
                               type="button"

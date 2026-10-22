@@ -20,6 +20,20 @@ const eventSchema = new mongoose.Schema(
 // the 5-month part of a 1+5 plan, or the next phase). Payments stay inside Patient.stages[].payments (so ledgers,
 // approvals and refunds work as before); a purchase order only points at them by id. Its medicine request lives in
 // Patient.stages[].medicineRequests and is found by `medicineRequestId`.
+// An admin undo of a timeline step: who, why, which steps went back and the records that were cleared (kept, not lost).
+const revertSchema = new mongoose.Schema(
+  {
+    at: { type: Date, default: Date.now },
+    byName: { type: String, trim: true, default: '' },
+    byRole: { type: String, trim: true, default: '' },
+    step: { type: String, trim: true, default: '' },
+    reason: { type: String, trim: true, default: '' },
+    reverted: { type: [String], default: [] },
+    snapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+  },
+  { _id: false }
+);
+
 const purchaseOrderSchema = new mongoose.Schema(
   {
     poNumber: { type: String, required: true, trim: true },
@@ -58,6 +72,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     createdByName: { type: String, trim: true, default: '' },
     createdByRole: { type: String, trim: true, default: '' },
     events: { type: [eventSchema], default: [] },
+    reverts: { type: [revertSchema], default: [] },
   },
   { timestamps: true }
 );

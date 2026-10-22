@@ -11,7 +11,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { PoPipelineBoxes, PoTimeline, poDateTime } from '../../components/purchaseOrders/PoPipeline.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
-import { ActionForm, CALL, FORMS, MODE, StartTreatmentForm, formKeyFor, sendAction } from '../../components/transit/TransitActions.jsx';
+import { ActionForm, AssignPccForm, CALL, FORMS, MODE, formKeyFor, sendAction } from '../../components/transit/TransitActions.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
@@ -24,7 +24,8 @@ const CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_
 const TRANSIT_ROLES = [ROLES.ADMIN, ROLES.IN_TRANSIT];
 const MED_STATUS = { requested: 'Waiting for Medicine Dept', in_process: 'Being prepared', made: 'Medicine ready', sent_to_courier: 'Released', cancelled: 'Cancelled' };
 // Transit steps that belong to handover / treatment start (order and medicine steps live on the PO itself).
-const HANDOVER_ACTIONS = ['confirm_mode', 'schedule_visit', 'schedule_dispatch', 'dispatch', 'confirm_received', 'start_treatment', 'log_call'];
+const HANDOVER_ACTIONS = ['schedule_delivery', 'dispatch', 'confirm_received', 'assign_pcc', 'confirm_mode', 'schedule_visit', 'schedule_dispatch', 'start_treatment', 'log_call'];
+const PCC_FORMS = ['assign_pcc', 'start_treatment'];
 
 const Section = ({ title, icon: Icon, action, children, className = '' }) => (
   <section className={`rounded-xl border border-cardline bg-white p-4 ${className}`}>
@@ -35,6 +36,7 @@ const Section = ({ title, icon: Icon, action, children, className = '' }) => (
 const Row = ({ label, value }) => (value === '' || value == null ? null : <div className="flex justify-between gap-3 py-0.5 text-sm"><span className="text-charcoal/55">{label}</span><span className="min-w-0 break-words text-right font-medium text-charcoal">{value}</span></div>);
 const ErrorText = ({ children }) => (children ? <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{children}</p> : null);
 const smallLink = 'inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline';
+
 
 function RejectBox({ po, onDone, onBack }) {
   const [reason, setReason] = useState('');
@@ -250,17 +252,16 @@ function HandoverPanel({ po, onChanged }) {
 
         {next ? (
           <div className="rounded-xl border-2 border-sage/40 bg-sage/5 p-3">
-            {next === 'start_treatment' ? <StartTreatmentForm item={item} onDone={done} /> : <ActionForm key={`${item.key}-${next}`} formKey={formKeyFor(next, item)} item={item} onDone={done} />}
+            {PCC_FORMS.includes(next) ? <AssignPccForm item={item} onDone={done} /> : <ActionForm key={`${item.key}-${next}`} formKey={formKeyFor(next, item)} item={item} onDone={done} />}
           </div>
         ) : open && <p className="text-sm text-charcoal/65">{['contact', 'handover', 'treatment'].includes(item.group)
-          ? <><b className="text-charcoal">{item.step.label}.</b> {item.step.waitText || ''}</>
-          : <>The medicine is with Medicine Department. You can already call the patient and plan the delivery; dispatch / handover opens once it is released after full verified payment.</>}</p>}
+          ? <><b className="text-charcoal">{item.step.label}.</b> {item.step.waitText || ''}{item.nextAction === 'add_payment' ? ' Use "Add payment" in the Payments section, then verify it.' : ''}</>
+          : <>The medicine is with Medicine Department. You can already log calls with the patient; the delivery and explanation schedule, payment and handover follow once it is released.</>}</p>}
 
         {open && <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => setQuick('log_call')}><PhoneCall size={14} />Log call</Button>
-          {!shipped && <Button size="sm" variant="outline" onClick={() => setQuick('confirm_mode')}><Truck size={14} />Delivery mode</Button>}
-          {item.mode && !shipped && <Button size="sm" variant="outline" onClick={() => setQuick(item.mode === 'pickup' ? 'schedule_visit' : 'schedule_dispatch')}><Clock3 size={14} />Schedule {item.mode === 'pickup' ? 'pickup' : 'dispatch'}</Button>}
-          {shipped && !item.explanation.completedAt && <Button size="sm" variant="outline" onClick={() => setQuick('start_treatment')}><Stethoscope size={14} />Schedule explanation</Button>}
+          {!shipped && <Button size="sm" variant="outline" onClick={() => setQuick('schedule_delivery')}><Truck size={14} />{item.plan?.done ? 'Change schedule' : 'Schedule delivery & explanation'}</Button>}
+          {shipped && !item.explanation.completedAt && <Button size="sm" variant="outline" onClick={() => setQuick('assign_pcc')}><Stethoscope size={14} />{item.pcc?.assigned ? 'Change PCC' : 'Assign PCC'}</Button>}
         </div>}
 
         <div className="grid gap-x-6 sm:grid-cols-2">
@@ -270,8 +271,8 @@ function HandoverPanel({ po, onChanged }) {
           <Row label="Planned carrier" value={item.deliveryPlan?.courier} />
           <Row label={item.mode === 'porter' ? 'Porter' : 'Courier'} value={shipped ? [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / ') : ''} />
           <Row label="Received by" value={courier?.receivedByName ? `${courier.receivedByName}, ${poDateTime(courier.deliveredAt)}` : ''} />
-          <Row label="Assistant doctor" value={item.assignments.assistantDoctor?.name} />
-          <Row label="Explanation" value={item.explanation.at ? `${poDateTime(item.explanation.at)}${item.explanation.ackAt ? ' (seen)' : ''}` : ''} />
+          <Row label="Medicine explanation" value={item.explanation.at ? `${poDateTime(item.explanation.at)}${item.explanation.mode ? ` (${item.explanation.mode})` : ''}${item.explanation.ackAt ? ' · seen by PCC' : ''}` : ''} />
+          <Row label="PCC" value={item.assignments.assistantDoctor?.name ? `${item.assignments.assistantDoctor.name}${item.pcc?.assigned ? ` (assigned ${poDateTime(item.pcc.at)} by ${item.pcc.byName})` : ' (on the patient record - confirm or change at the PCC step)'}` : ''} />
         </div>
         {shipped && <><CompactAttachments files={courier.packageImages} label="Package" /><CompactAttachments files={courier.deliveryProofImages} label="Delivery proof" /></>}
 
@@ -291,8 +292,8 @@ function HandoverPanel({ po, onChanged }) {
           ) : <p className="text-sm text-charcoal/50">No calls yet.</p>}
         </div>
       </div>
-      <Modal open={Boolean(quick)} onClose={() => setQuick(null)} title={quick ? (quick === 'start_treatment' ? 'Assign doctor and schedule explanation' : FORMS[formKeyFor(quick, item)]?.title) : ''} className="max-w-lg">
-        {quick === 'start_treatment' ? <StartTreatmentForm item={item} onDone={done} /> : quick && <ActionForm compact formKey={formKeyFor(quick, item)} item={item} onDone={done} onCancel={() => setQuick(null)} />}
+      <Modal open={Boolean(quick)} onClose={() => setQuick(null)} title={quick ? (PCC_FORMS.includes(quick) ? 'Assign PCC (Patient Care Coordinator)' : FORMS[formKeyFor(quick, item)]?.title) : ''} className="max-w-lg">
+        {PCC_FORMS.includes(quick) ? <AssignPccForm item={item} onDone={done} /> : quick && <ActionForm compact formKey={formKeyFor(quick, item)} item={item} onDone={done} onCancel={() => setQuick(null)} />}
       </Modal>
     </Section>
   );
@@ -307,6 +308,15 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [payOpen, setPayOpen] = useState(false);
+  // Admin undo of a timeline step (and every later one), with a reason.
+  const [revert, setRevert] = useState(null);
+  const [revertReason, setRevertReason] = useState('');
+  const [reverting, setReverting] = useState(false);
+  const runRevert = async () => {
+    setReverting(true); setError('');
+    try { const { data } = await api.post(`/purchase-orders/${po.id}/revert`, { step: revert.key, reason: revertReason }); setRevert(null); setRevertReason(''); done(data.purchaseOrder, `Reverted: ${revert.label}.`); }
+    catch (err) { setError(err.response?.data?.message || 'Could not revert this step'); } finally { setReverting(false); }
+  };
   const [busyPayment, setBusyPayment] = useState('');
 
   const load = useCallback(async () => {
@@ -322,6 +332,15 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     setBusyPayment(payment.id); setError('');
     try { await api.patch(`/patients/${po.patientId}/stages/${po.phase}/payments/${payment.id}/approve`); await load(); setNotice(`Payment of ${money(payment.amount)} verified in Phase ${po.phase} payments.`); }
     catch (err) { setError(err.response?.data?.message || 'Could not verify the payment'); } finally { setBusyPayment(''); }
+  };
+  // Brings a paused phase back: the admin restores a removed one, In Transit resumes one on hold.
+  const resumePhase = async (how) => {
+    setError('');
+    try {
+      if (how === 'restore') await api.post(`/transit/${po.patientId}/${po.phase}/restore`);
+      else await api.patch(`/transit/${po.patientId}/${po.phase}`, { action: 'resume' });
+      await load(); setNotice(how === 'restore' ? `Phase ${po.phase} is back in In Transit.` : `Phase ${po.phase} resumed.`);
+    } catch (err) { setError(err.response?.data?.message || 'Could not bring the phase back'); }
   };
   const activatePhase = async () => {
     if (!window.confirm(`Make Phase ${po.phase} the current phase of ${po.patientName}?`)) return;
@@ -340,13 +359,16 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     <div className="flex gap-3"><Clock3 size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">{po.step.label}</h3><p className="text-sm text-charcoal/65">{po.step.waitText || po.requestBlockedReason || 'Waiting for the next team.'}</p></div></div>
   );
   const showHandover = TRANSIT_ROLES.includes(role) && med && med.status !== 'cancelled' && po.isPhaseCurrentRequest;
+  const show = () => true;
+  const showAll = true;
+  const myTurn = (po.actionBy || []).includes(role);
 
   return (
-    <div className="space-y-4">
+    <div className="po-compact space-y-3">
       <div className="flex flex-wrap items-start gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage"><ClipboardList size={22} /></span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-xl font-bold text-charcoal sm:text-2xl">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}</div>
+          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-xl font-bold text-charcoal sm:text-2xl">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}{myTurn && <span className="rounded-full bg-orange-500 px-2.5 py-0.5 text-[11px] font-bold text-white">Your action: {po.step.label}</span>}</div>
           <p className="mt-0.5 text-sm text-charcoal/65"><b className="text-charcoal">{po.patientName}</b> · {po.patientCode} · Phase {po.phase}{po.currentStage === po.phase ? ' (current)' : ` · current is Phase ${po.currentStage}`} · {money(po.amount)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -355,18 +377,24 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {canVerify && po.status === 'verified' && po.currentStage !== po.phase && <Button size="sm" variant="outline" onClick={activatePhase}><Layers size={14} />Make Phase {po.phase} current</Button>}
         </div>
       </div>
-      {po.phaseHold && <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"><AlertTriangle size={15} />Phase {po.phase} is on hold.</p>}
+      {(po.phaseHold || po.phaseRemoved) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-900">
+          <span className="flex items-center gap-2"><AlertTriangle size={15} />{po.requestBlockedReason || `Phase ${po.phase} is ${po.phaseRemoved ? 'removed from In Transit' : 'on hold'}.`}</span>
+          {po.phaseRemoved ? role === ROLES.ADMIN && <Button size="sm" onClick={() => resumePhase('restore')}><RotateCcw size={14} />Restore to In Transit</Button>
+            : TRANSIT_ROLES.includes(role) && <Button size="sm" onClick={() => resumePhase('resume')}><PlayCircle size={14} />Resume</Button>}
+        </div>
+      )}
       <ErrorText>{error}</ErrorText>
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
 
       <PoPipelineBoxes groups={po.groups} steps={po.steps} />
 
-      {(next || waiting) && <div className="rounded-xl border-2 border-sage/40 bg-gradient-to-br from-sage/5 to-white p-4">{next || waiting}</div>}
+      {(next || waiting) && <div className={`rounded-xl border-2 bg-gradient-to-br to-white p-4 ${myTurn ? 'border-orange-400 from-orange-50' : 'border-sage/40 from-sage/5'}`}>{next || waiting}</div>}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-        <div className="space-y-4">
-          <Section title="Timeline" icon={Clock3}><PoTimeline steps={po.steps} /></Section>
-          <Section title="Patient" icon={UserRound}>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <div className="space-y-3">
+          {showAll && <Section title="Timeline" icon={Clock3}><PoTimeline steps={po.steps} onRevert={role === ROLES.ADMIN && !['rejected', 'cancelled'].includes(po.status) ? setRevert : undefined} /></Section>}
+          {showAll && <Section title="Patient" icon={UserRound}>
             <Row label="Name" value={po.patientName} />
             <Row label="Patient ID" value={po.patientCode} />
             <Row label="Age" value={po.patientAge} />
@@ -375,9 +403,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             <Row label="Other number" value={po.alternateNumber} />
             <Row label="Address" value={po.address} />
             <Row label="Patient approval" value={po.approvalStatus === 'approved' ? 'Approved' : 'Pending'} />
-          </Section>
-        </div>
-        <div className="space-y-4">
+          </Section>}
           <Section title="Purchase order" icon={FileText}>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Row label="PO number" value={po.poNumber} />
@@ -391,10 +417,11 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
               <Row label="Payment verified" value={po.paymentVerifiedAt ? `${poDateTime(po.paymentVerifiedAt)} by ${po.paymentVerifiedByName}` : ''} />
             </div>
             <CompactAttachments files={po.paperImages} label="PO paper" className="mt-2" />
-            <div className="mt-4 border-t border-cardline pt-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">PO paper as filled</p><PaperDetails po={po} /></div>
+            {show('paper') && <div className="mt-4 border-t border-cardline pt-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">PO paper as filled</p><PaperDetails po={po} /></div>}
           </Section>
-
-          <Section title="Payments on this PO" icon={IndianRupee} action={canCreate && !['rejected', 'cancelled'].includes(po.status) && <button type="button" className={smallLink} onClick={() => setPayOpen(true)}><Plus size={13} />Add payment</button>}>
+        </div>
+        <div className="space-y-3">
+          {show('payments') && <Section title="Payments on this PO" icon={IndianRupee} action={canCreate && !['rejected', 'cancelled'].includes(po.status) && <button type="button" className={smallLink} onClick={() => setPayOpen(true)}><Plus size={13} />Add payment</button>}>
             <p className="mb-2 rounded-lg bg-offwhite-200 px-3 py-2 text-xs text-charcoal/70">These payments are saved in the patient's <b>Phase {po.phase}</b> payments, next to any earlier payments of that phase.</p>
             <Row label="Verified on this PO" value={money(po.linkedPayment.verifiedAmount)} />
             <Row label="Pending verification" value={po.linkedPayment.pendingCount ? `${money(po.linkedPayment.pendingAmount)} (${po.linkedPayment.pendingCount})` : ''} />
@@ -417,9 +444,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
                 ))}
               </ul>
             ) : <p className="mt-2 text-sm text-charcoal/50">No payment recorded on this PO.</p>}
-          </Section>
+          </Section>}
 
-          <Section title="Medicine request" icon={Pill}>
+          {show('medicine') && <Section title="Medicine request" icon={Pill}>
             {med ? <>
               <span className={`mb-2 inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${['made', 'sent_to_courier'].includes(med.status) ? 'bg-emerald-100 text-emerald-800' : med.status === 'cancelled' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : 'bg-amber-100 text-amber-900'}`}>{MED_STATUS[med.status] || med.status}</span>
               <Row label="Medicines" value={med.medicines} />
@@ -430,9 +457,23 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
               <CompactAttachments files={med.prescriptionFiles} label="Prescription" />
               <CompactAttachments files={med.medicineImages} label="Medicine photos" />
             </> : <p className="text-sm text-charcoal/60">{po.canRequestMedicine ? 'Not requested yet - use the form above.' : po.requestBlockedReason || 'Not requested yet.'}</p>}
-          </Section>
+          </Section>}
 
-          {showHandover && <HandoverPanel po={po} onChanged={load} />}
+          {show('job') && po.medicineJob && (
+            <Section title="Medicine Department progress" icon={Pill} action={<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${po.medicineJob.hold ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : po.medicineJob.status === 'released' ? 'bg-emerald-100 text-emerald-800' : 'bg-sage/10 text-sage'}`}>{po.medicineJob.hold ? `On hold: ${po.medicineJob.hold.reason}` : po.medicineJob.currentLabel}</span>}>
+              <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-cardline"><div className="h-full bg-sage" style={{ width: `${po.medicineJob.progress}%` }} /></div>
+              <ol className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                {po.medicineJob.stages.map((s) => (
+                  <li key={s.key} className="flex items-start gap-2 text-sm">
+                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${s.state === 'done' ? 'border-emerald-600 bg-emerald-600 text-white' : s.state === 'current' ? 'border-sage bg-white text-sage' : 'border-cardline text-charcoal/40'}`}>{s.state === 'done' ? <Check size={11} /> : s.n}</span>
+                    <span className="min-w-0"><span className={s.state === 'todo' ? 'text-charcoal/45' : 'font-semibold text-charcoal'}>{s.label}</span>{s.state === 'done' && <span className="block text-xs text-charcoal/50">{s.doneByName} · {poDateTime(s.doneAt)}</span>}{s.state === 'current' && <span className="block text-xs font-semibold text-sage">In progress</span>}</span>
+                  </li>
+                ))}
+              </ol>
+              {TRANSIT_ROLES.includes(role) || [ROLES.DOCTOR].includes(role) ? <Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><ExternalLink size={13} />Open the job</Link> : null}
+            </Section>
+          )}
+          {show('handover') && showHandover && <HandoverPanel po={po} onChanged={load} />}
 
           {po.events?.length > 0 && (
             <Section title="Activity" icon={Clock3}>
@@ -442,6 +483,19 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
         </div>
       </div>
       {payOpen && <AddPaymentModal po={po} open={payOpen} onClose={() => setPayOpen(false)} onDone={done} />}
+      <Modal open={Boolean(revert)} onClose={() => !reverting && setRevert(null)} title={revert ? `Revert "${revert.label}"` : ''} className="max-w-lg">
+        {revert && (() => {
+          const undone = po.steps.filter((s) => s.state === 'done' && s.n >= revert.n);
+          return (
+            <div className="space-y-3">
+              <p className="text-sm text-charcoal/75">Steps are in order, so this step and every step done after it go back. What was recorded is kept with the PO (nothing is lost); stock drawn for preparation returns to Stocks; verified payments go back to pending.</p>
+              <ul className="rounded-lg border border-[#8C3B2E]/30 bg-[#8C3B2E]/5 px-3 py-2 text-sm">{[...undone].reverse().map((s) => <li key={s.key} className="flex gap-2"><RotateCcw size={13} className="mt-1 shrink-0 text-[#8C3B2E]" /><span><b>{s.label}</b>{s.by ? <span className="text-charcoal/55"> · {s.by}</span> : ''}</span></li>)}</ul>
+              <FieldLabel label="Why is this reverted?" required><input className={poInput} value={revertReason} onChange={(e) => setRevertReason(e.target.value)} placeholder="e.g. Marked ready on the wrong patient" /></FieldLabel>
+              <div className="flex gap-2"><Button disabled={reverting || !revertReason.trim()} onClick={runRevert}><RotateCcw size={14} />{reverting ? 'Reverting...' : `Revert ${undone.length} step${undone.length === 1 ? '' : 's'}`}</Button><Button variant="outline" disabled={reverting} onClick={() => setRevert(null)}>Cancel</Button></div>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 }

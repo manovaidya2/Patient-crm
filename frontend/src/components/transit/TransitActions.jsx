@@ -26,6 +26,20 @@ export const FORMS = {
     fields: [['outcome', 'Call result', 'pills', true, Object.entries(CALL)], ['notes', 'What was discussed', 'textarea', true], ['nextCallAt', 'Call again at', 'datetime-local', true, null, (v) => v.outcome && !['connected', 'wrong_number'].includes(v.outcome)]],
   },
   confirm_mode: { title: 'Patient confirmed delivery mode', note: 'Porter / courier: full payment is confirmed before sending. Self pickup: schedule the visit next.', button: 'Confirm', fields: [['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])], ['note', 'Note', 'text']] },
+  // After the medicine is ready: delivery mode + its date + the medicine explanation date, fixed on the call.
+  schedule_delivery: {
+    title: 'Schedule delivery & medicine explanation', note: 'Fixed with the patient on the call (log the connected call first). Self pickup needs the pickup date; porter / courier the dispatch date and address. The medicine explanation date goes to the PCC once assigned.', button: 'Save schedule',
+    fields: [
+      ['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])],
+      ['visitAt', 'Self pickup date & time', 'datetime-local', true, null, (v) => v.mode === 'pickup'],
+      ['dispatchAt', 'Dispatch date & time', 'datetime-local', true, null, (v) => ['courier', 'porter'].includes(v.mode)],
+      ['courierPartner', 'Courier / porter', 'text', true, null, (v) => ['courier', 'porter'].includes(v.mode)],
+      ['address', 'Delivery address', 'textarea', true, null, (v) => ['courier', 'porter'].includes(v.mode)],
+      ['explanationAt', 'Medicine explanation date & time', 'datetime-local', true],
+      ['explanationMode', 'Explanation mode', 'pills', true, [['phone', 'Phone'], ['video', 'Video'], ['clinic', 'Clinic']]],
+      ['note', 'Note', 'text'],
+    ],
+  },
   add_payment: {
     title: 'Record a payment', note: 'Saved in Patient Details as pending. In Transit verifies it before it counts toward the balance.', button: 'Save payment', files: { label: 'Payment proof (optional)' },
     fields: [['amount', 'Amount (Rs)', 'number', true], ['paymentMode', 'Mode', 'pills', true, [['online', 'Online'], ['cash', 'Cash']]], ['utr', 'UTR / reference', 'text', true, null, (v) => v.paymentMode === 'online'], ['receivedBy', 'Cash received by', 'text', true, null, (v) => v.paymentMode === 'cash'], ['date', 'Payment date', 'date', true], ['notes', 'Note', 'text']],
@@ -49,6 +63,11 @@ const defaults = (formKey, item) => {
     case 'schedule_dispatch': return { dispatchAt: item.deliveryPlan?.at ? localInput(item.deliveryPlan.at) : '', courierPartner: item.deliveryPlan?.courier || '', address: item.deliveryPlan?.address || item.patientDetails?.address || '' };
     case 'set_ready_by': return { readyByDate: item.medicine?.readyByDate ? localInput(item.medicine.readyByDate, false) : '' };
     case 'confirm_mode': return { mode: item.mode || '' };
+    case 'schedule_delivery': return {
+      mode: item.mode || '', visitAt: item.visit?.at ? localInput(item.visit.at) : '', dispatchAt: item.deliveryPlan?.at ? localInput(item.deliveryPlan.at) : '',
+      courierPartner: item.deliveryPlan?.courier || '', address: item.deliveryPlan?.address || item.patientDetails?.address || '',
+      explanationAt: item.explanation?.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation?.mode || 'phone',
+    };
     case 'add_payment': return { amount: item.payment.remaining ? String(item.payment.remaining) : '', paymentMode: 'online', date: localInput(new Date(), false) };
     case 'schedule_visit': return { visitAt: item.visit.at ? localInput(item.visit.at) : '' };
     case 'dispatch_porter': case 'dispatch_courier': return { receiverName: item.guardianName || item.patientName, receiverPhone: item.patientPhone };
@@ -79,7 +98,7 @@ function Field({ field, value, onChange }) {
       </div>
     );
   } else if (type === 'textarea') control = <textarea className={inputClass} rows={2} required={req} value={value || ''} onChange={(e) => onChange(key, e.target.value)} />;
-  else control = <input className={inputClass} type={type} required={req} min={type === 'number' ? 1 : undefined} value={value || ''} onChange={(e) => onChange(key, e.target.value)} />;
+  else control = <input className={inputClass} type={type} required={req} min={type === 'number' ? 0 : undefined} value={value || ''} onChange={(e) => onChange(key, e.target.value)} />;
   return <label className="block space-y-1 text-sm font-medium text-charcoal"><span>{label}{req && <span className="text-red-700"> *</span>}</span>{control}</label>;
 }
 
@@ -119,9 +138,12 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
   );
 }
 
-export function StartTreatmentForm({ item, onDone }) {
+// After handover: In Transit assigns the PCC (Patient Care Coordinator, role assistant_doctor) who explains the medicine. A doctor already on the
+// patient record is pre-selected so they can be kept or changed; the explanation date fixed earlier can be adjusted.
+export function AssignPccForm({ item, onDone }) {
   const [staff, setStaff] = useState([]);
-  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: item.assignments.assistantDoctor?.id || '', postCounselorId: item.assignments.postCounselor?.id || '', psychologistId: item.assignments.psychologist?.id || '' });
+  const existing = item.assignments.assistantDoctor;
+  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: existing?.id || '', postCounselorId: item.assignments.postCounselor?.id || '', psychologistId: item.assignments.psychologist?.id || '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.get('/transit/staff', { skipCache: true }).then(({ data }) => setStaff(data.staff)).catch(() => setError('Could not load the staff list')); }, []);
@@ -133,21 +155,24 @@ export function StartTreatmentForm({ item, onDone }) {
   );
   const submit = async (event) => {
     event.preventDefault(); setSaving(true); setError('');
-    try { onDone(await sendAction(item, 'start_treatment', { ...values, explanationAt: new Date(values.explanationAt).toISOString() })); }
-    catch (err) { setError(err.response?.data?.message || 'Could not start treatment'); } finally { setSaving(false); }
+    try { onDone(await sendAction(item, 'assign_pcc', { ...values, explanationAt: values.explanationAt ? new Date(values.explanationAt).toISOString() : '' })); }
+    catch (err) { setError(err.response?.data?.message || 'Could not assign the PCC'); } finally { setSaving(false); }
   };
   return (
     <form onSubmit={submit} className="space-y-3">
-      <h3 className="text-base font-bold text-charcoal">Assign doctor and schedule explanation</h3>
+      <h3 className="text-base font-bold text-charcoal">Assign PCC (Patient Care Coordinator) for the medicine explanation</h3>
+      {existing && !item.pcc?.assigned && <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900"><b>{existing.name}</b> is already the PCC on this patient's record. Keep them or pick another; saving confirms the PCC for Phase {item.stage}.</p>}
+      {item.pcc?.assigned && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">PCC for this phase: <b>{item.pcc.name || existing?.name}</b> (assigned by {item.pcc.byName}). Save to change.</p>}
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block space-y-1 text-sm font-medium text-charcoal sm:col-span-2"><span>Medicine explanation date & time<span className="text-red-700"> *</span></span><input className={inputClass} type="datetime-local" required value={values.explanationAt} onChange={(e) => set('explanationAt', e.target.value)} /></label>
-        {select('assistantDoctorId', 'Assistant doctor', 'assistant_doctor', true)}
+        {select('assistantDoctorId', 'PCC (Patient Care Coordinator)', 'assistant_doctor', true)}
+        <label className="block space-y-1 text-sm font-medium text-charcoal"><span>Medicine explanation date & time<span className="text-red-700"> *</span></span><input className={inputClass} type="datetime-local" required value={values.explanationAt} onChange={(e) => set('explanationAt', e.target.value)} /></label>
         <Field field={['explanationMode', 'Explanation mode', 'pills', true, [['phone', 'Phone'], ['video', 'Video'], ['clinic', 'Clinic']]]} value={values.explanationMode} onChange={set} />
         {select('postCounselorId', `Post counselor (Phase ${item.stage}, optional)`, 'post_counselor', false)}
         {select('psychologistId', 'Psychologist (optional)', 'psychologist', false)}
       </div>
-      <Button type="submit" disabled={saving}><Stethoscope size={15} />{saving ? 'Saving...' : 'Schedule explanation'}</Button>
+      <Button type="submit" disabled={saving}><Stethoscope size={15} />{saving ? 'Saving...' : item.pcc?.assigned ? 'Update PCC' : 'Assign PCC'}</Button>
     </form>
   );
 }
+export const StartTreatmentForm = AssignPccForm;

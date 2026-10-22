@@ -39,6 +39,9 @@ const formatRow = (row) => ({
   status: row.status || 'open',
   convertedAt: row.convertedAt || null,
   convertedByName: row.convertedByName || '',
+  closedAt: row.closedAt || null,
+  closedByName: row.closedByName || '',
+  closeReason: row.closeReason || '',
   conversionDetails: row.conversionDetails || '',
   convertedPatientId: row.convertedPatient ? String(row.convertedPatient) : null,
   patientId: row.patientId || '',
@@ -99,7 +102,9 @@ const getPackageNotBoughtById = asyncHandler(async (req, res) => {
 
 const listPackageNotBought = asyncHandler(async (req, res) => {
   const { search = '', page = 1, limit = 10 } = req.query;
-  const filter = {};
+  // Converted (now patients) and closed (not interested) rows leave the list; the status filter still shows them.
+  const status = ['open', 'converted', 'closed', 'all'].includes(req.query.status) ? req.query.status : 'open';
+  const filter = status === 'all' ? {} : status === 'open' ? { status: { $nin: ['converted', 'closed'] } } : { status };
 
   if (search) {
     filter.$or = [
@@ -114,6 +119,24 @@ const listPackageNotBought = asyncHandler(async (req, res) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
   const skip = (pageNum - 1) * limitNum;
+
+  // Where the open records stand on follow-ups: the strip at the top of the page, and its filter.
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const startOfToday = new Date(`${today}T00:00:00.000+05:30`);
+  const endOfToday = new Date(`${today}T23:59:59.999+05:30`);
+  const open = await PackageNotBoughtPatient.find({ status: { $nin: ['converted', 'closed'] } }).select('followUps').lean();
+  const stateOf = (r) => {
+    const pending = (r.followUps || []).filter((f) => (f.status || 'scheduled') !== 'completed' && f.dateTime).map((f) => new Date(f.dateTime)).sort((a, b) => a - b);
+    if (!pending.length) return 'none';
+    if (pending[0] < startOfToday) return 'overdue';
+    if (pending[0] <= endOfToday) return 'today';
+    return 'upcoming';
+  };
+  const states = open.map((r) => [String(r._id), stateOf(r)]);
+  const summary = { open: open.length, overdue: 0, today: 0, upcoming: 0, noFollowUp: 0 };
+  states.forEach(([, st]) => { summary[st === 'none' ? 'noFollowUp' : st] += 1; });
+  const followUp = ['overdue', 'today', 'upcoming', 'none'].includes(req.query.followUp) ? req.query.followUp : '';
+  if (followUp) filter._id = { $in: states.filter(([, st]) => st === followUp).map(([id]) => id) };
 
   const [rows, total] = await Promise.all([
     PackageNotBoughtPatient.find(filter)
@@ -130,6 +153,7 @@ const listPackageNotBought = asyncHandler(async (req, res) => {
     total,
     page: pageNum,
     pages: Math.max(Math.ceil(total / limitNum), 1),
+    summary,
   });
 });
 
@@ -358,6 +382,30 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, row: formatRow(claimed), patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber });
 });
 
+// @route PATCH /api/package-not-bought/:id/close   body: { reason }
+// The family is not interested: the record is closed (kept for reference), leaves the open list and can be reopened.
+const closePackageNotBought = asyncHandler(async (req, res) => {
+  const row = await PackageNotBoughtPatient.findById(req.params.id);
+  if (!row) return res.status(404).json({ success: false, message: 'Record not found' });
+  if (row.status === 'converted') return res.status(400).json({ success: false, message: 'This patient was converted; nothing to close' });
+  if (row.status === 'closed') return res.status(409).json({ success: false, message: 'Already closed' });
+  const reason = String(req.body?.reason || '').trim().slice(0, 500);
+  if (!reason) return res.status(400).json({ success: false, message: 'Write why this is closed (e.g. not interested)' });
+  Object.assign(row, { status: 'closed', closedAt: new Date(), closedByName: req.user.name, closeReason: reason });
+  await row.save();
+  res.status(200).json({ success: true, row: formatRow(row) });
+});
+
+// @route PATCH /api/package-not-bought/:id/reopen
+const reopenPackageNotBought = asyncHandler(async (req, res) => {
+  const row = await PackageNotBoughtPatient.findById(req.params.id);
+  if (!row) return res.status(404).json({ success: false, message: 'Record not found' });
+  if (row.status !== 'closed') return res.status(400).json({ success: false, message: 'Only a closed record can be reopened' });
+  Object.assign(row, { status: 'open', closedAt: null, closedByName: '', closeReason: '' });
+  await row.save();
+  res.status(200).json({ success: true, row: formatRow(row) });
+});
+
 const deletePackageNotBought = asyncHandler(async (req, res) => {
   if (req.user.role !== ROLES.ADMIN) {
     return res.status(403).json({ success: false, message: 'Only Admin can delete records' });
@@ -377,6 +425,8 @@ module.exports = {
   getPackageNotBoughtById,
   createPackageNotBought,
   updatePackageNotBought,
+  closePackageNotBought,
+  reopenPackageNotBought,
   addPackageNotBoughtFollowUp,
   completePackageNotBoughtFollowUp,
   markPackageNotBoughtConverted,

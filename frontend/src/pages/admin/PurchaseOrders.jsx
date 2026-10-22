@@ -14,7 +14,8 @@ const CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_
 export default function PurchaseOrders() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [stage, setStage] = useState('');
+  // Opens on everything still pending; finished POs move to "Treatment started".
+  const [stage, setStage] = useState('pending');
   const [query, setQuery] = useState('');
   const [data, setData] = useState({ items: [], counts: {} });
   const [loading, setLoading] = useState(true);
@@ -34,7 +35,11 @@ export default function PurchaseOrders() {
   useEffect(() => { const timer = setInterval(load, 60000); return () => clearInterval(timer); }, [load]);
 
   const open = (po) => navigate(`/admin/purchase-orders/${po.id}`);
-  const filters = [{ key: '', label: 'All', hint: 'Every purchase order' }, ...PO_STAGES];
+  const filters = [{ key: 'pending', label: 'Pending', hint: 'Not finished yet' }, ...PO_STAGES, { key: '', label: 'All', hint: 'Every purchase order' }];
+  const countOf = (key) => (key ? data.counts?.[key] : data.counts?.all) ?? 0;
+  const mineOf = (key) => (key ? data.counts?.mine?.[key] : data.counts?.mine?.all) || 0;
+  // Stages that still need work show their number in orange.
+  const pendingCard = (key) => key && key !== 'started' && countOf(key) > 0;
 
   return (
     <div className="space-y-4">
@@ -51,9 +56,9 @@ export default function PurchaseOrders() {
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {filters.map((f) => (
-          <button key={f.key || 'all'} type="button" onClick={() => setStage(f.key)} className={`min-w-[132px] shrink-0 rounded-xl border px-3 py-2.5 text-left transition ${stage === f.key ? 'border-sage bg-sage text-white shadow-sm' : 'border-cardline bg-white hover:border-sage/60'}`}>
-            <p className={`text-2xl font-bold leading-none ${stage !== f.key && f.key === 'verification' && data.counts?.verification ? 'text-[#9C6B2E]' : ''}`}>{(f.key ? data.counts?.[f.key] : data.counts?.all) ?? 0}</p>
-            <p className="mt-1 text-xs font-semibold">{f.label}</p>
+          <button key={f.key || 'all'} type="button" onClick={() => setStage(f.key)} className={`min-w-[132px] shrink-0 rounded-xl border px-3 py-2.5 text-left transition ${stage === f.key ? 'border-sage bg-sage text-white shadow-sm' : pendingCard(f.key) ? 'border-orange-300 bg-orange-50/60 hover:border-orange-400' : 'border-cardline bg-white hover:border-sage/60'}`}>
+            <p className={`text-2xl font-bold leading-none ${stage !== f.key && pendingCard(f.key) ? 'text-orange-600' : ''}`}>{countOf(f.key)}</p>
+            <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold">{f.label}{mineOf(f.key) > 0 && <span className="rounded-full bg-orange-500 px-1.5 py-px text-[10px] font-bold text-white" title="Waiting for you">{mineOf(f.key)}</span>}</p>
             <p className={`text-[10px] ${stage === f.key ? 'text-white/80' : 'text-charcoal/45'}`}>{f.hint}</p>
           </button>
         ))}

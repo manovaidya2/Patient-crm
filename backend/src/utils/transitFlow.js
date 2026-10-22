@@ -4,6 +4,8 @@
 // already write (payments, medicine request, courier) plus the small `stage.transit` record, so an
 // update on the Medicine / Courier / Patient pages shows up here and the other way round.
 
+const { supplyLabel } = require('../constants/supplyPlans');
+
 const MEDICINE_ACTIVE = ['requested', 'in_process', 'made', 'sent_to_courier'];
 const SHIPPED_MODES = ['porter', 'courier'];
 const MODE_LABEL = { pickup: 'Self pickup', porter: 'Porter', courier: 'Courier' };
@@ -65,6 +67,18 @@ function fulfilmentMode(stage, request) {
 // The automatic reminder fires at the start of the day before the ready-by date.
 const reminderDate = (readyBy) => (readyBy ? new Date(startOfDay(readyBy).getTime() - DAY) : null);
 
+// The delivery plan In Transit fixes after the medicine is ready: how the patient gets it, when, and when the
+// medicine explanation happens. One step, three things.
+const planOf = (stage, t, mode, courier) => {
+  const planDate = mode === 'pickup' ? t.pickupScheduledAt : SHIPPED_MODES.includes(mode) ? t.dispatchScheduledAt : null;
+  const shipped = ['dispatched', 'delivered'].includes(courier.status);
+  return {
+    mode, planDate: iso(planDate), explanationAt: iso(stage.medicineExplainDate),
+    done: Boolean(mode) && (Boolean(planDate) || shipped) && Boolean(stage.medicineExplainDate),
+    text: [MODE_LABEL[mode], planDate ? `${mode === 'pickup' ? 'pickup' : 'dispatch'} ${shortDay(planDate)}` : '', stage.medicineExplainDate ? `explanation ${shortDay(stage.medicineExplainDate)}` : ''].filter(Boolean).join(' · '),
+  };
+};
+
 function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   const made = Boolean(request && ['made', 'sent_to_courier'].includes(request.status));
   const accepted = Boolean(request && ['in_process', 'made', 'sent_to_courier'].includes(request.status));
@@ -73,6 +87,13 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   const dispatched = ['dispatched', 'delivered'].includes(courier.status);
   const approved = (patient.approvalStatus || 'approved') === 'approved';
   const readyBy = request?.readyByDate || t.expectedReadyDate;
+  const plan = planOf(stage, t, mode, courier);
+  // The step is done when In Transit assigns the PCC for this phase; a doctor already on the patient record is shown
+  // so In Transit can keep or change them.
+  const pccAssigned = Boolean(t.assignedAt || t.explanationDoctor);
+  const pccName = patient.assignedDoctor?.name ? `${patient.assignedDoctor.name}${pccAssigned ? '' : ' (already on the patient record - confirm or change)'}` : '';
+  const lastCall = calls[0];
+  const shippedMode = SHIPPED_MODES.includes(mode);
   const steps = [
     { key: 'po', group: 'order', label: 'Converted / purchase order received', done: true, at: iso(t.enteredAt || patient.createdAt), text: `PO ${stage.purchaseOrder}` },
     { key: 'verified', group: 'order', label: 'Medicine payment verified', done: pay.pendingCount === 0, waitText: 'Verify the submitted payments below', text: `${pay.approvedCount} verified / ${pay.pendingCount} pending` },
@@ -80,16 +101,21 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
     { key: 'raised', group: 'medicine', label: 'Medicine requested', done: Boolean(request), action: 'raise_request', by: request?.requestedByName, at: iso(request?.requestedAt) },
     { key: 'accepted', group: 'medicine', label: 'Preparation started', done: accepted, waitText: 'Waiting for Medicine Department', by: request?.inProcessByName, at: iso(request?.inProcessAt), text: readyBy ? `Ready by ${shortDay(readyBy)}` : '' },
     { key: 'made', group: 'medicine', label: 'Medicine ready', done: made, waitText: 'Medicine Department is preparing the order', by: request?.madeByName, at: iso(request?.madeAt) },
-    { key: 'payment', group: 'handover', label: 'Full payment approved', done: pay.remaining <= 0 && pay.pendingCount === 0, action: pay.pendingCount ? null : 'add_payment', waitText: 'Verify pending payments below', text: `Approved Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
-    { key: 'released', group: 'handover', label: 'Released by Medicine Department', done: released, waitText: 'Medicine Department must release this order after full payment', by: t.financialReleasedByName || request?.sentToCourierByName, at: iso(t.financialReleasedAt || request?.sentToCourierAt) },
-    { key: 'mode', group: 'contact', label: 'Delivery method confirmed', done: Boolean(mode), action: 'confirm_mode', text: MODE_LABEL[mode] || '' },
-    { key: 'plan', group: 'contact', label: mode === 'pickup' ? 'Pickup scheduled' : 'Dispatch scheduled', done: Boolean(mode === 'pickup' ? t.pickupScheduledAt : t.dispatchScheduledAt) || dispatched, action: mode === 'pickup' ? 'schedule_visit' : 'schedule_dispatch', at: iso(mode === 'pickup' ? t.pickupScheduledAt : t.dispatchScheduledAt) },
+    // In Transit calls the patient (calls are logged on the case), fixes self pickup or courier with its date, and the explanation date.
+    { key: 'scheduled', group: 'contact', label: 'Delivery & medicine explanation scheduled', done: plan.done, action: 'schedule_delivery', by: t.fulfilmentSetByName, at: iso(t.fulfilmentSetAt), text: plan.text || (lastCall ? `Last call: ${lastCall.outcome.replace('_', ' ')}` : ''), waitText: 'Call the patient, then fix self pickup / courier date and the medicine explanation date' },
+    { key: 'payment', group: 'handover', label: 'Full payment verified', done: pay.remaining <= 0 && pay.pendingCount === 0, action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
+    { key: 'released', group: 'handover', label: 'Released by Medicine Department', done: released, waitText: 'Medicine Department releases the parcel once the full payment is verified', by: t.financialReleasedByName || request?.sentToCourierByName, at: iso(t.financialReleasedAt || request?.sentToCourierAt) },
+    {
+      key: 'handover', group: 'handover', label: mode === 'pickup' ? 'Collected at clinic' : shippedMode ? 'Dispatched' : 'Handed over / dispatched',
+      done: mode === 'pickup' ? delivered : dispatched, action: mode === 'pickup' ? 'confirm_received' : shippedMode ? 'dispatch' : null,
+      by: mode === 'pickup' ? courier.deliveredByName : courier.dispatchedByName, at: iso(mode === 'pickup' ? courier.deliveredAt : courier.dispatchedAt),
+      text: mode === 'pickup' ? courier.receivedByName : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: mode ? '' : 'Schedule the delivery first',
+    },
   ];
-  if (SHIPPED_MODES.includes(mode)) steps.push({ key: 'dispatched', group: 'handover', label: 'Dispatched', done: dispatched, action: 'dispatch', by: courier.dispatchedByName, at: iso(courier.dispatchedAt), text: [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / ') });
+  if (!mode || shippedMode) steps.push({ key: 'received', group: 'handover', label: 'Received by patient', done: delivered, action: shippedMode ? 'confirm_received' : null, by: courier.deliveredByName, at: iso(courier.deliveredAt), text: courier.receivedByName });
   steps.push(
-    { key: 'received', group: 'handover', label: mode === 'pickup' ? 'Collected at clinic' : 'Received by patient', done: delivered, action: 'confirm_received', by: courier.deliveredByName, at: iso(courier.deliveredAt), text: courier.receivedByName },
-    { key: 'explanation', group: 'treatment', label: 'Assistant doctor and explanation scheduled', done: Boolean(t.explanationScheduledAt), action: 'start_treatment', by: t.explanationScheduledByName, at: iso(stage.medicineExplainDate) },
-    { key: 'explained', group: 'treatment', label: 'Medicine explanation completed', done: Boolean(t.explanationCompletedAt), waitText: 'Assigned Assistant Doctor completes the explanation', by: t.explanationCompletedByName, at: iso(t.explanationCompletedAt) },
+    { key: 'pcc', group: 'treatment', label: 'PCC assigned', done: pccAssigned, action: 'assign_pcc', by: t.assignedByName, at: iso(t.assignedAt), text: pccName },
+    { key: 'explained', group: 'treatment', label: 'Medicine explanation completed', done: Boolean(t.explanationCompletedAt), waitText: 'The assigned PCC completes the explanation on the Medicine Explanations page', by: t.explanationCompletedByName, at: iso(t.explanationCompletedAt), text: stage.medicineExplainDate ? `Scheduled ${shortDay(stage.medicineExplainDate)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '' },
     { key: 'start', group: 'treatment', label: 'Treatment started', done: Boolean(t.activatedAt), by: t.activatedByName, at: iso(t.activatedAt) },
   );
   steps.forEach((step, index) => { step.n = index + 1; step.complete = step.done; });
@@ -177,6 +203,8 @@ function buildTransitCase(patient, stage, now = new Date()) {
     medicine: request ? {
       requestId: request.requestId || 'legacy',
       status: request.status,
+      poNumber: request.poNumber || '',
+      supplyLabel: supplyLabel(request.supplyPlan, request.supplyPart),
       medicines: request.medicines || '',
       notes: request.notes || '',
       prescriptionFiles: request.prescriptionFiles || [],
@@ -203,6 +231,8 @@ function buildTransitCase(patient, stage, now = new Date()) {
       receivedByName: courier.receivedByName || '', deliveredAt: iso(courier.deliveredAt), dispatchedAt: iso(courier.dispatchedAt), notes: courier.notes || '',
     } : null,
     visit: { at: iso(t.pickupScheduledAt), note: t.pickupNote || '' },
+    plan: planOf(stage, t, mode, courier),
+    pcc: { assigned: Boolean(t.assignedAt || t.explanationDoctor), at: iso(t.assignedAt), byName: t.assignedByName || '', name: patient.assignedDoctor?.name || '', existing: Boolean(patient.assignedDoctor) && !(t.assignedAt || t.explanationDoctor) },
     deliveryPlan: { at: iso(t.dispatchScheduledAt), courier: t.plannedCourier || '', address: t.plannedAddress || '', note: t.deliveryPlanNote || '' },
     releasedAt: request?.status === 'sent_to_courier' ? iso(request.sentToCourierAt) : null,
     explanation: { at: iso(stage.medicineExplainDate), mode: t.explanationMode, completedAt: iso(t.explanationCompletedAt), completedBy: t.explanationCompletedByName, note: t.explanationNote, ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },

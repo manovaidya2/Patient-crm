@@ -1021,7 +1021,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         (stage.followUps || []).forEach((entry) => {
           const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
           if (entryDate && entryDate < now && entry.status === 'scheduled') {
-            addLossPoint(patient.assignedDoctor, 'Unassigned Assistant Doctor', 'followUps', {
+            addLossPoint(patient.assignedDoctor, 'Unassigned PCC', 'followUps', {
               type: 'Follow-up late',
               patientName: patient.patientName,
               patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
@@ -1202,7 +1202,7 @@ const getStaffDashboardStats = asyncHandler(async (req, res) => {
   };
 
   reminders.forEach((item) => {
-    const row = ensureAssignee(item.assignee, item.type === 'followup' ? 'Assistant Doctor' : 'Psychologist');
+    const row = ensureAssignee(item.assignee, item.type === 'followup' ? 'PCC' : 'Psychologist');
     row.total += 1;
     if (item.reminderKind === 'late') row.late += 1;
     if (item.reminderKind === 'next_24_hours') row.next24 += 1;
@@ -1806,7 +1806,7 @@ const updatePatient = asyncHandler(async (req, res) => {
     const assignmentFields = new Set(['assignedDoctor', 'assignedPsychologist']);
     const hasDisallowedField = Object.keys(req.body || {}).some((key) => !assignmentFields.has(key));
     if (hasDisallowedField || Object.keys(req.body || {}).length === 0) {
-      return res.status(403).json({ success: false, message: 'In Transit can only assign the Assistant Doctor or Psychologist here' });
+      return res.status(403).json({ success: false, message: 'In Transit can only assign the PCC or Psychologist here' });
     }
   }
   const {
@@ -1929,16 +1929,16 @@ const updatePatient = asyncHandler(async (req, res) => {
     }
     if (!assignedDoctor) {
       if (patient.assignedDoctor) {
-        addActivity(patient, req.user, 'Assistant Doctor unassigned');
+        addActivity(patient, req.user, 'PCC unassigned');
       }
       patient.assignedDoctor = null;
     } else {
       const doctor = await User.findOne({ _id: assignedDoctor, role: ROLES.ASSISTANT_DOCTOR, isActive: true });
       if (!doctor) {
-        return res.status(400).json({ success: false, message: 'Select a valid, active Assistant Doctor' });
+        return res.status(400).json({ success: false, message: 'Select a valid, active PCC (Patient Care Coordinator)' });
       }
       if (!sameValue(patient.assignedDoctor, doctor._id)) {
-        addActivity(patient, req.user, 'Assistant Doctor assigned', doctor.name);
+        addActivity(patient, req.user, 'PCC assigned', doctor.name);
       }
       patient.assignedDoctor = doctor._id;
     }

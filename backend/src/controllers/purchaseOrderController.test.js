@@ -20,6 +20,7 @@ const makePatient = (extra = {}) => {
   mock.method(Patient, 'findById', (id) => {
     const result = Promise.resolve(String(id) === String(patient._id) ? patient : null);
     result.lean = async () => (String(id) === String(patient._id) ? patient.toObject() : null);
+    result.populate = () => result;
     return result;
   });
   return patient;
@@ -201,7 +202,7 @@ test('the pipeline follows the medicine request and courier records', () => {
   const stage = patient.stages[0];
   stage.medicineRequests = [{ requestId: 'r1', status: 'sent_to_courier', requestedAt: new Date(), inProcessAt: new Date(), madeAt: new Date(), sentToCourierAt: new Date(), courier: { status: 'delivered', deliveryMode: 'courier', dispatchedAt: new Date(), deliveredAt: new Date() } }];
   const view = buildPoView({ _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1234', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() }, patient);
-  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'handover', 'received']);
+  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'fullpay', 'released', 'handover', 'received']);
   assert.equal(view.stageKey, 'treatment');
   assert.equal(view.suggestedAgeBand, '4-12');
 });
@@ -226,4 +227,18 @@ test('migration imports old phase POs once, without touching the patient', async
   assert.equal(po.medicineRequestId, 'r9');
   assert.deepEqual(po.paymentIds, [paymentId]);
   assert.equal(po.paperImages.length, 1);
+});
+
+test('actionBy names the role whose turn it is, and empties once the step is done', () => {
+  const { actionByOf } = require('../utils/purchaseOrderFlow');
+  const { jobActionBy } = require('./medicineJobController');
+  assert.deepEqual(actionByOf({ status: 'pending' }, 'details', false), ['admin', 'doctor', 'in_transit']);
+  assert.ok(actionByOf({ status: 'verified' }, 'requested', false).includes('in_transit'), 'a blocked request is still for In Transit to clear');
+  assert.ok(actionByOf({ status: 'verified' }, 'ready', false).includes('medicine_department'));
+  assert.ok(actionByOf({ status: 'verified' }, 'scheduled', false).includes('in_transit'));
+  assert.deepEqual(actionByOf({ status: 'verified' }, 'explained', false), ['admin', 'assistant_doctor']);
+  assert.deepEqual(actionByOf({ status: 'verified' }, undefined, false), [], 'treatment started: nobody');
+  assert.ok(actionByOf({ status: 'rejected' }, 'details', false).includes('post_counselor'));
+  assert.ok(jobActionBy({ status: 'open', currentStage: 0 }).includes('medicine_department'));
+  assert.deepEqual(jobActionBy({ status: 'released', currentStage: 12 }), []);
 });

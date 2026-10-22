@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import useTaskCounts from '../hooks/useTaskCounts.js';
 import {
   LayoutGrid,
   Users,
@@ -39,6 +40,7 @@ import {
   Target,
   Activity,
   BarChart3,
+  FlaskConical,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -77,6 +79,9 @@ export const navItems = [
   { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/medicine-requests', icon: PackageCheck, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
+  { to: '/admin/medicine-jobs', icon: ClipboardCheck, label: 'Fulfilment Queue', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
+  { to: '/admin/stocks', icon: PackageOpen, label: 'Stocks', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
+  { to: '/admin/formulation-master', icon: FlaskConical, label: 'Formulation Master', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/medicine-made', icon: ClipboardCheck, label: 'Medicine Made', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
   { to: '/admin/medicine-inventory', icon: PackageOpen, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
   { to: '/admin/clinic-inventory', icon: PackageOpen, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
@@ -85,9 +90,8 @@ export const navItems = [
   { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
   { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
   { to: '/admin/invoices', type: 'invoices', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
-  { type: 'accountant', roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
-  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
+  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
   { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
   { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
   { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
@@ -180,33 +184,6 @@ const InvoiceMenu = ({ collapsed, onNavigate }) => {
   </div>;
 };
 
-const ACCOUNTANT_LINKS = [
-  ['/admin/accounts', 'Accounts Dashboard', IndianRupee, true],
-
-
-
-  ['/admin/accounts/consultations', 'Consultation Ledger', BookOpen],
-
-  ['/admin/accounts/expenses', 'Expenses', TrendingDown],
-
-];
-
-const AccountantMenu = ({ collapsed, onNavigate }) => {
-  const location = useLocation();
-  const isOnAccountantPage = ACCOUNTANT_LINKS.some(([to, , , end]) => end ? location.pathname === to : location.pathname.startsWith(to));
-  const [open, setOpen] = useState(isOnAccountantPage);
-  useEffect(() => { if (isOnAccountantPage) setOpen(true); }, [isOnAccountantPage]);
-  if (collapsed) return <NavLink to="/admin/accounts" onClick={onNavigate} title="Accountant" aria-label="Accountant" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnAccountantPage ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><IndianRupee size={17} /></NavLink>;
-  return <div>
-    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium ${isOnAccountantPage ? 'bg-teal-800 text-white' : 'text-teal-100/70 hover:bg-teal-800 hover:text-white'}`}>
-      <IndianRupee size={17} /><span className="flex-1 text-left">Accountant</span><ChevronDown size={15} className={open ? 'rotate-180' : ''} />
-    </button>
-    {open && <div className="ml-4 mt-1 space-y-0.5 border-l border-offwhite-100/10 pl-3.5">
-      {ACCOUNTANT_LINKS.map(([to, label, Icon, end]) => <NavLink key={to} to={to} end={Boolean(end)} onClick={onNavigate} className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${isActive ? 'bg-teal-700 text-white shadow-sm' : 'text-teal-100/60 hover:bg-teal-800 hover:text-white'}`}><Icon size={15} />{label}</NavLink>)}
-    </div>}
-  </div>;
-};
-
 const HrMenu = ({ collapsed, onNavigate }) => {
   const location = useLocation();
   const isOnHr = location.pathname.startsWith('/admin/hr');
@@ -254,6 +231,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true');
   const [adviceUnreadCount, setAdviceUnreadCount] = useState(0);
   const [urgentAdviceCount, setUrgentAdviceCount] = useState(0);
+  // Open work per page for this role (orange badges); drops as soon as the steps are completed.
+  const location = useLocation();
+  const taskCounts = useTaskCounts(`${user?.role}|${location.pathname}`);
   const isAdmin = user?.role === ROLES.ADMIN;
   const canSeeAdviceCount = [ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role);
   const roleItems = navItems.filter(
@@ -298,7 +278,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
 
   return (
     <aside
-      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `hidden md:flex ${isCollapsed ? 'w-20' : 'w-64'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
+      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact hidden md:flex ${isCollapsed ? 'w-16' : 'w-56'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
     >
       {/* Collapse / expand toggle */}
       {!mobile && <button
@@ -328,15 +308,13 @@ const Sidebar = ({ mobile = false, onClose }) => {
           if (item.type === 'invoices') {
             return <InvoiceMenu key="invoices" collapsed={isCollapsed} onNavigate={onClose} />;
           }
-          if (item.type === 'accountant') {
-            return <AccountantMenu key="accountant" collapsed={isCollapsed} onNavigate={onClose} />;
-          }
           if (item.type === 'hr') {
             return <HrMenu key="hr" collapsed={isCollapsed} onNavigate={onClose} />;
           }
           const { to, icon: Icon, label, end } = item;
           const showAdviceBadge = to === '/admin/request-for-advice' && adviceUnreadCount > 0;
           const showEmergencyAlert = to === '/admin/request-for-advice' && urgentAdviceCount > 0;
+          const taskCount = Number(taskCounts[to] || 0);
           return (
             <NavLink
               key={to}
@@ -361,6 +339,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
               {!isCollapsed && (
                 <>
                   <span className="min-w-0 flex-1 truncate">{label}</span>
+                  {taskCount > 0 && <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white" title="Waiting for you">{taskCount > 99 ? '99+' : taskCount}</span>}
                   {showAdviceBadge && (
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${showEmergencyAlert ? 'bg-white text-[#B42318]' : 'bg-[#D9B66F] text-teal-950'}`}>
                       {showEmergencyAlert ? `! ${urgentAdviceCount > 99 ? '99+' : urgentAdviceCount}` : adviceUnreadCount > 99 ? '99+' : adviceUnreadCount}
@@ -368,6 +347,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
                   )}
                 </>
               )}
+              {isCollapsed && taskCount > 0 && !showAdviceBadge && <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-orange-500" />}
               {isCollapsed && showAdviceBadge && (
                 <span className={`absolute right-1 top-1 h-2.5 w-2.5 rounded-full ${showEmergencyAlert ? 'bg-white' : 'bg-[#D9B66F]'}`} />
               )}

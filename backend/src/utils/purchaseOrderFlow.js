@@ -1,7 +1,7 @@
 // What one purchase order looks like on screen: its payments, its medicine request and the pipeline from
 // "PO created" to "Treatment started". Nothing here is stored; every step is read from the records the other screens
 // already write (payments, medicine request, courier, phase transit), so all views agree.
-const { paymentSummary, pickRequest } = require('./transitFlow');
+const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
 const { supplyLabel, ageBandFor, AGE_BANDS } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
 
@@ -44,6 +44,8 @@ const GROUPS = [
 
 // Filter buckets for the Purchase Orders page, in pipeline order.
 const STAGE_KEYS = ['verification', 'request', 'medicine', 'handover', 'treatment', 'started', 'rejected'];
+// Everything not finished yet (the default list of the Purchase Orders page).
+const isPendingStage = (key) => key !== 'started';
 
 const refunded = (p) => (p.refunds || []).filter((r) => ['paid', 'settled'].includes(r.status)).reduce((s, r) => s + num(r.amount), 0);
 const fileList = (p) => [...(p.screenshotFiles || []), ...(p.screenshotUrl && !(p.screenshotFiles || []).some((f) => f.url === p.screenshotUrl) ? [{ url: p.screenshotUrl, fileName: 'Payment proof' }] : [])];
@@ -74,14 +76,22 @@ const findRequest = (stage, requestId) => {
   return allRequests(stage).find((r) => (r.requestId || 'legacy') === requestId) || null;
 };
 
-function buildSteps({ po, request, courier, linked, transitOwner, t, stage }) {
+const shortDay = (value) => new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+
+function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay, patient }) {
   const status = request?.status;
   const accepted = ['in_process', 'made', 'sent_to_courier'].includes(status);
   const made = ['made', 'sent_to_courier'].includes(status);
   const released = status === 'sent_to_courier';
   const dispatched = ['dispatched', 'delivered'].includes(courier.status);
   const delivered = courier.status === 'delivered';
-  const selfPickup = courier.deliveryMode === 'self';
+  // The delivery plan, packaging and PCC belong to the phase's current request (In Transit works one request at a time).
+  const mode = transitOwner ? (t.fulfilmentMode || (courier.deliveryMode === 'self' ? 'pickup' : dispatched ? (courier.deliveryMode || 'courier') : '')) : (courier.deliveryMode === 'self' ? 'pickup' : dispatched ? courier.deliveryMode : '');
+  const selfPickup = mode === 'pickup';
+  const planDate = transitOwner ? (selfPickup ? t.pickupScheduledAt : t.dispatchScheduledAt) : null;
+  const explanationAt = transitOwner ? stage.medicineExplainDate : null;
+  const pccName = transitOwner ? (patient.assignedDoctor?.name || '') : '';
+  const pccAssigned = transitOwner && Boolean(t.assignedAt || t.explanationDoctor);
   const steps = [
     { key: 'created', group: 'verification', label: 'PO created', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
     {
@@ -100,11 +110,20 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage }) {
     { key: 'requested', group: 'medicine', label: 'Medicine requested', done: Boolean(request), failed: status === 'cancelled', at: iso(request?.requestedAt), by: request?.requestedByName, text: status === 'cancelled' ? `Cancelled: ${request.cancelReason || ''}` : [supplyLabel(po.supplyPlan, po.supplyPart), AGE_BANDS[po.ageBand]].filter(Boolean).join(' | '), waitText: 'In Transit sends the request to Medicine Department' },
     { key: 'accepted', group: 'medicine', label: 'Accepted by Medicine Dept', done: accepted, at: iso(request?.inProcessAt), by: request?.inProcessByName, text: request?.readyByDate ? `Ready by ${new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}` : '', waitText: 'Waiting for Medicine Department' },
     { key: 'ready', group: 'medicine', label: 'Medicine ready', done: made, at: iso(request?.madeAt), by: request?.madeByName, waitText: 'Medicine is being prepared' },
-    { key: 'released', group: 'medicine', label: 'Released by Medicine Dept', done: released, at: iso(request?.sentToCourierAt), by: request?.sentToCourierByName, waitText: 'Released after full verified payment' },
-    { key: 'handover', group: 'handover', label: selfPickup ? 'Handed over at clinic' : 'Dispatched', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: 'In Transit plans courier, porter or pickup' },
-    { key: 'received', group: 'handover', label: 'Received by patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '' },
-    // The phase's treatment-start steps belong to the request In Transit is currently working on for that phase.
-    { key: 'explanation', group: 'treatment', label: 'Medicine explanation scheduled', done: transitOwner && Boolean(t.explanationScheduledAt), at: iso(transitOwner ? stage.medicineExplainDate : null), by: transitOwner ? t.explanationScheduledByName : '' },
+    // After "ready": In Transit calls the patient, fixes the delivery and explanation dates, collects the balance;
+    // Medicine Department releases the packed parcel; In Transit hands over and assigns the PCC; the PCC explains and treatment starts.
+    {
+      key: 'scheduled', group: 'handover', label: 'Delivery & explanation scheduled', done: Boolean(mode) && (Boolean(planDate) || dispatched) && Boolean(explanationAt),
+      at: iso(transitOwner ? t.fulfilmentSetAt : null), by: transitOwner ? t.fulfilmentSetByName : '',
+      text: [MODE_LABEL[mode], planDate ? `${selfPickup ? 'pickup' : 'dispatch'} ${shortDay(planDate)}` : '', explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '),
+      waitText: 'In Transit calls the patient, fixes self pickup / courier date and the medicine explanation date',
+    },
+    { key: 'fullpay', group: 'handover', label: 'Full payment verified', done: pay.remaining <= 0 && pay.pendingCount === 0, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : `In Transit collects the balance of Rs ${pay.remaining} and verifies it` },
+    { key: 'released', group: 'handover', label: 'Released by Medicine Dept', done: released, at: iso(request?.sentToCourierAt), by: request?.sentToCourierByName, waitText: 'Medicine Department releases the parcel once the full payment is verified' },
+    { key: 'handover', group: 'handover', label: selfPickup ? 'Collected at clinic' : 'Dispatched', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
+    ...(selfPickup ? [] : [{ key: 'received', group: 'handover', label: 'Received by patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
+    { key: 'pcc', group: 'treatment', label: 'PCC assigned', done: pccAssigned, at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: pccName, waitText: 'In Transit assigns the PCC who explains the medicine' },
+    { key: 'explained', group: 'treatment', label: 'Medicine explained', done: transitOwner && Boolean(t.explanationCompletedAt), at: iso(transitOwner ? t.explanationCompletedAt : null), by: transitOwner ? t.explanationCompletedByName : '', text: explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
     { key: 'started', group: 'treatment', label: 'Treatment started', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? t.activatedAt : null), by: transitOwner ? t.activatedByName : '' },
   ];
   const currentIndex = steps.findIndex((s) => !s.done);
@@ -120,13 +139,31 @@ function stageKeyOf(po, steps) {
   const done = (key) => steps.find((s) => s.key === key)?.done;
   if (po.status !== 'verified') return 'verification';
   if (!done('requested') || steps.find((s) => s.key === 'requested')?.failed) return 'request';
-  if (!done('released')) return 'medicine';
-  if (!done('received')) return 'handover';
+  if (!done('ready')) return 'medicine';
+  if (!done('handover') || (steps.some((s) => s.key === 'received') && !done('received'))) return 'handover';
   if (!done('started')) return 'treatment';
   return 'started';
 }
 
-function buildPoView(poDoc, patientDoc, { includeEvents = false } = {}) {
+// Who has to act on this PO right now (derived from the current step, so it clears itself once the step is done).
+const TRANSIT = ['admin', 'in_transit'];
+const VERIFY = ['admin', 'doctor', 'in_transit'];
+const MED = ['admin', 'doctor', 'medicine_department'];
+function actionByOf(po, stepKey, canRequest) {
+  if (po.status === 'rejected') return ['admin', 'doctor', 'post_counselor', 'in_transit'];
+  if (po.status === 'cancelled') return [];
+  switch (stepKey) {
+    case 'details': case 'payment': return VERIFY;
+    // Also when blocked (patient approval, payment): clearing the blocker is In Transit's work too.
+    case 'requested': return VERIFY;
+    case 'accepted': case 'ready': case 'released': return MED;
+    case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;
+    case 'explained': return ['admin', 'assistant_doctor'];
+    default: return [];
+  }
+}
+
+function buildPoView(poDoc, patientDoc, { includeEvents = false, job = null } = {}) {
   const po = plain(poDoc);
   const patient = plain(patientDoc);
   const stage = (patient.stages || []).find((s) => s.number === po.phase) || {};
@@ -146,7 +183,8 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false } = {}) {
   const courier = plain(req.courier);
   const current = pickRequest(stage);
   const transitOwner = Boolean(request && current && (current.requestId || 'legacy') === (req.requestId || 'legacy'));
-  const steps = buildSteps({ po, request: request ? req : null, courier, linked, transitOwner, t, stage });
+  const phasePay = paymentSummary(stage);
+  const steps = buildSteps({ po, request: request ? req : null, courier, linked, transitOwner, t, stage, pay: phasePay, patient });
   const current_ = steps.find((s) => s.state === 'current' || s.state === 'failed');
   const groups = GROUPS.map((g) => {
     const inGroup = steps.filter((s) => s.group === g.key);
@@ -154,12 +192,11 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false } = {}) {
     return { ...g, state, doneCount: inGroup.filter((s) => s.state === 'done').length, total: inGroup.length };
   });
   const stageKey = stageKeyOf(po, steps);
-  const phasePay = paymentSummary(stage);
   const reqStatus = request ? req.status : '';
   const canRequestMedicine = po.status === 'verified' && (!request || reqStatus === 'cancelled');
   // Said on the page when the request button is not offered, so nobody wonders why.
   const requestBlockedReason = canRequestMedicine
-    ? ((patient.approvalStatus || 'approved') !== 'approved' ? 'Approve the patient first' : t.holdActive || t.removedAt ? `Phase ${po.phase} is on hold` : '')
+    ? ((patient.approvalStatus || 'approved') !== 'approved' ? 'Approve the patient first' : t.removedAt ? `Phase ${po.phase} was removed from In Transit${t.removedByName ? ` by ${t.removedByName}` : ''}${t.removedReason ? ` (${t.removedReason})` : ''} - the admin can restore it` : t.holdActive ? `Phase ${po.phase} is on hold${t.holdReason ? `: ${t.holdReason}` : ''} - resume it to continue` : '')
     : po.status === 'rejected' ? 'This PO is rejected. It must be corrected and verified again'
       : po.status !== 'verified' ? (detailsVerified(po) ? 'Verify the payment of this PO first' : 'Verify the PO details first, then the payment')
         : `Medicine is already requested for this PO (${reqStatus.replace(/_/g, ' ')})`;
@@ -225,12 +262,14 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false } = {}) {
     courier: request ? { status: courier.status || 'pending', deliveryMode: courier.deliveryMode || '', courierPartner: courier.courierPartner || '', trackingNumber: courier.trackingNumber || '', receivedByName: courier.receivedByName || '', deliveredAt: iso(courier.deliveredAt), dispatchedAt: iso(courier.dispatchedAt) } : null,
     canRequestMedicine: canRequestMedicine && !requestBlockedReason,
     requestBlockedReason,
+    // A paused (on hold / removed) phase is still pending: In Transit resumes it, the admin restores it.
+    actionBy: (t.holdActive || t.removedAt) && po.status === 'verified' && current_ ? TRANSIT : actionByOf(po, current_?.key, canRequestMedicine && !requestBlockedReason),
     steps,
     groups,
     step: current_ ? { key: current_.key, label: current_.label, waitText: current_.waitText || '', state: current_.state } : { key: 'started', label: 'Treatment started', state: 'done' },
     progress: Math.round((steps.filter((s) => s.state === 'done').length / steps.length) * 100),
-    ...(includeEvents ? { events: [...(po.events || [])].reverse().map((e) => ({ ...plain(e), at: iso(e.at) })), paper: paperView(po.paperValues) } : {}),
+    ...(includeEvents ? { events: [...(po.events || [])].reverse().map((e) => ({ ...plain(e), at: iso(e.at) })), paper: paperView(po.paperValues), medicineJob: job ? require('./medicineJobFlow').jobSummary(job) : null } : {}),
   };
 }
 
-module.exports = { buildPoView, GROUPS, STAGE_KEYS, findRequest, formatPayment };
+module.exports = { buildPoView, GROUPS, STAGE_KEYS, isPendingStage, findRequest, formatPayment, actionByOf };

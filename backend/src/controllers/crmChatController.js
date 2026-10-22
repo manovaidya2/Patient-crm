@@ -548,7 +548,7 @@ const buildCrmFeatureSummary = () => [
   'Medicine inventory with stock, low-stock alerts, add/use/adjust history and value',
   'Payments ledger, income, expenses and reception accounts workflow',
   'Team worksheet with auto-filled CRM work and manual columns/rows',
-  'Role-based access for Admin, Doctor, Manager, Assistant Doctor, Psychologist, Medicine, Courier and Receptionist',
+  'Role-based access for Admin, Doctor, Manager, PCC (Patient Care Coordinator), Psychologist, Medicine, Courier and Receptionist',
 ];
 
 const buildCrmContext = async (message) => {
@@ -1016,7 +1016,7 @@ const systemPrompt = [
   'Admin is the system owner, not staff. The context already excludes admin from staff and member lists. Never add admin back, never include admin in "kaun kaun members hain", work totals, or "sabse zyada kaam kisne kiya" comparisons. If an action was done by admin, a webhook, or the system, describe it as an automatic/system action without attributing it to a named person.',
 
   // === Ready-made lists for list / count questions ===
-  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, medicineSupplyList (months of medicine given, medicine explain date, medicine supply note, next connect date, reminder note/issue, connected status, due status, post counselor, assistant doctor, full medicine given/taken date), paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a breakdown/total count when available — if the shown items are fewer than the total, say there are older records not listed here.',
+  'For "list do", "kitne hue", "kaun kaun", "aaj ke", "is hafte ke", "is mahine ke", "abhi tak kitne" style questions, use the ready-made lists in the context instead of digging through each patient: courierList (dispatches and deliveries with partner, tracking, receiver, dispatched/delivered dates and the staff member who did it), medicineRequestList, medicineSupplyList (months of medicine given, medicine explain date, medicine supply note, next connect date, reminder note/issue, connected status, due status, post counselor, PCC (Patient Care Coordinator), full medicine given/taken date), paymentsList, followUpList, familySessionList, doctorAdviceAll, recentCalls, accountsThisMonth, accountsLifetime, inventory and worksheetToday. Lead with the total, then give a clean itemised list with the real details (patient name + code, date, status, who did it). Each list also has a breakdown/total count when available — if the shown items are fewer than the total, say there are older records not listed here.',
 
   // === NEW: Deep, granular data usage ===
   'Do not limit yourself to top-level summary fields (like totals or counts) if the CRM context has deeper/nested data available. Actively look into every relevant sub-field, nested record, timestamp, note, and status flag connected to the question — even small details like a single field value, a specific note text, a specific timestamp, or a one-line remark — and use them if they help answer the question more completely.',

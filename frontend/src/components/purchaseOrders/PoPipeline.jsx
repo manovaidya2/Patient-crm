@@ -58,17 +58,21 @@ export function PoProgressBar({ steps = [] }) {
 }
 
 // Vertical timeline with who / when / details for every step.
-export function PoTimeline({ steps = [] }) {
+// `onRevert(step)` (admin only) offers "Revert" on done steps; the PO itself cannot be reverted.
+export function PoTimeline({ steps = [], onRevert }) {
   return (
     <ol className="relative">
       {steps.map((step, index) => (
-        <li key={step.key} className="relative flex gap-3 pb-4 last:pb-0">
+        <li key={step.key} className="group relative flex gap-3 pb-4 last:pb-0">
           {index < steps.length - 1 && <span className={`absolute left-[13px] top-7 bottom-0 w-0.5 ${step.state === 'done' ? 'bg-emerald-600/60' : 'bg-cardline'}`} aria-hidden="true" />}
           <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${dotTone[step.state]}`}>
             {step.state === 'done' ? <Check size={13} /> : step.state === 'failed' ? <X size={13} /> : step.n}
           </span>
           <div className={`min-w-0 flex-1 rounded-lg px-3 py-1.5 ${step.state === 'current' ? 'bg-sage/10' : step.state === 'failed' ? 'bg-[#8C3B2E]/8' : ''}`}>
-            <p className={`text-sm ${step.state === 'todo' ? 'text-charcoal/45' : 'font-semibold text-charcoal'}`}>{step.label}</p>
+            <p className={`flex items-center justify-between gap-2 text-sm ${step.state === 'todo' ? 'text-charcoal/45' : 'font-semibold text-charcoal'}`}>
+              <span>{step.label}</span>
+              {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
+            </p>
             {step.state !== 'todo' && (step.text || step.by || step.at) && (
               <p className="text-xs text-charcoal/60">{[step.text, step.by && `by ${step.by}`, poDateTime(step.at)].filter(Boolean).join(' · ')}</p>
             )}

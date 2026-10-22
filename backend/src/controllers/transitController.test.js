@@ -80,6 +80,55 @@ test('dispatch can be scheduled during preparation, but requires release and ful
   assert.equal((await act(patient, body)).courier.status, 'dispatched');
   await assert.rejects(() => act(patient, body), /already been dispatched/);
 });
+
+test('after "ready": one call fixes delivery and explanation; handover after release; PCC assigned after handover; the PCC completes it', async () => {
+  const { patient, stage } = makePatient(500);
+  await request(patient);
+  made(stage);
+  const schedule = { action: 'schedule_delivery', mode: 'pickup', visitAt: future(), explanationAt: future(), explanationMode: 'clinic' };
+  await assert.rejects(() => act(patient, schedule), /connected call/);
+  await act(patient, { action: 'log_call', outcome: 'not_reachable', notes: 'No answer', nextCallAt: future() });
+  await act(patient, { action: 'log_call', outcome: 'connected', notes: 'Will collect on Friday' });
+  await assert.rejects(() => act(patient, { ...schedule, explanationAt: '' }), /explanation date/);
+  let item = await act(patient, schedule);
+  assert.equal(item.mode, 'pickup');
+  assert.ok(stage.transit.pickupScheduledAt && stage.medicineExplainDate && stage.transit.explanationScheduledAt);
+  assert.equal(stage.transit.explanationMode, 'clinic');
+  assert.equal(item.steps.find((s) => s.key === 'scheduled').state, 'done');
+  assert.equal(item.step.key, 'payment', 'the balance comes next');
+  assert.equal(item.nextAction, 'add_payment');
+  // Switching to courier replaces the pickup plan.
+  item = await act(patient, { action: 'schedule_delivery', mode: 'courier', dispatchAt: future(), courierPartner: 'DTDC', address: 'Delhi', explanationAt: future() });
+  assert.equal(stage.transit.pickupScheduledAt, null);
+  assert.ok(stage.transit.dispatchScheduledAt);
+  assert.equal(item.steps.some((s) => s.key === 'received'), true);
+  // Handover only after Medicine Department release (the parcel is packed there).
+  stage.payments.push({ amount: 500, approvalStatus: 'approved' });
+  await assert.rejects(() => act(patient, { action: 'dispatch', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]), /release/);
+  release(stage);
+  item = buildTransitCase(patient, stage);
+  assert.equal(item.step.key, 'handover');
+  assert.equal(item.nextAction, 'dispatch');
+  // PCC only after handover.
+  const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Dr Asha', role: 'assistant_doctor' };
+  mock.method(User, 'findOne', (query) => ({ select: () => ({ lean: async () => ([doctor].find((p) => String(p._id) === String(query._id) && p.role === query.role)) }) }));
+  await assert.rejects(() => act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) }), /hand over/);
+  item = await act(patient, { action: 'dispatch', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]);
+  assert.equal(item.step.key, 'received');
+  item = await act(patient, { action: 'confirm_received', receivedByName: 'Parent', receivedAt: now() });
+  assert.equal(item.step.key, 'pcc');
+  assert.equal(item.pcc.assigned, false);
+  item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) });
+  assert.equal(item.pcc.assigned, true);
+  assert.equal(String(patient.assignedDoctor), String(doctor._id));
+  assert.ok(stage.medicineExplainDate, 'the explanation date fixed with the delivery plan is kept');
+  assert.equal(item.step.key, 'explained');
+  assert.equal(item.nextAction, null, 'the PCC completes the explanation, not In Transit');
+  const result = await invoke(completeExplanation, patient, { completedAt: now(), notes: 'Explained doses and chits' }, doctor);
+  assert.equal(result.item.activated, true);
+  assert.equal(result.item.steps.at(-1).state, 'done');
+  assert.equal(stage.status, 'in_progress');
+});
 test('self pickup requires schedule, release and full payment, then assigned doctor completion starts treatment', async () => {
   const { patient, stage } = makePatient();
   await request(patient);

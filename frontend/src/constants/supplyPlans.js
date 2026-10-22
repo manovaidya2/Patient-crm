@@ -30,7 +30,7 @@ export const PO_STAGES = [
   { key: 'request', label: 'Request medicine', hint: 'Verified, not requested' },
   { key: 'medicine', label: 'With Medicine Dept', hint: 'Accepted, preparing, ready' },
   { key: 'handover', label: 'Handover', hint: 'Dispatch / pickup' },
-  { key: 'treatment', label: 'Treatment start', hint: 'Explanation' },
-  { key: 'started', label: 'Started', hint: 'Treatment active' },
+  { key: 'treatment', label: 'Medicine explanation', hint: 'PCC explains, then treatment starts' },
+  { key: 'started', label: 'Treatment started', hint: 'Treatment active' },
   { key: 'rejected', label: 'Rejected', hint: 'Needs correction' },
 ];

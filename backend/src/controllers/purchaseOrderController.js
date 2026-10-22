@@ -10,7 +10,7 @@ const { supplyOption, supplyOptionByLabel, AGE_BANDS } = require('../constants/s
 const purchase = require('../utils/purchaseOrderRecord');
 const { assertPurchaseComplete, withBankName, paymentFromPaper } = require('../utils/convertPatient');
 const { createWithPoNumber } = require('../utils/poNumber');
-const { buildPoView, STAGE_KEYS, findRequest } = require('../utils/purchaseOrderFlow');
+const { buildPoView, STAGE_KEYS, isPendingStage, findRequest } = require('../utils/purchaseOrderFlow');
 
 const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 const PO_CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -67,7 +67,14 @@ const stageOf = (patient, number) => {
   if (!stage.transit) stage.transit = {};
   return stage;
 };
-const respond = (res, po, patient, status = 200) => res.status(status).json({ success: true, purchaseOrder: buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true }) });
+// The PO details page also shows the Medicine Department's progress on this PO's request.
+const respond = async (res, po, patient, status = 200) => {
+  let job = null;
+  if (po.medicineRequestId) {
+    try { const MedicineJob = require('../models/MedicineJob'); job = await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: po.medicineRequestId }).lean(); } catch { job = null; }
+  }
+  res.status(status).json({ success: true, purchaseOrder: buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job }) });
+};
 
 // Validates the payment typed on a PO form. Returns null when no payment was entered.
 const paymentFromBody = async (body, files, user, poNumber) => {
@@ -101,6 +108,17 @@ const paymentFromBody = async (body, files, user, poNumber) => {
   };
 };
 
+// Every PO with its patient, as list views (used by the list and by the sidebar task counts).
+const loadPoViews = async (filter = { patient: { $ne: null } }) => {
+  const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
+  const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
+  const patients = await Patient.find({ _id: { $in: patientIds } })
+    .select('patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate')
+    .lean();
+  const byId = new Map(patients.map((p) => [String(p._id), p]));
+  return pos.filter((po) => byId.has(String(po.patient))).map((po) => buildPoView(po, byId.get(String(po.patient))));
+};
+
 // @route GET /api/purchase-orders?stage=&q=&patient=
 const listPurchaseOrders = asyncHandler(async (req, res) => {
   const filter = {};
@@ -108,28 +126,30 @@ const listPurchaseOrders = asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(String(req.query.patient))) fail('Invalid patient');
     filter.patient = req.query.patient;
   } else filter.patient = { $ne: null };
-  const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
-  const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
-  const patients = await Patient.find({ _id: { $in: patientIds } })
-    .select('patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate')
-    .lean();
-  const byId = new Map(patients.map((p) => [String(p._id), p]));
-  let items = pos.filter((po) => byId.has(String(po.patient))).map((po) => buildPoView(po, byId.get(String(po.patient))));
+  let items = await loadPoViews(filter);
   const q = clean(req.query.q, 100).toLowerCase();
   if (q) items = items.filter((item) => [item.poNumber, item.patientName, item.patientCode, item.patientPhone].some((v) => String(v || '').toLowerCase().includes(q)));
   const counts = Object.fromEntries(STAGE_KEYS.map((key) => [key, items.filter((item) => item.stageKey === key).length]));
   counts.all = items.length;
-  const stage = STAGE_KEYS.includes(req.query.stage) ? req.query.stage : '';
-  if (stage) items = items.filter((item) => item.stageKey === stage);
+  counts.pending = items.filter((item) => isPendingStage(item.stageKey)).length;
+  // Of those, how many wait for the signed-in role (orange marks on the page).
+  const mine = items.filter((item) => item.actionBy.includes(req.user.role));
+  const mineCounts = Object.fromEntries(STAGE_KEYS.map((key) => [key, mine.filter((item) => item.stageKey === key).length]));
+  mineCounts.all = mine.length;
+  mineCounts.pending = mine.length;
+  counts.mine = mineCounts;
+  const stage = STAGE_KEYS.includes(req.query.stage) || req.query.stage === 'pending' ? req.query.stage : '';
+  if (stage === 'pending') items = items.filter((item) => isPendingStage(item.stageKey));
+  else if (stage) items = items.filter((item) => item.stageKey === stage);
   res.json({ success: true, counts, items });
 });
 
 // @route GET /api/purchase-orders/:id
 const getPurchaseOrder = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
-  const patient = await Patient.findById(po.patient).lean();
+  const patient = await Patient.findById(po.patient).populate('assignedDoctor', 'name').lean();
   if (!patient) fail('Patient not found', 404);
-  respond(res, po, patient);
+  await respond(res, po, patient);
 });
 
 // @route GET /api/purchase-orders/form?patient=&phase=
@@ -213,7 +233,7 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     await PurchaseOrder.deleteOne({ _id: po._id }).catch(() => {});
     throw error;
   }
-  respond(res, po, patient, 201);
+  await respond(res, po, patient, 201);
 });
 
 // @route PATCH /api/purchase-orders/:id   (multipart: paper[])
@@ -236,8 +256,8 @@ const updatePurchaseOrder = asyncHandler(async (req, res) => {
   if (resubmitted) Object.assign(po, { status: 'pending', detailsVerifiedAt: null, detailsVerifiedByName: '' });
   event(po, req.user, resubmitted ? 'Corrected and sent for verification again' : 'PO updated', changes.join(' | '));
   await po.save();
-  const patient = await Patient.findById(po.patient).lean();
-  respond(res, po, patient);
+  const patient = await Patient.findById(po.patient).populate('assignedDoctor', 'name').lean();
+  await respond(res, po, patient);
 });
 
 // @route POST /api/purchase-orders/:id/payments   (multipart: screenshot[])
@@ -253,7 +273,7 @@ const addPurchaseOrderPayment = asyncHandler(async (req, res) => {
   logActivity(patient, req.user, `Payment added for Phase ${po.phase}`, `${payment.amount} via ${payment.paymentMode === 'cash' ? 'Cash' : 'Online'} — PO ${po.poNumber}, pending accounts approval`);
   await patient.save();
   await po.save();
-  respond(res, po, patient, 201);
+  await respond(res, po, patient, 201);
 });
 
 // @route POST /api/purchase-orders/:id/verify-details
@@ -274,7 +294,7 @@ const verifyDetails = asyncHandler(async (req, res) => {
   logActivity(patient, req.user, `Purchase order details verified for Phase ${po.phase}`, po.poNumber);
   await patient.save();
   await po.save();
-  respond(res, po, patient);
+  await respond(res, po, patient);
 });
 
 // @route POST /api/purchase-orders/:id/verify-payment
@@ -303,7 +323,7 @@ const verifyPayment = asyncHandler(async (req, res) => {
   logActivity(patient, req.user, `Purchase order verified for Phase ${po.phase}`, `${po.poNumber}${approved ? ` | Rs ${amount} verified` : ''}`);
   await patient.save();
   await po.save();
-  respond(res, po, patient);
+  await respond(res, po, patient);
 });
 
 // @route POST /api/purchase-orders/:id/reject   body: { reason }
@@ -315,8 +335,8 @@ const rejectPurchaseOrder = asyncHandler(async (req, res) => {
   Object.assign(po, { status: 'rejected', rejectedAt: new Date(), rejectedByName: req.user.name, rejectReason: reason });
   event(po, req.user, 'PO rejected', reason);
   await po.save();
-  const patient = await Patient.findById(po.patient).lean();
-  respond(res, po, patient);
+  const patient = await Patient.findById(po.patient).populate('assignedDoctor', 'name').lean();
+  await respond(res, po, patient);
 });
 
 // @route POST /api/purchase-orders/:id/medicine-request   (multipart: prescription[])
@@ -361,11 +381,56 @@ const requestMedicine = asyncHandler(async (req, res) => {
   event(po, req.user, existing ? 'Medicine requested again' : 'Medicine requested', `${supply.label} | ${AGE_BANDS[ageBand]} | ready by ${readyBy.toISOString().slice(0, 10)}`);
   await patient.save();
   await po.save();
-  respond(res, po, patient);
+  // The Medicine Department job (12 fulfilment stages) opens with the request; never let it block the request itself.
+  try {
+    const { findOrCreateJob } = require('./medicineJobController');
+    await findOrCreateJob({ patient, stage, request: stage.medicineRequests[stage.medicineRequests.length - 1], po, user: req.user });
+  } catch (error) { console.error(`Medicine job could not be opened for ${po.poNumber}: ${error.message}`); }
+  await respond(res, po, patient);
 });
 
 // @route POST /api/purchase-orders/:id/activate-phase
 // Makes this PO's phase the patient's current phase (e.g. Phase 2 bought after Phase 1).
+// Returns stock drawn by a job's preparation when that stage is reverted (ledger "return" rows, never a silent edit).
+const stockReturner = (job, user) => async (line) => {
+  const StockItem = require('../models/StockItem');
+  const { moveStock } = require('./stockController');
+  const item = await StockItem.findOne({ code: line.code });
+  if (!item) return;
+  await moveStock(item, { type: 'return', quantity: line.actual, delta: Number(line.actual), user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation reverted by admin for ${job.patientName} Phase ${job.phase}` });
+};
+
+// @route POST /api/purchase-orders/:id/revert   body: { step, reason }   (admin)
+// Undoes a timeline step - and every later step - when it was done by mistake. The cleared records are kept on the
+// PO (`reverts`), drawn stock is returned through the ledger, and the activity shows who reverted what and why.
+const revertStep = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  const step = clean(req.body?.step, 40);
+  const reason = clean(req.body?.reason, 500);
+  if (!reason) fail('Write why this step is reverted');
+  if (['rejected', 'cancelled'].includes(po.status)) fail('A rejected / cancelled PO has nothing to revert');
+  const patient = await loadPatient(po.patient);
+  const stage = stageOf(patient, po.phase);
+  const request = findRequest(stage, po.medicineRequestId);
+  const MedicineJob = require('../models/MedicineJob');
+  const job = request ? await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: request.requestId || 'legacy' }) : null;
+  const before = buildPoView(po, patient.toObject(), { job: job ? job.toObject() : null });
+  const now = new Date();
+  const { revertPoFrom } = require('../utils/revertFlow');
+  const { reverted, snapshot } = await revertPoFrom(step, { po, patient, stage, request, job, steps: before.steps, returnStock: job ? stockReturner(job, req.user) : async () => {}, reason, user: req.user, now });
+  const labels = reverted.map((k) => before.steps.find((s) => s.key === k)?.label || k);
+  po.reverts.push({ at: now, byName: req.user.name, byRole: req.user.role, step, reason, reverted, snapshot });
+  event(po, req.user, 'Reverted by admin', `${labels.join(', ')} - ${reason}`);
+  logActivity(patient, req.user, `Phase ${po.phase} steps reverted (PO ${po.poNumber})`, `${labels.join(', ')} - ${reason}`);
+  if (job) {
+    job.events.push({ at: now, action: 'Reverted by admin', details: `${labels.join(', ')} - ${reason}`, byName: req.user.name, byRole: req.user.role });
+    await job.save();
+  }
+  await patient.save();
+  await po.save();
+  await respond(res, po, patient);
+});
+
 const activatePhase = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
   if (po.status !== 'verified') fail('Verify the purchase order first');
@@ -377,11 +442,11 @@ const activatePhase = asyncHandler(async (req, res) => {
   event(po, req.user, 'Phase activated', `Phase ${from} -> Phase ${po.phase}`);
   await patient.save();
   await po.save();
-  respond(res, po, patient);
+  await respond(res, po, patient);
 });
 
 module.exports = {
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
-  listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
+  loadPoViews, revertStep, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
   verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase,
 };

@@ -8,8 +8,22 @@ const Patient = require('../src/models/Patient');
 const { buildPoView } = require('../src/utils/purchaseOrderFlow');
 const { buildTransitCase } = require('../src/utils/transitFlow');
 const purchase = require('../src/utils/purchaseOrderRecord');
+const MedicineJob = require('../src/models/MedicineJob');
+const { formulationFor, chitsFor, stockNeeds, applyOverrides } = require('../src/constants/formulationMaster');
+const { buildJobView, jobSummary, STAGES } = require('../src/utils/medicineJobFlow');
+const { SAMPLE_STOCKS } = require('../src/utils/stockSeed');
+const { formatItem } = require('../src/controllers/stockController');
+const { bandView } = require('../src/controllers/formulationMasterController');
+const { MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, defaultMasterFor } = require('../src/constants/formulationMaster');
+const { SUPPLY_OPTIONS } = require('../src/constants/supplyPlans');
+const JOB_ID = '6500000000000000000000b1';
+const JOB2_ID = '6500000000000000000000b2';
+const stockDocs = () => SAMPLE_STOCKS.map((x) => ({ _id: '65000000000000000000' + String(1000 + SAMPLE_STOCKS.indexOf(x)).slice(-4), ...x, currentStock: x.opening, updatedAt: new Date() }));
+const jobDoc = (patient) => { const f = formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }); return new MedicineJob({ _id: JOB_ID, patient: patient._id, patientCode: patient.patientCode, patientName: patient.patientName, phase: 1, requestId: 'req-1', poNumber: 'PO-4821', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', requestedAt: new Date(), requestedByName: 'Transit', readyByDate: new Date(Date.now() + 2 * 86400000), currentStage: 4, stages: [['accept', { readyByDate: '2026-10-25' }], ['review', { formulaRef: 'Dr Garg 22 Oct' }], ['stock', { batchRefs: 'MG-2610' }], ['prepare', { batchNo: 'B-1', preparerName: 'Meena' }]].map(([key, fields], i) => ({ key, doneAt: new Date(), doneByName: 'Meena', doneByRole: 'medicine_department', checks: STAGES[i].checks.map(() => true), fields })), formulation: f, chits: chitsFor(f, patient.patientName), consumption: stockNeeds(f).map((n) => ({ code: n.code, name: n.name, unit: n.unit, planned: n.qty, actual: n.qty, txId: '6500000000000000000000c1' })), events: [{ at: new Date(), action: 'Job opened', byName: 'Meena' }] }).toObject(); };
 
 const PATIENT_ID = '507f1f77bcf86cd799439011';
+// A second job still at the formulation review stage, with one line already corrected by the department.
+const reviewJobDoc = (patient) => { const f = applyOverrides(formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }), [{ key: 'ghrit', qty: 60, dose: 'सुबह खाली पेट: ½ चम्मच (2 ml), दिन में एक बार।' }], { byName: 'Meena' }); return new MedicineJob({ _id: JOB2_ID, patient: patient._id, patientCode: patient.patientCode, patientName: patient.patientName, phase: 1, requestId: 'req-2', poNumber: 'PO-7310', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', requestedAt: new Date(), requestedByName: 'Transit', readyByDate: new Date(Date.now() + 3 * 86400000), currentStage: 1, stages: [{ key: 'accept', doneAt: new Date(), doneByName: 'Meena', doneByRole: 'medicine_department', checks: STAGES[0].checks.map(() => true), fields: { readyByDate: '2026-10-25' } }], formulation: f, chits: chitsFor(f, patient.patientName), consumption: stockNeeds(f).map((n) => ({ code: n.code, name: n.name, unit: n.unit, planned: n.qty })), events: [{ at: new Date(), action: 'Formulation sheet corrected', byName: 'Meena' }] }).toObject(); };
 const patientDoc = () => {
   const doc = new Patient({ _id: PATIENT_ID, patientName: 'Aarav Mehra', patientCode: 'A-221026-11', guardianName: 'Sunita Mehra', category: 'autism_adhd', number: '9999999999', age: '7', approvalStatus: 'approved', currentStage: 1 });
   const stage = doc.stages[0];
@@ -18,6 +32,19 @@ const patientDoc = () => {
   stage.payments.push({ _id: '507f1f77bcf86cd799439022', amount: 32000, approvalStatus: 'pending', paymentMode: 'online', utr: 'UTR-2', date: new Date() });
   stage.medicineRequests.push({ requestId: 'req-1', status: 'in_process', medicines: 'Medhya ghrit, Shiva-leh', requestedAt: new Date(), inProcessAt: new Date(), readyByDate: new Date(Date.now() + 3 * 86400000), poNumber: 'PO-4821', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12' });
   return doc.toObject();
+};
+// The same patient further along: medicine handed over at the clinic, PCC assigned, explanation due - what the PCC sees.
+const PCC_ID = '507f1f77bcf86cd799439015';
+const explainPatient = () => {
+  const doc = patientDoc();
+  const stage = doc.stages[0];
+  stage.payments[1].approvalStatus = 'approved';
+  Object.assign(stage.medicineRequests[0], { status: 'sent_to_courier', madeAt: new Date(), madeByName: 'Meena', sentToCourierAt: new Date(), sentToCourierByName: 'Meena', medicineImages: [{ url: '/uploads/medicine/a.png', fileName: 'photoA.png' }],
+    courier: { status: 'delivered', deliveryMode: 'self', receivedByName: 'Sunita Mehra', deliveredAt: new Date(), deliveredByName: 'Transit Staff', packageImages: [], deliveryProofImages: [] } });
+  stage.medicineExplainDate = new Date(Date.now() + 86400000);
+  Object.assign(stage.transit, { fulfilmentMode: 'pickup', fulfilmentSetAt: new Date(), fulfilmentSetByName: 'Transit Staff', pickupScheduledAt: new Date(), explanationScheduledAt: new Date(), explanationScheduledByName: 'Transit Staff', explanationMode: 'clinic', assignedAt: new Date(), assignedByName: 'Transit Staff', explanationDoctor: PCC_ID, calls: [{ at: new Date(), outcome: 'connected', notes: 'Will collect on Friday', byName: 'Transit Staff' }] });
+  doc.assignedDoctor = { _id: PCC_ID, name: 'Dr Asha' };
+  return doc;
 };
 const pos = (patient) => [
   buildPoView({ _id: '6500000000000000000000a1', poNumber: 'PO-4821', generated: true, phase: 1, status: 'verified', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12', amount: 42000, packageName: 'Autism / Phase 1', paymentIds: ['507f1f77bcf86cd799439021'], medicineRequestId: 'req-1', source: 'conversion', paperValues: { mode: 'Online', amountReceivedNow: 10000, utrReference: '166901178274', paymentDate: '2026-10-18', plan: '2 Parts', part1Amount: 10000, part2Amount: 32000, poNo: 'PO-4821', poDate: '2026-10-18', orderedTreatment: 'Autism / 1st 6 months', supplyOrder: '1+5: First 1 month', guardianName: 'Sonam', consentTaken: true, screenshots: [{ url: '/uploads/payments/x.png', fileName: 'upi.png' }], totals: { approvedProgramFee: 42000, cardCharge: 0, outstandingBalance: 32000 } }, createdAt: new Date(), createdByName: 'Counselor', verifiedAt: new Date(), verifiedByName: 'Transit', events: [{ at: new Date(), action: 'PO created', byName: 'Counselor' }] }, patient, { includeEvents: true }),
@@ -43,9 +70,30 @@ async function main() {
   fs.mkdirSync(output, { recursive: true });
   const raw = patientDoc();
   const items = pos(raw);
+  const job = jobDoc(raw);
+  const stocks = stockDocs();
+  items[0].medicineJob = jobSummary(job);
+  const job2View = buildJobView(reviewJobDoc(raw), { stocks, includeEvents: true });
+  const jobView = buildJobView(job, { stocks, payment: { totalAmount: 42000, amountPaid: 10000, remaining: 32000, pendingCount: 0, patientApproved: true, releasable: false }, includeEvents: true });
+  // Formulation Master: document values, with one band edited by the doctor.
+  const masters = ['3-4', '4-12', '12-70', '70+'].map((b) => {
+    const m = defaultMasterFor(b);
+    if (b === '4-12') { m.quantities.ghrit = { qty: 600, unit: 'ml' }; m.pendingNotes.mix = ''; Object.assign(m, { version: 2, source: 'edited', updatedAt: new Date().toISOString(), updatedByName: 'Dr Garg', note: 'Dr Garg 22 Oct: 1 चम्मच ghrit above 4 years', history: [{ at: new Date().toISOString(), version: 1, byName: 'Dr Garg', byRole: 'doctor', note: 'Dr Garg 22 Oct: 1 चम्मच ghrit above 4 years', changes: ['मेध्य घृत: 450 ml -> 600 ml', 'mix: pending point confirmed (note cleared)'] }] }); }
+    return bandView(m);
+  });
+  const masterPayload = (user) => ({ success: true, bands: masters, items: MASTER_ITEMS, doses: MASTER_DOSES, splitDays: SPLIT_DAYS, pendingKeys: PENDING_KEYS, supplyOptions: SUPPLY_OPTIONS, canEdit: ['admin', 'doctor'].includes(user.role) });
   const browser = await puppeteer.launch({ headless: true });
   try {
-    const user = { _id: '507f1f77bcf86cd799439012', name: 'Transit Staff', role: 'in_transit' };
+  // PO / patient pages as In Transit; job, queue and stocks pages as Medicine Department.
+  const runs = [
+    [{ _id: '507f1f77bcf86cd799439012', name: 'Transit Staff', role: 'in_transit' }, (sh) => !sh[0].startsWith('job') && !['stocks', 'explanations'].includes(sh[0]) && !sh[0].startsWith('master') && !sh[0].startsWith('admin-') && !sh[0].startsWith('pnb-')],
+    [{ _id: '507f1f77bcf86cd799439013', name: 'Meena', role: 'medicine_department' }, (sh) => sh[0].startsWith('job') || sh[0] === 'stocks'],
+    [{ _id: '507f1f77bcf86cd799439014', name: 'Dr Garg', role: 'doctor' }, (sh) => sh[0] === 'master-edit' || sh[0] === 'master'],
+    [{ _id: PCC_ID, name: 'Dr Asha', role: 'assistant_doctor' }, (sh) => sh[0] === 'explanations'],
+    [{ _id: '507f1f77bcf86cd799439016', name: 'Super Admin', role: 'admin' }, (sh) => sh[0].startsWith('admin-')],
+    [{ _id: '507f1f77bcf86cd799439017', name: 'Counselor', role: 'post_counselor' }, (sh) => sh[0].startsWith('pnb-')],
+  ];
+  for (const [user, pick] of runs) {
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(String(error.stack || error.message).split('\n').slice(0, 4).join(' <- ')));
@@ -59,10 +107,20 @@ async function main() {
       if (url.pathname.startsWith('/api/')) {
         let data = { success: true, items: [], patients: [], reminders: [], rows: [], records: [], callLogs: [], banks: [], doctors: [], psychologists: [], postCounselors: [], count: 0, total: 0 };
         if (url.pathname.endsWith('/auth/me')) data = { user };
-        else if (url.pathname === '/api/purchase-orders') data = { success: true, items, counts: { all: 2, verification: 1, medicine: 1 } };
+        else if (url.pathname === '/api/purchase-orders') data = { success: true, items, counts: { all: 2, pending: 2, verification: 1, medicine: 1, mine: { all: 1, pending: 1, verification: 1 } } };
         else if (/^\/api\/purchase-orders\/[a-f0-9]{24}$/.test(url.pathname)) data = { success: true, purchaseOrder: items.find((po) => url.pathname.endsWith(po.id)) };
         else if (url.pathname === `/api/patients/${PATIENT_ID}`) data = { success: true, patient: formattedPatient(raw) };
         else if (url.pathname === `/api/transit/${PATIENT_ID}/1`) data = { success: true, item: buildTransitCase(raw, raw.stages[0]), events: [] };
+        else if (url.pathname === '/api/medicine-jobs/' + JOB_ID) data = { success: true, job: jobView };
+        else if (url.pathname === '/api/medicine-jobs/' + JOB2_ID) data = { success: true, job: job2View };
+        else if (url.pathname === '/api/medicine-jobs') data = { success: true, items: [{ id: JOB_ID, patientId: PATIENT_ID, patientName: raw.patientName, patientCode: raw.patientCode, phase: 1, poNumber: 'PO-4821', supplyLabel: '1+5: First 1 month', ageBandLabel: 'Above 4 - 12 years', readyByDate: jobView.readyByDate, status: 'open', currentStage: 4, currentLabel: STAGES[4].label, progress: jobView.progress, hold: null, urgency: jobView.urgency, totalStages: 12 }] };
+        else if (url.pathname === '/api/stocks') data = { success: true, items: stocks.map(formatItem) };
+        else if (url.pathname === '/api/formulation-master') data = masterPayload(user);
+        else if (url.pathname === '/api/package-not-bought') data = { success: true, rows: [{ id: '6500000000000000000000d1', patientName: 'Kabir Sethi', parentName: 'Neha Sethi', fatherNumber: '9888877777', motherNumber: '', age: '5', program: 'Autism', reason: 'Fees', followUpDate: new Date().toISOString(), notes: '', followUps: [], status: 'open', createdByName: 'Counselor', createdAt: new Date().toISOString() }, { id: '6500000000000000000000d2', patientName: 'Ira Jain', parentName: 'Mohit Jain', fatherNumber: '9777766666', motherNumber: '', age: '6', program: 'ADHD', reason: '', followUpDate: null, notes: '', followUps: [], status: 'closed', closedAt: new Date().toISOString(), closedByName: 'Counselor', closeReason: 'Not interested', createdByName: 'Counselor', createdAt: new Date().toISOString() }], total: 2, page: 1, pages: 1, summary: { open: 1, overdue: 0, today: 1, upcoming: 0, noFollowUp: 0 } };
+        else if (url.pathname === '/api/package-not-bought/6500000000000000000000d1') data = { success: true, row: { id: '6500000000000000000000d1', patientName: 'Kabir Sethi', parentName: 'Neha Sethi', fatherNumber: '9888877777', motherNumber: '', age: '5', program: 'Autism', reason: 'Fees', followUpDate: new Date().toISOString(), notes: '', followUps: [], status: 'open', createdByName: 'Counselor', createdAt: new Date().toISOString() } };
+        else if (url.pathname === '/api/tasks/counts') data = { success: true, counts: { '/admin/purchase-orders': 2, '/admin/medicine-jobs': 1 } };
+        else if (url.pathname === '/api/transit/explanations') { const ep = explainPatient(); data = { success: true, items: [buildTransitCase(ep, ep.stages[0])] }; }
+        else if (url.pathname === '/api/stocks/ledger') data = { success: true, rows: [] };
         else if (url.pathname === '/api/purchase-orders/form') data = { success: true, definitions: purchase.definitions(), values: purchase.defaults({ record: null, registration: { category: 'autism_adhd', fatherName: 'Rajnish', fatherNumber: '8800611900' }, counselorName: 'Transit Staff', today: '2026-10-22' }), contacts: { fatherNumber: '8800611900' }, phase: 1 };
         return request.respond({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: JSON.stringify(data) });
       }
@@ -72,12 +130,23 @@ async function main() {
     const shots = [
       ['po-list', '/admin/purchase-orders', 'PO-7310'],
       ['po-verify', `/admin/purchase-orders/${items[1].id}`, 'Verify the PO details'],
-      ['po-detail', `/admin/purchase-orders/${items[0].id}`, 'Handover & treatment start'],
+      ['po-detail', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
       ['patient-overview', `/admin/patients/${PATIENT_ID}`, 'Contact & care team'],
       ['patient-orders', `/admin/patients/${PATIENT_ID}?tab=orders`, 'PO-4821'],
       ['patient-phases', `/admin/patients/${PATIENT_ID}?tab=phases`, 'Treatment phases & payments'],
       ['patient-medicine', `/admin/patients/${PATIENT_ID}?tab=medicine`, 'Medicine supply & requests'],
-    ];
+      ['job-review', `/admin/medicine-jobs/${JOB_ID}`, 'Chit on pack'],
+      ['job-edit', `/admin/medicine-jobs/${JOB2_ID}`, 'corrected by Meena'],
+      ['job-queue', '/admin/medicine-jobs', 'Primary packing & chits'],
+      ['stocks', '/admin/stocks', 'MEDHYA-GHRIT'],
+      ['master', '/admin/formulation-master', 'Document values'],
+      ['master-edit', '/admin/formulation-master', 'Document values'],
+      ['explanations', '/admin/medicine-explanations', 'Ready to explain'],
+      ['admin-po-revert', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
+      ['pnb-list', '/admin/package-not-bought', 'Kabir Sethi'],
+      ['pnb-detail', '/admin/package-not-bought/6500000000000000000000d1', 'Convert to Patient'],
+      ['admin-job-revert', `/admin/medicine-jobs/${JOB_ID}`, 'Chit on pack'],
+    ].filter(pick);
     for (const width of [1440, 390]) {
       await page.setViewport({ width, height: 1000 });
       for (const [name, route, text] of shots) {
@@ -90,6 +159,74 @@ async function main() {
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `${name} overflows at ${width}`);
         await page.screenshot({ path: path.join(output, `${name}-${width}.png`), fullPage: true });
+        if (name === 'job-review') {
+          // Stage 4 (preparation) and stage 5 (chits) are reachable by clicking the rail; they must render too.
+          for (const [label, text] of [['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC (independent)', 'Opens after']]) {
+            await page.evaluate((l) => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes(l)).click(), label.slice(3));
+            try { await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 15000 }, text); }
+            catch { await page.screenshot({ path: path.join(output, `FAILED-job-${label.slice(0, 1)}-${width}.png`), fullPage: true }); throw new Error(`job stage "${label}" at ${width}: "${text}" not shown. Page says: ${(await page.evaluate(() => document.body.innerText)).slice(0, 500)} | errors: ${errors.join(' / ')}`); }
+            await page.screenshot({ path: path.join(output, `job-${label.slice(0, 1)}-${width}.png`), fullPage: true });
+          }
+        }
+        if (name === 'master' || name === 'master-edit') {
+          // The edited band shows its version, history and the struck-through document value; the doctor can open the edit form.
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('Above 4 - 12 years')).click());
+          await page.waitForFunction(() => document.body.innerText.includes('edited by Dr Garg') && document.body.innerText.includes('450 ml -> 600 ml'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `${name}-band-${width}.png`), fullPage: true });
+          if (name === 'master-edit') {
+            await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('Edit master')).click());
+            await page.waitForFunction(() => document.body.innerText.includes('Why is the master changed?'), { timeout: 15000 });
+            assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `master edit form overflows at ${width}`);
+            await page.screenshot({ path: path.join(output, `master-edit-form-${width}.png`), fullPage: true });
+          } else {
+          }
+        }
+        if (name === 'po-list') {
+          // Orange task marks: sidebar count and the PO waiting for In Transit.
+          const marks = await page.evaluate(() => ({ badge: [...document.querySelectorAll('nav a')].find((a) => a.innerText.includes('Purchase Orders'))?.querySelector('.bg-orange-500')?.innerText, rows: document.body.innerText.toUpperCase().split('YOUR ACTION').length - 1 }));
+          assert.equal(marks.badge, '2', 'sidebar shows the orange task count');
+          assert.ok(marks.rows >= 1, 'the PO waiting for In Transit is marked');
+        }
+        if (name === 'po-detail') {
+          // The PO timeline carries the handover and treatment steps after "Medicine ready".
+          const text = await page.evaluate(() => document.body.innerText);
+          for (const step of ['Delivery & explanation scheduled', 'Full payment verified', 'PCC assigned', 'Medicine explained']) assert.ok(text.includes(step), `po-detail lacks step "${step}"`);
+        }
+        if (name === 'explanations') {
+          const text = await page.evaluate(() => document.body.innerText);
+          for (const bit of ['Dr Asha', 'PO-4821', 'Collected at clinic', 'Complete explanation']) assert.ok(text.includes(bit), `explanations page lacks "${bit}"`);
+        }
+        if (name === 'pnb-list') {
+          const text = await page.evaluate(() => document.body.innerText);
+          for (const bit of ['Follow-up today', 'Close', 'Reopen', 'Not interested']) assert.ok(text.includes(bit), `package-not-bought list lacks "${bit}"`);
+        }
+        if (name === 'pnb-detail') {
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Close').click());
+          await page.waitForFunction(() => document.body.innerText.includes('Close record'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `pnb-detail-close-${width}.png`), fullPage: true });
+        }
+        if (name === 'admin-po-revert') {
+          // Admin only: "Revert" sits on done timeline steps; the confirmation lists every step that goes back.
+          const reverts = await page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => b.innerText.trim() === 'Revert').length);
+          assert.equal(reverts, 4, `Revert on the four done steps after "PO created", found ${reverts}`);
+          await page.evaluate(() => { const li = [...document.querySelectorAll('li')].find((l) => l.innerText.startsWith('Medicine requested') && l.querySelector('button')); li.querySelector('button').click(); });
+          await page.waitForFunction(() => document.body.innerText.includes('Why is this reverted?') && document.body.innerText.includes('Revert 2 steps'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `admin-po-revert-modal-${width}.png`), fullPage: true });
+        }
+        if (name === 'admin-job-revert') {
+          await page.evaluate(() => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes('Medicine preparation')).click());
+          await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Revert'), { timeout: 15000 });
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Revert').click());
+          await page.waitForFunction(() => document.body.innerText.includes('Revert to this stage'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `admin-job-revert-${width}.png`), fullPage: true });
+        }
+        if (name === 'job-edit') {
+          // The review stage offers "Edit sheet"; the form lists every line with a reason box.
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('Edit sheet')).click());
+          await page.waitForFunction(() => document.body.innerText.includes('Correct the sheet for this patient') && document.body.innerText.includes('Why is the sheet corrected?'), { timeout: 15000 });
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `job-edit form overflows at ${width}`);
+          await page.screenshot({ path: path.join(output, `job-edit-form-${width}.png`), fullPage: true });
+        }
         if (name === 'patient-orders') {
           // "New PO" opens the same PO paper the post counselor fills (sections F, G, H).
           await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'New PO').click());
@@ -100,8 +237,10 @@ async function main() {
         }
       }
     }
-    assert.deepEqual(errors, [], 'runtime errors');
-    console.log('Purchase order pages and Patient Details tabs: desktop/mobile render passed');
+    assert.deepEqual(errors, [], user.role + ' runtime errors');
+    await page.close();
+  }
+    console.log('Purchase order, patient, medicine job and stocks pages: desktop/mobile render passed');
     console.log('Screenshots: ' + output);
   } finally { await browser.close(); }
 }

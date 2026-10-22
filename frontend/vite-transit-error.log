@@ -1,0 +1,20 @@
+4:15:37 pm [vite] warning: Duplicate "disabled" attribute in JSX element
+133|        {stage.key === 'stock' && <>
+134|          <StockTable rows={job.stockTable} endDate={endDate} />
+135|          {job.stockTable.some((r) => r.status === 'short') && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-amber-700" disabled={!canAct} checked={Boolean(fields.shortageAccepted)} onChange={(e) => setFields((o) => ({ ...o, shortageAccepted: e.target.checked }))} disabled={!canAct} />Shortage request raised for the short items; continue (preparation will still need the stock).</label>}
+   |                                                                                                                                                                                                                                                                                                                                                                                                             ^
+136|        </>}
+137|        {stage.key === 'prepare' &&
+
+  Plugin: vite:esbuild
+  File: C:/Users/as/Desktop/crm-system/frontend/src/pages/admin/MedicineJob.jsx
+4:53:51 pm [vite] warning: Duplicate "disabled" attribute in JSX element
+133|        {stage.key === 'stock' && <>
+134|          <StockTable rows={job.stockTable} endDate={endDate} />
+135|          {job.stockTable.some((r) => r.status === 'short') && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-amber-700" disabled={!canAct} checked={Boolean(fields.shortageAccepted)} onChange={(e) => setFields((o) => ({ ...o, shortageAccepted: e.target.checked }))} disabled={!canAct} />Shortage request raised for the short items; continue (preparation will still need the stock).</label>}
+   |                                                                                                                                                                                                                                                                                                                                                                                                             ^
+136|        </>}
+137|        {stage.key === 'prepare' &&
+
+  Plugin: vite:esbuild
+  File: C:/Users/as/Desktop/crm-system/frontend/src/pages/admin/MedicineJob.jsx

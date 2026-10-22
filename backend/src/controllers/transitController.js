@@ -1,5 +1,7 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
+const PurchaseOrder = require('../models/PurchaseOrder');
 const User = require('../models/User');
 const { ROLES } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -167,6 +169,35 @@ const ACTIONS = {
     });
     return `Payment added: Rs ${amount} via ${paymentMode} - pending accounts approval`;
   },
+  // After the medicine is ready: how the patient gets it (self pickup / porter / courier) with its date, and the
+  // medicine explanation date - fixed on the call with the patient. One action, so nothing is half planned.
+  schedule_delivery({ stage, request, body, req, now }) {
+    const { mode } = body;
+    if (!MODE_LABEL[mode]) fail('Choose self pickup, porter or courier');
+    if (!(stage.transit.calls || []).some((c) => c.outcome === 'connected')) fail('Log a connected call with the patient first');
+    const courier = request ? courierOf(request) : {};
+    if (['dispatched', 'delivered'].includes(courier.status) && stage.transit.fulfilmentMode !== mode) fail('The medicine has already left; the mode cannot change now');
+    const explanationAt = parseDate(body.explanationAt, 'medicine explanation date and time');
+    const explanationMode = ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : 'phone';
+    const t = stage.transit;
+    Object.assign(t, { fulfilmentMode: mode, fulfilmentSetAt: now, fulfilmentSetByName: req.user.name });
+    let plan;
+    if (mode === 'pickup') {
+      const visitAt = parseDate(body.visitAt, 'pickup date and time');
+      Object.assign(t, { pickupScheduledAt: visitAt, pickupNote: clean(body.note, 300), pickupScheduledByName: req.user.name, dispatchScheduledAt: null });
+      plan = `self pickup ${visitAt.toISOString()}`;
+    } else {
+      if (['dispatched', 'delivered'].includes(courier.status)) { plan = `${MODE_LABEL[mode]} already sent`; } else {
+        const at = parseDate(body.dispatchAt, 'planned dispatch date');
+        Object.assign(t, { dispatchScheduledAt: at, plannedCourier: required(body.courierPartner, 'Courier / porter', 120), plannedAddress: required(body.address, 'Delivery address', 500), deliveryPlanNote: clean(body.note, 500), pickupScheduledAt: null, pickupNote: '' });
+        plan = `${MODE_LABEL[mode]} dispatch ${at.toISOString()} via ${t.plannedCourier}`;
+      }
+    }
+    const rescheduled = Boolean(stage.medicineExplainDate) && new Date(stage.medicineExplainDate).getTime() !== explanationAt.getTime();
+    stage.medicineExplainDate = explanationAt;
+    Object.assign(t, { explanationScheduledAt: now, explanationScheduledByName: req.user.name, explanationMode, ...(rescheduled ? { explanationAckAt: null, explanationAckByName: '' } : {}) });
+    return `Delivery scheduled: ${plan} | medicine explanation ${explanationAt.toISOString()} (${explanationMode})`;
+  },
   schedule_visit({ stage, body, req }) {
     if (stage.transit.fulfilmentMode !== 'pickup') fail('Delivery mode is not self pickup');
     const visitAt = parseDate(body.visitAt, 'visit date and time');
@@ -232,26 +263,34 @@ const ACTIONS = {
     Object.assign(request, { courier: { ...courier, status: 'delivered', deliveryMode: 'self', receiverName: receivedByName, receiverPhone: clean(body.receiverPhone, 30), receivedByName, notes, deliveredAt: receivedAt, deliveredByName: req.user.name, ...proof } });
     return `Medicine collected at clinic by ${receivedByName}`;
   },
-  async start_treatment({ patient, stage, request, body, req, now }) {
+  // After handover: In Transit assigns the PCC (Patient Care Coordinator, role assistant_doctor) who explains the medicine; the explanation date was
+  // fixed with the delivery plan and can be adjusted here. The PCC then completes it on the Medicine Explanations page.
+  async assign_pcc({ patient, stage, request, body, req, now }) {
     if (stage.transit.explanationCompletedAt) fail('Explanation is already completed', 409);
     if (!request || !['dispatched', 'delivered'].includes(courierOf(request).status)) fail('Dispatch or hand over the medicine first');
     if (paymentSummary(stage).remaining > 0 || paymentSummary(stage).pendingCount) fail('Full payment must be approved first');
-    const explanationAt = parseDate(body.explanationAt, 'medicine explanation date and time');
-    const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'assistant doctor');
+    const explanationAt = body.explanationAt ? parseDate(body.explanationAt, 'medicine explanation date and time') : stage.medicineExplainDate;
+    if (!explanationAt) fail('Set the medicine explanation date and time');
+    const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC');
     const counselor = await staffMember(body.postCounselorId, ROLES.POST_COUNSELOR, 'post counselor');
     const psychologist = await staffMember(body.psychologistId, ROLES.PSYCHOLOGIST, 'psychologist');
-    if (!doctor) fail('Select the assistant doctor');
+    if (!doctor) fail('Select the PCC (Patient Care Coordinator)');
+    const changedDoctor = String(stage.transit.explanationDoctor || patient.assignedDoctor || '') !== String(doctor._id);
+    const changedDate = !stage.medicineExplainDate || new Date(stage.medicineExplainDate).getTime() !== new Date(explanationAt).getTime();
     patient.assignedDoctor = doctor._id;
     if (counselor) stage.postCounselor = counselor._id;
     if (psychologist) patient.assignedPsychologist = psychologist._id;
     stage.medicineExplainDate = explanationAt;
     Object.assign(stage.transit, {
-      explanationScheduledAt: now, explanationScheduledByName: req.user.name, explanationAckAt: null, explanationAckByName: '',
+      explanationScheduledAt: stage.transit.explanationScheduledAt || now, explanationScheduledByName: stage.transit.explanationScheduledByName || req.user.name,
+      ...(changedDoctor || changedDate ? { explanationAckAt: null, explanationAckByName: '' } : {}),
       assignedAt: now, assignedByName: req.user.name, explanationDoctor: doctor._id,
-      explanationMode: ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : 'phone',
+      explanationMode: ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : (stage.transit.explanationMode || 'phone'),
     });
-    return `Explanation booked ${explanationAt.toISOString()} | Assistant doctor: ${doctor.name}`;
+    return `PCC assigned: ${doctor.name} | medicine explanation ${new Date(explanationAt).toISOString()}${counselor ? ` | post counselor ${counselor.name}` : ''}${psychologist ? ` | psychologist ${psychologist.name}` : ''}`;
   },
+  // Older name of assign_pcc (kept for existing clients).
+  start_treatment(context) { return ACTIONS.assign_pcc(context); },
   hold({ stage, body, req, now }) {
     Object.assign(stage.transit, { holdActive: true, holdReason: required(body.reason, 'Reason', 300), holdAt: now, holdByName: req.user.name });
     return `Exception / hold: ${stage.transit.holdReason}`;
@@ -291,7 +330,18 @@ const runAction = asyncHandler(async (req, res) => {
   const summary = await ACTIONS[action]({ patient, stage, request: pickRequest(stage), body: req.body, req, now: new Date() });
   logActivity(patient, req.user, stage.number, summary);
   await respondWithCase(res, patient, stage.number);
+  await notePoEvent(stage, req.user, summary);
 });
+
+// Every In Transit action is also noted on the purchase order of the phase's current medicine request, so the PO
+// page's activity shows the whole story with times. Best effort: the patient record is already saved.
+const notePoEvent = async (stage, user, details) => {
+  const request = pickRequest(stage);
+  if (!request?.requestId || mongoose.connection.readyState !== 1) return;
+  try {
+    await PurchaseOrder.updateOne({ medicineRequestId: request.requestId }, { $push: { events: { at: new Date(), action: 'In Transit', details, byName: user.name, byRole: user.role } } });
+  } catch (error) { console.error(`PO event not noted: ${error.message}`); }
+};
 
 // @desc    Admin takes a phase out of In Transit (patient data is not touched) or brings it back
 // @route   DELETE /api/transit/:patientId/:number      body: { reason }
@@ -319,7 +369,7 @@ const ackExplanation = asyncHandler(async (req, res) => {
   if (!stage.medicineExplainDate) fail('No explanation is scheduled for this phase');
   if (req.user.role !== ROLES.ADMIN && String(stage.transit.explanationDoctor || patient.assignedDoctor || '') !== String(req.user._id)) fail('This explanation is assigned to another doctor', 403);
   Object.assign(stage.transit, { explanationAckAt: new Date(), explanationAckByName: req.user.name });
-  logActivity(patient, req.user, stage.number, 'Assistant doctor saw the explanation schedule');
+  logActivity(patient, req.user, stage.number, 'PCC saw the explanation schedule');
   await respondWithCase(res, patient, stage.number);
 });
 
@@ -328,7 +378,7 @@ const dayDiff = (target, now = new Date()) => Math.round((Date.parse(clinicDay(t
 const explanationOwner = (patient, stage) => String(stage.transit?.explanationDoctor || patient.assignedDoctor?._id || patient.assignedDoctor || '');
 
 const listExplanations = asyncHandler(async (req, res) => {
-  const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.explanationScheduledAt': { $ne: null } })
+  const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.explanationScheduledAt': { $type: 'date' } })
     .select(LIST_FIELDS).lean();
   let items = [];
   for (const patient of patients) for (const stage of patient.stages || []) {
@@ -361,8 +411,10 @@ const completeExplanation = asyncHandler(async (req, res) => {
   Object.assign(t, { explanationCompletedAt: completedAt, explanationCompletedByName: req.user.name, explainedByName: req.user.name, explanationNote: note, activatedAt: completedAt, activatedByName: req.user.name });
   stage.status = 'in_progress';
   stage.date = completedAt;
-  logActivity(patient, req.user, stage.number, `Medicine explanation completed; treatment started | ${note}`);
+  const summary = `Medicine explanation completed; treatment started | ${note}`;
+  logActivity(patient, req.user, stage.number, summary);
   await respondWithCase(res, patient, stage.number);
+  await notePoEvent(stage, req.user, summary);
 });
 
 const getTransitReminders = asyncHandler(async (req, res) => {
@@ -395,4 +447,4 @@ const getTransitReminders = asyncHandler(async (req, res) => {
   res.json({ success: true, count: reminders.length, reminders });
 });
 
-module.exports = { listTransit, getTransitCase, listStaff, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation };
+module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation };

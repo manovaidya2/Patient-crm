@@ -143,3 +143,12 @@
     border-radius: 999px;
   }
 }
+
+/* Compact, wide layout on desktop: every page renders at 85% (as the purchase order page did first), so a whole
+   case fits one screen at 100% browser zoom. Phones keep the normal size. */
+@media (min-width: 768px) {
+  .app-content { zoom: 0.85; }
+  /* Narrower sidebar with smaller entries. */
+  .sidebar-compact nav a, .sidebar-compact nav button { font-size: 12.5px; padding-top: 0.45rem; padding-bottom: 0.45rem; }
+  .sidebar-compact nav svg { width: 15px; height: 15px; }
+}
