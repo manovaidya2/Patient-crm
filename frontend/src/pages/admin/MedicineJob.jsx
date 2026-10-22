@@ -113,7 +113,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {stage.key === 'stock' && <>
         <StockTable rows={job.stockTable} endDate={endDate} />
-        {job.stockTable.some((r) => r.status === 'short') && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-amber-700" disabled={!canAct} checked={Boolean(fields.shortageAccepted)} onChange={(e) => setFields((o) => ({ ...o, shortageAccepted: e.target.checked }))} disabled={!canAct} />Shortage request raised for the short items; continue (preparation will still need the stock).</label>}
+        {job.stockTable.some((r) => r.status === 'short') && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-amber-700" checked={Boolean(fields.shortageAccepted)} onChange={(e) => setFields((o) => ({ ...o, shortageAccepted: e.target.checked }))} disabled={!canAct} />Shortage request raised for the short items; continue (preparation will still need the stock).</label>}
       </>}
       {stage.key === 'prepare' && (
         <div className="overflow-x-auto rounded-lg border border-cardline">
