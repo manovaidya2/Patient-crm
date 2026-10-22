@@ -122,7 +122,6 @@ const PackageNotBoughtDetails = () => {
     setConvertError('');
     if (!paper) return;
     if (!(approvedFee > 0)) { setConvertError('Enter the approved program fee'); return; }
-    if (!paperValues.poNo?.trim()) { setConvertError('Enter the PO number to convert'); return; }
     if (!paperValues.mode) { setConvertError('Select the payment mode to convert'); return; }
     const asked = Object.fromEntries(needs.map((key) => [key, convertForm[key] || '']));
     if (needs.some((key) => !String(asked[key] || '').trim())) { setConvertError('Fill the patient details asked above'); return; }
@@ -131,7 +130,7 @@ const PackageNotBoughtDetails = () => {
       const { data } = await api.patch(`/package-not-bought/${id}/convert`, { ...asked, purchase: paperValues, ...(paper.feeKnown ? {} : { approvedProgramFee: approvedFee }) });
       setRow(data.row);
       setConvertOpen(false);
-      setConvertMessage(data.inTransit ? 'Converted to patient. In Transit has started for this PO.' : 'Converted to patient.');
+      setConvertMessage(`Converted to patient. Purchase order ${data.poNumber || ''} is sent to In Transit for verification.`);
     } catch (err) {
       setConvertError(err.response?.data?.message || 'Could not convert this record.');
     } finally {

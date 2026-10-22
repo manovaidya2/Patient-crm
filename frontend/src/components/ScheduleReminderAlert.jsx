@@ -45,7 +45,7 @@ const ScheduleReminderAlert = () => {
 
     let cancelled = false;
     const getListPath = (item) => {
-      if (item?.source === 'transit') return user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : '/admin/in-transit';
+      if (item?.source === 'transit') return user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : '/admin/purchase-orders';
       if (item?.type === 'medicine_connect' || item?.type === 'medicine_delivery' || user?.role === ROLES.POST_COUNSELOR) return '/admin/patients';
       return user?.role === ROLES.PSYCHOLOGIST ? '/admin/family-sessions' : '/admin/followups';
     };
@@ -73,7 +73,7 @@ const ScheduleReminderAlert = () => {
             await api.post(`/transit/${item.patientId}/${item.stage}/ack-explanation`).catch(() => {});
             return;
           }
-          navigate(user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : `/admin/in-transit?open=${item.patientId}-${item.stage}`);
+          navigate(user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : `/admin/patients/${item.patientId}?tab=orders`);
         },
       } : {
         id: String(item.id),

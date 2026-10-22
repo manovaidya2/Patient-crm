@@ -169,11 +169,11 @@ const convertToPatient = asyncHandler(async (req, res) => {
     await releaseOutcome(entry);
     throw error;
   }
-  await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': created.patient._id } });
+  await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': created.patient._id, 'postCounseling.purchase.values.poNo': created.poNumber } });
   await linkConsultationReceipts(entry, created.patient);
-  await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}${created.inTransit ? ' — In Transit started' : ''}`);
+  await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId} — purchase order ${created.poNumber} sent to In Transit`);
   emitChanged(req, entry);
-  res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit });
+  res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber });
 });
 
 // @route POST /api/post-counseling/patients/:id/outcome/not-purchased

@@ -108,6 +108,12 @@ const paymentEntrySchema = new mongoose.Schema(
 const medicineRequestSchema = new mongoose.Schema(
   {
     requestId: { type: String, trim: true, default: '' },
+    // Requests raised from a purchase order carry the PO and the supply category (empty on older requests).
+    purchaseOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', default: null },
+    poNumber: { type: String, trim: true, default: '' },
+    supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
+    supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
+    ageBand: { type: String, enum: ['', '3-4', '4-12', '12-70', '70+'], default: '' },
     status: {
       type: String,
       enum: ['not_requested', 'requested', 'in_process', 'made', 'sent_to_courier', 'cancelled'],

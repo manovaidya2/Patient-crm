@@ -1,0 +1,387 @@
+const crypto = require('crypto');
+const mongoose = require('mongoose');
+const Patient = require('../models/Patient');
+const PurchaseOrder = require('../models/PurchaseOrder');
+const BankAccount = require('../models/BankAccount');
+const { asyncHandler } = require('../middleware/errorHandler');
+const { ROLES } = require('../constants/roles');
+const { STAGES } = require('../constants/treatmentStages');
+const { supplyOption, supplyOptionByLabel, AGE_BANDS } = require('../constants/supplyPlans');
+const purchase = require('../utils/purchaseOrderRecord');
+const { assertPurchaseComplete, withBankName, paymentFromPaper } = require('../utils/convertPatient');
+const { createWithPoNumber } = require('../utils/poNumber');
+const { buildPoView, STAGE_KEYS, findRequest } = require('../utils/purchaseOrderFlow');
+
+const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+const PO_CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+const PO_VERIFY_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT];
+
+const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
+const clean = (value, max = 300) => String(value ?? '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
+const longText = (value, max = 2000) => String(value ?? '').trim().slice(0, max);
+const fileItems = (files = [], folder = 'purchase-orders') => files.map((file) => ({ url: `/uploads/${folder}/${file.filename}`, fileName: file.originalname }));
+// Single-field uploads give an array, multi-field uploads give { field: [...] }.
+const filesOf = (req, field) => (Array.isArray(req.files) ? req.files : (req.files?.[field] || []));
+const parseDay = (value, label, { required = false } = {}) => {
+  const text = clean(value, 40);
+  if (!text) { if (required) fail(`Enter the ${label}`); return null; }
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(text) ? new Date(`${text}T00:00:00.000+05:30`) : new Date(text);
+  if (Number.isNaN(d.getTime())) fail(`Enter a valid ${label}`);
+  return d;
+};
+const amountOf = (value, label, { min = 0 } = {}) => {
+  const raw = String(value ?? '').replace(/,/g, '').trim();
+  if (raw === '') return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > 100000000) fail(`Enter a valid ${label}`);
+  return Math.round(n * 100) / 100;
+};
+const parseSupply = (body, { required = false } = {}) => {
+  const [plan, part] = body.supplyKey ? String(body.supplyKey).split(':') : [body.supplyPlan, body.supplyPart];
+  if (!plan && !part) { if (required) fail('Select the supply category (6 months / 1+5 / 2+4)'); return null; }
+  const option = supplyOption(plan, part);
+  if (!option) fail('Select a valid supply category');
+  return option;
+};
+const event = (po, user, action, details = '') => po.events.push({ at: new Date(), action, details, byName: user.name, byRole: user.role });
+const logActivity = (patient, user, action, details = '') => patient.activityLog.push({ action, details, actorName: user.name, actorRole: user.role });
+
+const loadPo = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(String(id))) fail('Purchase order not found', 404);
+  const po = await PurchaseOrder.findById(id);
+  if (!po) fail('Purchase order not found', 404);
+  return po;
+};
+const loadPatient = async (id) => {
+  const patient = await Patient.findById(id);
+  if (!patient) fail('Patient not found', 404);
+  return patient;
+};
+// Older patients may be missing a phase entry; add the empty one instead of failing.
+const stageOf = (patient, number) => {
+  let stage = patient.stages.find((s) => s.number === number);
+  if (!stage) {
+    patient.stages.push({ number });
+    stage = patient.stages.find((s) => s.number === number);
+  }
+  if (!stage.transit) stage.transit = {};
+  return stage;
+};
+const respond = (res, po, patient, status = 200) => res.status(status).json({ success: true, purchaseOrder: buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true }) });
+
+// Validates the payment typed on a PO form. Returns null when no payment was entered.
+const paymentFromBody = async (body, files, user, poNumber) => {
+  const amount = amountOf(body.paymentAmount, 'payment amount');
+  if (!amount) return null;
+  const mode = body.paymentMode;
+  if (!['cash', 'online'].includes(mode)) fail('Select cash or online for the payment');
+  let bank = { payToBank: null, payToBankName: '' };
+  if (mode === 'online') {
+    if (!clean(body.utr, 120)) fail('Enter the UTR / reference of the online payment');
+    if (!files.length) fail('Attach the payment screenshot');
+    const bankId = clean(body.payToBank, 24);
+    if (bankId) {
+      if (!mongoose.Types.ObjectId.isValid(bankId)) fail('Select a valid bank');
+      const found = await BankAccount.findOne({ _id: bankId, isActive: true }).lean();
+      if (!found) fail('Select an active bank');
+      bank = { payToBank: found._id, payToBankName: found.displayName || found.name };
+    }
+  } else if (!clean(body.receivedBy, 120)) fail('Enter who received the cash');
+  const items = fileItems(files);
+  return {
+    _id: new mongoose.Types.ObjectId(),
+    amount, date: parseDay(body.paymentDate, 'payment date') || new Date(), paymentMode: mode,
+    ...bank,
+    utr: mode === 'online' ? clean(body.utr, 120) : '',
+    transactionId: mode === 'online' ? clean(body.transactionId, 120) : '',
+    receivedBy: mode === 'cash' ? clean(body.receivedBy, 120) : '',
+    notes: [`PO ${poNumber}`, longText(body.paymentNotes, 1500)].filter(Boolean).join(' | '),
+    screenshotUrl: items[0]?.url || null, screenshotFiles: items,
+    recordedByName: user.name, approvalStatus: 'pending',
+  };
+};
+
+// @route GET /api/purchase-orders?stage=&q=&patient=
+const listPurchaseOrders = asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.patient) {
+    if (!mongoose.Types.ObjectId.isValid(String(req.query.patient))) fail('Invalid patient');
+    filter.patient = req.query.patient;
+  } else filter.patient = { $ne: null };
+  const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
+  const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
+  const patients = await Patient.find({ _id: { $in: patientIds } })
+    .select('patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate')
+    .lean();
+  const byId = new Map(patients.map((p) => [String(p._id), p]));
+  let items = pos.filter((po) => byId.has(String(po.patient))).map((po) => buildPoView(po, byId.get(String(po.patient))));
+  const q = clean(req.query.q, 100).toLowerCase();
+  if (q) items = items.filter((item) => [item.poNumber, item.patientName, item.patientCode, item.patientPhone].some((v) => String(v || '').toLowerCase().includes(q)));
+  const counts = Object.fromEntries(STAGE_KEYS.map((key) => [key, items.filter((item) => item.stageKey === key).length]));
+  counts.all = items.length;
+  const stage = STAGE_KEYS.includes(req.query.stage) ? req.query.stage : '';
+  if (stage) items = items.filter((item) => item.stageKey === stage);
+  res.json({ success: true, counts, items });
+});
+
+// @route GET /api/purchase-orders/:id
+const getPurchaseOrder = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  const patient = await Patient.findById(po.patient).lean();
+  if (!patient) fail('Patient not found', 404);
+  respond(res, po, patient);
+});
+
+// @route GET /api/purchase-orders/form?patient=&phase=
+// The PO paper (sections F, G, H) prefilled for a new purchase order of an existing patient.
+const getPurchaseOrderForm = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.query.patient).lean();
+  if (!patient) fail('Patient not found', 404);
+  const phase = STAGES.includes(parseInt(req.query.phase, 10)) ? parseInt(req.query.phase, 10) : (patient.currentStage || 1);
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const registration = {
+    category: patient.category, fatherName: patient.fatherName || patient.guardianName || '', motherName: patient.motherName || '',
+    fatherNumber: patient.number || '', motherNumber: patient.alternateNumber || '',
+  };
+  const values = purchase.defaults({ record: null, registration, counselorName: req.user.name, today });
+  values.orderedTreatment = `${patient.category === 'mental_health' ? 'Mental Health' : 'Autism / ADHD'} / Phase ${phase}`;
+  res.json({ success: true, definitions: purchase.definitions(), values, contacts: registration, phase });
+});
+
+// @route POST /api/purchase-orders/upload   (multipart: screenshot[]) - PO paper images and payment screenshots
+const uploadPaperFiles = asyncHandler(async (req, res) => {
+  const files = (req.files || []).map((file) => ({ url: `/uploads/payments/${file.filename}`, fileName: file.originalname }));
+  if (!files.length) fail('Choose an image first');
+  res.status(201).json({ success: true, files });
+});
+
+// @route POST /api/purchase-orders   body: { patientId, phase, fee, purchase: <PO paper values> }
+// A new purchase order for any phase of an existing patient, filled on the same PO paper as at conversion (payment
+// collection, EMI, PO & consent, PO image, payment screenshots or cash details). The number is generated here. The
+// amount received becomes a pending phase payment linked to this PO, exactly like the payment saved at conversion.
+const createPurchaseOrder = asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const patient = await loadPatient(body.patientId);
+  if (patient.isActive === false) fail('This patient is closed. Reactivate the patient first');
+  const phase = parseInt(body.phase, 10);
+  if (!STAGES.includes(phase)) fail('Select the phase');
+  const fee = amountOf(body.fee, 'PO value / approved fee');
+  if (!(fee > 0)) fail('Enter the PO value (approved fee)');
+  const cleaned = purchase.cleanPurchase(body.purchase, fee);
+  assertPurchaseComplete(cleaned.values);
+  const supply = supplyOptionByLabel(cleaned.values.supplyOrder);
+  if (!supply) fail('Select the medicine supply on this PO (6 months / 1+5 / 2+4)');
+  const paper = await withBankName(cleaned.values);
+  const readyBy = parseDay(paper.medicineReadyDate, 'medicine ready date');
+  const received = Number(paper.amountReceivedNow || 0);
+  // In Transit verifies the payment from these, so a received amount must come with its proof.
+  if (received > 0 && ['Online', 'Card (+3%)'].includes(paper.mode)) {
+    if (!clean(paper.utrReference, 120)) fail('Enter the UTR / payment reference of the amount received');
+    if (!(paper.screenshots || []).length) fail('Attach the payment screenshot');
+  }
+  if (received > 0 && paper.mode === 'Cash' && !clean(paper.cashReceiver || paper.cashHandedTo, 120)) fail('Enter who received the cash');
+
+  const po = await createWithPoNumber(PurchaseOrder, {
+    patient: patient._id, patientCode: patient.patientCode || '', patientName: patient.patientName,
+    phase, supplyPlan: supply.plan, supplyPart: supply.part,
+    packageName: clean(paper.orderedTreatment, 200), amount: fee, medicineReadyDate: readyBy, notes: longText(paper.paymentNotes),
+    paperImages: paper.paperImages || [], status: 'pending', source: 'manual', createdByName: req.user.name, createdByRole: req.user.role,
+    events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
+  });
+  try {
+    const values = { ...paper, poNo: po.poNumber };
+    po.paperValues = { ...values, totals: cleaned.totals };
+    const stage = stageOf(patient, phase);
+    const payment = paymentFromPaper(values, { cardCharge: cleaned.totals.cardCharge, user: req.user });
+    if (payment) {
+      stage.payments.push(payment);
+      po.paymentIds.push(payment._id);
+      event(po, req.user, 'Payment added', `Rs ${payment.amount} via ${paper.mode} - pending verification`);
+      logActivity(patient, req.user, `Payment added for Phase ${phase}`, `${payment.amount} via ${paper.mode} — PO ${po.poNumber}, pending accounts approval`);
+    }
+    // Keep the phase fields the older screens read in step with its first purchase order.
+    if (!String(stage.purchaseOrder || '').trim()) stage.purchaseOrder = po.poNumber;
+    if (!Number(stage.totalAmount || 0)) stage.totalAmount = fee;
+    if (!stage.packageName && po.packageName) stage.packageName = po.packageName;
+    if (!stage.poPaper) stage.poPaper = { values, totals: { ...cleaned.totals, approvedProgramFee: fee }, savedAt: new Date(), savedByName: req.user.name, source: 'purchase_order' };
+    if (!stage.transit.enteredAt) stage.transit.enteredAt = new Date();
+    if (readyBy && !stage.transit.expectedReadyDate) stage.transit.expectedReadyDate = readyBy;
+    logActivity(patient, req.user, `Purchase order created for Phase ${phase}`, `${po.poNumber} | ${supply.label} | Rs ${fee}`);
+    await patient.save();
+    await po.save();
+  } catch (error) {
+    await PurchaseOrder.deleteOne({ _id: po._id }).catch(() => {});
+    throw error;
+  }
+  respond(res, po, patient, 201);
+});
+
+// @route PATCH /api/purchase-orders/:id   (multipart: paper[])
+// Correct a PO before it is verified. A rejected PO goes back to In Transit for checking again.
+const updatePurchaseOrder = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (!['pending', 'rejected'].includes(po.status)) fail('A verified purchase order cannot be edited');
+  const body = req.body || {};
+  const changes = [];
+  const supply = parseSupply(body);
+  if (supply && (supply.plan !== po.supplyPlan || supply.part !== po.supplyPart)) { po.supplyPlan = supply.plan; po.supplyPart = supply.part; changes.push(supply.label); }
+  if (body.packageName !== undefined) po.packageName = clean(body.packageName, 200);
+  if (body.amount !== undefined) { po.amount = amountOf(body.amount, 'PO amount'); changes.push(`Rs ${po.amount}`); }
+  if (body.medicineReadyDate !== undefined) po.medicineReadyDate = parseDay(body.medicineReadyDate, 'medicine ready date');
+  if (body.notes !== undefined) po.notes = longText(body.notes);
+  const paper = fileItems(filesOf(req, 'paper'));
+  if (paper.length) { po.paperImages.push(...paper); changes.push(`${paper.length} PO image(s)`); }
+  const resubmitted = po.status === 'rejected';
+  // A corrected PO is checked from the start again.
+  if (resubmitted) Object.assign(po, { status: 'pending', detailsVerifiedAt: null, detailsVerifiedByName: '' });
+  event(po, req.user, resubmitted ? 'Corrected and sent for verification again' : 'PO updated', changes.join(' | '));
+  await po.save();
+  const patient = await Patient.findById(po.patient).lean();
+  respond(res, po, patient);
+});
+
+// @route POST /api/purchase-orders/:id/payments   (multipart: screenshot[])
+const addPurchaseOrderPayment = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (['rejected', 'cancelled'].includes(po.status)) fail('Correct the purchase order first');
+  const patient = await loadPatient(po.patient);
+  const payment = await paymentFromBody(req.body || {}, filesOf(req, 'screenshot'), req.user, po.poNumber);
+  if (!payment) fail('Enter the payment amount');
+  stageOf(patient, po.phase).payments.push(payment);
+  po.paymentIds.push(payment._id);
+  event(po, req.user, 'Payment added', `Rs ${payment.amount} via ${payment.paymentMode} - pending verification`);
+  logActivity(patient, req.user, `Payment added for Phase ${po.phase}`, `${payment.amount} via ${payment.paymentMode === 'cash' ? 'Cash' : 'Online'} — PO ${po.poNumber}, pending accounts approval`);
+  await patient.save();
+  await po.save();
+  respond(res, po, patient, 201);
+});
+
+// @route POST /api/purchase-orders/:id/verify-details
+// Step 1 of In Transit's check: the PO paper and the patient details are correct. A patient still waiting for
+// accounts approval is approved with it (same as "Approve patient" on Patient Details).
+const verifyDetails = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (po.status !== 'pending') fail(po.status === 'verified' ? 'This purchase order is already verified' : 'Only a purchase order waiting for verification can be verified', 409);
+  if (po.detailsVerifiedAt) fail('The PO details are already verified. Verify the payment next', 409);
+  const patient = await loadPatient(po.patient);
+  const now = new Date();
+  if ((patient.approvalStatus || 'approved') === 'pending') {
+    Object.assign(patient, { approvalStatus: 'approved', approvedByName: req.user.name, approvedAt: now });
+    logActivity(patient, req.user, 'Patient approved', `Cleared with purchase order ${po.poNumber}`);
+  }
+  Object.assign(po, { detailsVerifiedAt: now, detailsVerifiedByName: req.user.name });
+  event(po, req.user, 'PO details verified', clean(req.body?.note, 300));
+  logActivity(patient, req.user, `Purchase order details verified for Phase ${po.phase}`, po.poNumber);
+  await patient.save();
+  await po.save();
+  respond(res, po, patient);
+});
+
+// @route POST /api/purchase-orders/:id/verify-payment
+// Step 2: the payment proof matches. The PO's pending payments are approved; they are already in the PO phase's
+// payments (an extra payment in that phase), so the phase balance and the ledgers count them from now on.
+const verifyPayment = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (po.status !== 'pending') fail(po.status === 'verified' ? 'This purchase order is already verified' : 'Only a purchase order waiting for verification can be verified', 409);
+  if (!po.detailsVerifiedAt) fail('Verify the PO details first');
+  const patient = await loadPatient(po.patient);
+  const stage = stageOf(patient, po.phase);
+  const ids = new Set(po.paymentIds.map(String));
+  const now = new Date();
+  let approved = 0;
+  let amount = 0;
+  for (const payment of stage.payments) {
+    if (ids.has(String(payment._id)) && payment.approvalStatus === 'pending') {
+      Object.assign(payment, { approvalStatus: 'approved', approvedByName: req.user.name, approvedAt: now });
+      logActivity(patient, req.user, `Payment approved for Phase ${po.phase}`, `${payment.amount} via ${payment.paymentMode === 'cash' ? 'Cash' : 'Online'} — PO ${po.poNumber}`);
+      approved += 1;
+      amount += Number(payment.amount || 0);
+    }
+  }
+  Object.assign(po, { status: 'verified', paymentVerifiedAt: now, paymentVerifiedByName: req.user.name, verifiedAt: now, verifiedByName: req.user.name, rejectedAt: null, rejectedByName: '', rejectReason: '' });
+  event(po, req.user, 'Payment verified', [approved ? `${approved} payment(s), Rs ${amount} added to Phase ${po.phase} payments` : 'No payment on this PO', clean(req.body?.note, 300)].filter(Boolean).join(' | '));
+  logActivity(patient, req.user, `Purchase order verified for Phase ${po.phase}`, `${po.poNumber}${approved ? ` | Rs ${amount} verified` : ''}`);
+  await patient.save();
+  await po.save();
+  respond(res, po, patient);
+});
+
+// @route POST /api/purchase-orders/:id/reject   body: { reason }
+const rejectPurchaseOrder = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (po.status !== 'pending') fail('Only a purchase order waiting for verification can be rejected', 409);
+  const reason = clean(req.body?.reason, 500);
+  if (!reason) fail('Enter why the purchase order is rejected');
+  Object.assign(po, { status: 'rejected', rejectedAt: new Date(), rejectedByName: req.user.name, rejectReason: reason });
+  event(po, req.user, 'PO rejected', reason);
+  await po.save();
+  const patient = await Patient.findById(po.patient).lean();
+  respond(res, po, patient);
+});
+
+// @route POST /api/purchase-orders/:id/medicine-request   (multipart: prescription[])
+// One medicine request per purchase order, sent to Medicine Department with the supply category and age band.
+const requestMedicine = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (po.status !== 'verified') fail(po.detailsVerifiedAt ? 'Verify the payment of this PO first' : 'Verify the PO details and the payment first');
+  const patient = await loadPatient(po.patient);
+  if (patient.isActive === false) fail('This patient is closed');
+  if ((patient.approvalStatus || 'approved') !== 'approved') fail('Approve the patient first');
+  const stage = stageOf(patient, po.phase);
+  if (stage.transit.holdActive || stage.transit.removedAt) fail('This phase is on hold or removed in In Transit', 409);
+  const existing = findRequest(stage, po.medicineRequestId);
+  if (existing && existing.status !== 'cancelled') fail('Medicine is already requested for this purchase order', 409);
+  const ids = new Set(po.paymentIds.map(String));
+  if (stage.payments.some((p) => ids.has(String(p._id)) && p.approvalStatus === 'pending')) fail('Verify the pending payment of this PO first');
+
+  const body = req.body || {};
+  const supply = parseSupply(body, { required: true });
+  const ageBand = clean(body.ageBand, 10);
+  if (!AGE_BANDS[ageBand]) fail('Select the age group');
+  const medicines = longText(body.medicines);
+  if (!medicines) fail('Medicine details are required');
+  const readyBy = parseDay(body.readyByDate, 'medicine ready-by date', { required: true });
+  const files = fileItems(filesOf(req, 'prescription'), 'prescriptions');
+  if (!files.length) fail('Prescription image or document is required');
+  const now = new Date();
+  const requestId = crypto.randomUUID();
+  stage.medicineRequests.push({
+    requestId, status: 'requested', medicines, notes: longText(body.notes),
+    purchaseOrderId: po._id, poNumber: po.poNumber, supplyPlan: supply.plan, supplyPart: supply.part, ageBand,
+    prescriptionUrl: files[0].url, prescriptionFileName: files[0].fileName, prescriptionFiles: files,
+    requestedAt: now, requestedByName: req.user.name, readyByDate: readyBy, readyBySetAt: now, readyBySetByName: req.user.name,
+  });
+  stage.transit.expectedReadyDate = readyBy;
+  if (!stage.transit.enteredAt) stage.transit.enteredAt = now;
+  if (!String(stage.purchaseOrder || '').trim()) stage.purchaseOrder = po.poNumber;
+  const detail = `PO ${po.poNumber} | ${supply.label} | ${AGE_BANDS[ageBand]} | ${medicines}`;
+  logActivity(patient, req.user, `Medicine requested for Phase ${po.phase}`, `${detail} | Request: ${requestId}`);
+  Object.assign(po, { supplyPlan: supply.plan, supplyPart: supply.part, ageBand, medicineRequestId: requestId, medicineRequestedAt: now, medicineRequestedByName: req.user.name });
+  if (!po.medicineReadyDate) po.medicineReadyDate = readyBy;
+  event(po, req.user, existing ? 'Medicine requested again' : 'Medicine requested', `${supply.label} | ${AGE_BANDS[ageBand]} | ready by ${readyBy.toISOString().slice(0, 10)}`);
+  await patient.save();
+  await po.save();
+  respond(res, po, patient);
+});
+
+// @route POST /api/purchase-orders/:id/activate-phase
+// Makes this PO's phase the patient's current phase (e.g. Phase 2 bought after Phase 1).
+const activatePhase = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  if (po.status !== 'verified') fail('Verify the purchase order first');
+  const patient = await loadPatient(po.patient);
+  if ((patient.currentStage || 1) === po.phase) fail(`Phase ${po.phase} is already the current phase`, 409);
+  const from = patient.currentStage || 1;
+  patient.currentStage = po.phase;
+  logActivity(patient, req.user, `Phase ${po.phase} activated`, `Current phase changed from Phase ${from} to Phase ${po.phase} (PO ${po.poNumber})`);
+  event(po, req.user, 'Phase activated', `Phase ${from} -> Phase ${po.phase}`);
+  await patient.save();
+  await po.save();
+  respond(res, po, patient);
+});
+
+module.exports = {
+  PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
+  listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
+  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase,
+};

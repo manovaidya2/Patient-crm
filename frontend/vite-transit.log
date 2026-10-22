@@ -3,3 +3,27 @@
 
   ➜  Local:   http://127.0.0.1:5173/
 10:30:39 am [vite] hmr update /src/pages/admin/Transit.jsx, /src/index.css
+12:54:34 pm [vite] hmr update /src/App.jsx, /src/index.css
+12:54:35 pm [vite] hmr update /src/App.jsx, /src/index.css
+12:54:36 pm [vite] hmr update /src/components/Sidebar.jsx, /src/index.css
+12:54:46 pm [vite] page reload src/components/postcounseling/PurchaseOrderForm.jsx
+12:54:47 pm [vite] page reload src/components/postcounseling/PurchaseOrderForm.jsx
+12:54:49 pm [vite] page reload src/components/postcounseling/PurchaseOrderForm.jsx
+12:55:03 pm [vite] page reload src/components/postcounseling/PurchaseOrderStep.jsx
+12:55:04 pm [vite] page reload src/components/postcounseling/PurchaseOrderStep.jsx
+12:55:20 pm [vite] page reload src/components/postcounseling/OutcomeBanner.jsx
+12:55:28 pm [vite] page reload src/components/MedicineRequestList.jsx
+1:05:11 pm [vite] page reload src/components/postcounseling/PurchaseOrderForm.jsx
+1:05:12 pm [vite] page reload src/components/postcounseling/PurchaseOrderForm.jsx
+1:05:13 pm [vite] hmr update /src/components/purchaseOrders/CreatePurchaseOrderModal.jsx, /src/index.css
+1:06:16 pm [vite] hmr update /src/pages/admin/PurchaseOrderDetail.jsx, /src/index.css
+1:19:42 pm [vite] hmr update /src/App.jsx, /src/index.css
+1:19:42 pm [vite] hmr update /src/pages/admin/Transit.jsx, /src/index.css
+1:19:42 pm [vite] hmr update /src/App.jsx, /src/index.css, /src/pages/Login.jsx, /src/pages/admin/AdminLayout.jsx, /src/components/ProtectedRoute.jsx, /src/components/ScheduleReminderAlert.jsx, /src/components/Sidebar.jsx, /src/pages/admin/FinancialLedger.jsx, /src/pages/admin/PurchaseOrders.jsx, /src/pages/admin/PurchaseOrderDetail.jsx, /src/pages/admin/PatientDetails.jsx, /src/components/purchaseOrders/PatientPurchaseOrders.jsx
+1:19:42 pm [vite] hmr update /src/components/ScheduleReminderAlert.jsx, /src/index.css
+1:19:57 pm [vite] hmr update /src/App.jsx, /src/index.css
+1:19:58 pm [vite] hmr update /src/components/Sidebar.jsx, /src/index.css
+1:20:05 pm [vite] hmr update /src/pages/admin/PatientDetails.jsx, /src/index.css
+1:20:12 pm [vite] hmr update /src/pages/admin/PatientDetails.jsx, /src/index.css
+1:22:16 pm [vite] hmr update /src/pages/admin/PurchaseOrderDetail.jsx, /src/index.css
+1:24:12 pm [vite] hmr update /src/pages/admin/PurchaseOrderDetail.jsx, /src/index.css

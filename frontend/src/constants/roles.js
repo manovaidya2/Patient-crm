@@ -61,7 +61,7 @@ export const getDefaultRoute = (role) => {
   if (role === ROLES.DOCTOR) return '/admin';
   if ([ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(role)) return '/admin';
   if (role === ROLES.MEDICINE_DEPARTMENT) return '/admin/medicine-requests';
-  if (role === ROLES.IN_TRANSIT) return '/admin/in-transit';
+  if (role === ROLES.IN_TRANSIT) return '/admin/purchase-orders';
   if (role === ROLES.DIGITAL_MARKETING) return '/admin/digital-marketing';
   if (role === ROLES.HR) return '/admin/hr';
   if (PATIENT_ACCESS_ROLES.includes(role)) return '/admin/patients';

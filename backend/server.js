@@ -90,6 +90,7 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/medicine', medicineRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/transit', transitRoutes);
+app.use('/api/purchase-orders', require('./src/routes/purchaseOrderRoutes'));
 app.use('/api/accounts', accountRoutes);
 app.use('/api/invoices', require('./src/routes/invoiceRoutes'));
 app.use('/api/advice', adviceRoutes);

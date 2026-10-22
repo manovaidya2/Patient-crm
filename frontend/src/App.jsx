@@ -30,7 +30,9 @@ const MedicineMade = lazy(() => import('./pages/admin/MedicineMade.jsx'));
 const MedicineInventory = lazy(() => import('./pages/admin/MedicineInventory.jsx'));
 const ClinicInventory = lazy(() => import('./pages/admin/ClinicInventory.jsx'));
 const CourierRequests = lazy(() => import('./pages/admin/CourierRequests.jsx'));
-const Transit = lazy(() => import('./pages/admin/Transit.jsx'));
+const PurchaseOrders = lazy(() => import('./pages/admin/PurchaseOrders.jsx'));
+const PurchaseOrderDetail = lazy(() => import('./pages/admin/PurchaseOrderDetail.jsx'));
+const PURCHASE_ORDER_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 const MedicineExplanations = lazy(() => import('./pages/admin/MedicineExplanations.jsx'));
 const CourierDelivered = lazy(() => import('./pages/admin/CourierDelivered.jsx'));
 const RequestForAdvice = lazy(() => import('./pages/admin/RequestForAdvice.jsx'));
@@ -150,7 +152,9 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="in-transit" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><Transit /></ProtectedRoute>} />
+        <Route path="in-transit" element={<Navigate to="/admin/purchase-orders" replace />} />
+        <Route path="purchase-orders" element={<ProtectedRoute roles={PURCHASE_ORDER_ROLES}><PurchaseOrders /></ProtectedRoute>} />
+        <Route path="purchase-orders/:id" element={<ProtectedRoute roles={PURCHASE_ORDER_ROLES}><PurchaseOrderDetail /></ProtectedRoute>} />
         <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />
         <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />
         <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="final-bill" /></ProtectedRoute>} />

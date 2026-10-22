@@ -7,6 +7,7 @@ const { recordRoomConditions, looseSource } = require('../utils/recordRoomMatch'
 const { RECEPTION_IDS } = require('../utils/receptionFlow');
 const { PROFILE_FIELDS, profileOf, cleanProfileValue } = require('../utils/patientProfile');
 const { describePoPaper } = require('../utils/purchaseOrderRecord');
+const { supplyLabel, AGE_BANDS } = require('../constants/supplyPlans');
 const { parseCallTimestamp } = require('../utils/callTimestamp');
 const AdviceRequest = require('../models/AdviceRequest');
 const DigitalMarketingReview = require('../models/DigitalMarketingReview');
@@ -401,6 +402,9 @@ const formatMedicineRequest = (request = {}) => {
       statusLabel: COURIER_STATUS_LABELS[courier.status] || courier.status,
     },
     statusLabel: MEDICINE_STATUS_LABELS[data.status] || data.status,
+    purchaseOrderId: data.purchaseOrderId ? String(data.purchaseOrderId) : '',
+    supplyLabel: supplyLabel(data.supplyPlan, data.supplyPart),
+    ageBandLabel: AGE_BANDS[data.ageBand] || '',
   };
 };
 

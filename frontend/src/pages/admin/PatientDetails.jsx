@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw } from 'lucide-react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
+import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -2489,10 +2490,15 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
   );
 };
 
+const PO_TAB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+// Tabs that work on one phase at a time (they share the phase picker).
+const PHASE_TABS = ['phases', 'medicine', 'sessions'];
+
 const PatientDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canAssignDoctor = ASSIGN_DOCTOR_ROLES.includes(user?.role);
   const isLimitedViewer = user?.role === ROLES.SALES_TEAM;
   const [patient, setPatient] = useState(null);
@@ -2633,7 +2639,9 @@ const PatientDetails = () => {
   const canEditPatientIdentity = [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
   const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canRequestMedicine = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
+  // Medicine is requested from its purchase order (Purchase Orders > PO details). Only Admin keeps the old
+  // direct request here, for records made before purchase orders.
+  const canRequestMedicine = user?.role === ROLES.ADMIN;
   const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
   const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isReceptionistAccounts;
   const canEditPostCounselor = isAdmin || isPostCounselor;
@@ -2987,6 +2995,21 @@ const PatientDetails = () => {
     ...postCounselorOptions.map((counselor) => ({ value: counselor.id, label: counselor.name })),
   ];
 
+  // Page tabs. The open tab is kept in the URL (?tab=) so a link or the Back button returns to it.
+  const anyPendingPayment = (patient?.stages || []).some((stage) => (stage.payments || []).some((pay) => pay.approvalStatus === 'pending'));
+  const pageTabs = [
+    { key: 'overview', label: 'Overview', icon: UserRound },
+    ...(PO_TAB_ROLES.includes(user?.role) ? [{ key: 'orders', label: 'Purchase Orders', icon: ClipboardList }] : []),
+    { key: 'phases', label: 'Phases & Payments', icon: IndianRupee, dot: anyPendingPayment },
+    { key: 'medicine', label: 'Medicine', icon: PackageCheck, dot: Boolean(patient?.hasDueMedicineConnect) },
+    ...(!isLimitedViewer ? [{ key: 'sessions', label: 'Sessions & Advice', icon: CalendarClock }, { key: 'activity', label: 'Activity', icon: History }] : []),
+  ];
+  const requestedTab = searchParams.get('tab');
+  const activeTab = pageTabs.some((tab) => tab.key === requestedTab) ? requestedTab : 'overview';
+  const openTab = (key) => setSearchParams((params) => { const next = new URLSearchParams(params); if (key === 'overview') next.delete('tab'); else next.set('tab', key); return next; }, { replace: true });
+  const stageTotals = (patient?.stages || []).reduce((sum, stage) => ({ paid: sum.paid + Number(stage.amountPaid || 0), left: sum.left + Number(stage.remainingAmount || 0) }), { paid: 0, left: 0 });
+  const phaseTabTitle = { phases: ['Treatment phases & payments', 'Package, payments, bills and PO paper of the selected phase.'], medicine: ['Medicine supply & requests', 'Medicine given, next connect and the medicine requests of the selected phase.'], sessions: ['Follow-ups, family sessions & advice', 'Sessions and doctor advice of the selected phase.'] }[activeTab] || ['', ''];
+
   return (
     <div className="patient-details">
       <button
@@ -3018,6 +3041,7 @@ const PatientDetails = () => {
           </Button>
         </Card>
       ) : (
+        <>
         <Card padded={false} className="overflow-hidden">
           <div className="p-3.5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3145,7 +3169,40 @@ const PatientDetails = () => {
             </div>
           )}
 
-                    {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
+          {/* At-a-glance strip: where the patient is and what is owed */}
+          <div className="grid grid-cols-2 gap-px border-t border-cardline bg-cardline lg:grid-cols-4">
+            {[
+              ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers],
+              ['Assistant doctor', patient.assignedDoctor?.name || 'Not assigned', UserRound],
+              ['Paid (verified)', formatMoney(stageTotals.paid), IndianRupee],
+              ['Balance', formatMoney(stageTotals.left), Clock],
+            ].map(([label, value, Icon]) => (
+              <div key={label} className="flex items-center gap-3 bg-offwhite-100 px-4 py-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sage/10 text-sage"><Icon size={17} /></span>
+                <div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/50">{label}</p><p className="truncate text-sm font-bold text-charcoal">{value}</p></div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Page tabs */}
+        <nav className="sticky top-0 z-20 -mx-1 mt-4 flex gap-1 overflow-x-auto rounded-xl border border-cardline bg-offwhite-100/95 p-1 shadow-card backdrop-blur" aria-label="Patient sections">
+          {pageTabs.map(({ key, label, icon: Icon, dot }) => (
+            <button key={key} type="button" onClick={() => openTab(key)} aria-current={activeTab === key ? 'page' : undefined}
+              className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition ${activeTab === key ? 'bg-sage text-white shadow-sm' : 'text-charcoal/65 hover:bg-sage-muted/20 hover:text-charcoal'}`}>
+              <Icon size={15} />{label}
+              {dot && <span className={`h-2 w-2 rounded-full ${activeTab === key ? 'bg-white' : 'bg-[#B42318]'}`} aria-label="needs attention" />}
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === 'overview' && (
+        <Card padded={false} className="mt-4 overflow-hidden">
+          <div className="px-3.5 pb-3 pt-4 sm:px-6">
+            <h2 className="font-display text-base font-bold text-charcoal">Contact &amp; care team</h2>
+            <p className="mt-0.5 text-xs text-charcoal/55">Click a value to edit it.</p>
+          </div>
+          {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
             <EditableField
               label="Age"
@@ -3237,21 +3294,37 @@ const PatientDetails = () => {
             </div>
           )}
         </Card>
+        )}
+        </>
       )}
 
-      {!loading && !loadError && patient && (
-        <Card className="mt-5" padded={false}>
+      {!loading && !loadError && patient && activeTab === 'orders' && <PatientPurchaseOrders patient={patient} />}
+
+      {!loading && !loadError && patient && PHASE_TABS.includes(activeTab) && (
+        <Card className="mt-4" padded={false}>
           <div className="p-3.5 sm:p-6 pb-0 sm:pb-0 flex flex-wrap gap-3 items-center justify-between">
             <div>
-              <h2 className="font-display text-base font-bold text-charcoal">Treatment Phase</h2>
-              <p className="mt-0.5 text-xs text-charcoal/55">Select a phase to view or edit its details.</p>
+              <h2 className="font-display text-base font-bold text-charcoal">{phaseTabTitle[0]}</h2>
+              <p className="mt-0.5 text-xs text-charcoal/55">{phaseTabTitle[1]}</p>
             </div>
             <Badge tone="teal">Current: {STAGE_LABELS[patient.currentStage]}</Badge>
-
           </div>
 
+          {/* Compact phase picker on the Medicine and Sessions tabs */}
+          {activeTab !== 'phases' && (
+            <div className="flex flex-wrap gap-1.5 p-3.5 sm:px-6 sm:pt-4" role="tablist" aria-label="Phase">
+              {patient.stages.map((s) => (
+                <button key={s.number} type="button" role="tab" aria-selected={activeStageTab === s.number} onClick={() => setActiveStageTab(s.number)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${activeStageTab === s.number ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/70 hover:border-sage/60'}`}>
+                  {STAGE_LABELS[s.number]}{patient.currentStage === s.number && <Check size={12} />}
+                  <span className={`text-[10px] font-normal ${activeStageTab === s.number ? 'text-white/80' : 'text-charcoal/45'}`}>{s.statusLabel}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Phase tabs */}
-          <div className="p-3.5 sm:p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          {activeTab === 'phases' && <div className="p-3.5 sm:p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             {patient.stages.map((s) => {
               const isCurrent = patient.currentStage === s.number;
               const isActiveTab = activeStageTab === s.number;
@@ -3361,11 +3434,12 @@ const PatientDetails = () => {
                 </div>
               );
             })}
-          </div>
+          </div>}
 
           {/* Tab content — details for the selected phase, shown inline below the tabs */}
           {activeStage && (
             <div className="px-3.5 pb-3.5 sm:px-6 sm:pb-6">
+              {activeTab === 'phases' && <>
               <div className="mb-4 grid grid-cols-1 gap-px border border-cardline bg-cardline sm:grid-cols-2">
                 <EditableField
                   label={`Patient History By - Phase ${activeStage.number}`}
@@ -3494,9 +3568,11 @@ const PatientDetails = () => {
                   }}
                 />
               </div>
+              </>}
 
+              {activeTab === 'medicine' && <>
               <div
-                className={`mt-4 rounded-lg border overflow-hidden ${
+                className={`rounded-lg border overflow-hidden ${
                   activeMedicineConnectDue
                     ? 'border-[#B42318]/35 bg-[#B42318]/5'
                     : 'border-cardline bg-offwhite-100'
@@ -3597,6 +3673,11 @@ const PatientDetails = () => {
                 </div>
               </div>
 
+              {!canRequestMedicine && PO_TAB_ROLES.includes(user?.role) && (
+                <p className="mt-4 rounded-lg border border-sage/30 bg-sage/5 px-3 py-2 text-xs text-charcoal/70">
+                  A medicine request is sent from its purchase order: open the <button type="button" className="font-semibold text-sage hover:underline" onClick={() => openTab('orders')}>Purchase Orders</button> tab and the PO.
+                </p>
+              )}
               <MedicineRequestsSection
                 requests={activeStage.medicineRequests || []}
                 canRequest={canRequestMedicine}
@@ -3606,8 +3687,9 @@ const PatientDetails = () => {
                 deleteUrl={isAdmin ? `/patients/${patient.id || patient._id}/attachments` : ''}
                 onAttachmentDeleted={() => loadPatientData({ silent: true })}
               />
+              </>}
 
-              {!isLimitedViewer && <>
+              {activeTab === 'sessions' && !isLimitedViewer && <>
               <ScheduleCard
                 icon={CalendarClock}
                 title="Follow-ups"
@@ -3658,7 +3740,7 @@ const PatientDetails = () => {
         </Card>
       )}
 
-      {!isLimitedViewer && !loading && !loadError && patient && <ActivityTimeline entries={patient.activityLog || []} callLogs={callLogs} />}
+      {!isLimitedViewer && !loading && !loadError && patient && activeTab === 'activity' && <ActivityTimeline entries={patient.activityLog || []} callLogs={callLogs} />}
 
       <Drawer
         open={timelineOpen}

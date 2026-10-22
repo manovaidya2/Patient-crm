@@ -43,7 +43,6 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
   const startConvert = async () => {
     setBusy(true); setError('');
     try {
-      if (!values.poNo?.trim()) throw new Error('Enter the PO number first');
       if (!values.mode) throw new Error('Select the payment mode first');
       if (!saved) await saveNow();
       setForm({ number: registration.fatherNumber || registration.whatsappNumber || registration.motherNumber || '', guardianName: registration.fatherName || registration.motherName || '' });
@@ -78,8 +77,8 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
 
       <Modal open={dialog} onClose={() => !busy && setDialog(false)} title="Convert to patient" className="max-w-lg">
         <div className="space-y-3">
-          <p className="text-sm text-charcoal/70">This creates <b>{registration.patientName}</b> ({patient.patientId}) in All Patients, pending accounts approval, with the registration details, the package, the PO and the payment received.{values.poNo?.trim() && Number(values.amountReceivedNow || 0) > 0 ? ' In Transit starts for this PO.' : ''}</p>
-          {values.poNo?.trim() && !(Number(values.amountReceivedNow || 0) > 0) && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">No payment is recorded, so In Transit will not start until a payment is added.</p>}
+          <p className="text-sm text-charcoal/70">This creates <b>{registration.patientName}</b> ({patient.patientId}) in All Patients, pending accounts approval, with the registration details, the package and the payment received. A purchase order number (PO-xxxx) is generated and the PO goes to In Transit for verification.</p>
+          {!(Number(values.amountReceivedNow || 0) > 0) && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">No payment is recorded on this PO. In Transit can add it later.</p>}
           {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
           <Input label="Father's number *" value={form.number || ''} onChange={(event) => setForm((current) => ({ ...current, number: event.target.value }))} />
           {registration.category !== 'mental_health' && <Input label="Father / Mother name *" value={form.guardianName || ''} onChange={(event) => setForm((current) => ({ ...current, guardianName: event.target.value }))} />}

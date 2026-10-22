@@ -7,6 +7,7 @@ const Patient = require('../models/Patient');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
 const SalesAppointment = require('../models/SalesAppointment');
 const User = require('../models/User');
+const PurchaseOrder = require('../models/PurchaseOrder');
 
 const ID = 'c'.repeat(24);
 const PATIENT_ID = 'd'.repeat(24);
@@ -30,6 +31,10 @@ const run = async (body, stubs, req = {}) => {
   stub(ConsultationReceipt, 'updateMany', async () => ({}));
   stub(User, 'findOne', async () => ({ _id: USER_ID, name: 'Abhishek' }));
   stub(SalesAppointment, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
+  log.pos = [];
+  stub(PurchaseOrder, 'exists', async () => null);
+  stub(PurchaseOrder, 'create', async (doc) => { const po = { _id: 'p'.repeat(24), events: [], paymentIds: [], ...doc, save: async () => {} }; log.pos.push(po); return po; });
+  stub(PurchaseOrder, 'deleteOne', async () => { log.poDeleted = true; });
   if (!stubs['Patient.create']) {
     stub(Patient, 'create', async (doc) => {
       const created = { _id: PATIENT_ID, ...doc, stages: doc.stages.map((stage) => ({ ...stage, payments: [...(stage.payments || [])] })), activityLog: [...doc.activityLog], save: async () => {}, deleteOne: async () => { log.deleted = true; } };
@@ -49,12 +54,11 @@ const base = (row) => ({
   'Patient.findOne': async () => null,
 });
 
-test('convert needs the PO paper: PO number and payment mode, and creates nothing without them', async () => {
+test('convert needs the PO paper with the payment mode, and creates nothing without it', async () => {
   const noPaper = await run({ patientCode: 'R-3440', category: 'autism_adhd' }, base(makeRow()));
   assert.equal(noPaper.error.statusCode, 400);
   assert.equal(noPaper.log.patients.length, 0);
-  const noPo = await run({ patientCode: 'R-3440', category: 'autism_adhd', purchase: paper({ poNo: '' }) }, base(makeRow()));
-  assert.match(noPo.error.message, /PO number/);
+  assert.equal(noPaper.log.pos.length, 0, 'no PO number is used up for an incomplete paper');
   const noMode = await run({ patientCode: 'R-3440', category: 'autism_adhd', purchase: paper({ mode: '' }) }, base(makeRow()));
   assert.match(noMode.error.message, /payment mode/);
   assert.equal(noMode.log.patients.length, 0);
@@ -71,7 +75,11 @@ test('convert creates the patient with the Phase 1 package, PO and the payment f
   assert.equal(patient.guardianName, 'Rajnish');
   assert.match(patient.activityLog[0].details, /Package Not Bought/);
   const phase = patient.stages.find((stage) => stage.number === 1);
-  assert.equal(phase.purchaseOrder, 'PO-9');
+  assert.match(phase.purchaseOrder, /^PO-\d{4}$/, 'the PO number is generated, never the typed one');
+  assert.equal(phase.purchaseOrder, res.body.poNumber);
+  assert.equal(log.pos.length, 1, 'the first purchase order record is created');
+  assert.equal(String(log.pos[0].patient), PATIENT_ID);
+  assert.equal(log.pos[0].source, 'conversion');
   assert.equal(phase.packageName, 'Autism / Phase 1');
   assert.equal(phase.totalAmount, 42000);
   assert.equal(phase.payments.length, 1);
@@ -150,7 +158,7 @@ test('convert of a record from post-counselling needs only the PO paper: the pat
   assert.equal(patient.stages.find((stage) => stage.number === 1).postCounselor, USER_ID, 'the post counselor stays the same');
   assert.equal(updates[0]['postCounseling.outcome.kind'], 'converted');
   assert.equal(String(updates[0]['postCounseling.outcome.patient']), PATIENT_ID);
-  assert.equal(updates[0]['postCounseling.purchase'].values.poNo, 'PO-9');
+  assert.equal(updates[0]['postCounseling.purchase'].values.poNo, res.body.poNumber, 'the post-counselling paper shows the generated PO number');
   assert.ok(log.io.includes('post-counseling:changed'), 'the Post Counseling pages refresh live');
   assert.equal(res.body.inTransit, true);
 });

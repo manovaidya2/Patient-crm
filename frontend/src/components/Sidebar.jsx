@@ -64,7 +64,7 @@ export const navItems = [
   { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/outgoing-couriers', icon: FileArchive, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
-  { to: '/admin/in-transit', icon: Truck, label: 'In Transit', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT] },
+  { to: '/admin/purchase-orders', icon: ClipboardList, label: 'Purchase Orders', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT] },
   { to: '/admin/medicine-explanations', icon: ClipboardCheck, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR] },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: Users, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER] },

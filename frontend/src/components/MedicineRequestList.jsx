@@ -322,6 +322,13 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                       <Badge tone="teal">Phase {row.stage}</Badge>
                       <Badge tone={statusTone[request.status] || 'default'}>{request.statusLabel}</Badge>
                     </div>
+                    {(request.poNumber || request.supplyLabel || request.ageBandLabel) && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {request.poNumber && <span className="rounded-full border border-cardline bg-white px-2.5 py-0.5 font-mono text-xs font-bold text-charcoal">{request.poNumber}</span>}
+                        {request.supplyLabel && <span className="rounded-full bg-sage/15 px-2.5 py-0.5 text-xs font-bold text-sage">{request.supplyLabel}</span>}
+                        {request.ageBandLabel && <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">Age {request.ageBandLabel}</span>}
+                      </div>
+                    )}
                     <p className="mt-1 text-xs text-charcoal/55">
                       {row.patientNumber || '-'} · {row.categoryLabel || '-'} · Requested by {request.requestedByName || '-'}
                     </p>

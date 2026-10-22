@@ -18,7 +18,7 @@ const Auto = ({ label, value }) => (
 
 // The purchase order / payment paper (sections F, G, H). Used after post-counselling and when converting from Package Not Bought.
 // It only shows and edits `values`; saving and converting belong to the screen that uses it.
-const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editable, showEmi = false, onError, onUploading }) => {
+const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editable, showEmi = false, onError, onUploading, uploadUrl = '/post-counseling/upload' }) => {
   const [banks, setBanks] = useState([]);
   const [uploading, setUploading] = useState(false);
 
@@ -41,7 +41,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
     try {
       const body = new FormData();
       chosen.forEach((file) => body.append('screenshot', file));
-      const { data } = await api.post('/post-counseling/upload', body);
+      const { data } = await api.post(uploadUrl, body);
       onChange(key, [...(values[key] || []), ...data.files]);
     } catch (err) { onError?.(err.response?.data?.message || 'Screenshot could not be uploaded'); }
     finally { setUploading(false); }
@@ -88,10 +88,11 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
         </div>
       );
     }
+    if (field.type === 'auto') return <div key={field.key} className={wrap}><Auto label={field.label} value={values[field.key] || 'Generated on convert (PO-xxxx)'} /></div>;
     if (field.type === 'check') return <label key={field.key} className={`flex items-center gap-2 pt-6 text-sm font-semibold text-charcoal ${wrap}`}><input type="checkbox" disabled={!editable} checked={Boolean(values[field.key])} onChange={(event) => onChange(field.key, event.target.checked)} className="h-4 w-4 accent-sage" />{field.label}</label>;
     return (
       <div key={field.key} className={wrap}>
-        <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}{field.key === 'poNo' || field.key === 'mode' ? ' *' : ''}</p>
+        <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}{field.key === 'mode' ? ' *' : ''}</p>
         {field.type === 'single'
           ? <div className="flex flex-wrap gap-1.5">{field.options.map((option) => <Chip key={option} disabled={!editable} active={values[field.key] === option} onClick={() => onChange(field.key, values[field.key] === option ? '' : option)}>{option}</Chip>)}</div>
           : <input disabled={!editable} type={field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : 'text'} inputMode={field.type === 'money' ? 'decimal' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className={inputClass} />}
@@ -124,7 +125,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
       )}
 
       <section className="space-y-3">
-        <SectionTitle letter="H" hint="The PO number starts In Transit once a payment is recorded">Purchase order &amp; patient / guardian consent</SectionTitle>
+        <SectionTitle letter="H" hint="The PO number is generated on convert and the PO goes to In Transit for verification">Purchase order &amp; patient / guardian consent</SectionTitle>
         <div className="grid gap-3 md:grid-cols-2">
           {defs.sectionH.map(renderField)}
           <Auto label="PO value (Rs)" value={rupees(fee)} />

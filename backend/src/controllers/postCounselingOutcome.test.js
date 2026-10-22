@@ -8,6 +8,7 @@ const SalesSheetAudit = require('../models/SalesSheetAudit');
 const User = require('../models/User');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
 const SalesAppointment = require('../models/SalesAppointment');
+const PurchaseOrder = require('../models/PurchaseOrder');
 const { cleanRecord } = require('../utils/postCounselingRecord');
 const { cleanPurchase, totals } = require('../utils/purchaseOrderRecord');
 
@@ -62,6 +63,10 @@ const run = async (handler, body, entry, options = {}) => {
     log.patients.push(created);
     return created;
   });
+  log.pos = [];
+  stub(PurchaseOrder, 'exists', async () => null);
+  stub(PurchaseOrder, 'create', async (doc) => { const po = { _id: 'p'.repeat(24), events: [], paymentIds: [], ...doc, save: async () => {} }; log.pos.push(po); return po; });
+  stub(PurchaseOrder, 'deleteOne', async () => { log.poDeleted = true; });
   stub(PackageNotBoughtPatient, 'create', async (doc) => { log.pnb.push(doc); return { _id: PNB_OID, ...doc }; });
   const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
   let error = null;
@@ -82,7 +87,11 @@ test('convert: creates the patient with registration details, Phase 1 package, P
   assert.equal(patient.pinCode, '110021');
   const phase = patient.stages.find((stage) => stage.number === 1);
   assert.equal(phase.packageName, 'Autism / Phase 1');
-  assert.equal(phase.purchaseOrder, 'PO-9');
+  assert.match(phase.purchaseOrder, /^PO-\d{4}$/, 'the PO number is generated on conversion');
+  assert.equal(res.body.poNumber, phase.purchaseOrder);
+  assert.equal(log.pos[0].patientName, 'Riddhima', 'the first purchase order record belongs to the new patient');
+  assert.deepEqual(log.pos[0].paymentIds.map(String), phase.payments.map((p) => String(p._id)), 'the payment received is linked to the PO');
+  assert.equal(log.updates[0].$set['postCounseling.purchase.values.poNo'], phase.purchaseOrder);
   assert.equal(phase.totalAmount, 42000);
   assert.equal(phase.postCounselor, COUNSELOR);
   assert.equal(phase.payments.length, 1);
@@ -97,9 +106,9 @@ test('convert: creates the patient with registration details, Phase 1 package, P
   assert.equal(new Date(phase.payments[0].date).toISOString().slice(0, 10), '2026-10-19');
   assert.match(phase.payments[0].notes, /first part/);
   assert.equal(phase.payments[0].approvalStatus, 'pending');
-  assert.match(phase.payments[0].notes, /PO PO-9/);
+  assert.match(phase.payments[0].notes, /PO PO-\d{4}/);
   assert.equal(new Date(phase.transit.expectedReadyDate).toISOString(), '2026-10-29T18:30:00.000Z', 'the medicine ready date is the In Transit ready-by date');
-  assert.equal(phase.poPaper.values.poNo, 'PO-9', 'the PO paper is kept on the phase for Patient Details');
+  assert.equal(phase.poPaper.values.poNo, phase.purchaseOrder, 'the PO paper is kept on the phase for Patient Details');
   assert.equal(phase.poPaper.totals.approvedProgramFee, 42000);
   assert.equal(phase.poPaper.source, 'post_counseling');
   assert.equal(phase.poPaper.savedByName, 'Abhishek');
@@ -179,16 +188,16 @@ test('not purchased: needs a reason, then creates the Package Not Bought record 
   assert.equal(again.log.pnb.length, 0);
 });
 
-test('convert needs the PO number and payment mode from the PO paper, and a PO number with a payment starts In Transit', async () => {
-  const noPo = makeEntry();
-  noPo.postCounseling.purchase.values = { ...noPo.postCounseling.purchase.values, poNo: '' };
-  const refused = await run(controller.convertToPatient, {}, noPo);
-  assert.match(refused.error.message, /PO number/);
-  assert.equal(refused.log.patients.length, 0);
-  assert.equal(refused.log.claims.length, 0, 'nothing is claimed when the paper is incomplete');
+test('convert needs the payment mode from the PO paper (the PO number is generated), and every conversion starts In Transit', async () => {
   const noMode = makeEntry();
   noMode.postCounseling.purchase.values = { ...noMode.postCounseling.purchase.values, mode: '' };
-  assert.match((await run(controller.convertToPatient, {}, noMode)).error.message, /payment mode/);
+  const refused = await run(controller.convertToPatient, {}, noMode);
+  assert.match(refused.error.message, /payment mode/);
+  assert.equal(refused.log.patients.length, 0);
+  assert.equal(refused.log.claims.length, 0, 'nothing is claimed when the paper is incomplete');
+  const noPo = makeEntry();
+  noPo.postCounseling.purchase.values = { ...noPo.postCounseling.purchase.values, poNo: '' };
+  assert.equal((await run(controller.convertToPatient, {}, noPo)).error, null, 'a blank PO number is fine: it is generated');
   const ok = await run(controller.convertToPatient, {}, makeEntry());
   assert.equal(ok.res.body.inTransit, true);
   const unpaid = makeEntry();

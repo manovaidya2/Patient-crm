@@ -51,6 +51,13 @@ const connectDB = async () => {
       console.log(`Migrated legacy Accountant data to Receptionist: ${migration.users} user(s), ${migration.knowledgeCategories} knowledge category record(s), ${migration.knowledgeArticles} knowledge article(s)`);
     }
     console.log(`MongoDB connected: ${conn.connection.host}`);
+    // Never let the purchase order import stop the server; it is retried on the next start.
+    try {
+      const { migrateLegacyPurchaseOrders } = require('../utils/purchaseOrderMigration');
+      await migrateLegacyPurchaseOrders({ Patient: require('../models/Patient'), PurchaseOrder: require('../models/PurchaseOrder'), log: console.log });
+    } catch (error) {
+      console.error(`Purchase order import skipped: ${error.message}`);
+    }
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
     process.exit(1);

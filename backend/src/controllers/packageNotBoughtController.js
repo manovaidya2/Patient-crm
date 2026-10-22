@@ -340,7 +340,7 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
     throw error;
   }
   claimed.convertedPatient = created.patient._id;
-  claimed.packageDetails = { ...(claimed.packageDetails || {}), approvedProgramFee: fee, amountReceivedNow: Number(cleaned.values.amountReceivedNow || 0), mode: cleaned.values.mode || '', poNo: cleaned.values.poNo || '', outstandingBalance: cleaned.totals.outstandingBalance };
+  claimed.packageDetails = { ...(claimed.packageDetails || {}), approvedProgramFee: fee, amountReceivedNow: Number(cleaned.values.amountReceivedNow || 0), mode: cleaned.values.mode || '', poNo: created.poNumber, outstandingBalance: cleaned.totals.outstandingBalance };
   await claimed.save();
 
   // If it came from post-counselling, that record becomes "converted" too and keeps the PO paper, so Post Counseling Done has everything.
@@ -348,14 +348,14 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
     if (entry) {
       await Management.updateOne({ _id: entry._id }, { $set: {
         'postCounseling.outcome.kind': 'converted', 'postCounseling.outcome.at': new Date(), 'postCounseling.outcome.byName': req.user.name, 'postCounseling.outcome.patient': created.patient._id,
-        'postCounseling.purchase': { values: cleaned.values, totals: cleaned.totals, savedAt: new Date(), savedByName: req.user.name },
+        'postCounseling.purchase': { values: created.values, totals: cleaned.totals, savedAt: new Date(), savedByName: req.user.name },
       } });
       await linkConsultationReceipts(entry, created.patient);
       req.app?.get?.('io')?.to(postCounselingUserRoom(entry.registration?.postCounselor)).to(POST_COUNSELING_ALL_ROOM).emit('post-counseling:changed', { id: String(entry._id) });
     }
   }
 
-  res.status(200).json({ success: true, row: formatRow(claimed), patientId: String(created.patient._id), inTransit: created.inTransit });
+  res.status(200).json({ success: true, row: formatRow(claimed), patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber });
 });
 
 const deletePackageNotBought = asyncHandler(async (req, res) => {

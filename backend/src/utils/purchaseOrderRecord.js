@@ -1,5 +1,7 @@
 // Purchase order / payment record (paper page 3, sections F, G and H) filled after the post-counselling record.
 // The approved program fee comes from the post-counselling record (section E); everything here is fixed in code.
+const { SUPPLY_OPTIONS } = require('../constants/supplyPlans');
+
 const MODES = ['Cash', 'Online', 'Card (+3%)', 'EMI', 'Other'];
 const PLANS = ['Full', '2 Parts', '3 Parts', 'Other Approved'];
 const EMI_STATUSES = ['Approved', 'Pending', 'Declined'];
@@ -38,7 +40,9 @@ const SECTION_G = [
 ];
 const SECTION_H = [
   { key: 'paperImages', label: 'PO paper (image)', type: 'files', wide: true },
-  { key: 'poNo', label: 'PO No.', type: 'text' },
+  // Generated on conversion (PO-1234); shown read-only on the paper.
+  { key: 'poNo', label: 'PO No.', type: 'auto' },
+  { key: 'supplyOrder', label: 'Medicine supply on this PO', type: 'single', options: SUPPLY_OPTIONS.map((option) => option.label), wide: true },
   { key: 'poDate', label: 'PO date', type: 'date' },
   { key: 'orderedTreatment', label: 'Ordered treatment / phase', type: 'text', wide: true },
   { key: 'formulationRef', label: 'Customized formulation / medicine order ref.', type: 'text', wide: true },
@@ -133,7 +137,7 @@ const definitions = () => ({ sectionF: SECTION_F, sectionG: SECTION_G, sectionH:
 
 // A saved PO paper as Patient Details shows it: the paper image(s) and the main PO details only. The amounts (PO value,
 // paid, outstanding) are not copied here: the page works them out from the phase's own payments, so they stay current.
-const PO_DETAIL_KEYS = ['poNo', 'poDate', 'orderedTreatment', 'medicineReadyDate', 'formulationRef'];
+const PO_DETAIL_KEYS = ['poNo', 'poDate', 'orderedTreatment', 'supplyOrder', 'medicineReadyDate', 'formulationRef'];
 const describePoPaper = (poPaper) => {
   if (!poPaper?.values) return null;
   const values = poPaper.values;
