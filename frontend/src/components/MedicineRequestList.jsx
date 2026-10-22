@@ -74,7 +74,8 @@ const formatDateTime = (iso) =>
       })
     : '-';
 
-const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [] }) => {
+// `pendingStatuses`: requests in these states still need work on their fulfilment job (orange rows).
+const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [], pendingStatuses = [] }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === ROLES.ADMIN;
@@ -320,7 +321,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
             {filteredRows.map((row) => {
               const request = row.medicineRequest;
               // Orange while an action of this page is still open for the request.
-              const pending = actions.some((a) => (a.from || []).includes(request.status));
+              const pending = pendingStatuses.includes(request.status) || actions.some((a) => (a.from || []).includes(request.status));
               return (
                 <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className={`grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto] ${pending ? 'bg-orange-50/70 shadow-[inset_4px_0_0_#f97316]' : ''}`}>
                   <div>
