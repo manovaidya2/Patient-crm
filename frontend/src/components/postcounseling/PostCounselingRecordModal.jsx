@@ -75,6 +75,13 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
     if (!next.components.selected.includes(defs.customPriceKey)) next.components.ayurvedicPrice = '';
     return next;
   });
+  // One tick for the whole list (the paper is usually ticked top to bottom); unticks everything when all are on.
+  const allComponentsOn = defs.components.every((component) => record.components.selected.includes(component.key));
+  const toggleAllComponents = () => change((next) => {
+    next.components.selected = allComponentsOn ? [] : defs.components.map((component) => component.key);
+    if (!next.components.selected.includes(defs.customPriceKey)) next.components.ayurvedicPrice = '';
+    return next;
+  });
 
   const openNotPurchased = () => { setError(''); setForm({ reason: '', followUpDate: '', notes: '' }); setDialog(true); };
   const markNotPurchased = async () => {
@@ -177,7 +184,10 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
           <section className="space-y-3">
             <SectionTitle letter="C">Customized treatment &amp; support components</SectionTitle>
             <div className="overflow-hidden rounded-lg border border-cardline">
-              <div className="grid grid-cols-[1fr_auto] gap-3 bg-[#56695D] px-4 py-2 text-xs font-semibold text-white"><span>Component</span><span className="w-36 text-right">Value (Rs.)</span></div>
+              <div className="grid grid-cols-[1fr_auto] gap-3 bg-[#56695D] px-4 py-2 text-xs font-semibold text-white">
+                <label className="flex cursor-pointer items-center gap-3"><input type="checkbox" disabled={!editable} checked={allComponentsOn} onChange={toggleAllComponents} className="h-4 w-4 accent-white" title="Tick / untick all components" />Component <span className="font-normal text-white/70">({record.components.selected.length}/{defs.components.length} selected · tick the box to select all)</span></label>
+                <span className="w-36 text-right">Value (Rs.)</span>
+              </div>
               {defs.components.map((component) => {
                 const active = record.components.selected.includes(component.key);
                 const custom = component.key === defs.customPriceKey;
