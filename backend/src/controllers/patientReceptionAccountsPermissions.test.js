@@ -5,6 +5,20 @@ const userRouter = require('../routes/userRoutes');
 const accountRouter = require('../routes/accountRoutes');
 const { updatePatient } = require('./patientController');
 const { ROLES, ASSIGN_DOCTOR_ROLES } = require('../constants/roles');
+const transitRouter = require('../routes/transitRoutes');
+
+test('In Transit routes exclude Reception and Post Counselor; explanation completion belongs to Assistant Doctor', () => {
+  const queue = routeGuard(transitRouter, '/', 'get');
+  for (const role of [ROLES.ADMIN, ROLES.IN_TRANSIT]) assert.equal(checkAccess(queue, role).allowed, true);
+  for (const role of [ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR]) assert.equal(checkAccess(queue, role).status, 403);
+  const completion = routeGuard(transitRouter, '/:patientId/:number/complete-explanation', 'post');
+  assert.equal(checkAccess(completion, ROLES.ASSISTANT_DOCTOR).allowed, true);
+  assert.equal(checkAccess(completion, ROLES.IN_TRANSIT).status, 403);
+  const consultation = routeGuard(accountRouter, '/consultation-receipts/:id', 'patch');
+  assert.equal(checkAccess(consultation, ROLES.RECEPTIONIST).allowed, true);
+  assert.equal(checkAccess(consultation, ROLES.IN_TRANSIT).status, 403);
+  assert.equal(Object.hasOwn(ROLES, 'DISPATCH_COURIER'), false);
+});
 
 const routeGuard = (router, path, method) => router.stack
   .find((layer) => layer.route?.path === path && layer.route.methods[method])
@@ -28,27 +42,27 @@ test('account pages accept receptionist and no accountant role remains', () => {
   assert.deepEqual(checkAccess(accountGuard, ROLES.SALES_TEAM), { allowed: false, status: 403 });
 });
 
-test('receptionist can open assignment staff lists and assignment update route', () => {
-  assert.equal(ASSIGN_DOCTOR_ROLES.includes(ROLES.RECEPTIONIST), true);
+test('In Transit can open assignment staff lists and assignment update route', () => {
+  assert.equal(ASSIGN_DOCTOR_ROLES.includes(ROLES.IN_TRANSIT), true);
   const patientGuard = routeGuard(patientRouter, '/:id', 'patch');
   const doctorGuard = routeGuard(userRouter, '/assistant-doctors', 'get');
   const psychologistGuard = routeGuard(userRouter, '/psychologists', 'get');
   for (const guard of [patientGuard, doctorGuard, psychologistGuard]) {
-    assert.deepEqual(checkAccess(guard, ROLES.RECEPTIONIST), { allowed: true, status: undefined });
+    assert.deepEqual(checkAccess(guard, ROLES.IN_TRANSIT), { allowed: true, status: undefined });
   }
 });
 
-test('receptionist can reach medicine request route while unrelated roles cannot', () => {
+test('In Transit can reach medicine request route while unrelated roles cannot', () => {
   const guard = routeGuard(patientRouter, '/:id/stages/:number/medicine-request', 'post');
-  for (const role of [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.RECEPTIONIST]) {
+  for (const role of [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]) {
     assert.equal(checkAccess(guard, role).allowed, true, role);
   }
-  for (const role of [ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST]) {
+  for (const role of [ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST, ROLES.ASSISTANT_DOCTOR]) {
     assert.deepEqual(checkAccess(guard, role), { allowed: false, status: 403 }, role);
   }
 });
 
-test('receptionist can review patients, payments and refunds', () => {
+test('In Transit can review patients, payments and refunds', () => {
   const guardedRoutes = [
     ['GET', '/payments-ledger'],
     ['GET', '/refunds-ledger'],
@@ -62,16 +76,17 @@ test('receptionist can review patients, payments and refunds', () => {
   ];
   for (const [method, path] of guardedRoutes) {
     const guard = routeGuard(patientRouter, path, method.toLowerCase());
-    assert.deepEqual(checkAccess(guard, ROLES.RECEPTIONIST), { allowed: true, status: undefined }, `${method} ${path}`);
+    assert.deepEqual(checkAccess(guard, ROLES.IN_TRANSIT), { allowed: true, status: undefined }, `${method} ${path}`);
+    assert.deepEqual(checkAccess(guard, ROLES.RECEPTIONIST), { allowed: false, status: 403 });
   }
 });
 
-test('receptionist patient updates are restricted to assignment fields', async () => {
+test('In Transit patient updates are restricted to assignment fields', async () => {
   let body;
   let status = 200;
   await updatePatient(
     {
-      user: { _id: 'reception-1', name: 'Reception', role: ROLES.RECEPTIONIST },
+      user: { _id: 'reception-1', name: 'Reception', role: ROLES.IN_TRANSIT },
       params: { id: '507f1f77bcf86cd799439011' },
       body: { patientName: 'Changed outside assignment flow' },
     },

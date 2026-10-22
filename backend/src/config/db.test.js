@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { migrateLegacyAccountants } = require('./db');
 
+test('legacy courier users migrate to In Transit without changing other roles', async () => {
+  const writes = [];
+  const connection = { collection: name => ({
+    updateMany: async (filter, update) => { writes.push({ name, filter, update }); return { modifiedCount: 1 }; },
+    find: () => ({ toArray: async () => [] }),
+  }) };
+  await migrateLegacyAccountants(connection, 'dispatch_courier', 'in_transit');
+  assert.deepEqual(writes[0].filter, { role: 'dispatch_courier' });
+  assert.equal(writes[0].update.$set.role, 'in_transit');
+});
+
 test('legacy accountant users are migrated to receptionist', async () => {
   const writes = [];
   const oldCategory = { _id: 'old', name: 'Billing', department: 'accountant' };

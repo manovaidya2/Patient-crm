@@ -193,5 +193,5 @@ test('convert needs the PO number and payment mode from the PO paper, and a PO n
   assert.equal(ok.res.body.inTransit, true);
   const unpaid = makeEntry();
   unpaid.postCounseling.purchase.values = { ...unpaid.postCounseling.purchase.values, amountReceivedNow: '' };
-  assert.equal((await run(controller.convertToPatient, {}, unpaid)).res.body.inTransit, false);
+  assert.equal((await run(controller.convertToPatient, {}, unpaid)).res.body.inTransit, true);
 });

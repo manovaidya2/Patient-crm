@@ -19,12 +19,12 @@ const isMade = (request) => Boolean(request && ['made', 'sent_to_courier'].inclu
 const CALL_OUTCOMES = ['connected', 'not_reachable', 'busy', 'call_back', 'wrong_number'];
 const day = (value) => value.toISOString().slice(0, 10);
 
-const LIST_FIELDS = 'patientName patientCode number guardianName relativeName assignedDoctor assignedPsychologist updatedAt isActive '
+const LIST_FIELDS = 'patientName patientCode number guardianName relativeName age category address centerName centerId approvalStatus createdAt assignedDoctor assignedPsychologist updatedAt isActive '
   + 'stages.number stages.purchaseOrder stages.totalAmount stages.payments stages.postCounselor stages.medicineExplainDate '
-  + 'stages.transit stages.medicineRequest stages.medicineRequests';
+  + 'stages.transit stages.poPaper stages.packageName stages.medicineRequest stages.medicineRequests';
 const TRANSIT_FILTER = {
   isActive: { $ne: false },
-  stages: { $elemMatch: { purchaseOrder: { $exists: true, $ne: '' }, 'payments.0': { $exists: true } } },
+  stages: { $elemMatch: { purchaseOrder: { $exists: true, $ne: '' } } },
 };
 const POPULATE = [
   { path: 'assignedDoctor', select: 'name' },
@@ -45,11 +45,12 @@ const matchesView = (item, view) => {
 // @desc    The in-transit queue: every phase between "PO + payment" and "treatment started"
 // @route   GET /api/transit?view=&q=
 const listTransit = asyncHandler(async (req, res) => {
-  const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).sort({ updatedAt: -1 }).limit(500).populate(POPULATE).lean();
+  const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).sort({ createdAt: -1 }).populate(POPULATE).lean();
   const now = new Date();
   let items = patients.flatMap((patient) => (patient.stages || []).filter(isInTransit).map((stage) => buildTransitCase(patient, stage, now)));
   const q = clean(req.query.q, 100).toLowerCase();
   if (q) items = items.filter((item) => [item.patientName, item.patientCode, item.purchaseOrder, item.patientPhone].some((v) => String(v || '').toLowerCase().includes(q)));
+  if (req.query.date) items = items.filter(item => item.enteredAt && new Date(item.enteredAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === req.query.date);
   const isAdmin = req.user.role === ROLES.ADMIN;
   // Removed cases are only listed for admin (so they can be restored).
   if (!isAdmin) items = items.filter((item) => !item.removed);
@@ -76,8 +77,8 @@ const getTransitCase = asyncHandler(async (req, res) => {
   if (!stage || !isInTransit(stage)) fail('This phase is not in transit', 404);
   const tag = `Phase ${number}`;
   const events = (patient.activityLog || [])
-    .filter((entry) => String(entry.action || '').includes(tag) || String(entry.details || '').includes(tag))
-    .slice(-60).reverse()
+    .filter((entry) => String(entry.action || '').includes(tag) || String(entry.details || '').includes(tag) || entry.action === 'Patient approved')
+    .reverse()
     .map((entry) => ({ action: entry.action, details: entry.details, by: entry.actorName, role: entry.actorRole, at: entry.createdAt || entry.at || null }));
   res.json({ success: true, item: buildTransitCase(patient, stage), events });
 });
@@ -101,15 +102,20 @@ const needRequest = (request) => { if (!request) fail('Raise the medicine reques
 
 // Each action writes into the same fields the Medicine, Courier and Patient pages use.
 const ACTIONS = {
-  raise_request({ stage, request, body, req, now }) {
+  raise_request({ patient, stage, request, body, req, now }) {
+    if ((patient.approvalStatus || 'approved') !== 'approved') fail('Approve the patient first');
+    if (paymentSummary(stage).pendingCount) fail('Verify submitted payments first');
     if (request) fail('A medicine request is already running for this phase');
     const medicines = required(body.medicines, 'Medicine details', 2000);
     const files = fileItems(req);
     if (!files.length) fail('Prescription image or document is required');
+    const readyByDate = parseDate(body.readyByDate || stage.transit.expectedReadyDate, 'medicine ready-by date');
+    stage.transit.expectedReadyDate = readyByDate;
     stage.medicineRequests.push({
       requestId: crypto.randomUUID(), status: 'requested', medicines, notes: clean(body.notes, 2000),
       prescriptionUrl: files[0].url, prescriptionFileName: files[0].fileName, prescriptionFiles: files,
       requestedAt: now, requestedByName: req.user.name,
+      readyByDate, readyBySetAt: now, readyBySetByName: req.user.name,
     });
     return `Medicine request raised: ${medicines}`;
   },
@@ -147,10 +153,11 @@ const ACTIONS = {
   },
   add_payment({ stage, body, req }) {
     const amount = Number(body.amount);
-    if (!amount || amount <= 0) fail('Enter a valid payment amount');
+    if (!Number.isFinite(amount) || amount <= 0) fail('Enter a valid payment amount');
     const paymentMode = body.paymentMode;
     if (!['cash', 'online'].includes(paymentMode)) fail('Select cash or online');
     const files = fileItems(req);
+    if (paymentMode === 'online' && !files.length) fail('Payment proof is required for an online payment');
     const utr = paymentMode === 'online' ? required(body.utr, 'UTR / reference', 120) : '';
     const receivedBy = paymentMode === 'cash' ? required(body.receivedBy, 'Cash received by', 120) : '';
     stage.payments.push({
@@ -166,11 +173,21 @@ const ACTIONS = {
     Object.assign(stage.transit, { pickupScheduledAt: visitAt, pickupNote: clean(body.note, 300), pickupScheduledByName: req.user.name });
     return `Visit scheduled for ${visitAt.toISOString()}`;
   },
+  schedule_dispatch({ stage, request, body, req }) {
+    if (!SHIPPED_MODES.includes(stage.transit.fulfilmentMode)) fail('Confirm courier or porter first');
+    if (request && ['dispatched', 'delivered'].includes(courierOf(request).status)) fail('Already dispatched');
+    const at = parseDate(body.dispatchAt, 'planned dispatch date');
+    Object.assign(stage.transit, { dispatchScheduledAt: at, plannedCourier: required(body.courierPartner, 'Courier / porter', 120), plannedAddress: required(body.address, 'Delivery address', 500), deliveryPlanNote: clean(body.note, 500) });
+    return `Dispatch planned for ${at.toISOString()} by ${req.user.name}`;
+  },
   dispatch({ stage, request, body, req, now }) {
     needRequest(request);
     const mode = stage.transit.fulfilmentMode;
     if (!SHIPPED_MODES.includes(mode)) fail('Delivery mode must be porter or courier');
-    if (paymentSummary(stage).remaining > 0) fail('Full payment must be confirmed before sending the medicine');
+    if (!stage.transit.dispatchScheduledAt) fail('Schedule dispatch first');
+    if (request.status !== 'sent_to_courier') fail('Medicine Department must release the medicine first');
+    if (['dispatched', 'delivered'].includes(courierOf(request).status)) fail('This medicine has already been dispatched');
+    if (paymentSummary(stage).remaining > 0 || paymentSummary(stage).pendingCount) fail('Full payment must be approved before sending the medicine');
     if (!isMade(request)) fail('The medicine is not ready yet');
     const files = fileItems(req);
     const courier = courierOf(request);
@@ -196,11 +213,16 @@ const ACTIONS = {
     const courier = courierOf(request);
     const files = fileItems(req);
     const receivedAt = body.receivedAt ? parseDate(body.receivedAt, 'received time') : now;
+    if (receivedAt > now) fail('Received time cannot be in the future');
+    if (request.status !== 'sent_to_courier') fail('Medicine Department must release the medicine first');
+    if (paymentSummary(stage).remaining > 0 || paymentSummary(stage).pendingCount) fail('Full payment must be approved before handover');
+    if (courier.status === 'delivered') fail('Receipt already recorded');
     const receivedByName = required(body.receivedByName, 'Received by', 120);
     const proof = files.length ? { deliveryProofUrl: files[0].url, deliveryProofFileName: files[0].fileName, deliveryProofImages: [...(courier.deliveryProofImages || []), ...files] } : {};
     const notes = clean(body.notes, 500);
     if (SHIPPED_MODES.includes(mode)) {
       if (courier.status !== 'dispatched') fail('Send the medicine before confirming it was received');
+      if (courier.dispatchedAt && receivedAt < new Date(courier.dispatchedAt)) fail('Received time cannot be before dispatch');
       Object.assign(request, { courier: { ...courier, status: 'delivered', receivedByName, notes: notes || courier.notes || '', deliveredAt: receivedAt, deliveredByName: req.user.name, ...proof } });
       return `Medicine received by ${receivedByName}`;
     }
@@ -211,23 +233,24 @@ const ACTIONS = {
     return `Medicine collected at clinic by ${receivedByName}`;
   },
   async start_treatment({ patient, stage, request, body, req, now }) {
-    if (!request || courierOf(request).status !== 'delivered') fail('The medicine must reach the patient first');
-    if (paymentSummary(stage).remaining > 0) fail('Full payment must be received first');
+    if (stage.transit.explanationCompletedAt) fail('Explanation is already completed', 409);
+    if (!request || !['dispatched', 'delivered'].includes(courierOf(request).status)) fail('Dispatch or hand over the medicine first');
+    if (paymentSummary(stage).remaining > 0 || paymentSummary(stage).pendingCount) fail('Full payment must be approved first');
     const explanationAt = parseDate(body.explanationAt, 'medicine explanation date and time');
     const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'assistant doctor');
     const counselor = await staffMember(body.postCounselorId, ROLES.POST_COUNSELOR, 'post counselor');
     const psychologist = await staffMember(body.psychologistId, ROLES.PSYCHOLOGIST, 'psychologist');
     if (!doctor) fail('Select the assistant doctor');
-    if (!counselor && !stage.postCounselor) fail('Select the post counselor');
     patient.assignedDoctor = doctor._id;
     if (counselor) stage.postCounselor = counselor._id;
     if (psychologist) patient.assignedPsychologist = psychologist._id;
     stage.medicineExplainDate = explanationAt;
     Object.assign(stage.transit, {
       explanationScheduledAt: now, explanationScheduledByName: req.user.name, explanationAckAt: null, explanationAckByName: '',
-      assignedAt: now, assignedByName: req.user.name, activatedAt: now, activatedByName: req.user.name,
+      assignedAt: now, assignedByName: req.user.name, explanationDoctor: doctor._id,
+      explanationMode: ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : 'phone',
     });
-    return `Treatment started | Explanation ${explanationAt.toISOString()} | Assistant doctor: ${doctor.name}${counselor ? ` | Post counselor: ${counselor.name}` : ''}${psychologist ? ` | Psychologist: ${psychologist.name}` : ''}`;
+    return `Explanation booked ${explanationAt.toISOString()} | Assistant doctor: ${doctor.name}`;
   },
   hold({ stage, body, req, now }) {
     Object.assign(stage.transit, { holdActive: true, holdReason: required(body.reason, 'Reason', 300), holdAt: now, holdByName: req.user.name });
@@ -244,7 +267,7 @@ const loadStage = async (req) => {
   const patient = await Patient.findById(req.params.patientId);
   if (!patient) fail('Patient not found', 404);
   const stage = (patient.stages || []).find((s) => s.number === parseInt(req.params.number, 10));
-  if (!stage || !isInTransit(stage)) fail('This phase is not in transit (purchase order and a payment are required)', 404);
+  if (!stage || !isInTransit(stage)) fail('This phase is not in transit (purchase order required)', 404);
   if (!stage.transit) stage.transit = {};
   return { patient, stage };
 };
@@ -260,6 +283,7 @@ const respondWithCase = async (res, patient, stageNumber) => {
 const runAction = asyncHandler(async (req, res) => {
   const { action } = req.body;
   if (!ACTIONS[action]) fail('Unknown in-transit action');
+  if (['accept_request', 'set_ready_by'].includes(action) && req.user.role !== ROLES.ADMIN) fail('Medicine Department owns preparation updates', 403);
   const { patient, stage } = await loadStage(req);
   if (stage.transit.removedAt) fail('This case was removed from In Transit');
   if (stage.transit.activatedAt) fail('Treatment has already started for this phase');
@@ -293,81 +317,82 @@ const restoreToTransit = asyncHandler(async (req, res) => {
 const ackExplanation = asyncHandler(async (req, res) => {
   const { patient, stage } = await loadStage(req);
   if (!stage.medicineExplainDate) fail('No explanation is scheduled for this phase');
-  if (req.user.role === ROLES.POST_COUNSELOR && String(stage.postCounselor || '') !== String(req.user._id)) fail('This phase is assigned to another post counselor', 403);
+  if (req.user.role !== ROLES.ADMIN && String(stage.transit.explanationDoctor || patient.assignedDoctor || '') !== String(req.user._id)) fail('This explanation is assigned to another doctor', 403);
   Object.assign(stage.transit, { explanationAckAt: new Date(), explanationAckByName: req.user.name });
-  logActivity(patient, req.user, stage.number, 'Post counselor saw the explanation schedule');
+  logActivity(patient, req.user, stage.number, 'Assistant doctor saw the explanation schedule');
   await respondWithCase(res, patient, stage.number);
 });
 
-// Calendar-day difference in the server's timezone (clinic local time).
-const dayDiff = (target, now = new Date()) => {
-  const a = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const d = new Date(target);
-  return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - a) / 86400000);
-};
-const dueText = (days) => (days === 1 ? 'tomorrow' : days === 0 ? 'today' : `${-days} day(s) overdue`);
-const fmt = (value) => new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+const clinicDay = value => new Date(value).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+const dayDiff = (target, now = new Date()) => Math.round((Date.parse(clinicDay(target)) - Date.parse(clinicDay(now))) / 86400000);
+const explanationOwner = (patient, stage) => String(stage.transit?.explanationDoctor || patient.assignedDoctor?._id || patient.assignedDoctor || '');
 
-// @desc    Reminders: medicine ready-by date, explanation schedule, call-backs, visits
-// @route   GET /api/transit/reminders
+const listExplanations = asyncHandler(async (req, res) => {
+  const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.explanationScheduledAt': { $ne: null } })
+    .select(LIST_FIELDS).lean();
+  let items = [];
+  for (const patient of patients) for (const stage of patient.stages || []) {
+    if (!stage.transit?.explanationScheduledAt || stage.transit.removedAt) continue;
+    if (req.user.role !== ROLES.ADMIN && explanationOwner(patient, stage) !== String(req.user._id)) continue;
+    const item = buildTransitCase(patient, stage);
+    items.push(item);
+  }
+  if (req.query.date) items = items.filter(item => item.explanation.at && clinicDay(item.explanation.at) === req.query.date);
+  if (req.query.status === 'done') items = items.filter(item => item.explanation.completedAt);
+  else if (req.query.status !== 'all') items = items.filter(item => !item.explanation.completedAt);
+  items.sort((a, b) => new Date(a.explanation.at) - new Date(b.explanation.at));
+  res.json({ success: true, items });
+});
+
+const completeExplanation = asyncHandler(async (req, res) => {
+  const { patient, stage } = await loadStage(req);
+  const t = stage.transit;
+  if (req.user.role !== ROLES.ADMIN && explanationOwner(patient, stage) !== String(req.user._id)) fail('This explanation belongs to another doctor', 403);
+  if (t.holdActive || t.removedAt) fail('This case is on hold or removed');
+  if (!t.explanationScheduledAt || !stage.medicineExplainDate) fail('Schedule the explanation first');
+  if (t.explanationCompletedAt || t.activatedAt) fail('Explanation already completed', 409);
+  const request = pickRequest(stage);
+  if (!request || courierOf(request).status !== 'delivered') fail('Confirm medicine receipt before completing explanation');
+  const pay = paymentSummary(stage);
+  if (pay.remaining > 0 || pay.pendingCount) fail('Full payment must be approved');
+  const completedAt = parseDate(req.body.completedAt, 'actual explanation completion time');
+  if (completedAt > new Date() || completedAt < new Date(request.courier.deliveredAt)) fail('Completion time must be after medicine receipt and not in the future');
+  const note = required(req.body.notes, 'Explanation notes', 2000);
+  Object.assign(t, { explanationCompletedAt: completedAt, explanationCompletedByName: req.user.name, explainedByName: req.user.name, explanationNote: note, activatedAt: completedAt, activatedByName: req.user.name });
+  stage.status = 'in_progress';
+  stage.date = completedAt;
+  logActivity(patient, req.user, stage.number, `Medicine explanation completed; treatment started | ${note}`);
+  await respondWithCase(res, patient, stage.number);
+});
+
 const getTransitReminders = asyncHandler(async (req, res) => {
-  const { role } = req.user;
-  const me = String(req.user._id);
-  const patients = await Patient.find({
-    isActive: { $ne: false },
-    $or: [
-      { 'stages.medicineRequests.readyByDate': { $ne: null } },
-      { 'stages.medicineRequest.readyByDate': { $ne: null } },
-      { 'stages.transit.explanationScheduledAt': { $ne: null } },
-      { 'stages.transit.calls.nextCallAt': { $ne: null } },
-      { 'stages.transit.pickupScheduledAt': { $ne: null } },
-    ],
-  }).select('patientName patientCode stages.number stages.purchaseOrder stages.payments.amount stages.postCounselor stages.medicineExplainDate stages.transit stages.medicineRequest stages.medicineRequests').lean();
-
-  const now = new Date();
-  const reminders = [];
-  const forCounselor = (stage) => role !== ROLES.POST_COUNSELOR || !stage.postCounselor || String(stage.postCounselor) === me;
-  patients.forEach((patient) => (patient.stages || []).forEach((stage) => {
-    const t = stage.transit || {};
-    const base = { patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode || '', stage: stage.number };
-    if (t.holdActive || t.removedAt) return;
-    // 1) Medicine ready-by date: the automatic reminder starts the day before.
-    const request = pickRequest(stage);
-    if (!t.activatedAt && request && ['requested', 'in_process'].includes(request.status) && request.readyByDate && forCounselor(stage)) {
-      const days = dayDiff(request.readyByDate, now);
-      if (days <= 1) {
-        reminders.push({
-          ...base, id: `prep-${patient._id}-${stage.number}-${request.requestId || 'legacy'}-${new Date(request.readyByDate).toISOString().slice(0, 10)}-${days}`,
-          type: 'medicine_due', dateTime: request.readyByDate,
-          title: days < 0 ? 'Medicine preparation overdue' : `Medicine preparation last date is ${dueText(days)}`,
-          message: `${patient.patientName} (Phase ${stage.number}) - medicine must be ready ${dueText(days)}.`,
-        });
-      }
+  const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).lean();
+  const now = new Date(), reminders = [], role = req.user.role;
+  for (const patient of patients) for (const stage of patient.stages || []) {
+    if (!isInTransit(stage)) continue;
+    const t = stage.transit || {}, request = pickRequest(stage);
+    if (t.holdActive || t.removedAt || t.activatedAt) continue;
+    const base = { patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode, stage: stage.number };
+    const add = (type, dateTime, title, message) => reminders.push({ ...base, id: `${type}-${patient._id}-${stage.number}-${clinicDay(dateTime)}-${clinicDay(now)}`, type, dateTime, title, message });
+    const ready = request?.readyByDate || t.expectedReadyDate;
+    if ([ROLES.ADMIN, ROLES.IN_TRANSIT, ROLES.MEDICINE_DEPARTMENT].includes(role) && ready && !isMade(request) && dayDiff(ready, now) <= 1) {
+      const days = dayDiff(ready, now);
+      add('medicine_due', ready, days < 0 ? 'Medicine preparation overdue' : `Urgent: medicine due ${days === 1 ? 'tomorrow' : 'today'}`, `${patient.patientName}: medicine ready-by deadline ${clinicDay(ready)}`);
     }
-    if (role === ROLES.MEDICINE_DEPARTMENT) return;
-    // 2) Explanation scheduled at treatment start: the assigned post counselor must see it.
-    const mine = role === ROLES.POST_COUNSELOR && stage.postCounselor && String(stage.postCounselor) === me;
-    if (stage.medicineExplainDate && t.explanationScheduledAt && new Date(stage.medicineExplainDate) >= new Date(now.getTime() - 86400000)) {
-      if (mine && !t.explanationAckAt) {
-        reminders.push({ ...base, id: `explain-new-${patient._id}-${stage.number}-${new Date(stage.medicineExplainDate).getTime()}`, type: 'explanation_scheduled', ack: true, dateTime: stage.medicineExplainDate, title: 'Medicine explanation scheduled', message: `${patient.patientName} (Phase ${stage.number}) - medicine explanation on ${fmt(stage.medicineExplainDate)}. You are the assigned post counselor.` });
-      } else if ((mine || role === ROLES.RECEPTIONIST) && dayDiff(stage.medicineExplainDate, now) === 0) {
-        reminders.push({ ...base, id: `explain-today-${patient._id}-${stage.number}-${new Date(stage.medicineExplainDate).getTime()}`, type: 'explanation_today', dateTime: stage.medicineExplainDate, title: 'Medicine explanation today', message: `${patient.patientName} (Phase ${stage.number}) at ${fmt(stage.medicineExplainDate)}.` });
-      }
+    if (role === ROLES.MEDICINE_DEPARTMENT) continue;
+    if (role === ROLES.ASSISTANT_DOCTOR) {
+      if (explanationOwner(patient, stage) === String(req.user._id) && stage.medicineExplainDate && t.explanationScheduledAt && !t.explanationCompletedAt && dayDiff(stage.medicineExplainDate, now) <= 0) add('explanation_today', stage.medicineExplainDate, 'Medicine explanation due', `${patient.patientName}: scheduled ${new Date(stage.medicineExplainDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      continue;
     }
-    if (t.activatedAt || !isInTransit(stage)) return;
-    // 3) Patient asked to be called back.
-    const last = [...(t.calls || [])].sort((a, b) => new Date(b.at) - new Date(a.at))[0];
-    if (last && last.outcome !== 'connected' && last.nextCallAt && new Date(last.nextCallAt) <= now && forCounselor(stage)) {
-      reminders.push({ ...base, id: `call-${patient._id}-${stage.number}-${new Date(last.nextCallAt).getTime()}`, type: 'call_due', dateTime: last.nextCallAt, title: 'Call the patient again', message: `${patient.patientName} (Phase ${stage.number}) - last call: ${last.outcome.replace('_', ' ')}. ${last.notes || ''}` });
-    }
-    // 4) Self pickup visit today.
-    const delivered = courierOf(request || {}).status === 'delivered';
-    if (t.pickupScheduledAt && !delivered && dayDiff(t.pickupScheduledAt, now) === 0 && (role === ROLES.RECEPTIONIST || forCounselor(stage))) {
-      reminders.push({ ...base, id: `visit-${patient._id}-${stage.number}-${new Date(t.pickupScheduledAt).getTime()}`, type: 'visit_today', dateTime: t.pickupScheduledAt, title: 'Patient coming today for medicine', message: `${patient.patientName} (Phase ${stage.number}) at ${fmt(t.pickupScheduledAt)}.` });
-    }
-  }));
-  reminders.sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+    const last = [...(t.calls || [])].sort((a,b) => new Date(b.at)-new Date(a.at))[0];
+    if (last?.nextCallAt && last.outcome !== 'connected' && new Date(last.nextCallAt) <= now) add('call_due', last.nextCallAt, 'Patient call-back due', `${patient.patientName}: ${last.notes}`);
+    const courier = courierOf(request || {});
+    if (t.pickupScheduledAt && courier.status !== 'delivered' && dayDiff(t.pickupScheduledAt, now) <= 0) add('visit_today', t.pickupScheduledAt, 'Self-pickup due', patient.patientName);
+    if (t.dispatchScheduledAt && !['dispatched','delivered'].includes(courier.status) && dayDiff(t.dispatchScheduledAt, now) <= 0) add('dispatch_due', t.dispatchScheduledAt, 'Scheduled dispatch due', patient.patientName);
+    if (request?.status === 'made') add('medicine_ready', request.madeAt || now, 'Medicine ready', `${patient.patientName}: confirm full payment and Medicine Department release`);
+  }
+  reminders.sort((a,b) => new Date(a.dateTime)-new Date(b.dateTime));
   res.json({ success: true, count: reminders.length, reminders });
 });
 
-module.exports = { listTransit, getTransitCase, listStaff, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders };
+module.exports = { listTransit, getTransitCase, listStaff, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation };

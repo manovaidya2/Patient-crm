@@ -31,6 +31,7 @@ const MedicineInventory = lazy(() => import('./pages/admin/MedicineInventory.jsx
 const ClinicInventory = lazy(() => import('./pages/admin/ClinicInventory.jsx'));
 const CourierRequests = lazy(() => import('./pages/admin/CourierRequests.jsx'));
 const Transit = lazy(() => import('./pages/admin/Transit.jsx'));
+const MedicineExplanations = lazy(() => import('./pages/admin/MedicineExplanations.jsx'));
 const CourierDelivered = lazy(() => import('./pages/admin/CourierDelivered.jsx'));
 const RequestForAdvice = lazy(() => import('./pages/admin/RequestForAdvice.jsx'));
 const AdviceGiven = lazy(() => import('./pages/admin/AdviceGiven.jsx'));
@@ -68,7 +69,7 @@ const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLE
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING];
-const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST];
+const PATIENT_APPROVAL_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT];
 const INACTIVE_PATIENTS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR];
 const PACKAGE_NOT_BOUGHT_ROLES = [ROLES.ADMIN, ROLES.POST_COUNSELOR];
 
@@ -149,7 +150,8 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="in-transit" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.RECEPTIONIST]}><Transit /></ProtectedRoute>} />
+        <Route path="in-transit" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><Transit /></ProtectedRoute>} />
+        <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />
         <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />
         <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="final-bill" /></ProtectedRoute>} />
         <Route path="invoices/consultation" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="consultation" /></ProtectedRoute>} />
@@ -189,18 +191,18 @@ function App() {
         <Route
           path="payments"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]}>
               <Payments />
             </ProtectedRoute>
           }
         />
-        <Route path="accounts/refunds" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Refunds /></ProtectedRoute>} />
+        <Route path="accounts/refunds" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]}><Refunds /></ProtectedRoute>} />
         <Route path="accounts/consultations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><FinancialLedger key="consultation" kind="consultation" /></ProtectedRoute>} />
-        <Route path="accounts/treatment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><FinancialLedger key="treatment" kind="treatment" /></ProtectedRoute>} />
+        <Route path="accounts/treatment" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]}><FinancialLedger key="treatment" kind="treatment" /></ProtectedRoute>} />
         <Route
           path="approved-payments"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]}>
               <ApprovedPayments />
             </ProtectedRoute>
           }
@@ -260,7 +262,7 @@ function App() {
         <Route
           path="courier"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}>
               <CourierRequests />
             </ProtectedRoute>
           }
@@ -268,7 +270,7 @@ function App() {
         <Route
           path="courier-delivered"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}>
               <CourierDelivered />
             </ProtectedRoute>
           }

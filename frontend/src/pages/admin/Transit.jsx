@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlarmClock, AlertTriangle, ArrowLeft, Bike, Check, CheckCircle2, Circle, ClipboardList, Clock3, ExternalLink, IndianRupee,
   PauseCircle, Phone, PhoneCall, Pill, PlayCircle, Plus, Search, Stethoscope, Store, Truck, Package, X,
-  ArrowUpDown, ChevronDown, RotateCcw, Rows3, Trash2,
+  ArrowUpDown, ChevronDown, RotateCcw, Rows3, Trash2, Columns3,
 } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
@@ -15,7 +15,7 @@ import { ROLES } from '../../constants/roles.js';
 const inputClass = 'w-full min-w-0 rounded-lg border border-cardline bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 const MODE = { pickup: { label: 'Self pickup', icon: Store }, porter: { label: 'Porter', icon: Bike }, courier: { label: 'Courier', icon: Truck } };
 const CALL = { connected: 'Connected', not_reachable: 'Not reachable', busy: 'Busy', call_back: 'Call back later', wrong_number: 'Wrong number' };
-const MED_STATUS = { requested: 'Waiting for medicine department', in_process: 'Being prepared', made: 'Made', sent_to_courier: 'Made and sent' };
+const MED_STATUS = { requested: 'Waiting for medicine department', in_process: 'Being prepared', made: 'Made', sent_to_courier: 'Released to In Transit' };
 const GROUP_ICON = { order: ClipboardList, medicine: Pill, contact: PhoneCall, handover: Package, treatment: Stethoscope };
 const PIPELINE = [
   { key: 'attention', label: 'Needs attention', hint: 'Due, overdue or call-back', tone: 'danger' },
@@ -62,8 +62,8 @@ const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).ma
 // ---------- action forms ----------
 // field: [key, label, type, required, options, showIf]
 const FORMS = {
-  raise_request: { title: 'Raise medicine request', button: 'Raise request', files: { label: 'Prescription (image / PDF)', req: true }, fields: [['medicines', 'Medicines', 'textarea', true], ['notes', 'Notes', 'textarea']] },
-  accept_request: { title: 'Accept request and set ready-by date', note: 'An automatic reminder goes to the post counselor, reception and medicine department one day before this date.', button: 'Accept request', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
+  raise_request: { title: 'Raise medicine request', button: 'Raise request', files: { label: 'Prescription (image / PDF)', req: true }, fields: [['medicines', 'Medicines', 'textarea', true], ['readyByDate', 'Expected medicine ready date', 'date', true], ['notes', 'Notes', 'textarea']] },
+  accept_request: { title: 'Accept request and set ready-by date', note: 'An automatic reminder goes to the In Transit and Medicine Department one day before this date.', button: 'Accept request', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   set_ready_by: { title: 'Change ready-by date', note: 'The automatic reminder moves with the date.', button: 'Save date', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   log_call: {
     title: 'Log a call with the patient', note: 'Tell the patient the medicine status and confirm how they want to receive it. Log every attempt.', button: 'Save call',
@@ -71,10 +71,11 @@ const FORMS = {
   },
   confirm_mode: { title: 'Patient confirmed delivery mode', note: 'Porter / courier: full payment is confirmed before sending. Self pickup: schedule the visit next.', button: 'Confirm', fields: [['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])], ['note', 'Note', 'text']] },
   add_payment: {
-    title: 'Record a payment', note: 'Saved in Patient Details as pending. Accounts verifies it, then this step completes.', button: 'Save payment', files: { label: 'Payment proof (optional)' },
+    title: 'Record a payment', note: 'Saved in Patient Details as pending. In Transit verifies it before it counts toward the balance.', button: 'Save payment', files: { label: 'Payment proof (optional)' },
     fields: [['amount', 'Amount (Rs)', 'number', true], ['paymentMode', 'Mode', 'pills', true, [['online', 'Online'], ['cash', 'Cash']]], ['utr', 'UTR / reference', 'text', true, null, (v) => v.paymentMode === 'online'], ['receivedBy', 'Cash received by', 'text', true, null, (v) => v.paymentMode === 'cash'], ['date', 'Payment date', 'date', true], ['notes', 'Note', 'text']],
   },
   schedule_visit: { title: 'Schedule the patient visit', note: 'When the patient will come to the clinic to collect the medicine.', button: 'Schedule visit', fields: [['visitAt', 'Visit date & time', 'datetime-local', true], ['note', 'Note', 'text']] },
+  schedule_dispatch: { title: 'Schedule dispatch', button: 'Save schedule', fields: [['dispatchAt', 'Dispatch date & time', 'datetime-local', true], ['courierPartner', 'Courier / porter', 'text', true], ['address', 'Delivery address', 'textarea', true], ['note', 'Note', 'text']] },
   dispatch_porter: { title: 'Send by porter', button: 'Mark sent', files: { label: 'Package photo (optional)' }, fields: [['porterName', 'Porter name', 'text', true], ['porterPhone', 'Porter phone', 'text'], ['trackingNumber', 'Booking / order ID', 'text'], ['receiverName', 'Deliver to', 'text', true], ['receiverPhone', 'Receiver phone', 'text', true], ['address', 'Address', 'textarea', true], ['notes', 'Note', 'text']] },
   dispatch_courier: { title: 'Send by courier', button: 'Mark sent', files: { label: 'Package photo', req: true }, fields: [['courierPartner', 'Courier partner', 'text', true], ['trackingNumber', 'Tracking number', 'text', true], ['receiverName', 'Deliver to', 'text', true], ['receiverPhone', 'Receiver phone', 'text', true], ['address', 'Address', 'textarea', true], ['notes', 'Note', 'text']] },
   confirm_received_shipped: { title: 'Medicine received by patient', button: 'Confirm received', files: { label: 'Delivery proof (optional)' }, fields: [['receivedByName', 'Received by', 'text', true], ['receivedAt', 'Received on', 'datetime-local', true], ['notes', 'Note', 'text']] },
@@ -88,6 +89,8 @@ const formKeyFor = (action, item) => {
 const actionOf = (formKey) => (formKey.startsWith('dispatch') ? 'dispatch' : formKey.startsWith('confirm_received') ? 'confirm_received' : formKey);
 const defaults = (formKey, item) => {
   switch (formKey) {
+    case 'raise_request': return { readyByDate: item.expectedReadyDate ? localInput(item.expectedReadyDate, false) : '' };
+    case 'schedule_dispatch': return { dispatchAt: item.deliveryPlan?.at ? localInput(item.deliveryPlan.at) : '', courierPartner: item.deliveryPlan?.courier || '', address: item.deliveryPlan?.address || item.patientDetails?.address || '' };
     case 'set_ready_by': return { readyByDate: item.medicine?.readyByDate ? localInput(item.medicine.readyByDate, false) : '' };
     case 'confirm_mode': return { mode: item.mode || '' };
     case 'add_payment': return { amount: item.payment.remaining ? String(item.payment.remaining) : '', paymentMode: 'online', date: localInput(new Date(), false) };
@@ -135,7 +138,7 @@ function ActionForm({ formKey, item, onDone, onCancel, compact }) {
     event.preventDefault();
     const missingPill = visible.find((f) => f[2] === 'pills' && f[3] && !values[f[0]]);
     if (missingPill) { setError(`Select ${missingPill[1].toLowerCase()}`); return; }
-    if (form.files?.req && !files.length) { setError(`${form.files.label} is required`); return; }
+    if ((form.files?.req || (formKey === 'add_payment' && values.paymentMode === 'online')) && !files.length) { setError('Upload the required document / payment proof'); return; }
     setSaving(true); setError('');
     try {
       const payload = {};
@@ -162,7 +165,7 @@ function ActionForm({ formKey, item, onDone, onCancel, compact }) {
 
 function StartTreatmentForm({ item, onDone }) {
   const [staff, setStaff] = useState([]);
-  const [values, setValues] = useState({ explanationAt: '', assistantDoctorId: item.assignments.assistantDoctor?.id || '', postCounselorId: item.assignments.postCounselor?.id || '', psychologistId: item.assignments.psychologist?.id || '' });
+  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: item.assignments.assistantDoctor?.id || '', postCounselorId: item.assignments.postCounselor?.id || '', psychologistId: item.assignments.psychologist?.id || '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.get('/transit/staff', { skipCache: true }).then(({ data }) => setStaff(data.staff)).catch(() => setError('Could not load the staff list')); }, []);
@@ -179,16 +182,16 @@ function StartTreatmentForm({ item, onDone }) {
   };
   return (
     <form onSubmit={submit} className="space-y-3">
-      <h3 className="text-base font-bold text-charcoal">Schedule explanation and start treatment</h3>
-      <p className="text-xs leading-5 text-charcoal/60">Medicine has reached the patient and payment is complete. The assigned post counselor is notified of the explanation time. Treatment starts from here.</p>
+      <h3 className="text-base font-bold text-charcoal">Assign doctor and schedule explanation</h3>
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block space-y-1 text-sm font-medium text-charcoal sm:col-span-2"><span>Medicine explanation date & time<span className="text-red-700"> *</span></span><input className={inputClass} type="datetime-local" required value={values.explanationAt} onChange={(e) => set('explanationAt', e.target.value)} /></label>
         {select('assistantDoctorId', 'Assistant doctor', 'assistant_doctor', true)}
-        {select('postCounselorId', `Post counselor (Phase ${item.stage})`, 'post_counselor', true)}
+        <Field field={['explanationMode', 'Explanation mode', 'pills', true, [['phone', 'Phone'], ['video', 'Video'], ['clinic', 'Clinic']]]} value={values.explanationMode} onChange={set} />
+        {select('postCounselorId', `Post counselor (Phase ${item.stage}, optional)`, 'post_counselor', false)}
         {select('psychologistId', 'Psychologist (optional)', 'psychologist', false)}
       </div>
-      <Button type="submit" disabled={saving}><Stethoscope size={15} />{saving ? 'Starting...' : 'Start treatment'}</Button>
+      <Button type="submit" disabled={saving}><Stethoscope size={15} />{saving ? 'Saving...' : 'Schedule explanation'}</Button>
     </form>
   );
 }
@@ -254,7 +257,7 @@ function NextActionPanel({ item, onDone, onQuick }) {
     return <div className="flex items-start gap-3 rounded-xl border border-cardline bg-offwhite-200 p-4 text-sm text-charcoal/80"><Trash2 size={20} className="mt-0.5 shrink-0" /><div><p className="font-bold text-charcoal">Removed from In Transit</p><p>by {item.removed.by} on {dateTime(item.removed.at)}{item.removed.reason ? ` - ${item.removed.reason}` : ''}. Patient data was not changed.</p></div></div>;
   }
   if (item.activated) {
-    return <div className="flex items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"><CheckCircle2 size={22} /><div><p className="font-bold">Treatment started</p><p>Explanation on {dateTime(item.explanation.at)}{item.explanation.ackAt ? ` - seen by ${item.explanation.ackByName}` : ' - waiting for the post counselor to see it'}.</p></div></div>;
+    return <div className="flex items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"><CheckCircle2 size={22} /><div><p className="font-bold">Treatment started</p><p>Explanation on {dateTime(item.explanation.completedAt || item.explanation.at)}{item.explanation.completedBy ? ` - completed by ${item.explanation.completedBy}` : ''}.</p></div></div>;
   }
   if (item.onHold) {
     return <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><div className="flex gap-2"><PauseCircle size={20} className="shrink-0" /><div><p className="font-bold">On hold - {item.hold?.reason}</p><p className="text-xs">by {item.hold?.by} on {dateTime(item.hold?.at)}</p></div></div><Button size="sm" onClick={() => sendAction(item, 'resume').then(onDone).catch(() => {})}><PlayCircle size={14} />Resume</Button></div>;
@@ -269,7 +272,7 @@ function NextActionPanel({ item, onDone, onQuick }) {
             <div className="space-y-3">
               <div className="flex gap-3"><Clock3 size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">{item.step.label}</h3><p className="text-sm text-charcoal/65">{item.step.waitText || 'Waiting.'}</p></div></div>
               {item.step.key === 'reminder' && <Button size="sm" variant="outline" onClick={() => onQuick('log_call')}><PhoneCall size={14} />Call the patient now</Button>}
-              {item.step.key === 'verified' && <p className="text-xs text-charcoal/55">Accounts verifies payments in Patient Approvals / Payments.</p>}
+              {item.step.key === 'verified' && <p className="text-xs text-charcoal/55">Verify the submitted payment proofs below.</p>}
               {item.step.key === 'payment' && <Button size="sm" variant="outline" onClick={() => onQuick('add_payment')}><Plus size={14} />Record another payment</Button>}
             </div>
           )}
@@ -278,7 +281,7 @@ function NextActionPanel({ item, onDone, onQuick }) {
 }
 
 function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPatient, isAdmin }) {
-  const canVerify = isAdmin;
+  const canVerify = true;
   const [item, setItem] = useState(initial);
   const [events, setEvents] = useState([]);
   const [quick, setQuick] = useState(null);
@@ -308,7 +311,7 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
   const done = (next) => {
     const before = item.payments?.length || 0;
     setItem(next); setQuick(null); onChanged(next); refresh();
-    setNotice((next.payments?.length || 0) > before ? 'Payment saved in Patient Details. It counts once accounts verifies it.' : 'Saved.');
+    setNotice((next.payments?.length || 0) > before ? 'Payment saved in Patient Details. It counts once In Transit verifies it.' : 'Saved.');
   };
   const verifyPayment = async (payment) => {
     setError('');
@@ -366,10 +369,26 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
 
       <div className="rounded-xl border border-cardline bg-white px-2 py-4 sm:px-4"><StageStepper groups={item.groups} /></div>
+      <dl className="grid grid-cols-2 gap-3 border-y border-cardline py-3 text-sm sm:grid-cols-4">
+        <div><dt className="text-xs text-charcoal/55">Converted</dt><dd>{dateTime(item.enteredAt) || '-'}</dd></div>
+        <div><dt className="text-xs text-charcoal/55">Guardian</dt><dd className="break-words">{item.guardianName || '-'}</dd></div>
+        <div><dt className="text-xs text-charcoal/55">Package</dt><dd className="break-words">{item.packageName || '-'}</dd></div>
+        <div><dt className="text-xs text-charcoal/55">Patient approval</dt><dd className="capitalize">{item.approvalStatus}</dd></div>
+      </dl>
+      <CompactAttachments files={item.poPaper?.values?.paperImages || []} label="Purchase order" />
       {item.alerts.filter((a) => !a.text.startsWith('On hold')).map((a) => <p key={a.text} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${a.type === 'danger' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : a.type === 'warning' ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}`}><AlertTriangle size={15} />{a.text}</p>)}
 
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
       <NextActionPanel item={item} onDone={done} onQuick={setQuick} />
+      {open && <div className="flex flex-wrap gap-2 border-y border-cardline py-3">
+        {item.approvalStatus !== 'approved' && <Button size="sm" disabled={pay.pendingCount > 0} onClick={async () => {
+          try { await api.patch(`/patients/${item.patientId}/approve`); await refresh(); onChanged(item); }
+          catch (err) { setError(err.response?.data?.message || 'Could not approve patient'); }
+        }}><Check size={14} />Approve patient</Button>}
+        {!shipped && <Button size="sm" variant="outline" onClick={() => setQuick('confirm_mode')}><Truck size={14} />Delivery mode</Button>}
+        {item.mode && !shipped && <Button size="sm" variant="outline" onClick={() => setQuick(item.mode === 'pickup' ? 'schedule_visit' : 'schedule_dispatch')}><Clock3 size={14} />Schedule {item.mode === 'pickup' ? 'pickup' : 'dispatch'}</Button>}
+        {shipped && !item.explanation.completedAt && <Button size="sm" variant="outline" onClick={() => setQuick('start_treatment')}><Stethoscope size={14} />Schedule explanation</Button>}
+      </div>}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <Card title="Journey" icon={ClipboardList}><Checklist steps={item.steps} groups={item.groups} /></Card>
@@ -394,7 +413,7 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
             <Row label="Total" value={money(pay.totalAmount)} />
             <Row label="Paid (verified)" value={money(pay.amountPaid)} />
             <Row label="Balance" value={pay.remaining > 0 ? money(pay.remaining) : 'Nil'} />
-            <Row label="Waiting for accounts" value={pay.pendingCount ? `${money(pay.pendingAmount)} (${pay.pendingCount})` : ''} />
+            <Row label="Pending verification" value={pay.pendingCount ? `${money(pay.pendingAmount)} (${pay.pendingCount})` : ''} />
             {item.payments?.length > 0 && (
               <ul className="mt-3 divide-y divide-cardline rounded-lg border border-cardline">
                 {item.payments.map((p) => (
@@ -402,6 +421,7 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
                     <div className="min-w-0">
                       <p className="font-semibold text-charcoal">{money(p.amount)} <span className="font-normal text-charcoal/50">{p.mode === 'cash' ? 'Cash' : 'Online'}{p.reference ? ` - ${p.reference}` : ''}</span></p>
                       <p className="text-xs text-charcoal/50">{dateText(p.date)}{p.recordedByName ? ` - by ${p.recordedByName}` : ''}</p>
+                      <CompactAttachments files={p.files || []} label="Payment proof" />
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${p.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : p.status === 'pending' ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-charcoal/50'}`}>{p.status === 'approved' ? 'Verified' : p.status === 'pending' ? 'Pending' : 'Cancelled'}</span>
@@ -413,7 +433,7 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
             )}
           </Card>
 
-          <Card title="Medicine" icon={Pill} action={open && med && ['requested', 'in_process'].includes(med.status) && <button type="button" className={smallLink} onClick={() => setQuick('set_ready_by')}>Change date</button>}>
+          <Card title="Medicine" icon={Pill} action={isAdmin && open && med && ['requested', 'in_process'].includes(med.status) && <button type="button" className={smallLink} onClick={() => setQuick('set_ready_by')}>Change date</button>}>
             {med ? <>
               <span className={`mb-2 inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${['made', 'sent_to_courier'].includes(med.status) ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{MED_STATUS[med.status] || med.status}</span>
               <Row label="Medicines" value={med.medicines} />
@@ -440,6 +460,9 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
             {item.mode ? <>
               <Row label="Mode" value={MODE[item.mode].label} />
               <Row label="Visit" value={dateTime(item.visit.at)} />
+              <Row label="Planned dispatch" value={dateTime(item.deliveryPlan?.at)} />
+              <Row label="Planned carrier" value={item.deliveryPlan?.courier} />
+              <Row label="Delivery address" value={item.deliveryPlan?.address} />
               {shipped && <>
                 <Row label={item.mode === 'porter' ? 'Porter' : 'Courier'} value={courier.courierPartner} />
                 <Row label="Tracking" value={courier.trackingNumber} />
@@ -457,6 +480,8 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
             <Row label="Post counselor" value={item.assignments.postCounselor?.name || 'Not assigned'} />
             <Row label="Psychologist" value={item.assignments.psychologist?.name || ''} />
             <Row label="Explanation" value={item.explanation.at ? `${dateTime(item.explanation.at)}${item.explanation.ackAt ? ' - seen' : ''}` : ''} />
+            <Row label="Completed" value={dateTime(item.explanation.completedAt)} />
+            <Row label="Explanation notes" value={item.explanation.note} />
           </Card>
         </div>
       </div>
@@ -464,7 +489,7 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
       {events.length > 0 && (
         <Card title="Activity" icon={Clock3}>
           <ol className="space-y-2">
-            {events.slice(0, 25).map((e, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-xs text-charcoal/45">{dateTime(e.at)}</span><span className="min-w-0"><span className="text-charcoal/80">{e.details || e.action}</span> <span className="text-xs text-charcoal/45">- {e.by}</span></span></li>)}
+            {events.map((e, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-xs text-charcoal/45">{dateTime(e.at)}</span><span className="min-w-0"><span className="text-charcoal/80">{e.details || e.action}</span> <span className="text-xs text-charcoal/45">- {e.by}</span></span></li>)}
           </ol>
         </Card>
       )}
@@ -477,7 +502,7 @@ function CaseDetail({ itemKey, initial, onChanged, onRemoved, onBack, canOpenPat
         </div>
       </Modal>
       <Modal open={Boolean(quick)} onClose={() => setQuick(null)} title={quick ? FORMS[formKeyFor(quick, item)]?.title : ''} className="max-w-lg">
-        {quick && <ActionForm compact formKey={formKeyFor(quick, item)} item={item} onDone={done} onCancel={() => setQuick(null)} />}
+        {quick === 'start_treatment' ? <StartTreatmentForm item={item} onDone={done} /> : quick && <ActionForm compact formKey={formKeyFor(quick, item)} item={item} onDone={done} onCancel={() => setQuick(null)} />}
       </Modal>
     </div>
   );
@@ -529,6 +554,8 @@ export default function Transit() {
   const [params, setParams] = useSearchParams();
   const [view, setView] = useState('all');
   const [query, setQuery] = useState('');
+  const [enteredDate, setEnteredDate] = useState('');
+  const [board, setBoard] = useState(false);
   const [sort, setSort] = useState(() => { try { return localStorage.getItem('transit-sort') || 'priority'; } catch { return 'priority'; } });
   const [grouped, setGrouped] = useState(() => { try { return localStorage.getItem('transit-grouped') !== 'off'; } catch { return true; } });
   const [collapsed, setCollapsed] = useState({});
@@ -537,17 +564,17 @@ export default function Transit() {
   const [error, setError] = useState('');
   const [selectedKey, setSelectedKey] = useState(params.get('open'));
   const requestId = useRef(0);
-  const canOpenPatient = [ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canOpenPatient = [ROLES.ADMIN, ROLES.IN_TRANSIT].includes(user?.role);
   useEffect(() => { try { localStorage.setItem('transit-sort', sort); localStorage.setItem('transit-grouped', grouped ? 'on' : 'off'); } catch { /* preference only */ } }, [sort, grouped]);
 
   const load = useCallback(async () => {
     const id = ++requestId.current;
     try {
-      const { data: res } = await api.get('/transit', { params: { view, q: query || undefined }, skipCache: true });
+      const { data: res } = await api.get('/transit', { params: { view, q: query || undefined, date: enteredDate || undefined }, skipCache: true });
       if (id === requestId.current) { setData(res); setError(''); }
     } catch (err) { if (id === requestId.current) setError(err.response?.data?.message || 'Could not load in-transit cases'); }
     finally { if (id === requestId.current) setLoading(false); }
-  }, [view, query]);
+  }, [view, query, enteredDate]);
   useEffect(() => { setLoading(true); const timer = setTimeout(load, query ? 300 : 0); return () => clearTimeout(timer); }, [load, query]);
   useEffect(() => { const timer = setInterval(load, 60000); return () => clearInterval(timer); }, [load]);
 
@@ -572,9 +599,16 @@ export default function Transit() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 font-display text-xl font-bold text-charcoal sm:text-2xl"><Truck size={22} className="text-sage" />In Transit</h1>
-          <p className="mt-1 text-sm text-charcoal/60">From purchase order to treatment start. Everything here stays in sync with Patient Details, Medicine and Courier.</p>
         </div>
         <div className="relative w-full sm:w-72"><Search size={16} className="absolute left-3 top-2.5 text-charcoal/45" /><input className={`${inputClass} !pl-9`} placeholder="Patient, ID, phone or PO" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+      </div>
+      <div className="flex flex-wrap items-end gap-3 border-y border-cardline py-3">
+        <label className="space-y-1 text-xs font-medium">Conversion date<input className={inputClass} type="date" value={enteredDate} onChange={e => setEnteredDate(e.target.value)} /></label>
+        {enteredDate && <Button variant="outline" size="sm" onClick={() => setEnteredDate('')} title="Clear date"><X size={14} /></Button>}
+        <div className="ml-auto flex gap-1" role="group" aria-label="Queue view">
+          <Button variant={board ? 'outline' : 'primary'} size="sm" onClick={() => setBoard(false)} title="List view"><Rows3 size={16} /></Button>
+          <Button variant={board ? 'primary' : 'outline'} size="sm" onClick={() => setBoard(true)} title="Board view"><Columns3 size={16} /></Button>
+        </div>
       </div>
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
@@ -588,8 +622,16 @@ export default function Transit() {
       </div>
       {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
 
-      <div className="grid gap-4 lg:grid-cols-[370px_minmax(0,1fr)]">
-        <aside className={`${selected ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col rounded-xl border border-cardline bg-offwhite-100 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-120px)]`}>
+      {board && <div className="flex gap-4 overflow-x-auto pb-3">
+        {GROUP_ORDER.filter(([key]) => key !== 'removed' || isAdmin).map(([key, title]) => {
+          const rows = sorted.filter(item => sectionOf(item) === key);
+          if (!rows.length) return null;
+          return <section key={key} className="w-72 shrink-0 border-t-2 border-teal-600 pt-3"><h2 className="mb-3 flex justify-between text-sm font-semibold">{title}<span>{rows.length}</span></h2><div className="space-y-2">{rows.map(card)}</div></section>;
+        })}
+        {!sorted.length && <p className="py-6 text-sm text-charcoal/60">No cases for this selection.</p>}
+      </div>}
+      <div className={`grid gap-4 ${board ? '' : 'lg:grid-cols-[370px_minmax(0,1fr)]'}`}>
+        <aside className={`${board ? 'hidden' : selected ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col rounded-lg border border-cardline bg-offwhite-100 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-120px)]`}>
           <div className="flex flex-wrap items-center gap-2 border-b border-cardline px-3 py-2.5">
             <p className="mr-auto text-sm font-semibold text-charcoal">{sorted.length} case{sorted.length === 1 ? '' : 's'}</p>
             <label className="flex items-center gap-1.5 text-xs text-charcoal/60"><ArrowUpDown size={13} />
@@ -599,7 +641,7 @@ export default function Transit() {
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2.5">
             {loading && !data.items.length ? <p className="p-6 text-center text-sm text-charcoal/55">Loading...</p>
-              : !sorted.length ? <div className="p-6 text-center text-sm text-charcoal/55">No cases here. A phase enters In Transit when its purchase order and a payment are added in Patient Details.</div>
+              : !sorted.length ? <div className="p-6 text-center text-sm text-charcoal/55">No cases here. A phase enters In Transit when its purchase order are added in Patient Details.</div>
                 : sections ? sections.map((section) => (
                   <QueueSection key={section.key} title={section.title} items={section.items} collapsed={collapsed[section.key]} onToggle={() => setCollapsed((c) => ({ ...c, [section.key]: !c[section.key] }))}>
                     {section.items.map(card)}

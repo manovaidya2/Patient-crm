@@ -39,16 +39,16 @@ const getPrefetchPlan = (role) => {
   if ([ROLES.ADMIN, ROLES.DOCTOR].includes(role)) {
     plan.push({ url: '/patients/dashboard-stats', params: { followUpDate: localDate() } });
   }
-  if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(role)) {
+  if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(role)) {
     plan.push({ url: '/patients/pending-approvals' });
     plan.push({ url: '/patients/payments-ledger', params: { filter: 'all', dateType: 'paid', page: 1, limit: 10 } });
-    plan.push({ url: '/accounts/overview', params: { filter: 'month', month: localMonth() } });
+    if (role !== ROLES.IN_TRANSIT) plan.push({ url: '/accounts/overview', params: { filter: 'month', month: localMonth() } });
   }
   if (role === ROLES.ADMIN) plan.push({ url: '/users' });
   if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT].includes(role)) {
     plan.push({ url: '/medicine/requests', params: { status: 'requested,in_process,made,cancelled' } });
   }
-  if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER].includes(role)) {
+  if ([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(role)) {
     plan.push({ url: '/courier/requests', params: { status: 'pending,dispatched,cancelled' } });
   }
   return plan;

@@ -6,7 +6,7 @@ const { uploadCourierImage } = require('../middleware/fileUploads');
 
 const router = express.Router();
 
-router.use(protect, authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.DISPATCH_COURIER, ROLES.RECEPTIONIST));
+router.use(protect, authorize(ROLES.ADMIN, ROLES.IN_TRANSIT));
 
 router.get('/requests', listCourierRequests);
 router.patch('/requests/:patientId/stages/:number', uploadCourierImage.array('courierImage', 10), updateCourierRequest);

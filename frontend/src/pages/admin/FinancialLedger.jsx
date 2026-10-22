@@ -82,6 +82,8 @@ function ReceiptForm({ onClose, onSaved }) {
 
 export default function FinancialLedger({ kind = 'all', title, initialStatus = 'all', fixedStatus }) {
   const { user } = useAuth();
+  if (user?.role === ROLES.IN_TRANSIT) kind = 'treatment';
+  if (user?.role === ROLES.RECEPTIONIST) kind = 'consultation';
   const isAdmin = user?.role === ROLES.ADMIN;
   const [url, setUrl] = useSearchParams();
   const patientId = url.get('patientId') || '';

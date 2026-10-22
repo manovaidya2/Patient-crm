@@ -137,7 +137,8 @@ const canAccessPatient = (user, patient) => {
   return String(assignedId) === String(user._id);
 };
 
-const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(user?.role);
+const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
+const { paymentSummary: transitPaymentSummary, isInTransit } = require('../utils/transitFlow');
 const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
 const paidRefundAmount = (payment = {}) => (payment.refunds || [])
@@ -278,13 +279,13 @@ const canSeeMedicineDeliveryReminder = (user, patient) => {
 };
 
 const canEditPackageStage = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(user?.role);
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR].includes(user?.role);
 
 const canEditPatientRecords = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canAddStagePayment = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canEditPatientIdentity = (user) =>
   [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
@@ -358,6 +359,7 @@ const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } 
       }
 
       stageMedicineRequests(stage).forEach((request) => {
+        if (stage.transit?.enteredAt || stage.transit?.explanationScheduledAt) return;
         const courier = request.courier || {};
         if (courier.status !== COURIER_STATUSES.DELIVERED || !courier.deliveredAt || !canSeeMedicineDeliveryReminder(user, patient)) return;
         reminders.push({
@@ -498,10 +500,10 @@ const normalizeStages = (existing = []) => {
 };
 
 const shouldShowFollowUps = (user) =>
-  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.SALES_TEAM].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT, ROLES.SALES_TEAM].includes(user.role);
 
 const shouldShowFamilySessions = (user) =>
-  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.SALES_TEAM].includes(user.role);
+  !user || ![ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT, ROLES.SALES_TEAM].includes(user.role);
 
 const cannotSeeScheduleType = (user, fieldKey) =>
   fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST;
@@ -1680,7 +1682,7 @@ const pendingPaymentsOf = (patient) => {
 
 const getPendingApprovals = asyncHandler(async (req, res) => {
   if (!canReviewPatientApproval(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Receptionist can review patient approvals' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or In Transit can review patient approvals' });
   }
 
   // A patient shows up here either because the patient itself is brand-new and unapproved,
@@ -1727,7 +1729,7 @@ const getPendingApprovals = asyncHandler(async (req, res) => {
 // @access  Private/Admin, Doctor, Receptionist
 const approvePatient = asyncHandler(async (req, res) => {
   if (!canReviewPatientApproval(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Receptionist can approve a patient' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or In Transit can approve a patient' });
   }
 
   const patient = await Patient.findById(req.params.id);
@@ -1796,11 +1798,11 @@ const updatePatientStatus = asyncHandler(async (req, res) => {
 // @route   PATCH /api/patients/:id
 // @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped); Receptionist assignments only
 const updatePatient = asyncHandler(async (req, res) => {
-  if (req.user.role === ROLES.RECEPTIONIST) {
+  if (req.user.role === ROLES.IN_TRANSIT) {
     const assignmentFields = new Set(['assignedDoctor', 'assignedPsychologist']);
     const hasDisallowedField = Object.keys(req.body || {}).some((key) => !assignmentFields.has(key));
     if (hasDisallowedField || Object.keys(req.body || {}).length === 0) {
-      return res.status(403).json({ success: false, message: 'Receptionist can only assign the Assistant Doctor or Psychologist here' });
+      return res.status(403).json({ success: false, message: 'In Transit can only assign the Assistant Doctor or Psychologist here' });
     }
   }
   const {
@@ -2028,6 +2030,9 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  if (stageEntry.transit?.enteredAt && req.user.role !== ROLES.ADMIN && (medicineExplainDate !== undefined || ((status !== undefined || date !== undefined) && !stageEntry.transit.activatedAt))) {
+    return res.status(409).json({ success: false, message: 'Use In Transit to schedule explanation and the assigned doctor completion page to start treatment' });
+  }
   if (consultationDate !== undefined) {
     const nextDate = consultationDate || '';
     if (nextDate) {
@@ -2352,7 +2357,7 @@ const deleteStagePayment = asyncHandler(async (req, res) => {
 // @access  Private/Admin, Doctor, Receptionist
 const approveStagePayment = asyncHandler(async (req, res) => {
   if (!canReviewPatientApproval(req.user)) {
-    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or Receptionist can approve a payment' });
+    return res.status(403).json({ success: false, message: 'Only Admin, Doctor or In Transit can approve a payment' });
   }
 
   const stageNum = parseInt(req.params.number, 10);
@@ -2811,7 +2816,7 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
-  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.RECEPTIONIST].includes(req.user.role)) {
+  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'You do not have permission to request medicine' });
   }
 
@@ -2839,6 +2844,12 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
   const prescriptionFiles = toFileItems(uploadedFiles, 'prescriptions');
+  if (isInTransit(stageEntry)) {
+    if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
+    if ((patient.approvalStatus || 'approved') !== 'approved' || transitPaymentSummary(stageEntry).pendingCount) return res.status(400).json({ success: false, message: 'Approve the patient and submitted payments before requesting medicine' });
+    const ready = req.body.readyByDate || stageEntry.transit?.expectedReadyDate;
+    if (!ready || !Number.isFinite(new Date(ready).getTime())) return res.status(400).json({ success: false, message: 'Set the medicine ready date in In Transit first' });
+  }
   const createNew = req.body.createNew === 'true' || req.body.createNew === true;
   const existingRequest = createNew ? null : findStageMedicineRequest(stageEntry, req.body.requestId);
   if (!createNew && req.body.requestId && !existingRequest) {
@@ -2863,6 +2874,7 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
     prescriptionUrl: prescriptionFiles[0].url,
     prescriptionFileName: prescriptionFiles[0].fileName,
     prescriptionFiles: mergeFileItems(existingRequest?.prescriptionFiles || [], prescriptionFiles),
+    readyByDate: req.body.readyByDate || stageEntry.transit?.expectedReadyDate || existingRequest?.readyByDate || null,
     requestedAt: new Date(),
     requestedByName: req.user.name,
   };
@@ -2891,6 +2903,8 @@ const formatMedicineListItem = (patient, stage, request) => ({
   stageLabel: STAGE_LABELS[stage.number],
   requestId: request?.requestId || 'legacy',
   medicineRequest: formatMedicineRequest(request),
+  payment: transitPaymentSummary(stage),
+  canRelease: !stage.transit?.holdActive && !stage.transit?.removedAt && (patient.approvalStatus || 'approved') === 'approved' && request?.status === 'made' && transitPaymentSummary(stage).remaining <= 0 && transitPaymentSummary(stage).pendingCount === 0,
 });
 
 // @desc    Medicine department/admin list medicine requests by status
@@ -2911,7 +2925,7 @@ const listMedicineRequests = asyncHandler(async (req, res) => {
       { 'stages.medicineRequest.status': { $in: statuses } },
       { 'stages.medicineRequests.status': { $in: statuses } },
     ],
-  }).select('patientName number category stages.number stages.medicineRequest stages.medicineRequests').lean();
+  }).select('patientName number category approvalStatus stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests').lean();
   const rows = [];
 
   patients.forEach((patient) => {
@@ -2941,6 +2955,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   }
 
   const { status } = req.body;
+  if (req.body.action === 'selfPickup') return res.status(403).json({ success: false, message: 'In Transit records self-pickup after medicine release' });
   if (status === MEDICINE_STATUSES.CANCELLED && req.user.role !== ROLES.ADMIN) {
     return res.status(403).json({ success: false, message: 'Only Admin can cancel a medicine request' });
   }
@@ -2972,6 +2987,9 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   }
   const uploadedFiles = filesFromRequest(req);
   const existingMedicineImages = withLegacyFile(currentRequest.medicineImages || [], currentRequest.medicineImageUrl, currentRequest.medicineImageFileName);
+  if ([MEDICINE_STATUSES.SENT_TO_COURIER, MEDICINE_STATUSES.CANCELLED].includes(currentRequest.status) || (status === MEDICINE_STATUSES.IN_PROCESS && currentRequest.status === MEDICINE_STATUSES.MADE)) {
+    return res.status(409).json({ success: false, message: 'Medicine preparation cannot move backwards after completion or release' });
+  }
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
     return res.status(400).json({ success: false, message: 'Medicine has not been requested for this phase' });
   }
@@ -3051,6 +3069,10 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Upload medicine image before sending to courier' });
   }
   if (status === MEDICINE_STATUSES.SENT_TO_COURIER) {
+    if (currentRequest.status !== MEDICINE_STATUSES.MADE) return res.status(409).json({ success: false, message: 'Mark medicine ready before release' });
+    const pay = transitPaymentSummary(stageEntry);
+    if ((patient.approvalStatus || 'approved') !== 'approved' || pay.remaining > 0 || pay.pendingCount) return res.status(400).json({ success: false, message: 'In Transit must approve the patient and full medicine payment before release' });
+    if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
     if (!(req.body.packagedByName || currentRequest.packagedByName) || !(req.body.chitsWrittenByName || currentRequest.chitsWrittenByName) || !(req.body.lastMedicineCheckedByName || currentRequest.lastMedicineCheckedByName)) {
       return res.status(400).json({ success: false, message: 'Packaging by, chits written by and last medicine checking by are required before sending to courier' });
     }
@@ -3060,6 +3082,10 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     chitsWrittenByName: req.body.chitsWrittenByName || currentRequest.chitsWrittenByName,
     lastMedicineCheckedByName: req.body.lastMedicineCheckedByName || currentRequest.lastMedicineCheckedByName,
   };
+  if (status === MEDICINE_STATUSES.SENT_TO_COURIER) {
+    if (!stageEntry.transit) stageEntry.transit = {};
+    Object.assign(stageEntry.transit, { financialReleasedAt: new Date(), financialReleasedByName: req.user.name });
+  }
 
   const medicineImages = toFileItems(uploadedFiles, 'medicine');
   const nextRequest = {
@@ -3187,6 +3213,7 @@ const deleteCourierRequest = asyncHandler(async (req, res) => {
   if (!requestDoc || requestDoc.status !== MEDICINE_STATUSES.SENT_TO_COURIER) return res.status(404).json({ success: false, message: 'Courier request not found' });
   const currentRequest = { ...emptyMedicineRequest(), ...(requestDoc.toObject?.() || requestDoc) };
   const nextRequest = { ...currentRequest, status: MEDICINE_STATUSES.MADE, sentToCourierAt: null, sentToCourierByName: '', courier: emptyCourier() };
+  if (stageEntry.transit) { stageEntry.transit.financialReleasedAt = null; stageEntry.transit.financialReleasedByName = ''; }
   if (requestId !== 'legacy') Object.assign(requestDoc, nextRequest);
   else stageEntry.medicineRequest = nextRequest;
   addActivity(patient, req.user, `Courier request deleted for Phase ${stageNum}`, `Medicine kept in Medicine Made | Request: ${requestId}`);
@@ -3242,6 +3269,14 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)) });
   }
 
+  const pay = transitPaymentSummary(stageEntry);
+  if (pay.remaining > 0 || pay.pendingCount || (patient.approvalStatus || 'approved') !== 'approved') return res.status(400).json({ success: false, message: 'Patient approval and full verified payment required before handover' });
+  if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
+  if (currentCourier.status === COURIER_STATUSES.DELIVERED || (status === COURIER_STATUSES.DISPATCHED && currentCourier.status === COURIER_STATUSES.DISPATCHED)) return res.status(409).json({ success: false, message: 'This handover has already been recorded' });
+  if (isInTransit(stageEntry)) {
+    const self = req.body.deliveryMode === 'self' || currentCourier.deliveryMode === 'self';
+    if (!(self ? stageEntry.transit?.pickupScheduledAt : stageEntry.transit?.dispatchScheduledAt)) return res.status(400).json({ success: false, message: 'Schedule dispatch or pickup in In Transit first' });
+  }
   if (status === COURIER_STATUSES.DISPATCHED) {
     const deliveryMode = req.body.deliveryMode === 'self' ? 'self' : 'courier';
     const required = deliveryMode === 'self'

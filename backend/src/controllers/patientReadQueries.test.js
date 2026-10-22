@@ -27,7 +27,7 @@ test('sales patient routes allow only list and details reads while reception con
   }
 });
 
-test('reception receives account controls and full patient details while sales remains limited', async () => {
+test('reception retains full patient reads without treatment approval controls while sales remains limited', async () => {
   const original = Patient.findById;
   const originalEntry = AppointmentManagementEntry.findOne;
   AppointmentManagementEntry.findOne = () => ({ select: () => ({ lean: async () => null }) });
@@ -41,7 +41,7 @@ test('reception receives account controls and full patient details while sales r
       let body;
       await controller.getPatientById({ params: { id: '507f1f77bcf86cd799439011' }, user: { role } }, { status() { return this; }, json(value) { body = value; } }, (err) => { throw err; });
       assert.equal(body.patient.patientName, 'Test');
-      assert.equal(body.patient.canApprove, role === ROLES.RECEPTIONIST);
+      assert.equal(body.patient.canApprove, false);
       assert.equal(body.patient.canToggleActive, false);
       if (role === ROLES.RECEPTIONIST) {
         assert.equal(body.patient.activityLog.length, 1);

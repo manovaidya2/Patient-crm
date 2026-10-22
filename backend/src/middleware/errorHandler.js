@@ -3,6 +3,10 @@ const errorHandler = (err, req, res, next) => {
   let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   let message = err.message || 'Server Error';
   if (err.statusCode) statusCode = err.statusCode;
+  if (err.name === 'VersionError') {
+    statusCode = 409;
+    message = 'This patient was updated by another person. Refresh and try again.';
+  }
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {

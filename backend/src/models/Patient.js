@@ -195,6 +195,13 @@ const medicineRequestSchema = new mongoose.Schema(
 const transitSchema = new mongoose.Schema(
   {
     expectedReadyDate: { type: Date, default: null },
+    enteredAt: { type: Date, default: null },
+    dispatchScheduledAt: { type: Date, default: null },
+    deliveryPlanNote: { type: String, trim: true, default: '' },
+    plannedCourier: { type: String, trim: true, default: '' },
+    plannedAddress: { type: String, trim: true, default: '' },
+    explanationDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    explanationMode: { type: String, enum: ['', 'phone', 'video', 'clinic'], default: '' },
     preparationStartedAt: { type: Date, default: null },
     preparationStartedByName: { type: String, trim: true, default: '' },
     financialReleasedAt: { type: Date, default: null },
@@ -463,6 +470,7 @@ const patientSchema = new mongoose.Schema(
 );
 
 // Common list/dashboard filters should use Mongo indexes instead of scanning
+patientSchema.set('optimisticConcurrency', true);
 // the complete patient collection before applying pagination.
 patientSchema.index({ isActive: 1, createdAt: -1 });
 patientSchema.index({ currentStage: 1, isActive: 1, createdAt: -1 });

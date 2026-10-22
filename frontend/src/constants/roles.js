@@ -6,7 +6,7 @@ export const ROLES = {
   DOCTOR: 'doctor',
   PSYCHOLOGIST: 'psychologist',
   MEDICINE_DEPARTMENT: 'medicine_department',
-  DISPATCH_COURIER: 'dispatch_courier',
+  IN_TRANSIT: 'in_transit',
   DIGITAL_MARKETING: 'digital_marketing',
   SALES_TEAM: 'sales_team',
   RECEPTIONIST: 'receptionist',
@@ -21,7 +21,7 @@ export const CREATABLE_ROLES = [
   ROLES.DOCTOR,
   ROLES.PSYCHOLOGIST,
   ROLES.MEDICINE_DEPARTMENT,
-  ROLES.DISPATCH_COURIER,
+  ROLES.IN_TRANSIT,
   ROLES.DIGITAL_MARKETING,
   ROLES.SALES_TEAM,
   ROLES.RECEPTIONIST,
@@ -36,7 +36,7 @@ export const ROLE_LABELS = {
   [ROLES.DOCTOR]: 'Doctor',
   [ROLES.PSYCHOLOGIST]: 'Psychologist',
   [ROLES.MEDICINE_DEPARTMENT]: 'Medicine Department',
-  [ROLES.DISPATCH_COURIER]: 'Dispatch & Courier',
+  [ROLES.IN_TRANSIT]: 'In Transit',
   [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
   [ROLES.SALES_TEAM]: 'Sales Team',
   [ROLES.RECEPTIONIST]: 'Receptionist',
@@ -44,14 +44,14 @@ export const ROLE_LABELS = {
 };
 
 // Roles that can open All Patients / Patient Details (Assistant Doctor and Psychologist are scoped by the backend)
-export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST];
-export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DISPATCH_COURIER, ROLES.DIGITAL_MARKETING, ROLES.SALES_TEAM, ROLES.HR];
+export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.IN_TRANSIT];
+export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DIGITAL_MARKETING, ROLES.SALES_TEAM, ROLES.HR];
 export const HR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.HR];
 export const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 export const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist
-export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.RECEPTIONIST];
+export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 
 // Where a user lands right after logging in
 export const getDefaultRoute = (role) => {
@@ -61,7 +61,7 @@ export const getDefaultRoute = (role) => {
   if (role === ROLES.DOCTOR) return '/admin';
   if ([ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(role)) return '/admin';
   if (role === ROLES.MEDICINE_DEPARTMENT) return '/admin/medicine-requests';
-  if (role === ROLES.DISPATCH_COURIER) return '/admin/courier';
+  if (role === ROLES.IN_TRANSIT) return '/admin/in-transit';
   if (role === ROLES.DIGITAL_MARKETING) return '/admin/digital-marketing';
   if (role === ROLES.HR) return '/admin/hr';
   if (PATIENT_ACCESS_ROLES.includes(role)) return '/admin/patients';

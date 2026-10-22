@@ -54,6 +54,8 @@ const createConvertedPatient = async ({ input, fee, values, totals = {}, cardCha
     phase.packageName = text(values.orderedTreatment, 120);
     phase.purchaseOrder = text(values.poNo, 80);
     phase.totalAmount = fee;
+    if (!phase.transit) phase.transit = {};
+    phase.transit.enteredAt = new Date();
     // The medicine ready date becomes the In Transit "ready by" date, which also drives its automatic reminder.
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(values.medicineReadyDate || ''))) {
       const readyBy = new Date(`${values.medicineReadyDate}T00:00:00.000+05:30`);
@@ -85,7 +87,7 @@ const createConvertedPatient = async ({ input, fee, values, totals = {}, cardCha
     throw error;
   }
   // In Transit starts for a phase that has a PO number and at least one payment.
-  return { patient, inTransit: Boolean(text(values.poNo)) && received > 0 };
+  return { patient, inTransit: Boolean(text(values.poNo)) };
 };
 
 // The consultation fee (e.g. Rs 599) was paid against the appointment. Attach those receipts to the new patient so the

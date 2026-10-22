@@ -5,6 +5,8 @@ import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Card from '../../components/ui/Card.jsx';
 import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 
 const todayValue = () => {
   const date = new Date();
@@ -19,6 +21,7 @@ const monthValue = () => {
 const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 
 const Accounts = () => {
+  const { user } = useAuth();
   const [totals, setTotals] = useState({ income: 0, expense: 0, balance: 0, courierExpense: 0, byCategory: {} });
   const [bankSummary, setBankSummary] = useState([]);
   const [refundSummary, setRefundSummary] = useState({ paid: 0, settled: 0, awaitingPayout: 0 });
@@ -107,9 +110,9 @@ const Accounts = () => {
         {[
           ['Consultation approved', 'consultation', 'approved', '/admin/accounts/consultations'],
           ['Treatment approved', 'treatment', 'approved', '/admin/accounts/treatment'],
-          ['Consultation pending', 'consultation', 'pending', '/admin/payments'],
+          ['Consultation pending', 'consultation', 'pending', '/admin/accounts/consultations'],
           ['Treatment pending', 'treatment', 'pending', '/admin/payments'],
-        ].map(([label, kind, status, href]) => {
+        ].filter(([, kind]) => user?.role !== ROLES.RECEPTIONIST || kind === 'consultation').map(([label, kind, status, href]) => {
           const total = collections.find((row) => row._id.kind === kind && row._id.status === status);
           return <Link key={label} to={ledgerUrl(href, kind, status)} className="rounded-lg border border-cardline bg-white/60 p-3 text-charcoal hover:border-sage"><p className="text-xs font-semibold">{label}</p><p className="mt-1 text-lg font-bold">{loading ? '...' : formatMoney(total?.amount)}</p><p className="mt-1 text-xs">{total?.count || 0} receipts</p></Link>;
         })}

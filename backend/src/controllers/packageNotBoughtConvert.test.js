@@ -84,11 +84,11 @@ test('convert creates the patient with the Phase 1 package, PO and the payment f
   assert.equal(res.body.patientId, PATIENT_ID);
 });
 
-test('convert without any payment received still converts, but In Transit does not start', async () => {
+test('convert without any payment received still enters In Transit', async () => {
   const { res, error, log } = await run({ patientCode: 'R-1', category: 'autism_adhd', purchase: paper({ amountReceivedNow: '' }) }, base(makeRow()));
   assert.equal(error, null);
   assert.equal(log.patients[0].stages.find((stage) => stage.number === 1).payments.length, 0);
-  assert.equal(res.body.inTransit, false);
+  assert.equal(res.body.inTransit, true);
 });
 
 test('convert of a record without a package asks for the approved program fee', async () => {

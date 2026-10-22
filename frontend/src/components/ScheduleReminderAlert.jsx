@@ -7,7 +7,7 @@ import Toast from './ui/Toast.jsx';
 
 const SCHEDULE_REMINDER_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
 // In-transit reminders: medicine ready-by date, explanation schedule, patient call-backs.
-const TRANSIT_REMINDER_ROLES = [ROLES.POST_COUNSELOR, ROLES.RECEPTIONIST, ROLES.MEDICINE_DEPARTMENT];
+const TRANSIT_REMINDER_ROLES = [ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const REMINDER_ROLES = [...new Set([...SCHEDULE_REMINDER_ROLES, ...TRANSIT_REMINDER_ROLES])];
 const POLL_MS = 15000;
 const MUTE_MS = 5 * 60 * 1000;
@@ -45,7 +45,7 @@ const ScheduleReminderAlert = () => {
 
     let cancelled = false;
     const getListPath = (item) => {
-      if (item?.source === 'transit') return user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : '/admin/in-transit';
+      if (item?.source === 'transit') return user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : '/admin/in-transit';
       if (item?.type === 'medicine_connect' || item?.type === 'medicine_delivery' || user?.role === ROLES.POST_COUNSELOR) return '/admin/patients';
       return user?.role === ROLES.PSYCHOLOGIST ? '/admin/family-sessions' : '/admin/followups';
     };
@@ -73,7 +73,7 @@ const ScheduleReminderAlert = () => {
             await api.post(`/transit/${item.patientId}/${item.stage}/ack-explanation`).catch(() => {});
             return;
           }
-          navigate(user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : `/admin/in-transit?open=${item.patientId}-${item.stage}`);
+          navigate(user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : `/admin/in-transit?open=${item.patientId}-${item.stage}`);
         },
       } : {
         id: String(item.id),

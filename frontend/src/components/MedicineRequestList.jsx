@@ -408,7 +408,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                           if (!request.packagedByName || !request.chitsWrittenByName || !request.lastMedicineCheckedByName) {
                             return <Button key={action.status} size="sm" disabled={!!busyKey} onClick={() => openCourierAction(row)}>Fill Packaging Details</Button>;
                           }
-                          return <Button key={action.status} size="sm" disabled={!!busyKey} onClick={() => sendToCourier(row, {})}>Send To Courier Dept</Button>;
+                          return <Button key={action.status} size="sm" disabled={!!busyKey || !row.canRelease} title={row.canRelease ? 'Release to In Transit' : 'Patient approval and full verified payment required'} onClick={() => sendToCourier(row, {})}>Release Medicine</Button>;
                         }
                         return (
                           <Button
@@ -448,7 +448,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
           <form onSubmit={submitReadyAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
             <h3 className="font-display text-lg font-bold text-charcoal">{readyAction.mode === 'accept' ? 'Accept request' : 'Change ready-by date'}</h3>
-            <p className="mt-1 text-sm text-charcoal/60">Last date by which this medicine will be ready. Post counselor, reception and medicine department get a reminder one day before.</p>
+            <p className="mt-1 text-sm text-charcoal/60">In Transit and Medicine Department receive a reminder one day before the deadline.</p>
             {readyError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{readyError}</p>}
             <label className="mt-4 block text-sm font-medium text-charcoal">
               Medicine ready by
@@ -499,7 +499,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
           <form onSubmit={submitCourierAction} className="w-full max-w-md rounded-lg border border-cardline bg-offwhite-100 p-5 shadow-xl">
             <h3 className="font-display text-lg font-bold text-charcoal">Packaging Details</h3>
-            <p className="mt-1 text-sm text-charcoal/60">Fill and save these details first. Then choose courier or self pickup.</p>
+            <p className="mt-1 text-sm text-charcoal/60">Packaging and final checking details</p>
             {courierError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{courierError}</p>}
             <div className="mt-4 space-y-3">
               <div>
