@@ -42,6 +42,35 @@ import {
   Activity,
   BarChart3,
   FlaskConical,
+  LayoutDashboard,
+  CalendarCheck,
+  ListChecks,
+  Library,
+  MessageSquareWarning,
+  FolderArchive,
+  DoorOpen,
+  PackagePlus,
+  PackageMinus,
+  ShoppingCart,
+  MessagesSquare,
+  UserCheck,
+  UserMinus,
+  MessageCircleQuestion,
+  Lightbulb,
+  Pill,
+  ListOrdered,
+  Boxes,
+  Warehouse,
+  Archive,
+  NotebookPen,
+  BookOpenCheck,
+  UsersRound,
+  ConciergeBell,
+  MessageCircleHeart,
+  Route,
+  TestTubes,
+  HeartPulse,
+  Wrench,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -57,51 +86,51 @@ const ROLE_FIRST_PAGES = {
 export const navItems = [
   // Every role's open work in one list (the orange counts, item by item).
   { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
-  { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
-  { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
+  { to: '/admin', icon: LayoutDashboard, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
+  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
-  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
-  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
-  { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
-  { to: '/admin/enquiries', icon: ClipboardList, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
-  { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
-  { to: '/admin/visitors', icon: Users, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
-  { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
-  { to: '/admin/outgoing-couriers', icon: FileArchive, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
-  { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
-  { to: '/admin/purchase-orders', icon: ClipboardList, label: 'Purchase Orders', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/medicine-explanations', icon: ClipboardCheck, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
+  { to: '/admin/appointment-management', icon: CalendarCheck, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
+  { to: '/admin/receptionist-checklist', icon: ListChecks, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/knowledge-library', icon: Library, label: 'Knowledge Library', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
+  { to: '/admin/enquiries', icon: MessageSquareWarning, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
+  { to: '/admin/record-room', icon: FolderArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/visitors', icon: DoorOpen, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/incoming-couriers', icon: PackagePlus, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/outgoing-couriers', icon: PackageMinus, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/patients', icon: Users, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
+  { to: '/admin/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT] },
+  { to: '/admin/medicine-explanations', icon: MessagesSquare, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
-  { to: '/admin/post-counseling-patients', icon: Users, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
+  { to: '/admin/post-counseling-patients', icon: UserCheck, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
-  { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR], group: 'postcounselling' },
+  { to: '/admin/package-not-bought', icon: UserMinus, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR], group: 'postcounselling' },
   { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
-  { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/followups', icon: PhoneCall, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
   { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
-  { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
-  { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
-  { to: '/admin/medicine-requests', icon: PackageCheck, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
-  { to: '/admin/medicine-jobs', icon: ClipboardCheck, label: 'Fulfilment Queue', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
-  { to: '/admin/stocks', icon: PackageOpen, label: 'Stocks', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/request-for-advice', icon: MessageCircleQuestion, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/advice-given', icon: Lightbulb, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/medicine-requests', icon: Pill, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/medicine-jobs', icon: ListOrdered, label: 'Fulfilment Queue', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/stocks', icon: Boxes, label: 'Stocks', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
   { to: '/admin/formulation-master', icon: FlaskConical, label: 'Formulation Master', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'medicine' },
-  { to: '/admin/medicine-made', icon: ClipboardCheck, label: 'Medicine Made', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
-  { to: '/admin/medicine-inventory', icon: PackageOpen, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
-  { to: '/admin/clinic-inventory', icon: PackageOpen, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/medicine-made', icon: PackageCheck, label: 'Medicine Made', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/medicine-inventory', icon: Warehouse, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/clinic-inventory', icon: Archive, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/courier', icon: Truck, label: 'Courier Requests', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
-  { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/courier-delivered', icon: PackageOpen, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/invoices', type: 'invoices', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
   { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST], group: 'transit' },
-  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
-  { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/accounts/consultations', icon: NotebookPen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/accounts/treatment', icon: BookOpenCheck, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST], group: 'transit' },
   { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING], group: 'admin' },
   
-  { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true, group: 'admin' },
+  { to: '/admin/team', icon: UsersRound, label: 'Team Members', adminOnly: true, group: 'admin' },
   { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true, group: 'admin' },
   { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true, group: 'admin' },
   { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
@@ -114,12 +143,12 @@ const GROUP_STORAGE_KEY = 'crm_sidebar_groups';
 
 // Department groups (in this order). Pages without a group are common and stay at the top.
 const NAV_GROUPS = [
-  { key: 'reception', label: 'Reception', icon: CalendarClock },
-  { key: 'postcounselling', label: 'Post Counselling', icon: Users },
-  { key: 'transit', label: 'In Transit', icon: Truck },
-  { key: 'medicine', label: 'Medicine Department', icon: PackageCheck },
-  { key: 'care', label: 'PCC & Care', icon: HeartHandshake },
-  { key: 'admin', label: 'Admin & Tools', icon: Settings },
+  { key: 'reception', label: 'Reception', icon: ConciergeBell },
+  { key: 'postcounselling', label: 'Post Counselling', icon: MessageCircleHeart },
+  { key: 'transit', label: 'In Transit', icon: Route },
+  { key: 'medicine', label: 'Medicine Department', icon: TestTubes },
+  { key: 'care', label: 'PCC & Care', icon: HeartPulse },
+  { key: 'admin', label: 'Admin & Tools', icon: Wrench },
 ];
 // A role's own department comes first and starts open.
 const HOME_GROUP = {
@@ -171,11 +200,11 @@ export const StageMenu = ({ collapsed, onNavigate }) => {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className={`w-full flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors duration-150 ${
+        className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-[12.5px] font-medium leading-tight transition-colors duration-150 ${
           isOnStages ? 'text-offwhite-100' : 'text-teal-100/70 hover:bg-teal-800 hover:text-offwhite-100'
         }`}
       >
-        <Layers size={17} strokeWidth={2} className="shrink-0" />
+        <Layers size={16} strokeWidth={2} className="shrink-0" />
         <span className="flex-1 text-left">Patients by Phase</span>
         <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -211,8 +240,8 @@ const InvoiceMenu = ({ collapsed, onNavigate }) => {
   useEffect(() => { if (isOnInvoices) setOpen(true); }, [isOnInvoices]);
   if (collapsed) return <NavLink to="/admin/invoices/final-bill" onClick={onNavigate} title="Invoices" aria-label="Invoices" className={`flex items-center justify-center rounded-lg py-2.5 ${isOnInvoices ? 'bg-teal-700 text-white' : 'text-teal-100/70 hover:bg-teal-800'}`}><FileText size={17} /></NavLink>;
   return <div>
-    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium ${isOnInvoices ? 'bg-teal-800 text-white' : 'text-teal-100/70 hover:bg-teal-800 hover:text-white'}`}>
-      <FileText size={17} /><span className="flex-1 text-left">Invoices</span><ChevronDown size={15} className={open ? 'rotate-180' : ''} />
+    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[12.5px] font-medium leading-tight ${isOnInvoices ? 'bg-teal-800 text-white' : 'text-teal-100/70 hover:bg-teal-800 hover:text-white'}`}>
+      <FileText size={16} /><span className="flex-1 text-left">Invoices</span><ChevronDown size={15} className={open ? 'rotate-180' : ''} />
     </button>
     {open && <div className="ml-4 mt-1 space-y-0.5 border-l border-offwhite-100/10 pl-3.5">
       {[['final-bill', 'Final Bills'], ['part-payment', 'Part-payment Bills'], ['consultation', 'Consultation Bills']].map(([type, label]) => <NavLink key={type} to={`/admin/invoices/${type}`} onClick={onNavigate} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm font-medium ${isActive ? 'bg-teal-700 text-white shadow-sm' : 'text-teal-100/60 hover:bg-teal-800 hover:text-white'}`}>{label}</NavLink>)}
