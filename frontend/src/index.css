@@ -147,8 +147,93 @@
 /* Compact, wide layout on desktop: every page renders at 85% (as the purchase order page did first), so a whole
    case fits one screen at 100% browser zoom. Phones keep the normal size. */
 @media (min-width: 768px) {
-  .app-content { zoom: 0.85; }
+  .app-content { zoom: 0.9; }
   /* Narrower sidebar with smaller entries. */
   .sidebar-compact nav a, .sidebar-compact nav button { font-size: 12.5px; padding-top: 0.45rem; padding-bottom: 0.45rem; }
   .sidebar-compact nav svg { width: 15px; height: 15px; }
+}
+
+/* Readable contrast (as in the design mockups): secondary text is a solid medium grey, never faint.
+   The faint charcoal steps used across the pages are lifted one ladder so labels stay grey but legible on cream,
+   while primary values stay full charcoal and bold. */
+.app-content, .app-dialog {
+  --tw-fade-40: 0.58; --tw-fade-45: 0.6; --tw-fade-50: 0.64; --tw-fade-55: 0.66; --tw-fade-60: 0.7; --tw-fade-65: 0.74; --tw-fade-70: 0.78;
+}
+:is(.app-content, .app-dialog) .text-charcoal\/40 { color: rgb(39 50 56 / var(--tw-fade-40)); }
+:is(.app-content, .app-dialog) .text-charcoal\/45 { color: rgb(39 50 56 / var(--tw-fade-45)); }
+:is(.app-content, .app-dialog) .text-charcoal\/50 { color: rgb(39 50 56 / var(--tw-fade-50)); }
+:is(.app-content, .app-dialog) .text-charcoal\/55 { color: rgb(39 50 56 / var(--tw-fade-55)); }
+:is(.app-content, .app-dialog) .text-charcoal\/60 { color: rgb(39 50 56 / var(--tw-fade-60)); }
+:is(.app-content, .app-dialog) .text-charcoal\/65 { color: rgb(39 50 56 / var(--tw-fade-65)); }
+:is(.app-content, .app-dialog) .text-charcoal\/70 { color: rgb(39 50 56 / var(--tw-fade-70)); }
+
+/* Primary text a touch heavier, like the mockups: names, values and headings read first. */
+:is(.app-content, .app-dialog) :is(h1, h2, h3) { letter-spacing: -0.01em; }
+:is(.app-content, .app-dialog) .font-medium.text-charcoal, :is(.app-content, .app-dialog) dd.text-charcoal { font-weight: 600; }
+:is(.app-content, .app-dialog) .font-semibold.text-charcoal { font-weight: 700; }
+:is(.app-content, .app-dialog) .text-charcoal { color: #1f2a30; }
+
+/* Tiny uppercase labels: a little larger and bolder so they don't disappear. */
+:is(.app-content, .app-dialog) .uppercase.text-\[10px\] { font-size: 10.5px; font-weight: 700; }
+
+/* ---- Design theme (from the Figma canvas), applied to every page without changing its content ----
+   Headings: Manrope 800. Cards: white, #E8DFCB border, 14px corners. Tables: cream header with small grey
+   uppercase labels, hairline rows, soft hover. Buttons and inputs: 10px corners. */
+:is(.app-content, .app-dialog) h1 { font-family: 'Manrope', sans-serif; font-weight: 800; }
+:is(.app-content, .app-dialog) :is(h2, h3) { font-family: 'Manrope', sans-serif; font-weight: 700; }
+@media (min-width: 640px) {
+  .app-content h1:is(.text-2xl, .text-3xl) { font-size: 22px; line-height: 1.25; }
+}
+:is(.app-content, .app-dialog) :is(.rounded-lg, .rounded-xl, .rounded-2xl).border.bg-white { border-color: #E8DFCB; }
+:is(.app-content, .app-dialog) :is(.rounded-xl, .rounded-2xl).border.bg-white { border-radius: 14px; }
+:is(.app-content, .app-dialog) .border-cardline.bg-white.shadow-card { box-shadow: none; }
+
+:is(.app-content, .app-dialog) thead { background: #FBF7ED !important; color: #6b7278 !important; }
+:is(.app-content, .app-dialog) thead th {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #6b7278 !important; border-bottom: 1px solid #EFE3CF; white-space: nowrap; background: transparent;
+}
+:is(.app-content, .app-dialog) thead th :is(svg, span, button) { color: inherit; }
+:is(.app-content, .app-dialog) tbody tr { border-color: #F5EFE3; }
+:is(.app-content, .app-dialog) tbody tr:hover { background-color: #FFFCF5; }
+:is(.app-content, .app-dialog) tbody td { color: #1f2a30; }
+
+:is(.app-content, .app-dialog) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea).border { border-radius: 10px; }
+:is(.app-content, .app-dialog) :is(input, select, textarea):focus-visible { outline-color: #657B6C; }
+
+/* Secondary text in the mockups is a neutral grey; charcoal/50-60 maps to it. */
+:is(.app-content, .app-dialog) :is(.text-charcoal\/50, .text-charcoal\/55, .text-charcoal\/60) { color: #6b7278; }
+
+/* Phone tab bar: keep the enquiry bell above it. */
+@media (max-width: 767px) {
+  body:has(nav[aria-label="Quick navigation"]) .enquiry-bell { bottom: 92px; }
+}
+
+/* Header rows that carried their own dark colour: use the light design header so labels are readable. */
+:is(.app-content, .app-dialog) thead tr { background: transparent !important; color: #6b7278 !important; border-color: #EFE3CF !important; }
+/* Fixed-width tables: long header labels wrap instead of running into the next column. */
+:is(.app-content, .app-dialog) table.table-fixed thead th { white-space: normal; line-height: 1.35; vertical-align: middle; }
+:is(.app-content, .app-dialog) thead th[class*="bg-["] { background: transparent !important; }
+
+/* Inputs as in the design: white field, warm grey border, sage focus ring (instead of beige-filled fields). */
+:is(.app-content, .app-dialog) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):is(.bg-offwhite-100, .bg-offwhite-200, .bg-cream, .bg-cream-100, [class*="bg-offwhite-200/"], [class*="bg-offwhite-100/"]) {
+  background-color: #fff; border-color: #DED2BD;
+}
+:is(.app-content, .app-dialog) :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea).border:focus { border-color: #657B6C; box-shadow: 0 0 0 3px rgb(101 123 108 / 0.15); }
+/* Bordered cream cards become the white design card; plain cream panels inside cards stay as they are. */
+.app-content :is(.rounded-lg, .rounded-xl, .rounded-2xl).border:is(.bg-offwhite-100, .bg-cream-100):not(input):not(select):not(textarea) { background-color: #fff; border-color: #E8DFCB; }
+
+/* Info panels inside cards: the design's light cream (#FBF7ED) with a hairline, instead of the darker beige. */
+:is(.app-content, .app-dialog) :is(div, p, li, label, section, article, td, tr, ul, dl):is(.bg-offwhite-200, [class*="bg-offwhite-200/"], .bg-offwhite-300, [class*="bg-offwhite-300/"], .bg-\[\#EFE3CF\], .bg-\[\#E8D5B5\]) {
+  background-color: #FBF7ED;
+}
+:is(.app-content, .app-dialog) :is(div, p, li, label, section, article, ul, dl):is(.bg-offwhite-200, [class*="bg-offwhite-200/"], .bg-offwhite-300, [class*="bg-offwhite-300/"]).border { border-color: #EFE3CF; }
+
+/* Page title icon (first icon inside a page heading) drawn as the design's sage icon box. */
+.app-content h1.flex > svg:first-child {
+  box-sizing: content-box; flex-shrink: 0; width: 20px; height: 20px; padding: 11px;
+  border-radius: 12px; background: rgb(101 123 108 / 0.15); color: #657B6C; stroke-width: 1.9;
+}
+@media (max-width: 639px) {
+  .app-content h1.flex > svg:first-child { width: 17px; height: 17px; padding: 8px; border-radius: 10px; }
 }

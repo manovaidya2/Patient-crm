@@ -11,6 +11,7 @@ import Badge from '../../components/ui/Badge.jsx';
 import Toast from '../../components/ui/Toast.jsx';
 import { useToast } from '../../components/useToast.js';
 import { CREATABLE_ROLES, ROLE_LABELS } from '../../constants/roles.js';
+import { Users as PageTitleIcon } from 'lucide-react';
 
 const emptyForm = { name: '', email: '', password: '', role: '', phone: '' };
 
@@ -179,7 +180,7 @@ const TeamMembers = () => {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Team Members</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Team Members</h1>
           <p className="mt-1 text-sm text-charcoal/60">Create and manage logins for your departments.</p>
         </div>
         <Button onClick={openAddModal} className="shrink-0">

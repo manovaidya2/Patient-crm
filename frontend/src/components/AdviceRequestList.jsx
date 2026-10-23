@@ -8,6 +8,7 @@ import Modal from './ui/Modal.jsx';
 import Badge from './ui/Badge.jsx';
 import DictationButton from './ui/DictationButton.jsx';
 import { CompactAttachments } from './ui/Attachments.jsx';
+import { Stethoscope as PageTitleIcon } from 'lucide-react';
 
 const formatDateTime = (iso) =>
   iso
@@ -87,7 +88,7 @@ const AdviceRequestList = ({ mode }) => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Doctor Advice</p>
-          <h1 className="font-display text-2xl font-bold text-charcoal">{isGiven ? 'Advice Given' : 'Request for Advice'}</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />{isGiven ? 'Advice Given' : 'Request for Advice'}</h1>
           <p className="mt-1 text-sm text-charcoal/55">
             {isGiven ? 'Completed advice records from doctors.' : 'New patient queries waiting for doctor advice.'}
           </p>

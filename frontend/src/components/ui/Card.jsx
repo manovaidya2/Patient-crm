@@ -1,8 +1,9 @@
+// White surface on the cream page, soft border, 14px corners (the app-wide card).
 const Card = ({ children, className = '', padded = true }) => {
   return (
     <div
-      className={`bg-offwhite-100 border border-cardline rounded-xl2 shadow-card ${
-        padded ? 'p-3.5 sm:p-6' : ''
+      className={`bg-white border border-[#E8DFCB] rounded-[14px] shadow-card ${
+        padded ? 'p-4 sm:p-5' : ''
       } ${className}`}
     >
       {children}

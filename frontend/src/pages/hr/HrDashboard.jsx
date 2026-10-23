@@ -4,6 +4,7 @@ import { CalendarClock, PhoneCall, PhoneIncoming, UserRoundCheck, Users, AlertTr
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import { CALL_OUTCOMES, formatDateTime, labelFor } from './hrOptions.js';
+import { Briefcase as PageTitleIcon } from 'lucide-react';
 
 const cards = [
   ['today', "Today's calls", PhoneCall, 'border-[#4A8077] bg-[#EDF6F4]'],
@@ -64,7 +65,7 @@ export default function HrDashboard() {
 
   return <div className="space-y-6">
     <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="font-display text-2xl font-bold text-charcoal">HR Dashboard</h1><p className="mt-1 text-sm text-charcoal/60">Recruitment, employee operations, attendance and daily HR work.</p></div>
+      <div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />HR Dashboard</h1><p className="mt-1 text-sm text-charcoal/60">Recruitment, employee operations, attendance and daily HR work.</p></div>
       <div className="flex gap-2"><Link to="/admin/hr/candidates"><Button variant="outline">Candidates</Button></Link><Link to="/admin/hr/calls"><Button><PhoneCall size={16} /> Manual Call Register</Button></Link></div>
     </header>
     {error && <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error} <button className="ml-2 underline" onClick={load}>Retry</button></div>}

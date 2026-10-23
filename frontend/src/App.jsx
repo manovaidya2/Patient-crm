@@ -35,6 +35,7 @@ const MedicineJobs = lazy(() => import('./pages/admin/MedicineJobs.jsx'));
 const MedicineJobPage = lazy(() => import('./pages/admin/MedicineJob.jsx'));
 const Stocks = lazy(() => import('./pages/admin/Stocks.jsx'));
 const FormulationMasterPage = lazy(() => import('./pages/admin/FormulationMaster.jsx'));
+const MyDay = lazy(() => import('./pages/admin/MyDay.jsx'));
 const MEDICINE_JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT];
 const FORMULATION_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 const STOCK_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
@@ -164,6 +165,7 @@ function App() {
         <Route path="medicine-jobs" element={<ProtectedRoute roles={MEDICINE_JOB_ROLES}><MedicineJobs /></ProtectedRoute>} />
         <Route path="medicine-jobs/:id" element={<ProtectedRoute roles={MEDICINE_JOB_ROLES}><MedicineJobPage /></ProtectedRoute>} />
         <Route path="stocks" element={<ProtectedRoute roles={STOCK_ROLES}><Stocks /></ProtectedRoute>} />
+        <Route path="my-day" element={<ProtectedRoute roles={ADMIN_LAYOUT_ROLES}><MyDay /></ProtectedRoute>} />
         <Route path="formulation-master" element={<ProtectedRoute roles={FORMULATION_ROLES}><FormulationMasterPage /></ProtectedRoute>} />
         <Route path="purchase-orders/:id" element={<ProtectedRoute roles={PURCHASE_ORDER_ROLES}><PurchaseOrderDetail /></ProtectedRoute>} />
         <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />

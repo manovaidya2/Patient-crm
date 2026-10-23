@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
+import { Layers as PageTitleIcon } from 'lucide-react';
 
 const PAGE_SIZE = 10;
 
@@ -72,7 +73,7 @@ const PatientsByStage = () => {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Patients by Phase</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Patients by Phase</h1>
           <p className="mt-1 text-sm text-charcoal/60">
             Pick a phase from the sidebar to see who's on it.
           </p>

@@ -86,12 +86,13 @@ async function main() {
   try {
   // PO / patient pages as In Transit; job, queue and stocks pages as Medicine Department.
   const runs = [
-    [{ _id: '507f1f77bcf86cd799439012', name: 'Transit Staff', role: 'in_transit' }, (sh) => !sh[0].startsWith('job') && !['stocks', 'explanations'].includes(sh[0]) && !sh[0].startsWith('master') && !sh[0].startsWith('admin-') && !sh[0].startsWith('pnb-')],
+    [{ _id: '507f1f77bcf86cd799439012', name: 'Transit Staff', role: 'in_transit' }, (sh) => !sh[0].startsWith('job') && !['stocks', 'explanations'].includes(sh[0]) && !sh[0].startsWith('master') && !sh[0].startsWith('admin-') && !sh[0].startsWith('pnb-') && sh[0] !== 'desk' && sh[0] !== 'followups'],
     [{ _id: '507f1f77bcf86cd799439013', name: 'Meena', role: 'medicine_department' }, (sh) => sh[0].startsWith('job') || sh[0] === 'stocks'],
     [{ _id: '507f1f77bcf86cd799439014', name: 'Dr Garg', role: 'doctor' }, (sh) => sh[0] === 'master-edit' || sh[0] === 'master'],
-    [{ _id: PCC_ID, name: 'Dr Asha', role: 'assistant_doctor' }, (sh) => sh[0] === 'explanations'],
+    [{ _id: PCC_ID, name: 'Dr Asha', role: 'assistant_doctor' }, (sh) => sh[0] === 'explanations' || sh[0] === 'followups'],
     [{ _id: '507f1f77bcf86cd799439016', name: 'Super Admin', role: 'admin' }, (sh) => sh[0].startsWith('admin-')],
     [{ _id: '507f1f77bcf86cd799439017', name: 'Counselor', role: 'post_counselor' }, (sh) => sh[0].startsWith('pnb-')],
+    [{ _id: '507f1f77bcf86cd799439018', name: 'Pooja', role: 'receptionist' }, (sh) => sh[0] === 'desk'],
   ];
   for (const [user, pick] of runs) {
     const page = await browser.newPage();
@@ -114,10 +115,29 @@ async function main() {
         else if (url.pathname === '/api/medicine-jobs/' + JOB_ID) data = { success: true, job: jobView };
         else if (url.pathname === '/api/medicine-jobs/' + JOB2_ID) data = { success: true, job: job2View };
         else if (url.pathname === '/api/medicine-jobs') data = { success: true, items: [{ id: JOB_ID, patientId: PATIENT_ID, patientName: raw.patientName, patientCode: raw.patientCode, phase: 1, poNumber: 'PO-4821', supplyLabel: '1+5: First 1 month', ageBandLabel: 'Above 4 - 12 years', readyByDate: jobView.readyByDate, status: 'open', currentStage: 4, currentLabel: STAGES[4].label, progress: jobView.progress, hold: null, urgency: jobView.urgency, totalStages: 12 }] };
+        else if (url.pathname === '/api/patients') data = { success: true, total: 2, page: 1, pages: 1, patients: [
+          { id: PATIENT_ID, patientCode: 'A-3445', patientName: 'Amayra Gupta', category: 'autism_adhd', categoryLabel: 'Autism/ADHD', age: '4 years', number: '9590055856', guardianName: 'Ravi Kant Gupta', alternateNumber: '9598860070', consultationDate: new Date().toISOString(), createdAt: new Date().toISOString(), approvalStatus: 'pending', currentStage: 1, totalAmount: 42000 },
+          { id: '6500000000000000000000e2', patientCode: 'R-3440', patientName: 'Riddhima Pandey', category: 'autism_adhd', categoryLabel: 'Autism/ADHD', age: '4 years', number: '9000000001', relativeName: 'Amit Pandey', consultationDate: null, createdAt: new Date().toISOString(), currentStage: 1 },
+        ] };
         else if (url.pathname === '/api/stocks') data = { success: true, items: stocks.map(formatItem) };
         else if (url.pathname === '/api/formulation-master') data = masterPayload(user);
         else if (url.pathname === '/api/package-not-bought') data = { success: true, rows: [{ id: '6500000000000000000000d1', patientName: 'Kabir Sethi', parentName: 'Neha Sethi', fatherNumber: '9888877777', motherNumber: '', age: '5', program: 'Autism', reason: 'Fees', followUpDate: new Date().toISOString(), notes: '', followUps: [], status: 'open', createdByName: 'Counselor', createdAt: new Date().toISOString() }, { id: '6500000000000000000000d2', patientName: 'Ira Jain', parentName: 'Mohit Jain', fatherNumber: '9777766666', motherNumber: '', age: '6', program: 'ADHD', reason: '', followUpDate: null, notes: '', followUps: [], status: 'closed', closedAt: new Date().toISOString(), closedByName: 'Counselor', closeReason: 'Not interested', createdByName: 'Counselor', createdAt: new Date().toISOString() }], total: 2, page: 1, pages: 1, summary: { open: 1, overdue: 0, today: 1, upcoming: 0, noFollowUp: 0 } };
         else if (url.pathname === '/api/package-not-bought/6500000000000000000000d1') data = { success: true, row: { id: '6500000000000000000000d1', patientName: 'Kabir Sethi', parentName: 'Neha Sethi', fatherNumber: '9888877777', motherNumber: '', age: '5', program: 'Autism', reason: 'Fees', followUpDate: new Date().toISOString(), notes: '', followUps: [], status: 'open', createdByName: 'Counselor', createdAt: new Date().toISOString() } };
+        else if (url.pathname === '/api/tasks/my-day') { const day = (d) => new Date(Date.now() + d * 86400000).toISOString(); data = { success: true, sections: [
+          { page: '/admin/purchase-orders', count: 2, items: [{ page: '/admin/purchase-orders', key: 'po1', title: 'Aarav Mehra', detail: 'PO-4821 · Delivery & explanation scheduled', due: day(-3), href: '/admin/purchase-orders/x', waitingSince: true }, { page: '/admin/purchase-orders', key: 'po2', title: 'Riddhima Pandey', detail: 'PO-3 · Payment verified', due: day(0), href: '/admin/purchase-orders/y', waitingSince: true }] },
+          { page: '/admin/payments', count: 1, items: [{ page: '/admin/payments', key: 'pay1', title: 'sanskriti', detail: 'S-3438 · Phase 1 · Rs 40,000 online', due: day(-1), href: '/admin/patients/z', waitingSince: true }] },
+          { page: '/admin/courier', count: 1, items: [{ page: '/admin/courier', key: 'c1', title: 'Amaya', detail: 'A-3322 · Phase 1 · Released · dispatch it', due: day(2), href: '/admin/courier' }] },
+        ] }; }
+        else if (url.pathname === '/api/schedule/followups' || url.pathname === '/api/schedule/family-sessions') {
+          // Entries around today in every status, as the schedule endpoint returns them.
+          const at = (d, h) => { const x = new Date(); x.setDate(x.getDate() + d); x.setHours(h, 0, 0, 0); return x.toISOString(); };
+          const e = (id, name, d, h, st, label) => ({ id, patientId: PATIENT_ID, patientName: name, dateTime: at(d, h), displayStatus: st, displayStatusLabel: label, stageLabel: 'Phase 1', followUpType: 'normal', notes: 'Dose check' });
+          data = { success: true, rows: [{ assignee: 'Dr Asha', counts: {}, entries: [e('f1', 'Aarav Mehra', 0, 10, 'upcoming', 'Upcoming'), e('f2', 'Kabir Sethi', -2, 11, 'late', 'Late'), e('f3', 'Myra Bansal', -1, 16, 'done', 'Done'), e('f4', 'Ira Jain', 1, 12, 'upcoming', 'Upcoming'), e('f5', 'Arjun Rao', 2, 18, 'cancelled', 'Cancelled')] }] };
+        }
+        else if (url.pathname === '/api/reception/desk') {
+          const c = (id, name, time, state, extra = {}) => ({ id, code: 'APT-' + id, bookedBy: 'Rohit', name, age: '5 yrs', guardian: 'Kavita', phone: '9811022334', city: 'Noida', category: 'Autism + ADHD', time, state, href: '/admin/appointment-management', ...extra });
+          data = { success: true, date: '2026-10-23', lanes: { toAccept: [c('a1', 'Advik Rana', '13:00', 'pending_acceptance', { href: '/sales' })], expected: [c('a2', 'Pihu Gupta', '11:30', 'accepted', { acceptedBy: 'Pooja' })], inClinic: [c('a3', 'Neel Verma', '10:00', 'arrived', { arrivalTime: '10:02', patientId: 'N-231026-11' })], done: [c('a4', 'Om Tiwari', '12:00', 'not_coming', { note: 'travelling' })] }, totals: { total: 4, toAccept: 1, expected: 1, inClinic: 1, sentToPostCounselling: 0, notComing: 1, rescheduled: 0, collected: 3000, toVerify: 2 } };
+        }
         else if (url.pathname === '/api/tasks/counts') data = { success: true, counts: { '/admin/purchase-orders': 2, '/admin/medicine-jobs': 1 } };
         else if (url.pathname === '/api/transit/explanations') { const ep = explainPatient(); data = { success: true, items: [buildTransitCase(ep, ep.stages[0])] }; }
         else if (url.pathname === '/api/stocks/ledger') data = { success: true, rows: [] };
@@ -129,9 +149,11 @@ async function main() {
     });
     const shots = [
       ['po-list', '/admin/purchase-orders', 'PO-7310'],
+      ['myday', '/admin/my-day', 'Do next'],
+      ['desk', '/admin', 'Review & accept'],
       ['po-verify', `/admin/purchase-orders/${items[1].id}`, 'Verify the PO details'],
       ['po-detail', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
-      ['patient-overview', `/admin/patients/${PATIENT_ID}`, 'Contact & care team'],
+      ['patient-overview', `/admin/patients/${PATIENT_ID}`, 'Care team'],
       ['patient-orders', `/admin/patients/${PATIENT_ID}?tab=orders`, 'PO-4821'],
       ['patient-phases', `/admin/patients/${PATIENT_ID}?tab=phases`, 'Treatment phases & payments'],
       ['patient-medicine', `/admin/patients/${PATIENT_ID}?tab=medicine`, 'Medicine supply & requests'],
@@ -139,9 +161,11 @@ async function main() {
       ['job-edit', `/admin/medicine-jobs/${JOB2_ID}`, 'corrected by Meena'],
       ['job-queue', '/admin/medicine-jobs', 'Primary packing & chits'],
       ['stocks', '/admin/stocks', 'MEDHYA-GHRIT'],
+      ['patients-list', '/admin/patients', 'Amayra Gupta'],
       ['master', '/admin/formulation-master', 'Document values'],
       ['master-edit', '/admin/formulation-master', 'Document values'],
       ['explanations', '/admin/medicine-explanations', 'Ready to explain'],
+      ['followups', '/admin/followups', 'Kabir Sethi'],
       ['admin-po-revert', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
       ['pnb-list', '/admin/package-not-bought', 'Kabir Sethi'],
       ['pnb-detail', '/admin/package-not-bought/6500000000000000000000d1', 'Convert to Patient'],

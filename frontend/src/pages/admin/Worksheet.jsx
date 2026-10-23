@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Input from '../../components/ui/Input.jsx';
+import { Table2 as PageTitleIcon } from 'lucide-react';
 
 const pad2 = (value) => String(value).padStart(2, '0');
 
@@ -240,7 +241,7 @@ const Worksheet = () => {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Team Worksheet</p>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Worksheet</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Worksheet</h1>
           <p className="mt-1 text-sm text-charcoal/55">
             Fill your own rows and columns, or upload a CSV / Excel file. Nothing is filled automatically.
           </p>

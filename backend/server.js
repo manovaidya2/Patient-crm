@@ -95,6 +95,7 @@ app.use('/api/stocks', require('./src/routes/stockRoutes'));
 app.use('/api/medicine-jobs', require('./src/routes/medicineJobRoutes'));
 app.use('/api/formulation-master', require('./src/routes/formulationMasterRoutes'));
 app.use('/api/tasks', require('./src/routes/taskRoutes'));
+app.use('/api/reception', require('./src/routes/receptionDeskRoutes'));
 app.use('/api/accounts', accountRoutes);
 app.use('/api/invoices', require('./src/routes/invoiceRoutes'));
 app.use('/api/advice', adviceRoutes);

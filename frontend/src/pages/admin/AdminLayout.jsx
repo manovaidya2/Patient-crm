@@ -4,6 +4,7 @@ import { LogOut, Menu } from 'lucide-react';
 import Sidebar from '../../components/Sidebar.jsx';
 import ScheduleReminderAlert from '../../components/ScheduleReminderAlert.jsx';
 import PendingWork from '../../components/PendingWork.jsx';
+import MobileTabBar from '../../components/MobileTabBar.jsx';
 import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { prefetchGet } from '../../api/axios.js';
@@ -97,7 +98,7 @@ const AdminLayout = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
   // The role's home page (dashboard, or the page it lands on) starts with its pending work.
-  const onHome = user?.role && location.pathname.replace(/\/$/, '') === getDefaultRoute(user.role);
+  const onHome = user?.role && location.pathname.replace(/\/$/, '') === getDefaultRoute(user.role) && location.pathname !== '/admin/my-day';
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
@@ -126,13 +127,14 @@ const AdminLayout = () => {
           </button>
         </div>
 
-        <main className="app-content min-w-0 w-full flex-1 p-3 sm:p-8">
+        <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
           <ScheduleReminderAlert />
           {onHome && <PendingWork />}
           <Suspense fallback={<div className="py-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
             <Outlet />
           </Suspense>
         </main>
+        <MobileTabBar onMenu={() => setMobileNavOpen(true)} />
       </div>
     </div>
   );

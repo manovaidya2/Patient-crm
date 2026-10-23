@@ -5,6 +5,7 @@ import useApiQuery from '../../api/useApiQuery.js';
 import ReminderDropdown from '../../components/ReminderDropdown.jsx';
 import Card from '../../components/ui/Card.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { LayoutGrid as PageTitleIcon } from 'lucide-react';
 
 const formatDateTime = (iso) =>
   iso
@@ -67,7 +68,7 @@ const StaffDashboard = () => {
     <div className="pr-0 md:pr-6">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-bold text-charcoal">
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />
             Welcome, {user?.name?.split(' ')[0]}
           </h1>
           <p className="mt-1 text-sm text-charcoal/60">

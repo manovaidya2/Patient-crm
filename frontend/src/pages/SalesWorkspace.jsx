@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SalesCallHistory from '../components/SalesCallHistory.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import { Search, List, Table2 } from 'lucide-react';
@@ -12,8 +12,10 @@ import Modal from '../components/ui/Modal.jsx';
 import SheetColumnEditor from '../components/SheetColumnEditor.jsx';
 import MultiSelectCell, { splitChoices } from '../components/MultiSelectCell.jsx';
 import Drawer from '../components/ui/Drawer.jsx';
+import SalesWeekBoard, { weekOf } from '../components/SalesWeekBoard.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
+import { CalendarRange as PageTitleIcon } from 'lucide-react';
 
 const isoDate = (date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -77,14 +79,33 @@ const SalesWorkspace = () => {
   const [timelineLoading, setTimelineLoading] = useState(false);
 
   const dates = useMemo(() => Array.from({ length: 9 }, (_, index) => shiftDate(selectedDate, index - 4)), [selectedDate]);
+  // Week board (design view) or the full table; the choice is remembered on this browser.
+  const [layout, setLayoutState] = useState(() => { try { return localStorage.getItem('sales-layout') || 'board'; } catch { return 'board'; } });
+  const setLayout = (next) => { setLayoutState(next); try { localStorage.setItem('sales-layout', next); } catch { /* optional */ } };
+  const weekDates = useMemo(() => weekOf(selectedDate), [selectedDate]);
+  const [weekRows, setWeekRows] = useState({});
+  const [weekLoading, setWeekLoading] = useState(false);
   const loadColumns = useCallback(async () => {
     const { data } = await api.get('/sales-sheet/columns', { skipCache: true });
     setColumns(data.columns);
   }, []);
+  const shapeRows = useCallback((list) => list.map((row) => ({ ...row, values: Object.fromEntries(columns.map((column) => [column.id, column.type === 'checkbox' ? String([true, 'true', '\u2611'].includes(row.values?.[column.id])) : (row.values?.[column.id] || '')])) })), [columns]);
   const loadRows = useCallback(async () => {
     const { data } = await api.get('/sales-sheet/appointments', { params: allDates ? {} : { date: selectedDate }, skipCache: true });
-    setRows(data.appointments.map((row) => ({ ...row, values: Object.fromEntries(columns.map((column) => [column.id, column.type === 'checkbox' ? String([true, 'true', '\u2611'].includes(row.values?.[column.id])) : (row.values?.[column.id] || '')])) })));
-  }, [selectedDate, allDates, columns]);
+    setRows(shapeRows(data.appointments));
+  }, [selectedDate, allDates, shapeRows]);
+  const loadWeek = useCallback(async () => {
+    if (!columns.length) return;
+    setWeekLoading(true);
+    try {
+      const lists = await Promise.all(weekDates.map((date) => api.get('/sales-sheet/appointments', { params: { date }, skipCache: true }).then(({ data }) => shapeRows(data.appointments))));
+      setWeekRows(Object.fromEntries(weekDates.map((date, i) => [date, lists[i]])));
+    } catch (err) { setError(err.response?.data?.message || 'Could not load the week'); } finally { setWeekLoading(false); }
+  }, [weekDates, shapeRows, columns.length]);
+  const loadWeekRef = useRef(loadWeek);
+  loadWeekRef.current = layout === 'board' ? loadWeek : null;
+  useEffect(() => { if (layout === 'board') loadWeek(); }, [layout, loadWeek]);
+  const refreshAll = () => { loadRows().catch(() => {}); loadWeekRef.current?.(); };
 
   useEffect(() => { loadColumns().catch((err) => setError(err.response?.data?.message || 'Could not load columns')); }, [loadColumns]);
   useEffect(() => {
@@ -92,7 +113,7 @@ const SalesWorkspace = () => {
     loadRows().catch((err) => setError(err.response?.data?.message || 'Could not load appointments')).finally(() => setLoading(false));
   }, [loadRows]);
   useEffect(() => {
-    const timer = window.setInterval(() => loadRows().catch(() => {}), 120000);
+    const timer = window.setInterval(() => { loadRows().catch(() => {}); loadWeekRef.current?.(); }, 120000);
     return () => window.clearInterval(timer);
   }, [loadRows]);
 
@@ -108,6 +129,7 @@ const SalesWorkspace = () => {
     socket.on('disconnect', () => setLiveConnected(false));
     socket.on('sales-sheet:date-changed', ({ date }) => {
       if (allDates || date === selectedDate) loadRows().catch(() => {});
+      loadWeekRef.current?.();
     });
     socket.on('sales-sheet:columns-changed', () => {
       loadColumns().catch(() => {});
@@ -303,14 +325,19 @@ const SalesWorkspace = () => {
 
       <main className="app-content mx-auto min-w-0 max-w-[1800px] p-3 sm:p-6">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div><p className="text-xs font-semibold uppercase text-charcoal/50">Sales Team</p><h1 className="font-display text-2xl font-bold">Sales Appointments</h1><p className="mt-1 text-sm text-charcoal/60"><CalendarDays className="mr-1 inline" size={15} />{allDates ? 'All dates' : dateLabel(selectedDate)} · {rows.filter((row) => row.status === 'active').length} appointments <span className={`ml-2 inline-flex items-center gap-1 text-xs ${liveConnected ? 'text-sage' : 'text-charcoal/40'}`}><span className={`h-1.5 w-1.5 rounded-full ${liveConnected ? 'bg-sage' : 'bg-charcoal/30'}`} />{liveConnected ? 'Live' : 'Connecting'}</span></p></div>
-          <div className="flex gap-2"><Button onClick={startAdd} disabled={!columns.length || Boolean(draft)}><Plus size={16} /> Add appointment</Button></div>
+          <div><p className="text-xs font-semibold uppercase text-charcoal/50">Sales Team</p><h1 className="flex items-center gap-3 font-display text-2xl font-bold"><PageTitleIcon size={20} aria-hidden="true" />Sales Appointments</h1><p className="mt-1 text-sm text-charcoal/60"><CalendarDays className="mr-1 inline" size={15} />{allDates ? 'All dates' : dateLabel(selectedDate)} · {rows.filter((row) => row.status === 'active').length} appointments <span className={`ml-2 inline-flex items-center gap-1 text-xs ${liveConnected ? 'text-sage' : 'text-charcoal/40'}`}><span className={`h-1.5 w-1.5 rounded-full ${liveConnected ? 'bg-sage' : 'bg-charcoal/30'}`} />{liveConnected ? 'Live' : 'Connecting'}</span></p></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex gap-1.5" role="group" aria-label="View">{[['board', 'Week board', CalendarRange], ['table', 'Table', Table2]].map(([key, label, Icon]) => <button key={key} type="button" aria-pressed={layout === key} onClick={() => setLayout(key)} className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold ${layout === key ? 'border-charcoal bg-charcoal text-white' : 'border-[#DED2BD] bg-white text-charcoal hover:bg-[#FBF7ED]'}`}><Icon size={14} />{label}</button>)}</div>
+            <Button onClick={startAdd} disabled={!columns.length || Boolean(draft)}><Plus size={16} /> Add appointment</Button>
+          </div>
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <div className="relative min-w-[200px] flex-1"><Search size={17} className="pointer-events-none absolute left-3 top-3 text-sage" /><input aria-label="Search sales appointments" placeholder="Search patient, phone, appointment ID or details" value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-cardline bg-white py-2.5 !pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-sage/25" /></div>
           <label className="flex items-center gap-2 rounded-md border border-cardline px-3 py-2 text-sm"><input type="checkbox" checked={allDates} onChange={(event) => setAllDates(event.target.checked)} className="accent-sage" />All dates</label>
           <span className="text-xs text-charcoal/70">{filteredRows.length} of {rows.length} appointments</span>
         </div>
+        {layout === 'board' && <SalesWeekBoard dates={weekDates} rowsByDate={weekRows} columns={columns} search={search} loading={weekLoading} today={isoDate(new Date())} onOpen={(row) => setFormRow(row)} onAdd={(date) => { setFormRow({ appointmentDate: date }); setError(''); }} canAdd={columns.length > 0} onShift={(days) => { setSelectedDate(shiftDate(selectedDate, days)); setAllDates(false); }} onThisWeek={() => { setSelectedDate(isoDate(new Date())); setAllDates(false); }} />}
+        {layout === 'table' && <>
         <div className="mb-4 space-y-2 border-y border-cardline py-3">
           <p className="text-xs font-semibold uppercase text-charcoal/65">Filter appointments</p>
           {filters.map((filter, index) => <div key={filter.id} className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_160px_minmax(0,1fr)_auto] [&>input]:min-w-0 [&>select]:min-w-0">
@@ -352,7 +379,8 @@ const SalesWorkspace = () => {
             {!loading && !filteredRows.length && <tr><td colSpan={canManageReception ? 9 : 8} className="p-8 text-center">{rows.length ? 'No appointments match this filter.' : 'No appointments for this date.'}</td></tr>}
           </tbody></table>
         </div>
-      {formRow && <AppointmentForm key={formRow.id || 'new'} onCreated={() => { setFormRow(null); loadRows().catch(() => {}); }} sheet="sales" row={formRow} onClose={() => { setFormRow(null); loadRows().catch(() => {}); }} onChanged={() => loadRows().catch(() => {})} />}
+        </>}
+      {formRow && <AppointmentForm key={formRow.id || 'new'} onCreated={() => { setFormRow(null); refreshAll(); }} sheet="sales" row={formRow} onClose={() => { setFormRow(null); refreshAll(); }} onChanged={refreshAll} />}
       <Modal open={Boolean(rescheduleRow)} onClose={() => { setRescheduleRow(null); setRescheduleDate(''); }} title="Reschedule appointment">
         <div className="space-y-4">
           <div><p className="text-sm font-semibold text-charcoal">{rescheduleRow?.appointmentCode}</p><p className="mt-1 text-xs text-charcoal/55">All appointment details will be copied to the new date.</p></div>

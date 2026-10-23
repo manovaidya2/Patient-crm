@@ -4,6 +4,7 @@ import Card from '../components/ui/Card.jsx';
 import Button from '../components/ui/Button.jsx';
 import ScheduleReminderAlert from '../components/ScheduleReminderAlert.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
+import { LayoutGrid as PageTitleIcon } from 'lucide-react';
 
 // Shown to roles whose dedicated workspace hasn't been built yet
 // (manager, post counselor, assistant doctor, psychologist, medicine department, dispatch & courier).
@@ -26,7 +27,7 @@ const GenericDashboard = () => {
         <ScheduleReminderAlert />
         <div className="flex min-h-[calc(100vh-7rem)] items-center justify-center">
           <Card className="max-w-md w-full text-center">
-            <h1 className="font-display text-xl font-bold text-charcoal">Welcome, {user?.name}</h1>
+            <h1 className="flex items-center gap-3 font-display text-xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Welcome, {user?.name}</h1>
             <p className="mt-2 text-sm text-charcoal/60">
               You're logged in as <span className="font-semibold text-sage">{user?.roleLabel}</span>. Your
               dedicated workspace for this role is being built next.

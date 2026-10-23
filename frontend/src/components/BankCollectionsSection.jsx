@@ -68,7 +68,7 @@ const BankCollectionsSection = ({
                   <Wrapper
                     type={clickable ? 'button' : undefined}
                     onClick={clickable ? () => setSelectedBank(bank) : undefined}
-                    className={`flex w-full flex-col items-start sm:flex-row sm:items-center gap-3 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-3 text-left ${
+                    className={`flex w-full flex-col items-start sm:flex-row sm:items-center gap-3 rounded-[12px] border border-[#EFE3CF] bg-[#FBF7ED] px-3.5 py-3 text-left ${
                       clickable ? 'transition hover:border-sage hover:bg-sage-muted/10' : ''
                     }`}
                   >

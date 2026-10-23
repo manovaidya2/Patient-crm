@@ -9,6 +9,7 @@ import HrCandidateForm from './HrCandidateForm.jsx';
 import HrCallForm from './HrCallForm.jsx';
 import HrScreeningForm from './HrScreeningForm.jsx';
 import { CALL_OUTCOMES, CALL_TYPES, CANDIDATE_STAGES, INTERVIEW_TYPES, formatDateTime, formatMoney, labelFor } from './hrOptions.js';
+import { UserRound as PageTitleIcon } from 'lucide-react';
 
 const tone = (status) => ({
   accepted: 'bg-emerald-100 text-emerald-800', approved: 'bg-emerald-100 text-emerald-800', completed: 'bg-emerald-100 text-emerald-800', shortlisted: 'bg-emerald-100 text-emerald-800',
@@ -80,7 +81,7 @@ export default function HrCandidateDetails() {
     {hasHrFullAccess(user?.role) && <div className="flex justify-end"><Button variant="danger" onClick={removeCandidate}><Trash2 size={15}/> Delete candidate</Button></div>}
     <section className="border border-cardline bg-offwhite-100">
       <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center bg-[#EAF3F1] text-sage"><UserRound /></div><div><p className="text-xs font-semibold uppercase text-charcoal/50">{candidate.candidateCode}</p><h1 className="font-display text-3xl font-bold text-charcoal">{candidate.name}</h1><p className="mt-1 text-charcoal/60">{candidate.appliedPosition} | {candidate.phone}</p></div></div>
+        <div className="flex gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center bg-[#EAF3F1] text-sage"><UserRound /></div><div><p className="text-xs font-semibold uppercase text-charcoal/50">{candidate.candidateCode}</p><h1 className="flex items-center gap-3 font-display text-3xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />{candidate.name}</h1><p className="mt-1 text-charcoal/60">{candidate.appliedPosition} | {candidate.phone}</p></div></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setCandidateForm(true)}><Pencil size={15} /> Edit candidate</Button><Button variant="outline" onClick={() => setScreeningForm(true)}><ClipboardCheck size={15} /> Screening</Button>{screening.status === 'shortlisted' && !interviews.length && <Link to={interviewUrl} className="inline-flex items-center gap-2 bg-sage px-4 py-2 text-sm font-semibold text-white"><CalendarClock size={15} /> Schedule interview</Link>}{canPrepareOffer && <Link to={offerUrl} className="inline-flex items-center gap-2 bg-sage px-4 py-2 text-sm font-semibold text-white"><Plus size={15} /> Prepare offer</Link>}<Button onClick={() => { setEditingCall(null); setCallForm(true); }}><Plus size={15} /> Add manual call</Button></div>
       </div>
       <div className="grid border-t border-cardline sm:grid-cols-2 lg:grid-cols-6">

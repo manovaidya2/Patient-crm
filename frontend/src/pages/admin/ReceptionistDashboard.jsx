@@ -12,6 +12,7 @@ import MultiSelectCell, { splitChoices } from '../../components/MultiSelectCell.
 import Drawer from '../../components/ui/Drawer.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { CalendarClock as PageTitleIcon } from 'lucide-react';
 
 const localIsoDate = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const displayDate = (value) => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
@@ -274,7 +275,7 @@ const ReceptionistDashboard = () => {
   return (
     <div className="mx-auto max-w-[1800px]">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-cardline pb-5">
-        <div><p className="text-xs font-semibold uppercase text-charcoal/50">Receptionist Dashboard</p><h1 className="mt-1 font-display text-2xl font-bold text-charcoal">Appointment Management</h1><p className="mt-1 text-sm text-charcoal/55">{filteredRows.length}{filters.some((item) => item.field) ? ` of ${rows.length}` : ''} appointments <span className={`ml-2 text-xs ${live ? 'text-sage' : 'text-charcoal/40'}`}>{live ? 'Live' : 'Connecting'}</span></p></div>
+        <div><p className="text-xs font-semibold uppercase text-charcoal/50">Receptionist Dashboard</p><h1 className="flex items-center gap-3 mt-1 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Appointment Management</h1><p className="mt-1 text-sm text-charcoal/55">{filteredRows.length}{filters.some((item) => item.field) ? ` of ${rows.length}` : ''} appointments <span className={`ml-2 text-xs ${live ? 'text-sage' : 'text-charcoal/40'}`}>{live ? 'Live' : 'Connecting'}</span></p></div>
         <div className="flex flex-wrap items-center gap-2">
           {!allDates && <label className="flex items-center gap-2 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2"><CalendarDays size={16} className="text-sage" /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="bg-transparent text-sm outline-none" aria-label="Appointment date" /></label>}
           <label className="flex items-center gap-2 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2 text-sm"><input type="checkbox" checked={allDates} onChange={(event) => setAllDates(event.target.checked)} className="accent-sage" /> All dates</label>

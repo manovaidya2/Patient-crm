@@ -9,6 +9,7 @@ import Badge from './ui/Badge.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from './ui/Attachments.jsx';
+import { PackageCheck as PageTitleIcon } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const SERVER_BASE = API_BASE.replace(/\/api\/?$/, '');
@@ -265,7 +266,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
     <div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">{title}</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />{title}</h1>
           <p className="mt-1 text-sm text-charcoal/60">{subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

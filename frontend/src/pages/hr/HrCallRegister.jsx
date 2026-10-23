@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { hasHrFullAccess } from '../../constants/roles.js';
 import HrCallForm from './HrCallForm.jsx';
 import { CALL_OUTCOMES, CALL_TYPES, formatDateTime, labelFor } from './hrOptions.js';
+import { PhoneCall as PageTitleIcon } from 'lucide-react';
 
 const control = 'rounded-md border border-cardline bg-white px-3 py-2.5 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 
@@ -54,7 +55,7 @@ export default function HrCallRegister() {
   };
 
   return <div className="space-y-5">
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="font-display text-2xl font-bold text-charcoal">Manual Call Register</h1><p className="mt-1 text-sm text-charcoal/60">{pagination.total} HR-entered call records • no telephony integration</p></div><div className="flex gap-2"><Button variant="outline" onClick={exportExcel}><Download size={16} /> Excel</Button><Button onClick={() => { setEditing(null); setFormOpen(true); }}><Plus size={16} /> Add manual call</Button></div></header>
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Manual Call Register</h1><p className="mt-1 text-sm text-charcoal/60">{pagination.total} HR-entered call records • no telephony integration</p></div><div className="flex gap-2"><Button variant="outline" onClick={exportExcel}><Download size={16} /> Excel</Button><Button onClick={() => { setEditing(null); setFormOpen(true); }}><Plus size={16} /> Add manual call</Button></div></header>
     <section className="border border-cardline bg-offwhite-100 p-4"><form onSubmit={(event) => { event.preventDefault(); setApplied(filters); }} className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <input className={control} placeholder="Search call, candidate or remarks" value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} />
       <select className={control} value={filters.candidateId} onChange={(event) => setFilters({ ...filters, candidateId: event.target.value })}><option value="">All candidates</option>{candidates.map((row) => <option key={row.id} value={row.id}>{row.candidateCode} - {row.name}</option>)}</select>

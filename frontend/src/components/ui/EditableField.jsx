@@ -10,6 +10,8 @@ const EditableField = ({
   onSave,
   readOnly = false,
   tone = 'default',
+  // 'box' (default): label above value in a tinted cell. 'row': label left, value right, as a key/value list.
+  layout = 'box',
 }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
@@ -47,14 +49,16 @@ const EditableField = ({
     if (e.key === 'Escape') cancelEdit();
   };
 
-  const panelClass = tone === 'danger' ? 'bg-[#B42318]/5' : 'bg-offwhite-100';
-  const labelClass = tone === 'danger' ? 'text-[#B42318]/75' : 'text-charcoal/55';
+  const row = layout === 'row';
+  const panelClass = row ? `grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] items-start gap-3 rounded-lg px-2 py-1.5 ${tone === 'danger' ? 'bg-[#B42318]/5' : 'hover:bg-[#FBF7ED]'}` : tone === 'danger' ? 'bg-[#B42318]/5' : 'bg-offwhite-100';
+  const labelClass = row ? (tone === 'danger' ? 'text-[#B42318]/75' : 'text-charcoal/60') : tone === 'danger' ? 'text-[#B42318]/75' : 'text-charcoal/55';
+  const labelText = row ? 'text-[12.5px] font-medium' : 'text-[11px] uppercase tracking-wide font-semibold';
 
   if (editing) {
     return (
-      <div className={`${panelClass} min-w-0 p-3 sm:p-4`}>
-        <p className={`text-[11px] uppercase tracking-wide font-semibold ${labelClass}`}>{label}</p>
-        <div className="mt-1 flex items-center gap-1">
+      <div className={`${panelClass} min-w-0 ${row ? '' : 'p-3 sm:p-4'}`}>
+        <p className={`${labelText} ${labelClass}`}>{label}</p>
+        <div className={`${row ? '' : 'mt-1'} flex items-center gap-1`}>
           {type === 'select' ? (
             <select
               autoFocus
@@ -110,7 +114,7 @@ const EditableField = ({
             <X size={14} />
           </button>
         </div>
-        {error && <p className="mt-1 text-[10px] text-[#8C3B2E]">{error}</p>}
+        {error && <p className={`mt-1 text-[10px] text-[#8C3B2E] ${row ? 'col-start-2' : ''}`}>{error}</p>}
       </div>
     );
   }
@@ -118,9 +122,9 @@ const EditableField = ({
   const displayValue = type === 'select' ? options.find((o) => String(o.value) === String(value))?.label : value;
 
   return (
-    <div className={`${panelClass} min-w-0 p-3 sm:p-4 group`}>
-      <div className="flex items-center justify-between gap-2">
-        <p className={`text-[11px] uppercase tracking-wide font-semibold ${labelClass}`}>{label}</p>
+    <div className={`${panelClass} min-w-0 ${row ? '' : 'p-3 sm:p-4'} group`}>
+      <div className={`flex items-center ${row ? 'gap-1' : 'justify-between gap-2'}`}>
+        <p className={`${labelText} ${labelClass}`}>{label}</p>
         {!readOnly && (
           <button
             onClick={startEdit}
@@ -133,8 +137,8 @@ const EditableField = ({
       </div>
       <p
         onClick={startEdit}
-        className={`mt-1 text-sm break-words ${readOnly ? '' : 'cursor-text'} ${
-          displayValue ? 'font-bold text-charcoal' : 'font-normal italic text-charcoal/35'
+        className={`${row ? 'row-start-1 col-start-2 text-[13px]' : 'mt-1 text-sm'} break-words ${readOnly ? '' : 'cursor-text'} ${
+          displayValue ? (row ? 'font-semibold text-charcoal' : 'font-bold text-charcoal') : 'font-normal italic text-charcoal/45'
         }`}
       >
         {displayValue || placeholder}

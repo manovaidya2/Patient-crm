@@ -10,6 +10,7 @@ import RefundImages from '../../components/RefundImages.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { RotateCcw as PageTitleIcon } from 'lucide-react';
 
 const money = (amount) => `Rs ${Number(amount || 0).toLocaleString('en-IN')}`;
 const dateTime = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
@@ -83,7 +84,7 @@ const Refunds = () => {
 
   return <div>
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-xs font-semibold uppercase text-sage">Accounts</p><h1 className="font-display text-xl font-bold text-charcoal sm:text-2xl">Refund Register</h1></div>
+      <div><p className="text-xs font-semibold uppercase text-sage">Accounts</p><h1 className="flex items-center gap-3 font-display text-xl font-bold text-charcoal sm:text-2xl"><PageTitleIcon size={20} aria-hidden="true" />Refund Register</h1></div>
       <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} />Refresh</Button>
     </div>
     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">

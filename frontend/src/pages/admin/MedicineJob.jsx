@@ -18,8 +18,8 @@ const money = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
 const num = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number.isInteger(Number(v)) ? String(v) : String(Math.round(Number(v) * 1000) / 1000));
 const URGENCY = { breached: ['Overdue', 'bg-[#8C3B2E]/10 text-[#8C3B2E]'], critical: ['Due within 24 h', 'bg-[#8C3B2E]/10 text-[#8C3B2E]'], risk: ['Due within 48 h', 'bg-amber-100 text-amber-900'], normal: ['On time', 'bg-emerald-100 text-emerald-800'] };
 const ErrorText = ({ children }) => (children ? <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{children}</p> : null);
-const Section = ({ title, icon: Icon, action, children }) => (
-  <section className="rounded-xl border border-cardline bg-white p-4"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-sm font-bold text-charcoal">{Icon && <Icon size={16} className="text-sage" />}{title}</h3>{action}</div>{children}</section>
+const Section = ({ title, icon: Icon, action, children, tone }) => (
+  <section className={`rounded-[14px] p-4 sm:p-[18px] ${tone === 'action' ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-white'}`}><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className={`flex items-center gap-2 font-display font-bold text-charcoal ${tone === 'action' ? 'text-[15px]' : 'text-[13.5px]'}`}>{Icon && <Icon size={16} className={tone === 'action' ? 'text-[#C2410C]' : 'text-sage'} />}{title}</h3>{action}</div>{children}</section>
 );
 
 // ManoVaidya chit card, as the Chit Book prints it.
@@ -135,8 +135,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
         </div>
       )}
       <div>
-        <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">Checklist · {stage.sop}</p>
-        <ul className="space-y-1">{stage.checks.map((c, i) => <li key={i}><label className={`flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm ${checks[i] ? 'text-charcoal/55 line-through decoration-cardline' : 'text-charcoal'} ${canAct ? 'cursor-pointer hover:bg-offwhite-200' : ''}`}><input type="checkbox" className="mt-0.5 h-4 w-4 accent-sage" checked={Boolean(checks[i])} disabled={!canAct} onChange={(e) => setChecks((o) => ({ ...o, [i]: e.target.checked }))} />{c}</label></li>)}</ul>
+        <p className="mb-1.5 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60">Checklist · {stage.sop} <span className="normal-case tracking-normal text-charcoal/55">· {stage.checks.filter((_, i) => checks[i]).length} of {stage.checks.length} ticked</span></p>
+        <ul className="space-y-1.5">{stage.checks.map((c, i) => <li key={i}><label className={`flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] ${checks[i] ? 'border-[#A7D3B8] bg-[#F6FBF7] text-charcoal/60 line-through decoration-[#A7D3B8]' : 'border-[#EFE3CF] bg-[#FBF7ED] text-charcoal'} ${canAct ? 'cursor-pointer hover:border-[#DED2BD]' : ''}`}><input type="checkbox" className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-sage" checked={Boolean(checks[i])} disabled={!canAct} onChange={(e) => setChecks((o) => ({ ...o, [i]: e.target.checked }))} />{c}</label></li>)}</ul>
       </div>
       {stage.fields.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{stage.fields.map(field)}</div>}
       <FieldLabel label="Stage notes"><input className={poInput} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canAct} /></FieldLabel>
@@ -190,37 +190,40 @@ export default function MedicineJobPage() {
   return (
     <div className="space-y-4">
       <button type="button" onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/admin/medicine-requests'))} className="inline-flex items-center gap-1.5 text-sm font-medium text-sage hover:text-charcoal"><ArrowLeft size={15} /> Back</button>
-      <div className="flex flex-wrap items-start gap-3">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage"><Pill size={22} /></span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="font-display text-xl font-bold text-charcoal sm:text-2xl">{job.patientName}</h1>{job.poNumber && <span className="font-mono text-sm font-bold text-charcoal/70">{job.poNumber}</span>}<Badge tone={job.status === 'released' ? 'inactive' : job.status === 'ready' ? 'teal' : 'amber'}>{job.status === 'released' ? 'Released' : job.status === 'ready' ? 'Medicine ready' : 'In fulfilment'}</Badge>{job.hold && <Badge tone="danger">On hold</Badge>}</div>
-          <p className="mt-0.5 text-sm text-charcoal/65">{job.patientCode} · Phase {job.phase} · {job.supplyLabel || 'supply not set'} · {job.ageBandLabel || 'age group not set'} · requested {dateTime(job.requestedAt)}{job.requestedByName ? ` by ${job.requestedByName}` : ''}</p>
+      <header className="flex flex-wrap items-center gap-3.5 rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-3.5 sm:px-[18px]">
+        <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9EFE9] text-sage sm:flex"><Pill size={19} /></span>
+        <div className="min-w-[240px] flex-1">
+          <div className="flex flex-wrap items-center gap-2"><h1 className="font-display text-[17px] font-extrabold text-charcoal">{job.patientName}</h1>{job.poNumber && <span className="rounded-full bg-[#E9EFE9] px-2.5 py-0.5 font-mono text-[11px] font-bold text-sage">PO {job.poNumber}</span>}{(job.supplyLabel || job.ageBandLabel) && <span className="rounded-full bg-[#FBF0DC] px-2.5 py-0.5 text-[11px] font-bold text-[#7C5B2E]">{[job.supplyLabel, job.ageBandLabel].filter(Boolean).join(' · ')}</span>}<Badge tone={job.status === 'released' ? 'inactive' : job.status === 'ready' ? 'teal' : 'amber'}>{job.status === 'released' ? 'Released' : job.status === 'ready' ? 'Medicine ready' : 'In fulfilment'}</Badge>{job.hold && <Badge tone="danger">On hold</Badge>}</div>
+          <p className="mt-0.5 text-[12.5px] text-charcoal/65">{job.patientCode} · Phase {job.phase} · {job.supplyLabel || 'supply not set'} · {job.ageBandLabel || 'age group not set'} · requested {dateTime(job.requestedAt)}{job.requestedByName ? ` by ${job.requestedByName}` : ''}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {job.readyByDate && <span className={`rounded-full px-3 py-1 text-xs font-bold ${urgTone}`}>{urgLabel} · ready by {day(job.readyByDate)}</span>}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {job.readyByDate && <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${urgTone}`}>{urgLabel} · ready by {day(job.readyByDate)}</span>}
+          <div className="w-40" title={`${job.progress}% done`}><p className="text-right text-[11px] text-charcoal/60">Stage {Math.min(job.currentStage + 1, job.totalStages)} of {job.totalStages} · <b className="text-charcoal">{job.progress}%</b></p><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#EFE3CF]"><div className="h-full rounded-full bg-sage transition-all" style={{ width: `${job.progress}%` }} /></div></div>
           {job.purchaseOrderId && <Link to={`/admin/purchase-orders/${job.purchaseOrderId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />PO</Button></Link>}
           {canAct && job.status !== 'released' && !job.hold && <Button size="sm" variant="outline" onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={14} />Hold</Button>}
         </div>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-cardline"><div className="h-full bg-sage transition-all" style={{ width: `${job.progress}%` }} /></div>
+      </header>
       <ErrorText>{error}</ErrorText>
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
       {holdOpen && <div className="flex flex-wrap gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><input className={`${poInput} flex-1`} placeholder="Reason for the hold (e.g. dose unclear, leak)" value={holdText} onChange={(e) => setHoldText(e.target.value)} /><Button size="sm" disabled={!holdText.trim()} onClick={() => act('hold', { reason: holdText })}>Put on hold</Button></div>}
       {job.hold && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#8C3B2E]/30 bg-[#8C3B2E]/5 p-3 text-sm"><span><b className="text-[#8C3B2E]">On hold:</b> {job.hold.reason} <span className="text-charcoal/50">({job.hold.byName}, {dateTime(job.hold.at)})</span></span>{canAct && <div className="flex gap-2"><input className={`${poInput} w-64`} placeholder="Corrective action taken" value={holdText} onChange={(e) => setHoldText(e.target.value)} /><Button size="sm" disabled={!holdText.trim()} onClick={() => act('resume', { note: holdText })}><PlayCircle size={14} />Resume</Button></div>}</div>}
       {job.formulation?.pending?.length > 0 && <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900"><b>Points the doctor still has to confirm:</b> {job.formulation.pending.join(' ')}</div>}
 
-      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <nav className="flex gap-1 overflow-x-auto lg:sticky lg:top-4 lg:flex-col lg:self-start" aria-label="Stages">
-          {job.stages.map((s, i) => (
-            <button key={s.key} type="button" onClick={() => setView(i)} aria-current={shown?.key === s.key ? 'step' : undefined} className={`flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition lg:w-full ${shown?.key === s.key ? 'bg-white shadow-sm ring-1 ring-sage/40' : 'hover:bg-white/70'}`}>
-              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${s.state === 'done' ? 'border-emerald-600 bg-emerald-600 text-white' : s.state === 'current' ? 'border-sage bg-white text-sage' : 'border-cardline bg-white text-charcoal/40'}`}>{s.state === 'done' ? <Check size={12} /> : s.n}</span>
-              <span className="min-w-0"><span className={`block truncate font-semibold ${s.state === 'todo' ? 'text-charcoal/50' : 'text-charcoal'}`}>{s.label}</span><span className="block truncate text-[11px] text-charcoal/50">{s.state === 'done' ? `${s.doneByName} · ${dateTime(s.doneAt)}` : s.roles.map((r) => ROLE_LABELS[r]).join(' / ')}</span></span>
-            </button>
-          ))}
+      <div className="grid items-start gap-3.5 lg:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[270px_minmax(0,1fr)_300px]">
+        <nav className="flex gap-1 overflow-x-auto rounded-[14px] border border-[#E8DFCB] bg-white p-2 lg:sticky lg:top-4 lg:flex-col lg:self-start" aria-label="Stages">
+          {job.stages.map((s, i) => {
+            const mine = s.state === 'current' && s.roles.includes(user?.role);
+            return (
+              <button key={s.key} type="button" onClick={() => setView(i)} aria-current={shown?.key === s.key ? 'step' : undefined} className={`grid shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[12.5px] transition lg:w-full ${s.state === 'current' ? 'bg-[#FFF1E6] ring-1 ring-[#FDBA74]' : 'hover:bg-[#FBF7ED]'} ${shown?.key === s.key && s.state !== 'current' ? 'bg-[#F3F6F2] ring-1 ring-sage/40' : ''}`}>
+                <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold ${s.state === 'done' ? 'bg-[#2F8F5B] text-white' : s.state === 'current' ? 'bg-[#F97316] text-white' : 'border-[1.5px] border-[#D9CFBA] text-[#B4AA95]'}`}>{s.state === 'done' ? <Check size={12} /> : s.n}</span>
+                <span className="min-w-0"><span className={`block truncate ${s.state === 'todo' ? 'text-[#8a9094]' : s.state === 'current' ? 'font-extrabold text-charcoal' : 'font-semibold text-charcoal'}`}>{s.label}</span><span className={`block truncate text-[11px] ${mine ? 'font-bold text-[#C2410C]' : s.state === 'todo' ? 'text-[#b4b9bc]' : 'text-charcoal/60'}`}>{s.state === 'done' ? `${s.doneByName} · ${dateTime(s.doneAt)}` : mine ? `Your stage · ${s.roles.map((r) => ROLE_LABELS[r]).join(' / ')}` : s.roles.map((r) => ROLE_LABELS[r]).join(' / ')}</span></span>
+              </button>
+            );
+          })}
         </nav>
-        <main className="min-w-0 space-y-4">
+        <main className="min-w-0 space-y-3.5">
           {shown && (
-            <Section title={`${shown.n}. ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
+            <Section tone={stageCanAct ? 'action' : undefined} title={`${shown.n} · ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
               <p className="mb-3 text-sm text-charcoal/70">{shown.purpose}</p>
               {shown.state === 'done' ? (
                 <div className="space-y-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
@@ -255,16 +258,19 @@ export default function MedicineJobPage() {
               )}
             </Section>
           )}
-          <Section title="Request" icon={FileText}>
-            <div className="grid gap-x-6 text-sm sm:grid-cols-2">
-              <p><span className="text-charcoal/55">Medicines:</span> {job.medicines || '-'}</p>
-              <p><span className="text-charcoal/55">Notes:</span> {job.requestNotes || '-'}</p>
-              <p><span className="text-charcoal/55">Requested:</span> {dateTime(job.requestedAt)} {job.requestedByName && `by ${job.requestedByName}`}</p>
-              <p><span className="text-charcoal/55">Ready by:</span> {day(job.readyByDate) || 'not set'}</p>
-            </div>
-          </Section>
-          {job.events?.length > 0 && <Section title="Activity" icon={Clock3}><ol className="space-y-1.5">{job.events.map((e, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-xs text-charcoal/45">{dateTime(e.at)}</span><span className="min-w-0"><b className="font-semibold text-charcoal">{e.action}</b>{e.details ? <span className="text-charcoal/70"> - {e.details}</span> : ''} <span className="text-xs text-charcoal/45">· {e.byName}</span></span></li>)}</ol></Section>}
         </main>
+        <aside className="min-w-0 space-y-3.5 lg:col-start-2 2xl:col-start-auto">
+          <Section title="Request" icon={FileText}>
+            <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 text-[12.5px]">
+              <dt className="text-charcoal/60">Medicines</dt><dd className="min-w-0 break-words font-medium text-charcoal">{job.medicines || '-'}</dd>
+              <dt className="text-charcoal/60">Notes</dt><dd className="min-w-0 break-words font-medium text-charcoal">{job.requestNotes || '-'}</dd>
+              <dt className="text-charcoal/60">Requested</dt><dd className="min-w-0 break-words font-medium text-charcoal">{dateTime(job.requestedAt)} {job.requestedByName && `by ${job.requestedByName}`}</dd>
+              <dt className="text-charcoal/60">Ready by</dt><dd className="min-w-0 break-words font-medium text-charcoal">{day(job.readyByDate) || 'not set'}</dd>
+            </dl>
+            {job.formulation?.pending?.length > 0 && <p className="mt-2.5 rounded-lg bg-[#FBF0DC] px-2.5 py-1.5 text-[11.5px] text-[#7C5B2E]">{job.formulation.pending.length} point(s) pending with the doctor</p>}
+          </Section>
+          {job.events?.length > 0 && <Section title="Activity" icon={Clock3}><ol className="space-y-2">{job.events.map((e, i) => <li key={i} className="text-[12.5px]"><span className="block text-[11px] text-charcoal/55">{dateTime(e.at)} · {e.byName}</span><b className="font-semibold text-charcoal">{e.action}</b>{e.details ? <span className="text-charcoal/70"> - {e.details}</span> : ''}</li>)}</ol></Section>}
+        </aside>
       </div>
       {!canAct && <p className="flex items-center gap-2 text-xs text-charcoal/50"><AlertTriangle size={13} />Read-only view: the Medicine Department and the doctor complete these stages.</p>}
     </div>

@@ -114,8 +114,9 @@ const COUNTERS = {
     }
     return n;
   },
-  async '/admin/followups'(user) { return (await scheduleReminders(user)).filter((r) => /follow-up/i.test(r.type || '')).length; },
-  async '/admin/family-sessions'(user) { return (await scheduleReminders(user)).filter((r) => /family session/i.test(r.type || '')).length; },
+  // Reminder types are 'followup' and 'family_session' (see collectScheduleReminders).
+  async '/admin/followups'(user) { return (await scheduleReminders(user)).filter((r) => r.type === 'followup').length; },
+  async '/admin/family-sessions'(user) { return (await scheduleReminders(user)).filter((r) => r.type === 'family_session').length; },
   // Patients sent to post counselling whose outcome is not decided yet (scoped to the counselor, like the page).
   async '/admin/post-counseling-patients'(user) {
     const { listPostCounselingPatients } = require('./receptionFlowController');

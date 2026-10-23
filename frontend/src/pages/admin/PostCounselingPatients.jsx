@@ -8,6 +8,7 @@ import Button from '../../components/ui/Button.jsx';
 import PostCounselingRecordModal from '../../components/postcounseling/PostCounselingRecordModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { Users as PageTitleIcon } from 'lucide-react';
 
 const CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health' };
 const formatDate = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
@@ -54,7 +55,7 @@ const PostCounselingPatients = () => {
     <div>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Post Counseling Patients</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Post Counseling Patients</h1>
           <p className="text-sm text-charcoal/60">{isCounselor ? 'Patients reception has sent to you.' : 'Patients sent by reception to Post Counselors.'}</p>
         </div>
         <div className="relative w-full sm:w-72">

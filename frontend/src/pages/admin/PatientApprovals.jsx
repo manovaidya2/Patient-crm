@@ -10,6 +10,7 @@ import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { ShieldCheck as PageTitleIcon } from 'lucide-react';
 
 const categoryTone = (category) => (category === PATIENT_CATEGORIES.AUTISM_ADHD ? 'teal' : 'amber');
 
@@ -105,7 +106,7 @@ const PatientApprovals = () => {
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Patient Approvals</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Patient Approvals</h1>
           <p className="mt-1 text-sm text-charcoal/60">
             New patients and new payments on existing patients, waiting for accounts to verify and approve.
           </p>

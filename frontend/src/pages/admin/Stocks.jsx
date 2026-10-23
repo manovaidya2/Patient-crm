@@ -6,6 +6,7 @@ import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
+import { PageHeader, StatRow, StatTile } from '../../components/ui/Layout.jsx';
 
 const UNITS = ['ml', 'g', 'tablet', 'spoon', 'drop', 'piece'];
 const KINDS = [['medicine', 'Medicine'], ['component', 'Component'], ['packing', 'Packing material']];
@@ -98,29 +99,35 @@ export default function Stocks() {
   const q = query.trim().toLowerCase();
   const rows = (items || []).filter((i) => (!kind || i.kind === kind) && (!q || [i.code, i.name, i.nameHindi].some((v) => String(v || '').toLowerCase().includes(q))));
   const low = (items || []).filter((i) => i.low).length;
+  const expired = (items || []).filter((i) => i.expired).length;
+  const kindCount = (k) => (items || []).filter((i) => i.kind === k).length;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="flex items-center gap-2 font-display text-xl font-bold text-charcoal sm:text-2xl"><Boxes size={22} className="text-sage" />Stocks</h1><p className="text-sm text-charcoal/60">Medicines, components and packing material the Medicine Department draws from. Preparation of a medicine job reduces these automatically.</p></div>
-        <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setLedgerOf('all')}><History size={15} />Ledger</Button><Button onClick={() => { setEditing(null); setItemOpen(true); }}><Plus size={15} />New item</Button></div>
-      </div>
+      <PageHeader icon={Boxes} title="Stocks" subtitle="Medicines, components and packing material the Medicine Department draws from. Preparation of a medicine job reduces these automatically."
+        actions={<><Button variant="outline" onClick={() => setLedgerOf('all')}><History size={15} />Ledger</Button><Button onClick={() => { setEditing(null); setItemOpen(true); }}><Plus size={15} />New item</Button></>} />
+      <StatRow min={140}>
+        <StatTile label="All items" value={items === null ? '...' : items.length} onClick={() => setKind('')} active={!kind} />
+        {KINDS.map(([v, l]) => <StatTile key={v} label={l} value={items === null ? '...' : kindCount(v)} onClick={() => setKind(v)} active={kind === v} />)}
+        <StatTile label="Low stock" value={items === null ? '...' : low} hint="At or below minimum" tone={low ? 'orange' : 'plain'} />
+        <StatTile label="Expired" value={items === null ? '...' : expired} hint="Past expiry date" tone={expired ? 'red' : 'plain'} />
+      </StatRow>
       {low > 0 && <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"><AlertTriangle size={15} />{low} item(s) at or below the minimum level.</p>}
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap gap-2">
         <div className="relative min-w-0 flex-1 sm:max-w-xs"><Search size={16} className="absolute left-3 top-2.5 text-charcoal/45" /><input className={`${poInput} !pl-9`} placeholder="Code or name" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
         <div className="flex gap-1.5"><Chip active={!kind} onClick={() => setKind('')}>All</Chip>{KINDS.map(([v, l]) => <Chip key={v} active={kind === v} onClick={() => setKind(v)}>{l}</Chip>)}</div>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-cardline bg-white">
-        <table className="w-full text-sm"><thead className="bg-offwhite-200 text-[11px] uppercase tracking-wide text-charcoal/55"><tr><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-left">Kind</th><th className="px-3 py-2 text-right">In stock</th><th className="px-3 py-2 text-right">Min</th><th className="px-3 py-2 text-left">Batch / expiry</th><th className="px-3 py-2 text-left">Conversion</th><th className="px-3 py-2" /></tr></thead>
+      <div className="overflow-x-auto rounded-[14px] border border-[#E8DFCB] bg-white">
+        <table className="w-full text-sm"><thead className="bg-[#FBF7ED] text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60"><tr><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-left">Kind</th><th className="px-3 py-2 text-right">In stock</th><th className="px-3 py-2 text-right">Min</th><th className="px-3 py-2 text-left">Batch / expiry</th><th className="px-3 py-2 text-left">Conversion</th><th className="px-3 py-2" /></tr></thead>
           <tbody>
             {items === null ? <tr><td colSpan={7} className="p-6 text-center text-charcoal/55">Loading...</td></tr>
               : !rows.length ? <tr><td colSpan={7} className="p-6 text-center text-charcoal/55">No stock items.</td></tr>
                 : rows.map((i) => (
-                  <tr key={i.id} className={`border-t border-cardline ${i.low ? 'bg-amber-50/60' : ''}`}>
+                  <tr key={i.id} className={`border-t border-[#F0E8D8] ${i.low ? 'bg-[#FFF7ED]' : ''}`}>
                     <td className="px-3 py-2"><b className="font-mono">{i.code}</b><div className="text-xs text-charcoal/60">{i.name}{i.nameHindi ? ` · ${i.nameHindi}` : ''}</div></td>
                     <td className="px-3 py-2 text-xs capitalize">{i.kind}</td>
-                    <td className="px-3 py-2 text-right font-mono font-bold">{num(i.currentStock)} {i.unit}{i.low && <div className="text-[10px] font-semibold text-amber-800">LOW</div>}</td>
+                    <td className="px-3 py-2 text-right"><span className="font-mono font-bold">{num(i.currentStock)} {i.unit}</span>{i.low && <div className="text-[10px] font-bold text-[#C2410C]">LOW</div>}<div className="ml-auto mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-[#EFE3CF]" title="Stock against twice the minimum level"><div className={`h-full rounded-full ${i.low ? 'bg-[#F97316]' : 'bg-[#2F8F5B]'}`} style={{ width: `${Math.max(4, Math.min(100, Number(i.minLevel) > 0 ? (Number(i.currentStock) / (Number(i.minLevel) * 2)) * 100 : 100))}%` }} /></div></td>
                     <td className="px-3 py-2 text-right font-mono text-charcoal/60">{num(i.minLevel)}</td>
                     <td className="px-3 py-2 text-xs">{i.batchNo || '-'}{i.expiryDate ? <div className={i.expired ? 'font-semibold text-[#8C3B2E]' : ''}>{day(i.expiryDate)}{i.expired ? ' (expired)' : ''}</div> : null}</td>
                     <td className="px-3 py-2 text-xs text-charcoal/60">{i.gramsPerSpoon ? `${i.gramsPerSpoon} g/spoon` : ''}{i.dropsPerMl ? `${i.dropsPerMl} drops/ml` : ''}{!i.gramsPerSpoon && !i.dropsPerMl && (i.unit === 'g' || i.unit === 'ml') && ['SHIVA-LEH', 'BUDDHI-GHRIT'].includes(i.code) ? <span className="text-amber-800">pending</span> : ''}</td>

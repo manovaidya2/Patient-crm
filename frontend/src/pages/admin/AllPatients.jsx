@@ -10,6 +10,7 @@ import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { PageHeader } from '../../components/ui/Layout.jsx';
 
 const PAGE_SIZE = 10;
 const OPTIONAL_PATIENT_COLUMNS = [
@@ -37,6 +38,11 @@ const emptyPatientForm = {
   currentStage: 1,
   postCounselor: '',
 };
+
+// Avatar colour and initials for a patient row (same palette as the design mockups).
+const AVATAR = ['#273238', '#657B6C', '#7C5CBF', '#B45309', '#0F4642', '#9F1D1D'];
+const avatarOf = (name = '') => AVATAR[[...String(name)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % AVATAR.length];
+const initialsOf = (name = '') => String(name).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
 const categoryTone = (category) => (category === PATIENT_CATEGORIES.AUTISM_ADHD ? 'teal' : 'amber');
 
@@ -233,22 +239,15 @@ const AllPatients = () => {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">All Patients</h1>
-          <p className="mt-1 text-sm text-charcoal/60">
-            Patients - {total} total.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader icon={Users} title="All Patients" subtitle={`Patients - ${total} total.`}
+        actions={<div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => setColumnsOpen(true)}>
             <SlidersHorizontal size={15} /> Columns
           </Button>
           {!isLimitedViewer && <Button onClick={openAddModal}>
             <Plus size={16} /> Add Patient
           </Button>}
-        </div>
-      </div>
+        </div>} />
 
       <Modal open={columnsOpen} onClose={() => setColumnsOpen(false)} title="Patient list columns">
         <div className="space-y-3">
@@ -390,11 +389,11 @@ const AllPatients = () => {
                 <thead>
                   <tr className="border-b border-[#56695D] bg-[#56695D] text-center text-[10px] font-bold uppercase text-white">
                     <th className="w-[8%] px-3 py-2.5 font-semibold">Patient ID</th>
-                    <th className="w-[11%] px-3 py-2.5 font-semibold">Patient Name</th>
+                    <th className="w-[15%] px-3 py-2.5 text-left font-semibold">Patient Name</th>
                     <th className="w-[14%] px-3 py-2.5 font-semibold">Category</th>
                     <th className="w-[6%] px-3 py-2.5 font-semibold">Age</th>
-                    <th className="w-[14%] px-3 py-2.5 font-semibold">Phone / Father's Number</th>
-                    <th className="w-[13%] px-3 py-2.5 font-semibold">Guardian / Relative</th>
+                    <th className="w-[12%] px-3 py-2.5 font-semibold">Phone / Father's Number</th>
+                    <th className="w-[11%] px-3 py-2.5 font-semibold">Guardian / Relative</th>
                     <th className="w-[12%] px-3 py-2.5 font-semibold">Mother's / Relative Number</th>
                     <th className="w-[11%] px-3 py-2.5 font-semibold">Consultation Date</th>
                     {optionalColumns.includes('receivedDate') && <th className="w-[11%] px-3 py-2.5 font-semibold">Received</th>}
@@ -417,8 +416,8 @@ const AllPatients = () => {
                           : 'hover:bg-offwhite-300/25'
                       }`}
                     >
-                      <td data-label="Patient ID" className="break-words px-3 py-3 font-mono text-[10px] font-bold text-charcoal/45">{p.patientCode}</td>
-                      <td data-label="Patient name" className="break-words px-3 py-3 font-medium text-charcoal">{p.patientName}</td>
+                      <td data-label="Patient ID" className="break-words px-3 py-3 font-mono text-[10.5px] font-bold text-charcoal/65">{p.patientCode}</td>
+                      <td data-label="Patient name" className="break-words px-3 py-3 text-left text-charcoal"><span className="flex min-w-0 items-center gap-2.5"><span aria-hidden="true" className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-[10px] font-display text-[11px] font-extrabold text-white sm:flex" style={{ background: avatarOf(p.patientName) }}>{initialsOf(p.patientName)}</span><b className="min-w-0 break-words text-[12.5px] font-bold">{p.patientName}</b></span></td>
                       <td data-label="Category" className="px-3 py-3">
                         <div className="flex flex-wrap items-center justify-center gap-1.5">
                           <Badge tone={categoryTone(p.category)}>{p.categoryLabel}</Badge>

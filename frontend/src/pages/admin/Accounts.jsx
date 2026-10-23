@@ -7,6 +7,7 @@ import Card from '../../components/ui/Card.jsx';
 import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { IndianRupee as PageTitleIcon } from 'lucide-react';
 
 const todayValue = () => {
   const date = new Date();
@@ -82,7 +83,7 @@ const Accounts = () => {
     <div>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Accounts Dashboard</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Accounts Dashboard</h1>
           <p className="mt-1 text-sm text-charcoal/60">Income aur expenses ka monthly/dated summary.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

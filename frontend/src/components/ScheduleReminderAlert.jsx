@@ -35,6 +35,9 @@ const ScheduleReminderAlert = () => {
   const navigate = useNavigate();
   const [toasts, setToasts] = useState([]);
   const mutedRef = useRef(new Map());
+  // Every reminder currently pending (shown or counted in "more"), so "Remind all later" can mute them together.
+  const pendingIdsRef = useRef([]);
+  const viewAllRef = useRef(false);
   const active = REMINDER_ROLES.includes(user?.role);
 
   useEffect(() => {
@@ -58,6 +61,7 @@ const ScheduleReminderAlert = () => {
       });
 
       const pending = reminders.filter((item) => !mutedRef.current.has(String(item.id)));
+      pendingIdsRef.current = pending.map((item) => String(item.id));
       const shown = pending.slice(0, MAX_TOASTS);
 
       const next = shown.map((item) => (item.source === 'transit' ? {
@@ -103,7 +107,8 @@ const ScheduleReminderAlert = () => {
           title: 'More reminders pending',
           message: `${extra} more reminder${extra > 1 ? 's are' : ' is'} pending.`,
           actionLabel: 'View all',
-          onAction: () => navigate(getListPath(shown[0])),
+          cancelLabel: 'Remind all later',
+          onAction: () => { viewAllRef.current = true; navigate(getListPath(shown[0])); },
         });
       }
 
@@ -131,9 +136,15 @@ const ScheduleReminderAlert = () => {
   }, [active, user?.role, navigate]);
 
   const handleDismiss = (id) => {
-    if (id !== '__more__') {
-      mutedRef.current.set(String(id), Date.now() + MUTE_MS);
+    if (id === '__more__') {
+      if (viewAllRef.current) { viewAllRef.current = false; setToasts((prev) => prev.filter((toast) => toast.id !== id)); return; }
+      // Remind all later: mute every pending reminder for the same time as a single "Remind later" and close the cards.
+      const until = Date.now() + MUTE_MS;
+      pendingIdsRef.current.forEach((pendingId) => mutedRef.current.set(pendingId, until));
+      setToasts([]);
+      return;
     }
+    mutedRef.current.set(String(id), Date.now() + MUTE_MS);
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   };
 

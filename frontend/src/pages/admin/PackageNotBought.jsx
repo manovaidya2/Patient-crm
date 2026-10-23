@@ -9,6 +9,7 @@ import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { UserMinus as PageTitleIcon } from 'lucide-react';
 
 const PAGE_SIZE = 10;
 
@@ -173,7 +174,7 @@ const PackageNotBought = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Post Counselor</p>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Package Not Bought</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Package Not Bought</h1>
           <p className="mt-1 text-sm text-charcoal/60">Patients who did not buy a package are kept separate from All Patients.</p>
         </div>
         <Button onClick={openAdd}>

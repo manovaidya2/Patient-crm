@@ -6,6 +6,7 @@ import Card from './ui/Card.jsx';
 import Drawer from './ui/Drawer.jsx';
 import Badge from './ui/Badge.jsx';
 import { DISPLAY_STATUS_BADGE_TONE } from '../constants/scheduleStatuses.js';
+import { PageHeader, StatRow, StatTile } from './ui/Layout.jsx';
 
 const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 
@@ -103,11 +104,89 @@ const formatDateTime = (iso) =>
 // Grouped-by-assignee summary with status-bucket counts — used for both the
 // Follow-ups and Family Sessions sidebar pages. Each count is clickable and
 // opens a drawer listing exactly those entries (patient, stage, date & time).
+// Calendar view of the same entries: colors by status, one chip per entry; a click opens the entry drawer.
+const CHIP = {
+  late: 'border-l-[3px] border-[#DC2626] bg-[#FDE2E1] text-[#7F1D1D]',
+  upcoming: 'border-l-[3px] border-sage bg-[#E9EFE9] text-[#2F4A3A]',
+  done: 'border-l-[3px] border-[#2F8F5B] bg-[#E6F2EA] text-[#1F6B41]',
+  done_late: 'border-l-[3px] border-[#B45309] bg-[#FBF0DC] text-[#7C5B2E]',
+  cancelled: 'border-l-[3px] border-[#C5C0B4] bg-[#F3EEE2] text-charcoal/45 line-through',
+};
+const FAMILY_CHIP = 'border-l-[3px] border-[#7C5CBF] bg-[#EFE9FA] text-[#4C2F8F]';
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const timeOf = (value) => new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+const ScheduleCalendar = ({ entries, range, mode, family, onOpen }) => {
+  const today = new Date();
+  const byDay = new Map();
+  entries.forEach((e) => { const k = dayKey(new Date(e.dateTime)); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(e); });
+  byDay.forEach((list) => list.sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime)));
+  const chipClass = (e) => (family && e.displayStatus === 'upcoming' ? FAMILY_CHIP : CHIP[e.displayStatus] || CHIP.upcoming);
+  const chip = (e) => (
+    <button key={e.id} type="button" onClick={() => onOpen([e], `${e.patientName} · ${formatDateTime(e.dateTime)}`)} className={`block w-full truncate rounded-md px-1.5 py-1 text-left text-[11px] leading-tight ${chipClass(e)}`} title={`${e.patientName} · ${e.displayStatusLabel || e.displayStatus}`}>
+      <b className="mr-1">{timeOf(e.dateTime)}</b>{e.patientName}
+    </button>
+  );
+
+  // Day agenda for today / tomorrow / a date / all.
+  if (!range || !['week', 'month'].includes(mode)) {
+    const days = [...byDay.entries()].sort((a, b) => new Date(a[1][0].dateTime) - new Date(b[1][0].dateTime));
+    if (!days.length) return null;
+    return (
+      <div className="divide-y divide-cardline-soft">
+        {days.map(([k, list]) => (
+          <div key={k} className="grid gap-3 p-4 sm:grid-cols-[120px_minmax(0,1fr)]">
+            <p className="font-display text-sm font-bold text-charcoal">{new Date(list[0].dateTime).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}{sameDay(new Date(list[0].dateTime), today) && <span className="ml-2 rounded-full bg-[#F97316] px-2 py-0.5 text-[10px] text-white">Today</span>}</p>
+            <ul className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+              {list.map((e) => (
+                <li key={e.id}><button type="button" onClick={() => onOpen([e], `${e.patientName} · ${formatDateTime(e.dateTime)}`)} className={`w-full rounded-lg px-3 py-2 text-left ${chipClass(e)}`}>
+                  <span className="block text-[12px] font-bold">{timeOf(e.dateTime)} · {e.patientName}</span>
+                  <span className="block truncate text-[11px] opacity-80">{e.stageLabel}{e.assignee ? ` · ${e.assignee}` : ''}{e.displayStatusLabel ? ` · ${e.displayStatusLabel}` : ''}</span>
+                </button></li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Week = 7 columns; month = Monday-first weeks covering the month.
+  const start = new Date(range.start);
+  const first = new Date(start);
+  if (mode === 'month') first.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+  const count = mode === 'week' ? 7 : Math.ceil((((start.getDay() + 6) % 7) + new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()) / 7) * 7;
+  const days = Array.from({ length: count }, (_, i) => { const d = new Date(first); d.setDate(first.getDate() + i); return d; });
+  const limit = mode === 'week' ? 12 : 3;
+  return (
+    <div className="overflow-x-auto">
+      <div className="grid min-w-[820px] grid-cols-7">
+        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="border-b border-cardline-soft px-2 py-2 text-[11px] font-bold uppercase text-charcoal/55">{d}</div>)}
+        {days.map((d) => {
+          const list = byDay.get(dayKey(d)) || [];
+          const outside = mode === 'month' && d.getMonth() !== start.getMonth();
+          const isToday = sameDay(d, today);
+          return (
+            <div key={d.toISOString()} className={`flex flex-col gap-1 border-b border-l border-cardline-soft p-1.5 ${mode === 'week' ? 'min-h-[260px]' : 'min-h-[108px]'} ${isToday ? 'bg-[#FFFBF5]' : outside ? 'bg-[#FBF7ED]' : ''}`}>
+              <span className={`mb-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-bold ${isToday ? 'bg-charcoal text-white' : outside ? 'text-charcoal/30' : 'text-charcoal'}`}>{d.getDate()}</span>
+              {list.slice(0, limit).map(chip)}
+              {list.length > limit && <button type="button" onClick={() => onOpen(list, d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }))} className="px-1 text-left text-[10.5px] font-bold text-charcoal/60 hover:underline">+{list.length - limit} more</button>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = false, showFamilySessionTypeFilter = false }) => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [followUpTypeFilter, setFollowUpTypeFilter] = useState('all');
-  const [dateMode, setDateMode] = useState('today');
+  // Calendar is the default view; "By assignee" keeps the original table.
+  const [view, setView] = useState('calendar');
+  const [dateMode, setDateMode] = useState('week');
   const [dateValue, setDateValue] = useState(() => toDateInputValue(new Date()));
   const [weekValue, setWeekValue] = useState(() => toWeekInputValue(new Date()));
   const [monthValue, setMonthValue] = useState(() => toMonthInputValue(new Date()));
@@ -158,6 +237,14 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
     return totals;
   }, [filteredRows]);
 
+  const calendarEntries = useMemo(() => filteredRows.flatMap((row) => row.entries.map((entry) => ({ ...entry, assignee: row.assignee }))), [filteredRows]);
+  const openEntries = (entries, heading) => {
+    if (!entries.length) return;
+    setDrawerTitle(heading);
+    setDrawerEntries(entries);
+    setDrawerOpen(true);
+  };
+
   const openDrawer = (row, column) => {
     const matches = row.entries.filter((e) => e.displayStatus === column.key);
     if (matches.length === 0) return;
@@ -187,11 +274,29 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
   };
 
   return (
-    <div>
-      <h1 className="font-display text-2xl font-bold text-charcoal">{title}</h1>
-      <p className="mt-1 text-sm text-charcoal/60">{subtitle}</p>
+    <div className="space-y-4">
+      <PageHeader
+        icon={CalendarDays}
+        title={title}
+        subtitle={subtitle}
+        actions={
+          <div className="inline-flex overflow-hidden rounded-[10px] border border-cardline bg-white" role="group" aria-label="View">
+            {[['calendar', 'Calendar'], ['assignee', 'By assignee']].map(([key, label]) => (
+              <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} className={`px-3.5 py-2 text-xs font-bold ${view === key ? 'bg-charcoal text-white' : 'text-charcoal/70 hover:bg-[#FBF7ED]'}`}>{label}</button>
+            ))}
+          </div>
+        }
+      />
 
-      <Card className="mt-6" padded={false}>
+      <StatRow min={130}>
+        <StatTile label="Late" value={filteredTotals.late} tone={filteredTotals.late ? 'red' : 'plain'} />
+        <StatTile label="Upcoming" value={filteredTotals.upcoming} tone={filteredTotals.upcoming ? 'orange' : 'plain'} />
+        <StatTile label="Done" value={filteredTotals.done} tone="green" />
+        <StatTile label="Done late" value={filteredTotals.done_late} />
+        <StatTile label="Cancelled" value={filteredTotals.cancelled} />
+      </StatRow>
+
+      <Card padded={false}>
         <div className="p-4 border-b border-cardline-soft space-y-3">
           <div className="flex flex-col lg:flex-row gap-3">
             <div className="relative flex-1">
@@ -261,6 +366,8 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
               Entries scheduled from a patient's details page will show up here, grouped by assignee.
             </p>
           </div>
+        ) : view === 'calendar' ? (
+          <ScheduleCalendar entries={calendarEntries} range={activeRange} mode={dateMode} family={showFamilySessionTypeFilter} onOpen={openEntries} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

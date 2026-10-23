@@ -80,6 +80,9 @@ function ReceiptForm({ onClose, onSaved }) {
   </form></Modal>;
 }
 
+import RegisterTabs from '../../components/RegisterTabs.jsx';
+import { BookOpen as PageTitleIcon } from 'lucide-react';
+
 export default function FinancialLedger({ kind = 'all', title, initialStatus = 'all', fixedStatus }) {
   const { user } = useAuth();
   if (user?.role === ROLES.IN_TRANSIT) kind = 'treatment';
@@ -156,8 +159,9 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
   const summary = data.summary || {};
   const open = (row) => { setSelected(row); setAction(null); setActionError(''); };
   return <div className="min-w-0 space-y-4 text-charcoal">
-    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-display text-xl font-bold sm:text-2xl">{title || (kind === 'consultation' ? 'Consultation Ledger' : 'Treatment Ledger')}</h1><p className="mt-1 text-xs text-charcoal/70">{summary.count || 0} transactions{patientId ? ' | Patient account' : ''}</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={exporting || loading} onClick={exportCsv}><Download size={15} />{exporting ? 'Exporting...' : 'Export CSV'}</Button>{kind !== 'treatment' && !fixedStatus && <Button size="sm" onClick={() => setAdding(true)}><Plus size={15} />Consultation payment</Button>}</div></header>
-    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{[['Approved receipts', summary.approved], ['Awaiting verification', summary.pending], ['Refunds on these receipts', summary.refunded], ['Net approved receipts', (summary.approved || 0) - (summary.refunded || 0)]].map(([label, amount]) => <div key={label} className="rounded-lg border border-cardline bg-white/60 px-3 py-3"><p className="text-xs text-charcoal/75">{label}</p><p className="mt-1 text-lg font-bold tabular-nums">{money(amount)}</p></div>)}</div>
+    {kind === 'consultation' && !title && !fixedStatus && !patientId && <RegisterTabs />}
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-3 font-display text-xl font-bold sm:text-2xl"><PageTitleIcon size={20} aria-hidden="true" />{title || (kind === 'consultation' ? 'Consultation Ledger' : 'Treatment Ledger')}</h1><p className="mt-1 text-xs text-charcoal/70">{summary.count || 0} transactions{patientId ? ' | Patient account' : ''}</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={exporting || loading} onClick={exportCsv}><Download size={15} />{exporting ? 'Exporting...' : 'Export CSV'}</Button>{kind !== 'treatment' && !fixedStatus && <Button size="sm" onClick={() => setAdding(true)}><Plus size={15} />Consultation payment</Button>}</div></header>
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{[['Approved receipts', summary.approved], ['Awaiting verification', summary.pending], ['Refunds on these receipts', summary.refunded], ['Net approved receipts', (summary.approved || 0) - (summary.refunded || 0)]].map(([label, amount]) => { const t = label === 'Awaiting verification' && Number(amount) > 0 ? ['border-[#FDBA74] bg-[#FFF7ED]', 'text-[#C2410C]'] : label === 'Approved receipts' ? ['border-[#A7D3B8] bg-[#F6FBF7]', 'text-[#1F6B41]'] : ['border-[#E8DFCB] bg-white', 'text-charcoal']; return <div key={label} className={`rounded-[14px] border px-3.5 py-3 ${t[0]}`}><p className={`text-[10.5px] font-bold uppercase tracking-wide ${t[1] === 'text-charcoal' ? 'text-charcoal/60' : t[1]}`}>{label}</p><p className={`mt-0.5 font-display text-[22px] font-extrabold leading-tight tabular-nums ${t[1]}`}>{money(amount)}</p></div>; })}</div>
     <div className="flex flex-wrap items-end gap-2 border-y border-cardline py-3">
       <div className="relative min-w-[180px] flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 text-sage" size={17} /><input aria-label="Search payments" className={`${field} !pl-10`} placeholder="Patient, ID, reference or notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
       {kind === 'all' && <select aria-label="Fee type" className={`${field} !w-auto`} value={type} onChange={filterChange(setType)}><option value="all">All fees</option><option value="consultation">Consultation</option><option value="treatment">Treatment</option></select>}

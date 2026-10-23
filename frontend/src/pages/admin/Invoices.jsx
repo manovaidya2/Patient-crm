@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import InvoicePdfStyleSelector from '../../components/InvoicePdfStyleSelector.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Button from '../../components/ui/Button.jsx';
+import { FileText as PageTitleIcon } from 'lucide-react';
 
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:bg-gray-100';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-cardline bg-white px-3 py-2.5 text-sm font-semibold text-charcoal hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -198,7 +199,7 @@ export default function Invoices({ type }) {
     <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
         {editing && <button type="button" className={buttonClass} title="Back to bills" aria-label="Back to bills" disabled={saving} onClick={() => { if (window.confirm('Discard unsaved changes?')) { setEditing(false); setEditingRow(null); setError(''); } }}><ArrowLeft size={18} /></button>}
-        <div><h1 className="text-xl font-bold sm:text-2xl">{editing ? `${editingRow ? 'Edit' : 'New'} ${BILL_NAMES[type]}` : title}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? editingRow ? `${editingRow.invoiceNumber} / Revision ${editingRow.revision}` : 'ManoVaidya / Billing' : `${total} saved bills`}</p></div>
+        <div><h1 className="flex items-center gap-3 text-xl font-bold sm:text-2xl"><PageTitleIcon size={20} aria-hidden="true" />{editing ? `${editingRow ? 'Edit' : 'New'} ${BILL_NAMES[type]}` : title}</h1><p className="mt-1 text-sm text-charcoal/60">{editing ? editingRow ? `${editingRow.invoiceNumber} / Revision ${editingRow.revision}` : 'ManoVaidya / Billing' : `${total} saved bills`}</p></div>
       </div>
       {!editing && <button className={primaryClass} onClick={startReceipt}><Plus size={17} />New {BILL_NAMES[type]}</button>}
     </header>

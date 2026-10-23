@@ -11,6 +11,7 @@ import Modal from './ui/Modal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from './ui/Attachments.jsx';
+import { Truck as PageTitleIcon } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const SERVER_BASE = API_BASE.replace(/\/api\/?$/, '');
@@ -245,7 +246,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
     <div>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">{title}</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />{title}</h1>
           <p className="mt-1 text-sm text-charcoal/60">{subtitle}</p>
         </div>
         <Button variant="outline" onClick={() => refresh()}>
@@ -254,7 +255,7 @@ const CourierRequestList = ({ title, subtitle, statuses = ['all'], emptyText }) 
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-4">
-        <Card><p className="text-xs font-semibold uppercase text-charcoal/55">Pending</p><p className="mt-1 font-display text-2xl font-bold text-charcoal">{loading ? '...' : totals.pending}</p></Card>
+        <Card className={!loading && totals.pending > 0 ? '!border-[#FDBA74] !bg-[#FFF7ED]' : ''}><p className={`text-xs font-semibold uppercase ${!loading && totals.pending > 0 ? 'text-[#C2410C]' : 'text-charcoal/55'}`}>Pending</p><p className={`mt-1 font-display text-2xl font-extrabold ${!loading && totals.pending > 0 ? 'text-[#C2410C]' : 'text-charcoal'}`}>{loading ? '...' : totals.pending}</p></Card>
         <Card><p className="text-xs font-semibold uppercase text-charcoal/55">Dispatched</p><p className="mt-1 font-display text-2xl font-bold text-sage">{loading ? '...' : totals.dispatched}</p></Card>
         <Card><p className="text-xs font-semibold uppercase text-charcoal/55">Delivered</p><p className="mt-1 font-display text-2xl font-bold text-charcoal">{loading ? '...' : totals.delivered}</p></Card>
         <Card><p className="text-xs font-semibold uppercase text-charcoal/55">Courier Payment</p><p className="mt-1 font-display text-2xl font-bold text-charcoal">{loading ? '...' : formatMoney(totals.amount)}</p></Card>

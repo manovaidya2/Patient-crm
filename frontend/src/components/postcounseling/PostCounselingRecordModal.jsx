@@ -76,7 +76,9 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
     return next;
   });
   // One tick for the whole list (the paper is usually ticked top to bottom); unticks everything when all are on.
-  const allComponentsOn = defs.components.every((component) => record.components.selected.includes(component.key));
+  // defs/record load after the modal opens (and the component is mounted even while closed), so guard both.
+  const allComponentsOn = Boolean(defs?.components?.length && record?.components?.selected)
+    && defs.components.every((component) => record.components.selected.includes(component.key));
   const toggleAllComponents = () => change((next) => {
     next.components.selected = allComponentsOn ? [] : defs.components.map((component) => component.key);
     if (!next.components.selected.includes(defs.customPriceKey)) next.components.ayurvedicPrice = '';

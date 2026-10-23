@@ -8,6 +8,7 @@ import Toast from '../../components/ui/Toast.jsx';
 import { useToast } from '../../components/useToast.js';
 import { ROLES } from '../../constants/roles.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { Megaphone as PageTitleIcon } from 'lucide-react';
 
 const columns = [
   { key: 'patientCode', label: 'Patient ID', locked: true, width: 'min-w-36' },
@@ -195,7 +196,7 @@ const DigitalMarketing = () => {
       <Toast toasts={toasts} onDismiss={dismissToast} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Digital Marketing</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Digital Marketing</h1>
           <p className="mt-1 text-sm text-charcoal/60">Patient improvement review sheet for review requests and testimonials.</p>
         </div>
         {canAddReview && (

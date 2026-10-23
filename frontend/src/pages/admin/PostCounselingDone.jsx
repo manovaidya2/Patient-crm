@@ -8,6 +8,7 @@ import Button from '../../components/ui/Button.jsx';
 import PostCounselingRecordModal from '../../components/postcounseling/PostCounselingRecordModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { ClipboardCheck as PageTitleIcon } from 'lucide-react';
 
 const CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health' };
 const rupees = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
@@ -63,7 +64,7 @@ const PostCounselingDone = () => {
   return (
     <div>
       <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-charcoal">Post Counseling Done</h1>
+        <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Post Counseling Done</h1>
         <p className="text-sm text-charcoal/60">Saved post-counselling records by consultation date. Open any patient to see everything that was filled.</p>
       </div>
       <Card className="mb-4 flex flex-wrap items-end gap-3 p-3">

@@ -60,8 +60,10 @@ export const getDefaultRoute = (role) => {
   if (role === ROLES.ADMIN) return '/admin';
   if (role === ROLES.DOCTOR) return '/admin';
   if ([ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(role)) return '/admin';
-  if (role === ROLES.MEDICINE_DEPARTMENT) return '/admin/medicine-requests';
-  if (role === ROLES.IN_TRANSIT) return '/admin/purchase-orders';
+  // Roles without a dashboard land on their open work.
+  if (role === ROLES.MEDICINE_DEPARTMENT) return '/admin/my-day';
+  if (role === ROLES.IN_TRANSIT) return '/admin/my-day';
+  if (role === ROLES.POST_COUNSELOR) return '/admin/my-day';
   if (role === ROLES.DIGITAL_MARKETING) return '/admin/digital-marketing';
   if (role === ROLES.HR) return '/admin/hr';
   if (PATIENT_ACCESS_ROLES.includes(role)) return '/admin/patients';

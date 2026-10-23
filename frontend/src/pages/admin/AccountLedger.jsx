@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button.jsx';
 import Card from '../../components/ui/Card.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import { BookOpen as PageTitleIcon } from 'lucide-react';
 
 const todayValue = () => {
   const date = new Date();
@@ -145,7 +146,7 @@ const AccountLedger = ({ type }) => {
     <div>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">{pageTitle}</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />{pageTitle}</h1>
           <p className="mt-1 text-sm text-charcoal/60">{isIncome ? 'Appointment, medicine and other income records.' : 'Clinic, courier and operational expense records.'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

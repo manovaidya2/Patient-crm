@@ -3,7 +3,7 @@ import { BellRing, ChevronRight } from 'lucide-react';
 import useTaskCounts from '../hooks/useTaskCounts.js';
 
 // What each count means, in the words of the person who has to act on it.
-const PAGES = {
+export const PAGES = {
   '/admin/purchase-orders': ['Purchase Orders', 'POs waiting on your step'],
   '/admin/patient-approvals': ['Patient Approvals', 'Patients / payments to approve'],
   '/admin/payments': ['Payments', 'Payments to verify'],

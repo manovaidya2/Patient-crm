@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import useTaskCounts from '../hooks/useTaskCounts.js';
 import {
   LayoutGrid,
+  Sun,
   Users,
   ClipboardList,
   Layers,
@@ -50,10 +51,12 @@ import BrandLogo from './BrandLogo.jsx';
 
 // Pages shown at the very top of a role's menu, in this order.
 const ROLE_FIRST_PAGES = {
-  [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/post-counseling-done'],
+  [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/post-counseling-done'],
 };
 
 export const navItems = [
+  // Every role's open work in one list (the orange counts, item by item).
+  { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
@@ -314,7 +317,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
           const { to, icon: Icon, label, end } = item;
           const showAdviceBadge = to === '/admin/request-for-advice' && adviceUnreadCount > 0;
           const showEmergencyAlert = to === '/admin/request-for-advice' && urgentAdviceCount > 0;
-          const taskCount = Number(taskCounts[to] || 0);
+          const taskCount = to === '/admin/my-day' ? Object.values(taskCounts).reduce((sum, n) => sum + Number(n || 0), 0) : Number(taskCounts[to] || 0);
           return (
             <NavLink
               key={to}

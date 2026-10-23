@@ -28,8 +28,8 @@ const HANDOVER_ACTIONS = ['schedule_delivery', 'dispatch', 'confirm_received', '
 const PCC_FORMS = ['assign_pcc', 'start_treatment'];
 
 const Section = ({ title, icon: Icon, action, children, className = '' }) => (
-  <section className={`rounded-xl border border-cardline bg-white p-4 ${className}`}>
-    <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-sm font-bold text-charcoal">{Icon && <Icon size={16} className="text-sage" />}{title}</h3>{action}</div>
+  <section className={`rounded-[14px] border border-[#E8DFCB] bg-white p-4 sm:p-[18px] ${className}`}>
+    <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 font-display text-[13.5px] font-bold text-charcoal">{Icon && <Icon size={16} className="text-sage" />}{title}</h3>{action}</div>
     {children}
   </section>
 );
@@ -365,18 +365,19 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
 
   return (
     <div className="po-compact space-y-3">
-      <div className="flex flex-wrap items-start gap-3">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage"><ClipboardList size={22} /></span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-xl font-bold text-charcoal sm:text-2xl">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}{myTurn && <span className="rounded-full bg-orange-500 px-2.5 py-0.5 text-[11px] font-bold text-white">Your action: {po.step.label}</span>}</div>
-          <p className="mt-0.5 text-sm text-charcoal/65"><b className="text-charcoal">{po.patientName}</b> · {po.patientCode} · Phase {po.phase}{po.currentStage === po.phase ? ' (current)' : ` · current is Phase ${po.currentStage}`} · {money(po.amount)}</p>
+      <header className="flex flex-wrap items-center gap-3 rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-3.5 sm:px-[18px]">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9EFE9] font-display text-[11px] font-extrabold text-sage" aria-hidden="true">PO</span>
+        <div className="min-w-0 flex-1 basis-[calc(100%-56px)] sm:basis-auto">
+          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-[17px] font-bold text-charcoal">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}</div>
+          <p className="mt-0.5 text-[12.5px] text-charcoal/65"><b className="text-charcoal">{po.patientName}</b> · {po.patientCode} · Phase {po.phase}{po.currentStage === po.phase ? ' (current)' : ` · current is Phase ${po.currentStage}`} · <b className="text-charcoal">{money(po.amount)}</b>{po.guardianName ? ` · ${po.guardianName}` : ''}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          {myTurn && <span className="inline-flex items-center gap-1.5 rounded-full border border-[#FDBA74] bg-[#FFF1E6] px-3 py-1.5 text-[11.5px] font-bold text-[#C2410C]"><span className="h-2 w-2 rounded-full bg-[#F97316]" aria-hidden="true" />Your action · {po.step.label}</span>}
           {po.patientPhone && <a href={`tel:${po.patientPhone}`}><Button size="sm" variant="outline"><Phone size={14} />{po.patientPhone}</Button></a>}
           {showPatientLink && <Link to={`/admin/patients/${po.patientId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />Patient</Button></Link>}
           {canVerify && po.status === 'verified' && po.currentStage !== po.phase && <Button size="sm" variant="outline" onClick={activatePhase}><Layers size={14} />Make Phase {po.phase} current</Button>}
         </div>
-      </div>
+      </header>
       {(po.phaseHold || po.phaseRemoved) && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-900">
           <span className="flex items-center gap-2"><AlertTriangle size={15} />{po.requestBlockedReason || `Phase ${po.phase} is ${po.phaseRemoved ? 'removed from In Transit' : 'on hold'}.`}</span>
@@ -389,11 +390,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
 
       <PoPipelineBoxes groups={po.groups} steps={po.steps} />
 
-      {(next || waiting) && <div className={`rounded-xl border-2 bg-gradient-to-br to-white p-4 ${myTurn ? 'border-orange-400 from-orange-50' : 'border-sage/40 from-sage/5'}`}>{next || waiting}</div>}
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-        <div className="space-y-3">
-          {showAll && <Section title="Timeline" icon={Clock3}><PoTimeline steps={po.steps} onRevert={role === ROLES.ADMIN && !['rejected', 'cancelled'].includes(po.status) ? setRevert : undefined} /></Section>}
+      <div className="grid items-start gap-3.5 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+        <div className="space-y-3.5 xl:order-1 order-2">
+          {showAll && <Section title="Timeline" icon={Clock3} action={<span className="text-[11.5px] font-medium text-charcoal/60">{po.steps.filter((s) => s.state === 'done').length} of {po.steps.length} done</span>}><PoTimeline steps={po.steps} onRevert={role === ROLES.ADMIN && !['rejected', 'cancelled'].includes(po.status) ? setRevert : undefined} /></Section>}
           {showAll && <Section title="Patient" icon={UserRound}>
             <Row label="Name" value={po.patientName} />
             <Row label="Patient ID" value={po.patientCode} />
@@ -420,9 +419,16 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             {show('paper') && <div className="mt-4 border-t border-cardline pt-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">PO paper as filled</p><PaperDetails po={po} /></div>}
           </Section>
         </div>
-        <div className="space-y-3">
+        <div className="order-1 min-w-0 space-y-3.5 xl:order-2">
+          {(next || waiting) && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
+          {show('handover') && showHandover && <HandoverPanel po={po} onChanged={load} />}
           {show('payments') && <Section title="Payments on this PO" icon={IndianRupee} action={canCreate && !['rejected', 'cancelled'].includes(po.status) && <button type="button" className={smallLink} onClick={() => setPayOpen(true)}><Plus size={13} />Add payment</button>}>
-            <p className="mb-2 rounded-lg bg-offwhite-200 px-3 py-2 text-xs text-charcoal/70">These payments are saved in the patient's <b>Phase {po.phase}</b> payments, next to any earlier payments of that phase.</p>
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              <div className="rounded-[10px] bg-[#F6F0E3] px-3 py-2.5"><p className="text-[11px] text-charcoal/60">Phase {po.phase} total</p><p className="font-display text-[14px] font-extrabold sm:text-[16px] text-charcoal">{money(po.phasePayment.totalAmount)}</p></div>
+              <div className="rounded-[10px] bg-[#E6F2EA] px-3 py-2.5"><p className="text-[11px] text-[#1F6B41]">Paid</p><p className="font-display text-[14px] font-extrabold sm:text-[16px] text-[#1F6B41]">{money(po.phasePayment.amountPaid)}</p></div>
+              <div className={`rounded-[10px] px-3 py-2.5 ${Number(po.phasePayment.remaining) > 0 ? 'bg-[#FFF1E6]' : 'bg-[#F3EEE2]'}`}><p className={`text-[11px] ${Number(po.phasePayment.remaining) > 0 ? 'text-[#C2410C]' : 'text-charcoal/60'}`}>Balance</p><p className={`font-display text-[14px] font-extrabold sm:text-[16px] ${Number(po.phasePayment.remaining) > 0 ? 'text-[#C2410C]' : 'text-charcoal'}`}>{money(po.phasePayment.remaining)}</p></div>
+            </div>
+            <p className="mb-2 rounded-lg bg-[#FBF7ED] px-3 py-2 text-xs text-charcoal/70">These payments are saved in the patient's <b>Phase {po.phase}</b> payments, next to any earlier payments of that phase.</p>
             <Row label="Verified on this PO" value={money(po.linkedPayment.verifiedAmount)} />
             <Row label="Pending verification" value={po.linkedPayment.pendingCount ? `${money(po.linkedPayment.pendingAmount)} (${po.linkedPayment.pendingCount})` : ''} />
             <Row label={`Phase ${po.phase} total / paid / balance`} value={`${money(po.phasePayment.totalAmount)} / ${money(po.phasePayment.amountPaid)} / ${money(po.phasePayment.remaining)}`} />
@@ -461,20 +467,19 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
 
           {show('job') && po.medicineJob && (
             <Section title="Medicine Department progress" icon={Pill} action={<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${po.medicineJob.hold ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : po.medicineJob.status === 'released' ? 'bg-emerald-100 text-emerald-800' : 'bg-sage/10 text-sage'}`}>{po.medicineJob.hold ? `On hold: ${po.medicineJob.hold.reason}` : po.medicineJob.currentLabel}</span>}>
-              <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-cardline"><div className="h-full bg-sage" style={{ width: `${po.medicineJob.progress}%` }} /></div>
+              <div className="mb-1 grid gap-1" style={{ gridTemplateColumns: `repeat(${po.medicineJob.stages.length || 12}, minmax(0, 1fr))` }} aria-hidden="true">{po.medicineJob.stages.map((s) => <span key={s.key} className={`h-1.5 rounded-full ${s.state === 'done' ? 'bg-[#2F8F5B]' : s.state === 'current' ? 'bg-[#F97316]' : 'bg-[#EFE3CF]'}`} />)}</div>
+              <p className="mb-3 text-[11.5px] text-charcoal/60">{po.medicineJob.stages.filter((s) => s.state === 'done').length} of {po.medicineJob.stages.length} stages done · {po.medicineJob.progress}%</p>
               <ol className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
                 {po.medicineJob.stages.map((s) => (
                   <li key={s.key} className="flex items-start gap-2 text-sm">
-                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${s.state === 'done' ? 'border-emerald-600 bg-emerald-600 text-white' : s.state === 'current' ? 'border-sage bg-white text-sage' : 'border-cardline text-charcoal/40'}`}>{s.state === 'done' ? <Check size={11} /> : s.n}</span>
-                    <span className="min-w-0"><span className={s.state === 'todo' ? 'text-charcoal/45' : 'font-semibold text-charcoal'}>{s.label}</span>{s.state === 'done' && <span className="block text-xs text-charcoal/50">{s.doneByName} · {poDateTime(s.doneAt)}</span>}{s.state === 'current' && <span className="block text-xs font-semibold text-sage">In progress</span>}</span>
+                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${s.state === 'done' ? 'border-[#2F8F5B] bg-[#2F8F5B] text-white' : s.state === 'current' ? 'border-[#F97316] bg-[#F97316] text-white' : 'border-[#DED2BD] text-charcoal/45'}`}>{s.state === 'done' ? <Check size={11} /> : s.n}</span>
+                    <span className="min-w-0"><span className={s.state === 'todo' ? 'text-charcoal/45' : 'font-semibold text-charcoal'}>{s.label}</span>{s.state === 'done' && <span className="block text-xs text-charcoal/50">{s.doneByName} · {poDateTime(s.doneAt)}</span>}{s.state === 'current' && <span className="block text-xs font-bold text-[#C2410C]">In progress</span>}</span>
                   </li>
                 ))}
               </ol>
               {TRANSIT_ROLES.includes(role) || [ROLES.DOCTOR].includes(role) ? <Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><ExternalLink size={13} />Open the job</Link> : null}
             </Section>
           )}
-          {show('handover') && showHandover && <HandoverPanel po={po} onChanged={load} />}
-
           {po.events?.length > 0 && (
             <Section title="Activity" icon={Clock3}>
               <ol className="space-y-2">{po.events.map((e, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-xs text-charcoal/45">{poDateTime(e.at)}</span><span className="min-w-0"><b className="font-semibold text-charcoal">{e.action}</b>{e.details ? <span className="text-charcoal/70"> - {e.details}</span> : ''} <span className="text-xs text-charcoal/45">· {e.byName}</span></span></li>)}</ol>

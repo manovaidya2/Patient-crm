@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import api from '../../api/axios.js';
 import { ROLE_LABELS } from '../../constants/roles.js';
+import { History as PageTitleIcon } from 'lucide-react';
 
 const indiaDateValue = () => {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -103,7 +104,7 @@ export default function CrmHistory() {
             <History size={19} />
             <span className="text-xs font-bold uppercase tracking-[0.12em]">Admin audit</span>
           </div>
-          <h1 className="font-display text-3xl font-bold text-charcoal">History &amp; Timeline</h1>
+          <h1 className="flex items-center gap-3 font-display text-3xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />History &amp; Timeline</h1>
           <p className="mt-1 text-sm text-charcoal/60">CRM activity records by date, person and department.</p>
         </div>
         <div className="flex items-center gap-2 rounded-md border border-sand-300 bg-white px-3 py-2 text-sm text-charcoal/65">

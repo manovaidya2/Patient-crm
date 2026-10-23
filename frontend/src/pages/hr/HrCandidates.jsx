@@ -7,6 +7,7 @@ import HrCandidateForm from './HrCandidateForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { hasHrFullAccess } from '../../constants/roles.js';
 import { CALL_OUTCOMES, CANDIDATE_STAGES, formatDateTime, labelFor } from './hrOptions.js';
+import { Users as PageTitleIcon } from 'lucide-react';
 
 const control = 'rounded-md border border-cardline bg-white px-3 py-2.5 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 
@@ -38,7 +39,7 @@ export default function HrCandidates() {
   };
 
   return <div className="space-y-5">
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="font-display text-2xl font-bold text-charcoal">Candidates</h1><p className="mt-1 text-sm text-charcoal/60">{pagination.total} candidate records</p></div><Button onClick={() => setFormOpen(true)}><Plus size={16} /> Add candidate</Button></header>
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase text-sage">HR Management</p><h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Candidates</h1><p className="mt-1 text-sm text-charcoal/60">{pagination.total} candidate records</p></div><Button onClick={() => setFormOpen(true)}><Plus size={16} /> Add candidate</Button></header>
     <section className="border border-cardline bg-offwhite-100 p-4">
       <form className="grid gap-3 lg:grid-cols-[1fr_220px_180px_auto]" onSubmit={(event) => { event.preventDefault(); setApplied(filters); }}>
         <label className="relative"><Search size={16} className="absolute left-3 top-3 text-charcoal/40" /><input className={`${control} w-full pl-9`} placeholder="Search candidate ID, name, phone, email or position" value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} /></label>

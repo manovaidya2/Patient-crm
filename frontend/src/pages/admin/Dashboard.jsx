@@ -8,6 +8,7 @@ import BankCollectionsSection from '../../components/BankCollectionsSection.jsx'
 import { CREATABLE_ROLES, ROLE_LABELS, ROLES } from '../../constants/roles.js';
 import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { LayoutGrid as PageTitleIcon } from 'lucide-react';
 
 const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const formatShortDateTime = (value) =>
@@ -267,7 +268,7 @@ const Dashboard = () => {
           </Link>
         </>
       )}
-      <h1 className="font-display text-3xl font-bold text-charcoal">
+      <h1 className="flex items-center gap-3 font-display text-3xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />
         Clinic Control Room
       </h1>
       <p className="mt-1 text-sm text-charcoal/60">Here's what your team looks like today.</p>

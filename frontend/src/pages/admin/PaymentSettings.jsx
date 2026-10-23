@@ -6,6 +6,7 @@ import Card from '../../components/ui/Card.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Badge from '../../components/ui/Badge.jsx';
+import { Settings as PageTitleIcon } from 'lucide-react';
 
 const emptyForm = {
   name: '',
@@ -113,7 +114,7 @@ const PaymentSettings = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Settings</p>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Payment Settings</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Payment Settings</h1>
           <p className="mt-1 text-sm text-charcoal/60">Banks added here appear in online payment Pay to Bank dropdown.</p>
         </div>
         <div className="flex gap-2">

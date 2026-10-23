@@ -3043,60 +3043,63 @@ const PatientDetails = () => {
       ) : (
         <>
         <Card padded={false} className="overflow-hidden">
-          <div className="p-3.5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-1">
-                <span className="truncate font-mono text-xs tracking-widest text-charcoal/40 font-semibold">
+          <div className="flex flex-wrap items-start gap-4 p-4 sm:p-5">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-charcoal font-display text-lg font-extrabold text-white sm:h-14 sm:w-14" aria-hidden="true">
+              {(patient.patientName || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
+            </span>
+            <div className="min-w-[220px] flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <h1 className="min-w-0 break-words font-display text-xl font-extrabold leading-tight text-charcoal sm:text-[22px]">{patient.patientName}</h1>
+                <HeaderEditButton
+                  label="Patient Name"
+                  value={patient.patientName || ''}
+                  onSave={(val) => saveField('patientName', val)}
+                  readOnly={!canEditPatientIdentity}
+                />
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-[#E9EFE9] py-0.5 pl-2.5 pr-1 font-mono text-[11px] font-bold text-sage">
                   {patient.patientCode || `PT-${String(patient.id).slice(-6).toUpperCase()}`}
+                  <HeaderEditButton
+                    label="Patient ID"
+                    value={patient.patientCode || ''}
+                    onSave={(val) => saveField('patientCode', val)}
+                    readOnly={!canEditPatientIdentity}
+                  />
                 </span>
-                <HeaderEditButton
-                  label="Patient ID"
-                  value={patient.patientCode || ''}
-                  onSave={(val) => saveField('patientCode', val)}
-                  readOnly={!canEditPatientIdentity}
-                />
+                <span className="inline-flex items-center gap-0.5">
+                  <Badge tone={isAutism ? 'teal' : 'amber'}>{patient.categoryLabel}</Badge>
+                  <HeaderEditButton
+                    label="Category"
+                    type="select"
+                    options={ALL_PATIENT_CATEGORIES.map((category) => ({ value: category, label: CATEGORY_LABELS[category] }))}
+                    value={patient.category}
+                    onSave={(val) => saveField('category', val)}
+                    readOnly={!canEditPatientIdentity}
+                  />
+                </span>
+                {!patient.isActive ? <Badge tone="inactive">Inactive</Badge> : patient.approvalStatus === 'pending' ? <Badge tone="orange">Approval pending</Badge> : <Badge tone="green">Approved · Active</Badge>}
+                {hasPendingRefund && <Badge tone="amber">Refund initiated</Badge>}
+                {hasPaidRefund && <Badge tone="teal">Refunded</Badge>}
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Badge tone={isAutism ? 'teal' : 'amber'}>{patient.categoryLabel}</Badge>
-                <HeaderEditButton
-                  label="Category"
-                  type="select"
-                  options={ALL_PATIENT_CATEGORIES.map((category) => ({ value: category, label: CATEGORY_LABELS[category] }))}
-                  value={patient.category}
-                  onSave={(val) => saveField('category', val)}
-                  readOnly={!canEditPatientIdentity}
-                />
-              </div>
-            </div>
-
-            {(hasPendingRefund || hasPaidRefund) && <div className="mt-3 flex flex-wrap gap-2">
-              {hasPendingRefund && <Badge tone="amber">Refund initiated</Badge>}
-              {hasPaidRefund && <Badge tone="teal">Refunded</Badge>}
-            </div>}
-            <div className="mt-3 flex min-w-0 items-start gap-2">
-              <h1 className="min-w-0 break-words font-serif text-3xl font-semibold leading-tight text-charcoal">{patient.patientName}</h1>
-              <HeaderEditButton
-                label="Patient Name"
-                value={patient.patientName || ''}
-                onSave={(val) => saveField('patientName', val)}
-                readOnly={!canEditPatientIdentity}
-              />
-            </div>
-            <p className="mt-1.5 text-sm text-charcoal/60">
-              {patient.categoryLabel} · Added {formatDate(patient.createdAt)}
-            </p>
-            {patient.approvalStatus === 'approved' && patient.approvedByName && (
-              <p className="mt-0.5 text-xs text-charcoal/40">
-                Approved by {patient.approvedByName}{patient.approvedAt ? ` on ${formatDate(patient.approvedAt)}` : ''}
+              <p className="mt-1.5 text-[12.5px] text-charcoal/60">
+                {[patient.age ? `Age ${patient.age}` : '', patient[guardianKey] || '', patient.number || '', `Added ${formatDate(patient.createdAt)}`].filter(Boolean).join(' · ')}
               </p>
-            )}
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div className="flex min-h-8 flex-wrap items-center gap-4">
+              {patient.approvalStatus === 'approved' && patient.approvedByName && (
+                <p className="mt-0.5 text-xs text-charcoal/45">
+                  Approved by {patient.approvedByName}{patient.approvedAt ? ` on ${formatDate(patient.approvedAt)}` : ''}
+                </p>
+              )}
+            </div>
+            <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:items-end">
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                {patient.number && <a href={`tel:${patient.number}`} className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><PhoneOutgoing size={14} />Call</a>}
+                {patient.number && <a href={`https://wa.me/91${String(patient.number).replace(/\D/g, '').slice(-10)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><MessageSquareText size={14} />WhatsApp</a>}
                 {patient.canToggleActive && patient.isActive && (
                   <button
                     type="button"
                     onClick={openCloseModal}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-charcoal/55 hover:underline"
+                    className="inline-flex items-center gap-1.5 rounded-[10px] px-2.5 py-2 text-xs font-semibold text-charcoal/60 hover:bg-[#F3EEE2]"
                   >
                     <UserX size={14} /> Close Patient
                   </button>
@@ -3106,26 +3109,26 @@ const PatientDetails = () => {
                     type="button"
                     onClick={handleDeletePatient}
                     disabled={deletingPatient}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8C3B2E] hover:underline disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-[10px] px-2.5 py-2 text-xs font-semibold text-[#8C3B2E] hover:bg-[#8C3B2E]/8 disabled:opacity-50"
                   >
                     <Trash2 size={14} /> {deletingPatient ? 'Deleting...' : 'Delete Patient'}
                   </button>
                 )}
               </div>
-              <div className="ml-auto w-fit space-y-1 text-xs text-charcoal/60">
-                <div className="grid grid-cols-[76px_minmax(80px,auto)_34px] items-center gap-1 text-right">
-                  <span className="font-semibold uppercase text-[10px]">Center Name</span>
-                  <span className="font-medium text-charcoal">{patient.centerName || 'Not added'}</span>
+              <div className="w-full space-y-1 rounded-xl bg-[#FBF7ED] px-3 py-2 text-xs text-charcoal/60 sm:w-auto">
+                <div className="grid grid-cols-[76px_minmax(80px,auto)_34px] items-center gap-1">
+                  <span className="text-[10px] font-bold uppercase">Center Name</span>
+                  <span className="font-semibold text-charcoal">{patient.centerName || 'Not added'}</span>
                   <HeaderEditButton label="Center Name" value={patient.centerName || ''} onSave={(val) => saveField('centerName', val)} readOnly={!canEditPatientDetails} />
                 </div>
-                <div className="grid grid-cols-[76px_minmax(80px,auto)_34px] items-center gap-1 text-right">
-                  <span className="font-semibold uppercase text-[10px]">Center ID</span>
-                  <span className="font-medium text-charcoal">{patient.centerId || 'Not added'}</span>
+                <div className="grid grid-cols-[76px_minmax(80px,auto)_34px] items-center gap-1">
+                  <span className="text-[10px] font-bold uppercase">Center ID</span>
+                  <span className="font-semibold text-charcoal">{patient.centerId || 'Not added'}</span>
                   <HeaderEditButton label="Center ID" value={patient.centerId || ''} onSave={(val) => saveField('centerId', val)} readOnly={!canEditPatientDetails} />
                 </div>
               </div>
             </div>
-            {deletePatientError && <p className="mt-1 text-xs text-[#8C3B2E]">{deletePatientError}</p>}
+            {deletePatientError && <p className="w-full text-xs text-[#8C3B2E]">{deletePatientError}</p>}
           </div>
 
           {!patient.isActive && (
@@ -3170,117 +3173,55 @@ const PatientDetails = () => {
           )}
 
           {/* At-a-glance strip: where the patient is and what is owed */}
-          <div className="grid grid-cols-2 gap-px border-t border-cardline bg-cardline lg:grid-cols-4">
+          <div className="grid gap-2.5 border-t border-[#F0E8D8] bg-[#FCFAF5] p-3 sm:p-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
             {[
-              ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers],
-              ['PCC', patient.assignedDoctor?.name || 'Not assigned', UserRound],
-              ['Paid (verified)', formatMoney(stageTotals.paid), IndianRupee],
-              ['Balance', formatMoney(stageTotals.left), Clock],
-            ].map(([label, value, Icon]) => (
-              <div key={label} className="flex items-center gap-3 bg-offwhite-100 px-4 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sage/10 text-sage"><Icon size={17} /></span>
-                <div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/50">{label}</p><p className="truncate text-sm font-bold text-charcoal">{value}</p></div>
+              ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers, ''],
+              ['PCC', patient.assignedDoctor?.name || 'Not assigned', UserRound, ''],
+              ['Psychologist', patient.assignedPsychologist?.name || 'Not assigned', HeartHandshake, ''],
+              ['Paid (verified)', formatMoney(stageTotals.paid), IndianRupee, 'green'],
+              ['Balance', formatMoney(stageTotals.left), Clock, stageTotals.left > 0 ? 'orange' : ''],
+            ].map(([label, value, Icon, tone]) => (
+              <div key={label} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${tone === 'orange' ? 'border-[#FDBA74] bg-[#FFF7ED]' : tone === 'green' ? 'border-[#CFE6D7] bg-[#F6FBF7]' : 'border-[#EFE3CF] bg-white'}`}>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone === 'orange' ? 'bg-[#F97316]/15 text-[#C2410C]' : tone === 'green' ? 'bg-[#2F8F5B]/12 text-[#1F6B41]' : 'bg-sage/10 text-sage'}`}><Icon size={17} /></span>
+                <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-charcoal/50">{label}</p><p className={`truncate font-display text-[15px] font-extrabold ${tone === 'orange' ? 'text-[#C2410C]' : tone === 'green' ? 'text-[#1F6B41]' : 'text-charcoal'}`}>{value}</p></div>
               </div>
             ))}
           </div>
         </Card>
 
         {/* Page tabs */}
-        <nav className="sticky top-0 z-20 -mx-1 mt-4 flex gap-1 overflow-x-auto rounded-xl border border-cardline bg-offwhite-100/95 p-1 shadow-card backdrop-blur" aria-label="Patient sections">
+        <nav className="sticky top-0 z-20 mt-4 flex gap-1 overflow-x-auto border-b border-[#E8DFCB] bg-cream/95 backdrop-blur" aria-label="Patient sections">
           {pageTabs.map(({ key, label, icon: Icon, dot }) => (
             <button key={key} type="button" onClick={() => openTab(key)} aria-current={activeTab === key ? 'page' : undefined}
-              className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition ${activeTab === key ? 'bg-sage text-white shadow-sm' : 'text-charcoal/65 hover:bg-sage-muted/20 hover:text-charcoal'}`}>
-              <Icon size={15} />{label}
-              {dot && <span className={`h-2 w-2 rounded-full ${activeTab === key ? 'bg-white' : 'bg-[#B42318]'}`} aria-label="needs attention" />}
+              className={`relative -mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] font-semibold transition ${activeTab === key ? 'border-sage text-charcoal' : 'border-transparent text-charcoal/60 hover:text-charcoal'}`}>
+              <Icon size={15} className={activeTab === key ? 'text-sage' : ''} />{label}
+              {dot && <span className="rounded-full bg-[#F97316] px-1.5 text-[10px] font-bold leading-4 text-white" aria-label="needs attention">!</span>}
             </button>
           ))}
         </nav>
 
         {activeTab === 'overview' && (
-        <Card padded={false} className="mt-4 overflow-hidden">
-          <div className="px-3.5 pb-3 pt-4 sm:px-6">
-            <h2 className="font-display text-base font-bold text-charcoal">Contact &amp; care team</h2>
-            <p className="mt-0.5 text-xs text-charcoal/55">Click a value to edit it.</p>
+        <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+        <section className="rounded-[14px] border border-[#E8DFCB] bg-white p-4 sm:p-[18px]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-display text-[14px] font-bold text-charcoal">Contact &amp; family</h2>
+            <span className="text-[11.5px] text-charcoal/55">Click a value to edit it</span>
           </div>
-          {/* Equal-width editable boxes spanning the full card, regardless of which values are filled in */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">
-            <EditableField
-              label="Age"
-              value={patient.age ?? ''}
-              onSave={(val) => saveField('age', val)}
-              readOnly={!canEditPatientDetails}
-            />
-            <EditableField
-              label={isAutism ? "Father's Number" : 'Phone Number'}
-              value={patient.number}
-              placeholder="Not added"
-              onSave={(val) => saveField('number', val)}
-              readOnly={!canEditPatientDetails}
-            />
-            <EditableField
-              label={isAutism ? 'Father / Mother Name' : 'Relative Name'}
-              value={patient[guardianKey]}
-              placeholder="Not added"
-              onSave={(val) => saveField(guardianKey, val)}
-              readOnly={!canEditPatientDetails}
-            />
-            <EditableField
-              label={isAutism ? "Mother's Number" : 'Relative Number'}
-              value={patient.alternateNumber}
-              placeholder="Not added"
-              onSave={(val) => saveField('alternateNumber', val)}
-              readOnly={!canEditPatientDetails}
-            />
-            <EditableField
-              label="Current Phase"
-              type="select"
-              options={STAGE_OPTIONS}
-              value={patient.currentStage}
-              onSave={(val) => saveField('currentStage', val)}
-              readOnly={!canEditPatientDetails}
-            />
-            {canAssignDoctor ? (
-              <EditableField
-                label="Assigned PCC (Patient Care Coordinator)"
-                type="select"
-                options={[
-                  { value: '', label: 'Unassigned' },
-                  ...doctorOptions.map((d) => ({ value: d.id, label: d.name })),
-                ]}
-                value={patient.assignedDoctor?.id || ''}
-                onSave={(val) => saveField('assignedDoctor', val || null)}
-              />
-            ) : (
-              <div className="bg-offwhite-100 p-4">
-                <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Assigned Doctor</p>
-                <p className="mt-1 text-sm font-bold text-charcoal">{patient.assignedDoctor?.name || 'Not assigned'}</p>
-              </div>
-            )}
-            {canAssignDoctor ? (
-              <EditableField
-                label="Assigned Psychologist"
-                type="select"
-                options={[
-                  { value: '', label: 'Unassigned' },
-                  ...psychologistOptions.map((p) => ({ value: p.id, label: p.name })),
-                ]}
-                value={patient.assignedPsychologist?.id || ''}
-                onSave={(val) => saveField('assignedPsychologist', val || null)}
-              />
-            ) : (
-              <div className="bg-offwhite-100 p-4">
-                <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Assigned Psychologist</p>
-                <p className="mt-1 text-sm font-bold text-charcoal">{patient.assignedPsychologist?.name || 'Not assigned'}</p>
-              </div>
-            )}
+          <div className="space-y-0.5">
+            <EditableField layout="row" label="Age" value={patient.age ?? ''} onSave={(val) => saveField('age', val)} readOnly={!canEditPatientDetails} />
+            <EditableField layout="row" label={isAutism ? "Father's Number" : 'Phone Number'} value={patient.number} placeholder="Not added" onSave={(val) => saveField('number', val)} readOnly={!canEditPatientDetails} />
+            <EditableField layout="row" label={isAutism ? 'Father / Mother Name' : 'Relative Name'} value={patient[guardianKey]} placeholder="Not added" onSave={(val) => saveField(guardianKey, val)} readOnly={!canEditPatientDetails} />
+            <EditableField layout="row" label={isAutism ? "Mother's Number" : 'Relative Number'} value={patient.alternateNumber} placeholder="Not added" onSave={(val) => saveField('alternateNumber', val)} readOnly={!canEditPatientDetails} />
           </div>
           {(patient.profileFields || []).length > 0 && (
-            <div className="border-t border-cardline">
-              <p className="px-3.5 pt-4 text-xs font-bold uppercase tracking-wide text-sage sm:px-6">Child &amp; family details</p>
-              <div className="mt-3 grid grid-cols-1 gap-px bg-cardline border-t border-cardline sm:grid-cols-3 lg:grid-cols-4">
+            <div className="mt-3 border-t border-[#F0E8D8] pt-3">
+              <p className="mb-1 px-2 text-[10.5px] font-bold uppercase tracking-wide text-sage">Child &amp; family details</p>
+              <div className="space-y-0.5">
                 {patient.profileFields.map((definition) => (
                   <EditableField
                     key={definition.key}
+                    layout="row"
                     label={definition.label}
                     type={definition.type === 'select' ? 'select' : definition.type === 'date' ? 'date' : 'text'}
                     options={definition.type === 'select' ? [{ value: '', label: 'Not added' }, ...definition.options.map((option) => ({ value: option, label: option }))] : undefined}
@@ -3293,7 +3234,103 @@ const PatientDetails = () => {
               </div>
             </div>
           )}
-        </Card>
+        </section>
+
+        <section className="rounded-[14px] border border-[#E8DFCB] bg-white p-4 sm:p-[18px]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-display text-[14px] font-bold text-charcoal">Care team</h2>
+          </div>
+          <div className="space-y-0.5">
+            <EditableField layout="row" label="Current Phase" type="select" options={STAGE_OPTIONS} value={patient.currentStage} onSave={(val) => saveField('currentStage', val)} readOnly={!canEditPatientDetails} />
+            {canAssignDoctor ? (
+              <EditableField
+                layout="row"
+                label="Assigned PCC"
+                type="select"
+                options={[{ value: '', label: 'Unassigned' }, ...doctorOptions.map((d) => ({ value: d.id, label: d.name }))]}
+                value={patient.assignedDoctor?.id || ''}
+                onSave={(val) => saveField('assignedDoctor', val || null)}
+              />
+            ) : (
+              <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] gap-3 px-2 py-1.5 text-[13px]"><span className="text-[12.5px] font-medium text-charcoal/60">Assigned PCC</span><span className="font-semibold text-charcoal">{patient.assignedDoctor?.name || 'Not assigned'}</span></div>
+            )}
+            {canAssignDoctor ? (
+              <EditableField
+                layout="row"
+                label="Assigned Psychologist"
+                type="select"
+                options={[{ value: '', label: 'Unassigned' }, ...psychologistOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                value={patient.assignedPsychologist?.id || ''}
+                onSave={(val) => saveField('assignedPsychologist', val || null)}
+              />
+            ) : (
+              <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] gap-3 px-2 py-1.5 text-[13px]"><span className="text-[12.5px] font-medium text-charcoal/60">Assigned Psychologist</span><span className="font-semibold text-charcoal">{patient.assignedPsychologist?.name || 'Not assigned'}</span></div>
+            )}
+          </div>
+          <div className="mt-3 border-t border-[#F0E8D8] pt-3">
+            <p className="mb-1 px-2 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60">Treatment phases</p>
+            <ol>
+              {(patient.stages || []).map((stage) => {
+                const current = stage.number === patient.currentStage;
+                const started = Number(stage.totalAmount || 0) > 0 || (stage.status && stage.status !== 'not_started');
+                const request = [...(stage.medicineRequests || [])].reverse().find((r) => r.status && r.status !== 'cancelled');
+                return (
+                  <li key={stage.number}>
+                    <button type="button" onClick={() => { setActiveStageTab(stage.number); openTab('phases'); }} className="grid w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-[#FBF7ED]">
+                      <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-extrabold ${current ? 'border-2 border-[#FDBA74] bg-[#FFF1E6] text-[#C2410C]' : started ? 'bg-[#E6F2EA] text-[#1F6B41]' : 'bg-[#F3EEE2] text-charcoal/45'}`}>{stage.number}</span>
+                      <span className="min-w-0">
+                        <span className={`block truncate text-[13px] ${started || current ? 'font-bold text-charcoal' : 'text-charcoal/55'}`}>{STAGE_LABELS[stage.number]}{stage.packageName ? ` · ${stage.packageName}` : ''}</span>
+                        <span className="block truncate text-[11.5px] text-charcoal/55">{[stage.purchaseOrder && `PO ${stage.purchaseOrder}`, request?.statusLabel && `medicine ${request.statusLabel}`, Number(stage.totalAmount || 0) > 0 && `${formatMoney(stage.amountPaid)} / ${formatMoney(stage.totalAmount)}`].filter(Boolean).join(' · ') || 'Not started'}</span>
+                      </span>
+                      <Badge tone={current ? 'orange' : started ? 'green' : 'default'}>{stage.statusLabel || (started ? 'Started' : 'Not started')}</Badge>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </section>
+        </div>
+        <aside className="space-y-4">
+          {(() => {
+            // What still needs someone on this patient, read from the same data the tabs show.
+            const attention = [];
+            if (patient.approvalStatus === 'pending') attention.push(['Patient approval pending', 'Approve after checking package and payments', 'phases']);
+            (patient.stages || []).forEach((stage) => {
+              const pending = (stage.payments || []).filter((pay) => pay.approvalStatus === 'pending');
+              if (pending.length) attention.push([`${STAGE_LABELS[stage.number]}: ${pending.length} payment(s) to verify`, formatMoney(pending.reduce((sum, pay) => sum + Number(pay.amount || 0), 0)), 'phases']);
+              if (Number(stage.remainingAmount || 0) > 0 && Number(stage.totalAmount || 0) > 0) attention.push([`${STAGE_LABELS[stage.number]}: balance ${formatMoney(stage.remainingAmount)}`, `of ${formatMoney(stage.totalAmount)}`, 'phases']);
+              (stage.medicineRequests || []).filter((r) => ['requested', 'in_process', 'made'].includes(r.status)).forEach((r) => attention.push([`${STAGE_LABELS[stage.number]}: medicine ${r.statusLabel || r.status}`, [r.poNumber, r.supplyLabel].filter(Boolean).join(' · '), 'medicine']));
+            });
+            return (
+              <section className={`rounded-[14px] p-4 ${attention.length ? 'border-2 border-[#FDBA74] bg-[#FFF7ED]' : 'border border-[#E8DFCB] bg-white'}`}>
+                <h3 className={`mb-2 font-display text-[13.5px] font-bold ${attention.length ? 'text-[#C2410C]' : 'text-charcoal'}`}>Needs attention</h3>
+                {attention.length ? (
+                  <ul className="space-y-2">
+                    {attention.slice(0, 6).map(([title, detail, tab]) => (
+                      <li key={title}><button type="button" onClick={() => openTab(tab)} className="w-full rounded-xl border border-[#FED7AA] bg-white px-3 py-2 text-left hover:shadow-sm"><span className="block text-[12.5px] font-bold text-charcoal">{title}</span>{detail && <span className="block text-[11.5px] text-charcoal/60">{detail}</span>}</button></li>
+                    ))}
+                  </ul>
+                ) : <p className="flex items-center gap-2 text-[12.5px] text-charcoal/65"><CheckCircle2 size={16} className="text-[#2F8F5B]" />Nothing pending on this patient.</p>}
+              </section>
+            );
+          })()}
+          {!isLimitedViewer && (patient.activityLog || []).length > 0 && (
+            <section className="rounded-[14px] border border-[#E8DFCB] bg-white p-4">
+              <div className="mb-2 flex items-center justify-between"><h3 className="font-display text-[13.5px] font-bold text-charcoal">Recent activity</h3><button type="button" className="text-xs font-semibold text-sage hover:underline" onClick={() => openTab('activity')}>All</button></div>
+              <ol className="space-y-2.5">
+                {[...(patient.activityLog || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 5).map((entry, index) => (
+                  <li key={entry.id || index} className="text-[12px]">
+                    <p className="text-[11px] text-charcoal/50">{formatDate(entry.createdAt)}{entry.actorName ? ` · ${entry.actorName}` : ''}</p>
+                    <p className="font-semibold text-charcoal">{entry.action}</p>
+                    {entry.details && <p className="line-clamp-2 text-charcoal/60">{entry.details}</p>}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+        </aside>
+        </div>
         )}
         </>
       )}

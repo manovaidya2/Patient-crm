@@ -7,6 +7,7 @@ import { ROLE_LABELS, ROLES } from '../../constants/roles.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
+import { MessagesSquare as PageTitleIcon } from 'lucide-react';
 
 const input = 'w-full min-w-0 rounded-md border border-cardline bg-offwhite-100 px-3 py-2 text-sm';
 const statuses = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' };
@@ -93,7 +94,7 @@ export default function Enquiries() {
     finally { setSaving(false); }
   }
   return <div className="space-y-4 pb-14 text-charcoal">
-    <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="font-display text-xl font-bold sm:text-2xl">Enquiries & Escalations</h1><Button size="sm" onClick={() => { setModalError(''); setDraft({ ...blank }); }}><Plus size={16} />New enquiry</Button></header>
+    <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="flex items-center gap-3 font-display text-xl font-bold sm:text-2xl"><PageTitleIcon size={20} aria-hidden="true" />Enquiries & Escalations</h1><Button size="sm" onClick={() => { setModalError(''); setDraft({ ...blank }); }}><Plus size={16} />New enquiry</Button></header>
     <div role="tablist" aria-label="Enquiry views" className="flex flex-wrap gap-1 border-b border-cardline">{[['assigned', 'Assigned to me'], ['created', 'Created by me'], ['following', user?.role === ROLES.ADMIN ? 'All enquiries' : 'Following']].map(([value, label]) => <button key={value} role="tab" aria-selected={view === value} onClick={() => { setView(value); setStatus(''); setPage(1); }} className={`border-b-2 px-3 py-2 text-sm font-semibold ${view === value ? 'border-sage text-sage' : 'border-transparent text-charcoal/65'}`}>{label}</button>)}</div>
 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" aria-label="Enquiry counts">
       {[['', 'Total', 'text-charcoal'], ['open', 'Open', 'text-amber-800'], ['in_progress', 'In progress', 'text-blue-800'], ['resolved', 'Resolved', 'text-sage'], ['closed', 'Closed', 'text-charcoal/70']].map(([value, label, tone]) => <button key={value} type="button" aria-label={`Filter ${label.toLowerCase()} enquiries`} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }} className={`min-w-0 rounded-lg border px-3 py-3 text-left transition ${status === value ? 'border-sage bg-sage/10 ring-1 ring-sage' : 'border-cardline bg-offwhite-100 hover:border-sage'}`}><span className="block text-xs font-semibold text-charcoal/75">{label}</span><strong className={`mt-1 block text-xl tabular-nums ${tone}`}>{loading ? '...' : error ? '-' : data.summary?.[value || 'total'] ?? '-'}</strong></button>)}

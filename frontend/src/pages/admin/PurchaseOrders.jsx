@@ -8,6 +8,7 @@ import PurchaseOrderRow from '../../components/purchaseOrders/PurchaseOrderRow.j
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import { PO_STAGES } from '../../constants/supplyPlans.js';
+import { PageHeader } from '../../components/ui/Layout.jsx';
 
 const CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 
@@ -43,23 +44,19 @@ export default function PurchaseOrders() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 font-display text-xl font-bold text-charcoal sm:text-2xl"><ClipboardList size={22} className="text-sage" />Purchase Orders</h1>
-          <p className="text-sm text-charcoal/60">Verify each PO and its payment, then send its medicine request to Medicine Department.</p>
-        </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+      <PageHeader icon={ClipboardList} title="Purchase Orders"
+        subtitle="Verify each PO and its payment, then send its medicine request to Medicine Department."
+        actions={<div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <div className="relative min-w-0 flex-1 sm:w-72"><Search size={16} className="absolute left-3 top-2.5 text-charcoal/45" /><input className={`${poInput} !pl-9`} placeholder="PO number, patient, ID or phone" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
           {CREATE_ROLES.includes(user?.role) && <Button onClick={() => setCreateOpen(true)}><Plus size={15} />New PO</Button>}
-        </div>
-      </div>
+        </div>} />
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {filters.map((f) => (
-          <button key={f.key || 'all'} type="button" onClick={() => setStage(f.key)} className={`min-w-[132px] shrink-0 rounded-xl border px-3 py-2.5 text-left transition ${stage === f.key ? 'border-sage bg-sage text-white shadow-sm' : pendingCard(f.key) ? 'border-orange-300 bg-orange-50/60 hover:border-orange-400' : 'border-cardline bg-white hover:border-sage/60'}`}>
-            <p className={`text-2xl font-bold leading-none ${stage !== f.key && pendingCard(f.key) ? 'text-orange-600' : ''}`}>{countOf(f.key)}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold">{f.label}{mineOf(f.key) > 0 && <span className="rounded-full bg-orange-500 px-1.5 py-px text-[10px] font-bold text-white" title="Waiting for you">{mineOf(f.key)}</span>}</p>
-            <p className={`text-[10px] ${stage === f.key ? 'text-white/80' : 'text-charcoal/45'}`}>{f.hint}</p>
+          <button key={f.key || 'all'} type="button" onClick={() => setStage(f.key)} className={`min-w-[132px] shrink-0 rounded-xl border px-3.5 py-3 text-left transition ${stage === f.key ? 'border-charcoal bg-charcoal text-white shadow-sm' : pendingCard(f.key) ? 'border-[#FDBA74] bg-[#FFF7ED] hover:border-[#F97316]' : 'border-[#E8DFCB] bg-white hover:border-sage/60'}`}>
+            <p className={`font-display text-[22px] font-extrabold leading-none ${stage !== f.key && pendingCard(f.key) ? 'text-[#C2410C]' : stage === f.key ? '' : 'text-charcoal'}`}>{countOf(f.key)}</p>
+            <p className="mt-1 flex items-center gap-1.5 text-[12px] font-bold">{f.label}{mineOf(f.key) > 0 && <span className="rounded-full bg-[#F97316] px-1.5 py-px text-[10px] font-bold text-white" title="Waiting for you">{mineOf(f.key)}</span>}</p>
+            <p className={`text-[10.5px] ${stage === f.key ? 'text-white/80' : 'text-charcoal/55'}`}>{f.hint}</p>
           </button>
         ))}
       </div>

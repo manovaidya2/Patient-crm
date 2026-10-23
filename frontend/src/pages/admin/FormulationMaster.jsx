@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import FormulationSheet from '../../components/medicine/FormulationSheet.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
+import { FlaskConical as PageTitleIcon } from 'lucide-react';
 
 const dateTime = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const ErrorText = ({ children }) => (children ? <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{children}</p> : null);
@@ -110,7 +111,7 @@ export default function FormulationMasterPage() {
         <div className="flex items-start gap-3">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage"><FlaskConical size={22} /></span>
           <div>
-            <h1 className="font-display text-xl font-bold text-charcoal sm:text-2xl">Formulation Master</h1>
+            <h1 className="flex items-center gap-3 font-display text-xl font-bold text-charcoal sm:text-2xl"><PageTitleIcon size={20} aria-hidden="true" />Formulation Master</h1>
             <p className="text-sm text-charcoal/65">Autism / ADHD &amp; Child Development - six-month quantities, chit doses and packs per age group. Every new fulfilment sheet is built from the version saved here; the doctor can correct it any time.</p>
           </div>
         </div>

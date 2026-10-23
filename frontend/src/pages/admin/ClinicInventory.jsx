@@ -9,6 +9,7 @@ import Card from '../../components/ui/Card.jsx';
 import Input from '../../components/ui/Input.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import InventorySoftCopy from '../../components/InventorySoftCopy.jsx';
+import { Boxes as PageTitleIcon } from 'lucide-react';
 
 const emptyItem = { name: '', category: '', unit: 'piece', openingStock: '', lowStockAt: '', notes: '' };
 const emptyMovement = { type: 'add', quantity: '', reason: '', notes: '' };
@@ -65,7 +66,7 @@ const ClinicInventory = () => {
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sage">
             Reception operations
           </p>
-          <h1 className="mt-1 text-3xl font-bold text-charcoal">
+          <h1 className="flex items-center gap-3 mt-1 text-3xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />
             Clinic inventory
           </h1>
           <p className="mt-1 text-sm text-charcoal/60">

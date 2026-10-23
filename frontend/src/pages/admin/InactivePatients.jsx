@@ -6,6 +6,7 @@ import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
+import { UserX as PageTitleIcon } from 'lucide-react';
 
 const PAGE_SIZE = 10;
 
@@ -80,7 +81,7 @@ const InactivePatients = () => {
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-charcoal">Inactive Patients</h1>
+          <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Inactive Patients</h1>
           <p className="mt-1 text-sm text-charcoal/60">
             Closed cases (medicine stopped) - {total} total. Reactivate to bring one back to the active list.
           </p>
