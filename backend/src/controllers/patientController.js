@@ -213,6 +213,8 @@ const formatScheduleEntry = (e) => {
     notes: e.notes,
     createdByName: e.createdByName,
     completedAt: e.completedAt || null,
+    completedByName: e.completedByName || '',
+    completedByRole: e.completedByRole || '',
     trackerSentAt: e.trackerSentAt || null,
     trackerSentByName: e.trackerSentByName || '',
     videoRequestedAt: e.videoRequestedAt || null,
@@ -247,7 +249,7 @@ const isSameUser = (left, right) => {
 
 const canSeeScheduleReminder = (user, patient, type) => {
   if (user.role === ROLES.MANAGER) return true;
-  if (user.role === ROLES.ASSISTANT_DOCTOR) return type === 'followup' && isSameUser(patient.assignedDoctor, user._id);
+  if (user.role === ROLES.ASSISTANT_DOCTOR) return ['followup', 'family_session'].includes(type) && isSameUser(patient.assignedDoctor, user._id);
   if (user.role === ROLES.PSYCHOLOGIST) return type === 'family_session' && isSameUser(patient.assignedPsychologist, user._id);
   return false;
 };
@@ -331,9 +333,7 @@ const collectScheduleReminders = (patients, user, { includeUpcoming24 = false } 
           categoryLabel: CATEGORY_LABELS[patient.category],
           stageNumber: stage.number,
           stageLabel: STAGE_LABELS[stage.number],
-          assignee: type === 'followup'
-            ? patient.assignedDoctor?.name || 'Unassigned'
-            : patient.assignedPsychologist?.name || 'Unassigned',
+          assignee: patient.assignedDoctor?.name || 'Unassigned',
         });
       };
 
@@ -513,8 +513,7 @@ const cannotSeeScheduleType = (user, fieldKey) =>
   fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST;
 
 const cannotUpdateScheduleType = (user, fieldKey) =>
-  (fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST) ||
-  (fieldKey === 'familySessions' && user.role === ROLES.ASSISTANT_DOCTOR);
+  fieldKey === 'followUps' && user.role === ROLES.PSYCHOLOGIST;
 
 const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   id: p._id,
@@ -1050,7 +1049,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         (stage.familySessions || []).forEach((entry) => {
           const entryDate = entry.dateTime ? new Date(entry.dateTime) : null;
           if (entryDate && entryDate < now && entry.status === 'scheduled') {
-            addLossPoint(patient.assignedPsychologist, 'Unassigned Psychologist', 'familySessions', {
+            addLossPoint(patient.assignedDoctor, 'Unassigned PCC', 'familySessions', {
               type: 'Family session late',
               patientName: patient.patientName,
               patientCode: patient.patientCode || `PT-${String(patient._id).slice(-6).toUpperCase()}`,
@@ -1202,7 +1201,7 @@ const getStaffDashboardStats = asyncHandler(async (req, res) => {
   };
 
   reminders.forEach((item) => {
-    const row = ensureAssignee(item.assignee, item.type === 'followup' ? 'PCC' : 'Psychologist');
+    const row = ensureAssignee(item.assignee, 'PCC');
     row.total += 1;
     if (item.reminderKind === 'late') row.late += 1;
     if (item.reminderKind === 'next_24_hours') row.next24 += 1;
@@ -1944,25 +1943,9 @@ const updatePatient = asyncHandler(async (req, res) => {
     }
   }
 
-  if (assignedPsychologist !== undefined) {
-    if (!ASSIGN_DOCTOR_ROLES.includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: 'You do not have permission to assign patients' });
-    }
-    if (!assignedPsychologist) {
-      if (patient.assignedPsychologist) {
-        addActivity(patient, req.user, 'Psychologist unassigned');
-      }
-      patient.assignedPsychologist = null;
-    } else {
-      const psychologist = await User.findOne({ _id: assignedPsychologist, role: ROLES.PSYCHOLOGIST, isActive: true });
-      if (!psychologist) {
-        return res.status(400).json({ success: false, message: 'Select a valid, active Psychologist' });
-      }
-      if (!sameValue(patient.assignedPsychologist, psychologist._id)) {
-        addActivity(patient, req.user, 'Psychologist assigned', psychologist.name);
-      }
-      patient.assignedPsychologist = psychologist._id;
-    }
+  // The Psychologist role is retired: the stored psychologist stays on the patient as history and cannot be changed.
+  if (assignedPsychologist !== undefined && String(assignedPsychologist || '') !== String(patient.assignedPsychologist || '')) {
+    return res.status(400).json({ success: false, message: 'The Psychologist role has been retired; family sessions are handled by the PCC.' });
   }
 
   await patient.save();
@@ -3580,6 +3563,8 @@ const updateScheduleEntry = (fieldKey) =>
         entry.trackerSubmissionUrl = isTrackerFollowUp ? String(trackerSubmissionUrl || '').trim() : '';
         entry.meetRecordingUrl = fieldKey === 'familySessions' ? String(meetRecordingUrl || '').trim() : '';
         entry.completedAt = new Date();
+        entry.completedByName = req.user.name;
+        entry.completedByRole = req.user.role;
         entry.completionFormType = isShortFollowUp ? 'sfs' : isTrackerFollowUp ? 'tracker' : completionFormType || (fieldKey === 'followUps' ? 'followup_full' : 'family_section_a');
         entry.completionFormData = (isShortFollowUp || isTrackerFollowUp) ? null : completionFormData || null;
         if (isShortFollowUp || isTrackerFollowUp) {
@@ -3691,6 +3676,8 @@ const uploadFollowUpVideo = asyncHandler(async (req, res) => {
     entry.videoSize = compressed.size;
     entry.status = 'completed';
     entry.completedAt = new Date();
+    entry.completedByName = req.user.name;
+    entry.completedByRole = req.user.role;
     entry.completionName = 'Requested Video';
     entry.completionDetails = 'Requested video uploaded and compressed';
     entry.completionFormType = 'video';
@@ -3901,7 +3888,7 @@ const addFamilySession = addScheduleEntry('familySessions');
 const updateFamilySession = updateScheduleEntry('familySessions');
 const deleteFamilySession = deleteScheduleEntry('familySessions');
 const getFollowUps = listScheduleEntries('followUps', { groupByAssignedDoctor: true });
-const getFamilySessions = listScheduleEntries('familySessions', { groupByAssignedPsychologist: true });
+const getFamilySessions = listScheduleEntries('familySessions', { groupByAssignedDoctor: true });
 
 module.exports = {
   getPatients,

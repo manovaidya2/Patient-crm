@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { isRetiredRole } = require('../constants/roles');
 const { attachCrmAudit } = require('./crmAudit');
 
 // Verifies the JWT and attaches the logged-in user to req.user
@@ -25,6 +26,10 @@ const protect = async (req, res, next) => {
 
     if (!user.isActive) {
       return res.status(403).json({ success: false, message: 'Your account has been deactivated. Contact admin.' });
+    }
+
+    if (isRetiredRole(user.role)) {
+      return res.status(403).json({ success: false, message: 'The Psychologist role has been retired. Family sessions are now done by the PCC. Ask the admin to give your account a new role.' });
     }
 
     req.user = user;

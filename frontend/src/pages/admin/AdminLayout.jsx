@@ -28,13 +28,13 @@ const localMonth = () => localDate().slice(0, 7);
 const getPrefetchPlan = (role) => {
   const range = todayRange();
   const plan = [];
-  if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(role)) {
+  if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST].includes(role)) {
     plan.push({ url: '/patients', params: { page: 1, limit: 10 } });
   }
   if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR].includes(role)) {
     plan.push({ url: '/schedule/followups', params: range });
   }
-  if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR].includes(role)) {
+  if ([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR].includes(role)) {
     plan.push({ url: '/schedule/family-sessions', params: range });
   }
 

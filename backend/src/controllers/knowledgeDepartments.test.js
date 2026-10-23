@@ -6,8 +6,8 @@ const Category = require('../models/KnowledgeCategory');
 const Article = require('../models/KnowledgeArticle');
 const controller = require('./knowledgeController');
 
-test('every staff role gets one library; only psychologist and assistant doctor share', () => {
-  assert.equal(DEPARTMENTS.length, CREATABLE_ROLES.length - 1);
+test('every staff role gets its own library; the retired psychologist role reads the PCC library', () => {
+  assert.equal(DEPARTMENTS.length, CREATABLE_ROLES.length);
   for (const role of CREATABLE_ROLES) {
     const own = departmentForRole(role);
     assert.equal(resolveDepartment({ user: { role }, query: {} }), own);

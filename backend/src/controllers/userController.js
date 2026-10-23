@@ -1,6 +1,6 @@
 const User = require('../models/User');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { CREATABLE_ROLES, ROLE_LABELS, ROLES } = require('../constants/roles');
+const { CREATABLE_ROLES, RETIRED_ROLES, ROLE_LABELS, ROLES } = require('../constants/roles');
 const { formatUser } = require('./authController');
 
 // @desc    Admin creates a login for a team member (manager, counselor, doctor, etc.)
@@ -42,7 +42,7 @@ const createUser = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getUsers = asyncHandler(async (req, res) => {
   const { role } = req.query;
-  const filter = { role: { $in: CREATABLE_ROLES } };
+  const filter = { role: { $in: [...CREATABLE_ROLES, ...RETIRED_ROLES] } };
   if (role) filter.role = role;
 
   const users = await User.find(filter).sort({ createdAt: -1 });
@@ -64,7 +64,7 @@ const updateUser = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Admin account cannot be modified here' });
   }
 
-  if (role) {
+  if (role && role !== user.role) {
     if (!CREATABLE_ROLES.includes(role)) {
       return res.status(400).json({ success: false, message: 'Invalid role' });
     }

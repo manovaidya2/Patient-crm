@@ -17,6 +17,9 @@ const scheduleEntrySchema = new mongoose.Schema(
     createdByName: { type: String, trim: true, default: '' },
     // Filled in only when marked completed, via the "mark done" form
     completedAt: { type: Date, default: null },
+    // Who marked the entry done, kept as text so it survives role or account changes.
+    completedByName: { type: String, default: '' },
+    completedByRole: { type: String, default: '' },
     trackerSentAt: { type: Date, default: null },
     trackerSentByName: { type: String, trim: true, default: '' },
     videoRequestedAt: { type: Date, default: null },

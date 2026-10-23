@@ -10,7 +10,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Toast from '../../components/ui/Toast.jsx';
 import { useToast } from '../../components/useToast.js';
-import { CREATABLE_ROLES, ROLE_LABELS } from '../../constants/roles.js';
+import { CREATABLE_ROLES, RETIRED_ROLES, ROLE_LABELS } from '../../constants/roles.js';
 import { Users as PageTitleIcon } from 'lucide-react';
 
 const emptyForm = { name: '', email: '', password: '', role: '', phone: '' };
@@ -254,7 +254,7 @@ const TeamMembers = () => {
             className="rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition sm:w-56"
           >
             <option value="">All roles</option>
-            {CREATABLE_ROLES.map((r) => (
+            {[...CREATABLE_ROLES, ...RETIRED_ROLES].map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABELS[r]}
               </option>
@@ -376,7 +376,7 @@ const TeamMembers = () => {
             value={form.role}
             onChange={(e) => setForm({ ...form, role: e.target.value })}
             error={formErrors.role}
-            options={CREATABLE_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
+            options={[...CREATABLE_ROLES, ...(RETIRED_ROLES.includes(form.role) ? [form.role] : [])].map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
           />
           <Input
             id="phone"

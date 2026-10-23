@@ -143,7 +143,7 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
 export function AssignPccForm({ item, onDone }) {
   const [staff, setStaff] = useState([]);
   const existing = item.assignments.assistantDoctor;
-  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: existing?.id || '', postCounselorId: item.assignments.postCounselor?.id || '', psychologistId: item.assignments.psychologist?.id || '' });
+  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: existing?.id || '', postCounselorId: item.assignments.postCounselor?.id || ''});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.get('/transit/staff', { skipCache: true }).then(({ data }) => setStaff(data.staff)).catch(() => setError('Could not load the staff list')); }, []);
@@ -169,7 +169,6 @@ export function AssignPccForm({ item, onDone }) {
         <label className="block space-y-1 text-sm font-medium text-charcoal"><span>Medicine explanation date & time<span className="text-red-700"> *</span></span><input className={inputClass} type="datetime-local" required value={values.explanationAt} onChange={(e) => set('explanationAt', e.target.value)} /></label>
         <Field field={['explanationMode', 'Explanation mode', 'pills', true, [['phone', 'Phone'], ['video', 'Video'], ['clinic', 'Clinic']]]} value={values.explanationMode} onChange={set} />
         {select('postCounselorId', `Post counselor (Phase ${item.stage}, optional)`, 'post_counselor', false)}
-        {select('psychologistId', 'Psychologist (optional)', 'psychologist', false)}
       </div>
       <Button type="submit" disabled={saving}><Stethoscope size={15} />{saving ? 'Saving...' : item.pcc?.assigned ? 'Update PCC' : 'Assign PCC'}</Button>
     </form>

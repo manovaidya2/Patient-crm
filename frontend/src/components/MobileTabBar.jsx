@@ -13,8 +13,7 @@ const PREFERRED = {
   [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/package-not-bought', '/admin/patients'],
   [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/courier', '/admin/patient-approvals'],
   [ROLES.MEDICINE_DEPARTMENT]: ['/admin/medicine-jobs', '/admin/medicine-requests', '/admin/stocks'],
-  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-explanations', '/admin/followups', '/admin/patients'],
-  [ROLES.PSYCHOLOGIST]: ['/admin/family-sessions', '/admin/patients', '/admin/enquiries'],
+  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions'],
   [ROLES.RECEPTIONIST]: ['/admin/appointment-management', '/admin/accounts/consultations', '/admin/receptionist-checklist'],
   [ROLES.SALES_TEAM]: ['/admin/appointment-management', '/admin/patients'],
 };

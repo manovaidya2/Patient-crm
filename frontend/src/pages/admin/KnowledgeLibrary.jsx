@@ -12,7 +12,7 @@ import { BookOpen as PageTitleIcon } from 'lucide-react';
 const emptyForm = { question: '', answer: '', categoryId: '' };
 
 const departments = CREATABLE_ROLES.filter((role) => role !== ROLES.PSYCHOLOGIST);
-const departmentLabel = (role) => role === ROLES.ASSISTANT_DOCTOR ? 'PCC & Psychologists' : ROLE_LABELS[role];
+const departmentLabel = (role) => ROLE_LABELS[role];
 const KnowledgeLibrary = () => {
   const { user } = useAuth();
   const [params] = useSearchParams();

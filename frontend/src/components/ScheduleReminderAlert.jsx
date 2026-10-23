@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 import Toast from './ui/Toast.jsx';
 
-const SCHEDULE_REMINDER_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
+const SCHEDULE_REMINDER_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR];
 // In-transit reminders: medicine ready-by date, explanation schedule, patient call-backs.
 const TRANSIT_REMINDER_ROLES = [ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const REMINDER_ROLES = [...new Set([...SCHEDULE_REMINDER_ROLES, ...TRANSIT_REMINDER_ROLES])];
@@ -50,7 +50,7 @@ const ScheduleReminderAlert = () => {
     const getListPath = (item) => {
       if (item?.source === 'transit') return user?.role === ROLES.ASSISTANT_DOCTOR ? '/admin/medicine-explanations' : user?.role === ROLES.MEDICINE_DEPARTMENT ? '/admin/medicine-requests' : '/admin/purchase-orders';
       if (item?.type === 'medicine_connect' || item?.type === 'medicine_delivery' || user?.role === ROLES.POST_COUNSELOR) return '/admin/patients';
-      return user?.role === ROLES.PSYCHOLOGIST ? '/admin/family-sessions' : '/admin/followups';
+      return item?.type === 'family_session' ? '/admin/family-sessions' : '/admin/followups';
     };
 
     const syncToasts = (reminders) => {

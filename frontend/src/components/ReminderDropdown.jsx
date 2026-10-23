@@ -5,7 +5,7 @@ import api from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 
-const ACTIVE_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
+const ACTIVE_ROLES = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR];
 
 const formatDateTime = (iso) =>
   new Date(iso).toLocaleString('en-IN', {

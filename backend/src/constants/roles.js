@@ -21,7 +21,6 @@ const CREATABLE_ROLES = [
   ROLES.POST_COUNSELOR,
   ROLES.ASSISTANT_DOCTOR,
   ROLES.DOCTOR,
-  ROLES.PSYCHOLOGIST,
   ROLES.MEDICINE_DEPARTMENT,
   ROLES.IN_TRANSIT,
   ROLES.DIGITAL_MARKETING,
@@ -31,6 +30,12 @@ const CREATABLE_ROLES = [
 ];
 
 const ALL_ROLES = [ROLES.ADMIN, ...CREATABLE_ROLES];
+// Roles no longer in use. Existing accounts keep the value so old records still show who did the work,
+// but these accounts cannot sign in and no new account can get the role. Family sessions now belong to the PCC.
+const RETIRED_ROLES = [ROLES.PSYCHOLOGIST];
+const isRetiredRole = (role) => RETIRED_ROLES.includes(role);
+// Every value a stored user may carry (active roles + retired ones).
+const STORED_ROLES = [...ALL_ROLES, ...RETIRED_ROLES];
 const GENERAL_CRM_ROLES = ALL_ROLES.filter((role) => role !== ROLES.HR);
 const HR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.HR];
 const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
@@ -39,8 +44,8 @@ const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 // Roles that can open All Patients / Patient Details and see every patient, same as Admin.
 const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.IN_TRANSIT];
 
-// Assistant Doctor and Psychologist can also open those pages, but only for patients assigned to them.
-const PATIENT_ACCESS_ROLES = [...PATIENT_FULL_ACCESS_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST];
+// The PCC (assistant_doctor) can also open those pages, but only for patients assigned to them.
+const PATIENT_ACCESS_ROLES = [...PATIENT_FULL_ACCESS_ROLES, ROLES.ASSISTANT_DOCTOR];
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist.
 const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -51,7 +56,7 @@ const ROLE_LABELS = {
   [ROLES.POST_COUNSELOR]: 'Post Counselor',
   [ROLES.ASSISTANT_DOCTOR]: 'PCC (Patient Care Coordinator)', // role key stays assistant_doctor
   [ROLES.DOCTOR]: 'Doctor',
-  [ROLES.PSYCHOLOGIST]: 'Psychologist',
+  [ROLES.PSYCHOLOGIST]: 'Psychologist (retired role)',
   [ROLES.MEDICINE_DEPARTMENT]: 'Medicine Department',
   [ROLES.IN_TRANSIT]: 'In Transit',
   [ROLES.DIGITAL_MARKETING]: 'Digital Marketing',
@@ -64,6 +69,9 @@ module.exports = {
   ROLES,
   CREATABLE_ROLES,
   ALL_ROLES,
+  RETIRED_ROLES,
+  isRetiredRole,
+  STORED_ROLES,
   GENERAL_CRM_ROLES,
   HR_ACCESS_ROLES,
   HR_FULL_ACCESS_ROLES,

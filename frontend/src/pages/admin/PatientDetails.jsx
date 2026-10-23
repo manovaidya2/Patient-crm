@@ -1708,7 +1708,7 @@ const ScheduleCard = ({
                 {(e.displayStatus === 'done' || e.displayStatus === 'done_late') && e.completionName && (
                   <div className="mt-2.5 pt-2.5 border-t border-cardline-soft text-xs text-charcoal/70">
                     <p>
-                      <span className="font-semibold text-charcoal">{e.completionName}</span> · {formatDateTime(e.completedAt)}
+                      <span className="font-semibold text-charcoal">{e.completionName}</span> · {formatDateTime(e.completedAt)}{e.completedByName ? <> · done by <span className="font-semibold text-charcoal">{e.completedByName}</span></> : null}
                     </p>
                     {e.completionPdfUrl && <CompactAttachments files={[{ url: e.completionPdfUrl, fileName: e.completionPdfName || 'Completion PDF' }]} label="PDF" deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />}
                     {e.meetRecordingUrl && (
@@ -2507,7 +2507,6 @@ const PatientDetails = () => {
   const [callLogs, setCallLogs] = useState([]);
   const [adviceRows, setAdviceRows] = useState([]);
   const [doctorOptions, setDoctorOptions] = useState([]);
-  const [psychologistOptions, setPsychologistOptions] = useState([]);
   const [postCounselorOptions, setPostCounselorOptions] = useState([]);
 
   // Which stage's tab is currently open (independent of the patient's actual "current stage")
@@ -2594,12 +2593,8 @@ const PatientDetails = () => {
     if (!canAssignDoctor) return;
     const fetchAssignableStaff = async () => {
       try {
-        const [doctorRes, psychologistRes] = await Promise.all([
-          api.get('/users/assistant-doctors'),
-          api.get('/users/psychologists'),
-        ]);
+        const doctorRes = await api.get('/users/assistant-doctors');
         setDoctorOptions(doctorRes.data.doctors);
-        setPsychologistOptions(psychologistRes.data.psychologists);
       } catch (err) {
         // Non-critical — the field just won't have options if this fails
       }
@@ -2642,7 +2637,7 @@ const PatientDetails = () => {
   // Medicine is requested from its purchase order (Purchase Orders > PO details). Only Admin keeps the old
   // direct request here, for records made before purchase orders.
   const canRequestMedicine = user?.role === ROLES.ADMIN;
-  const canUpdateFamilySessions = user?.role !== ROLES.ASSISTANT_DOCTOR;
+  const canUpdateFamilySessions = true;
   const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isReceptionistAccounts;
   const canEditPostCounselor = isAdmin || isPostCounselor;
   const canEditPayments = isAdmin || isPostCounselor;
@@ -3159,7 +3154,7 @@ const PatientDetails = () => {
                 <div>
                   <p className="text-sm font-bold text-[#9C6B2E]">Pending accounts approval</p>
                   <p className="mt-0.5 text-xs text-charcoal/60">
-                    This patient was just added and stays hidden from the assigned Assistant Doctor / Psychologist until approved. Check the package and payments below, then approve.
+                    This patient was just added and stays hidden from the assigned PCC until approved. Check the package and payments below, then approve.
                   </p>
                   {approveError && <p className="mt-1 text-xs font-semibold text-[#8C3B2E]">{approveError}</p>}
                 </div>
@@ -3177,7 +3172,6 @@ const PatientDetails = () => {
             {[
               ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers, ''],
               ['PCC', patient.assignedDoctor?.name || 'Not assigned', UserRound, ''],
-              ['Psychologist', patient.assignedPsychologist?.name || 'Not assigned', HeartHandshake, ''],
               ['Paid (verified)', formatMoney(stageTotals.paid), IndianRupee, 'green'],
               ['Balance', formatMoney(stageTotals.left), Clock, stageTotals.left > 0 ? 'orange' : ''],
             ].map(([label, value, Icon, tone]) => (
@@ -3253,18 +3247,6 @@ const PatientDetails = () => {
               />
             ) : (
               <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] gap-3 px-2 py-1.5 text-[13px]"><span className="text-[12.5px] font-medium text-charcoal/60">Assigned PCC</span><span className="font-semibold text-charcoal">{patient.assignedDoctor?.name || 'Not assigned'}</span></div>
-            )}
-            {canAssignDoctor ? (
-              <EditableField
-                layout="row"
-                label="Assigned Psychologist"
-                type="select"
-                options={[{ value: '', label: 'Unassigned' }, ...psychologistOptions.map((p) => ({ value: p.id, label: p.name }))]}
-                value={patient.assignedPsychologist?.id || ''}
-                onSave={(val) => saveField('assignedPsychologist', val || null)}
-              />
-            ) : (
-              <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] gap-3 px-2 py-1.5 text-[13px]"><span className="text-[12.5px] font-medium text-charcoal/60">Assigned Psychologist</span><span className="font-semibold text-charcoal">{patient.assignedPsychologist?.name || 'Not assigned'}</span></div>
             )}
           </div>
           <div className="mt-3 border-t border-[#F0E8D8] pt-3">
@@ -3501,9 +3483,10 @@ const PatientDetails = () => {
                   <button
                     type="button"
                     onClick={() => setTimelineOpen(true)}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-sage hover:text-sage"
+                    className="inline-flex items-center gap-1.5 rounded-[10px] border border-sage bg-sage px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#56695D]"
+                    title="Payments and refunds of this phase"
                   >
-                    <History size={13} /> Payments &amp; refunds
+                    <History size={14} /> View payment details
                   </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-px bg-cardline border-t border-cardline">

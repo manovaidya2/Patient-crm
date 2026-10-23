@@ -57,7 +57,7 @@ const ROLE_FIRST_PAGES = {
 export const navItems = [
   // Every role's open work in one list (the orange counts, item by item).
   { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
-  { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
+  { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
   { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
@@ -68,7 +68,7 @@ export const navItems = [
   { to: '/admin/visitors', icon: Users, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
   { to: '/admin/outgoing-couriers', icon: FileArchive, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
+  { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
   { to: '/admin/purchase-orders', icon: ClipboardList, label: 'Purchase Orders', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT] },
   { to: '/admin/medicine-explanations', icon: ClipboardCheck, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR] },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
@@ -77,7 +77,7 @@ export const navItems = [
   { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR] },
   { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
   { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
-  { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.PSYCHOLOGIST, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
+  { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
@@ -98,8 +98,8 @@ export const navItems = [
   { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
   { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
   { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST] },
-  { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.DIGITAL_MARKETING] },
+  { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
+  { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING] },
   
   { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
   { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true },

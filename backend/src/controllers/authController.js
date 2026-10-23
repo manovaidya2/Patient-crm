@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLE_LABELS } = require('../constants/roles');
+const { ROLE_LABELS, isRetiredRole } = require('../constants/roles');
 const CrmAuditLog = require('../models/CrmAuditLog');
 
 const formatUser = (user) => ({
@@ -32,6 +32,10 @@ const login = asyncHandler(async (req, res) => {
 
   if (!user.isActive) {
     return res.status(403).json({ success: false, message: 'Your account has been deactivated. Contact admin.' });
+  }
+
+  if (isRetiredRole(user.role)) {
+    return res.status(403).json({ success: false, message: 'The Psychologist role has been retired. Family sessions are now done by the PCC. Ask the admin to give your account a new role.' });
   }
 
   const token = generateToken(user._id);

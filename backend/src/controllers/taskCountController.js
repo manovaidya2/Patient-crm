@@ -13,7 +13,7 @@ const { explanationOwner } = require('./transitController');
 // Open work per sidebar page for the signed-in role (the orange badges). Every number is derived from the current state
 // of the records, so it drops by itself as soon as the work is done - nothing to "mark as read". Where a page already
 // has a list endpoint, that same handler is run, so the badge always matches what the page lists.
-const { ADMIN, DOCTOR, MANAGER, POST_COUNSELOR, IN_TRANSIT, MEDICINE_DEPARTMENT, ASSISTANT_DOCTOR, PSYCHOLOGIST } = ROLES;
+const { ADMIN, DOCTOR, MANAGER, POST_COUNSELOR, IN_TRANSIT, MEDICINE_DEPARTMENT, ASSISTANT_DOCTOR } = ROLES;
 const PAGES = {
   '/admin/purchase-orders': [ADMIN, DOCTOR, POST_COUNSELOR, IN_TRANSIT, MANAGER],
   '/admin/patient-approvals': [ADMIN, DOCTOR, IN_TRANSIT],
@@ -27,7 +27,7 @@ const PAGES = {
   '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT],
   '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR],
   '/admin/followups': [MANAGER, ASSISTANT_DOCTOR],
-  '/admin/family-sessions': [MANAGER, PSYCHOLOGIST, ASSISTANT_DOCTOR],
+  '/admin/family-sessions': [MANAGER, ASSISTANT_DOCTOR],
   '/admin/post-counseling-patients': [ADMIN, POST_COUNSELOR, DOCTOR, MANAGER],
   '/admin/package-not-bought': [ADMIN, POST_COUNSELOR],
   '/admin/enquiries': Object.values(ROLES).filter((role) => role !== ROLES.HR),

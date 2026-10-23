@@ -88,7 +88,7 @@ const getTransitCase = asyncHandler(async (req, res) => {
 // @desc    People who can be assigned when treatment starts
 // @route   GET /api/transit/staff
 const listStaff = asyncHandler(async (req, res) => {
-  const users = await User.find({ role: { $in: [ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST] }, isActive: { $ne: false } })
+  const users = await User.find({ role: { $in: [ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR] }, isActive: { $ne: false } })
     .select('name role').sort({ name: 1 }).lean();
   res.json({ success: true, staff: users.map((u) => ({ id: String(u._id), name: u.name, role: u.role })) });
 });
@@ -273,13 +273,11 @@ const ACTIONS = {
     if (!explanationAt) fail('Set the medicine explanation date and time');
     const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC');
     const counselor = await staffMember(body.postCounselorId, ROLES.POST_COUNSELOR, 'post counselor');
-    const psychologist = await staffMember(body.psychologistId, ROLES.PSYCHOLOGIST, 'psychologist');
     if (!doctor) fail('Select the PCC (Patient Care Coordinator)');
     const changedDoctor = String(stage.transit.explanationDoctor || patient.assignedDoctor || '') !== String(doctor._id);
     const changedDate = !stage.medicineExplainDate || new Date(stage.medicineExplainDate).getTime() !== new Date(explanationAt).getTime();
     patient.assignedDoctor = doctor._id;
     if (counselor) stage.postCounselor = counselor._id;
-    if (psychologist) patient.assignedPsychologist = psychologist._id;
     stage.medicineExplainDate = explanationAt;
     Object.assign(stage.transit, {
       explanationScheduledAt: stage.transit.explanationScheduledAt || now, explanationScheduledByName: stage.transit.explanationScheduledByName || req.user.name,
@@ -287,7 +285,7 @@ const ACTIONS = {
       assignedAt: now, assignedByName: req.user.name, explanationDoctor: doctor._id,
       explanationMode: ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : (stage.transit.explanationMode || 'phone'),
     });
-    return `PCC assigned: ${doctor.name} | medicine explanation ${new Date(explanationAt).toISOString()}${counselor ? ` | post counselor ${counselor.name}` : ''}${psychologist ? ` | psychologist ${psychologist.name}` : ''}`;
+    return `PCC assigned: ${doctor.name} | medicine explanation ${new Date(explanationAt).toISOString()}${counselor ? ` | post counselor ${counselor.name}` : ''}`;
   },
   // Older name of assign_pcc (kept for existing clients).
   start_treatment(context) { return ACTIONS.assign_pcc(context); },
