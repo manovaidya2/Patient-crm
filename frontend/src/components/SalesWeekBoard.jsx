@@ -11,8 +11,8 @@ const clock = (t) => { if (!t) return ''; const [h, m] = String(t).split(':').ma
 
 // How a booking looks on the board (same meaning as the table row colours).
 const LOOK = {
-  pending: ['border-[#FDBA74] bg-[#FFF7ED]', 'Pending acceptance', 'text-[#C2410C]'],
-  accepted: ['border-[#C9D8CD] bg-[#E9EFE9]', 'Accepted by reception', 'text-[#3F5546]'],
+  pending: ['border-[#FDBA74] bg-[#FFF7ED]', 'Awaiting confirmation', 'text-[#C2410C]'],
+  accepted: ['border-[#C9D8CD] bg-[#E9EFE9]', 'Confirmed', 'text-[#3F5546]'],
   rescheduled: ['border-[#D4C6F0] bg-[#EFE9FA]', 'Rescheduled', 'text-[#5B3FA0]'],
   not_coming: ['border-[#E8DFCB] bg-[#F3EEE2] text-[#8a9094] line-through', 'Not coming', 'text-[#8a9094]'],
 };
@@ -30,8 +30,8 @@ export default function SalesWeekBoard({ dates, rowsByDate, columns, search, loa
   const busiest = Math.max(1, ...dates.map((d) => (rowsByDate[d] || []).filter((r) => r.status === 'active').length));
   const tiles = [
     ['Booked', all.filter((r) => r.status === 'active').length, 'active this week', 'plain'],
-    ['Pending acceptance', count('pending'), 'reception yet to accept', count('pending') ? 'orange' : 'plain'],
-    ['Accepted', count('accepted'), 'accepted by reception', 'green'],
+    ['Awaiting confirmation', count('pending'), 'counselor yet to confirm', count('pending') ? 'orange' : 'plain'],
+    ['Confirmed', count('accepted'), 'confirmed by counselor', 'green'],
     ['Rescheduled', count('rescheduled'), 'moved to another day', 'plain'],
     ['Not coming', count('not_coming'), 'marked not coming', 'plain'],
   ];
@@ -81,7 +81,7 @@ export default function SalesWeekBoard({ dates, rowsByDate, columns, search, loa
                       <span className="font-display text-[11px] font-extrabold text-charcoal/60">{clock(time) || 'No time'}</span>
                       <b className="block truncate text-[12px] text-charcoal">{(nameColumn && row.values?.[nameColumn.id]) || row.appointmentCode}</b>
                       {phoneColumn && row.values?.[phoneColumn.id] && <span className="block truncate text-charcoal/60">{row.values[phoneColumn.id]}</span>}
-                      <span className={`block font-semibold ${labelTone}`}>{label}{row.notComingReason ? ` · ${row.notComingReason}` : ''}</span>
+                      <span className={`block font-semibold ${labelTone}`}>{key === 'accepted' ? `Confirmed by ${row.acceptedByName || 'counselor'}` : label}{row.notComingReason ? ` · ${row.notComingReason}` : ''}</span>
                       <span className="block truncate text-[10.5px] text-charcoal/55">{row.appointmentCode}{row.createdByName ? ` · by ${row.createdByName}` : ''}</span>
                     </button>
                   );
