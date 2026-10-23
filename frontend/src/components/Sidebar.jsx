@@ -60,56 +60,89 @@ export const navItems = [
   { to: '/admin', icon: LayoutGrid, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
   { to: '/admin', icon: LayoutGrid, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
-  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
-  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
+  { to: '/admin/appointment-management', icon: CalendarClock, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
+  { to: '/admin/receptionist-checklist', icon: CheckSquare, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/knowledge-library', icon: BookOpen, label: 'Knowledge Library', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/enquiries', icon: ClipboardList, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
-  { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/visitors', icon: Users, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/outgoing-couriers', icon: FileArchive, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
+  { to: '/admin/record-room', icon: FileArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/visitors', icon: Users, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/incoming-couriers', icon: FileArchive, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/outgoing-couriers', icon: FileArchive, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/patients', icon: ClipboardList, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
   { to: '/admin/purchase-orders', icon: ClipboardList, label: 'Purchase Orders', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/medicine-explanations', icon: ClipboardCheck, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR] },
+  { to: '/admin/medicine-explanations', icon: ClipboardCheck, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
-  { to: '/admin/post-counseling-patients', icon: Users, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER] },
-  { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER] },
-  { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR] },
-  { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
-  { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR] },
+  { to: '/admin/post-counseling-patients', icon: Users, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
+  { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
+  { to: '/admin/package-not-bought', icon: ClipboardList, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR], group: 'postcounselling' },
+  { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/followups', icon: CalendarClock, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
-  { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
-  { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
-  { to: '/admin/medicine-requests', icon: PackageCheck, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
-  { to: '/admin/medicine-jobs', icon: ClipboardCheck, label: 'Fulfilment Queue', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
-  { to: '/admin/stocks', icon: PackageOpen, label: 'Stocks', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
-  { to: '/admin/formulation-master', icon: FlaskConical, label: 'Formulation Master', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
-  { to: '/admin/medicine-made', icon: ClipboardCheck, label: 'Medicine Made', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
-  { to: '/admin/medicine-inventory', icon: PackageOpen, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT] },
-  { to: '/admin/clinic-inventory', icon: PackageOpen, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST] },
-  { to: '/admin/courier', icon: Truck, label: 'Courier Requests', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT] },
-  { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT] },
-  { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
+  { to: '/admin/request-for-advice', icon: ClipboardList, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/advice-given', icon: ClipboardCheck, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/medicine-requests', icon: PackageCheck, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/medicine-jobs', icon: ClipboardCheck, label: 'Fulfilment Queue', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/stocks', icon: PackageOpen, label: 'Stocks', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/formulation-master', icon: FlaskConical, label: 'Formulation Master', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'medicine' },
+  { to: '/admin/medicine-made', icon: ClipboardCheck, label: 'Medicine Made', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/medicine-inventory', icon: PackageOpen, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
+  { to: '/admin/clinic-inventory', icon: PackageOpen, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/courier', icon: Truck, label: 'Courier Requests', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/courier-delivered', icon: ClipboardCheck, label: 'Delivered Couriers', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/invoices', type: 'invoices', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
-  { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
-  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST] },
-  { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST] },
-  { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT] },
-  { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
-  { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING] },
+  { to: '/admin/accounts', icon: IndianRupee, label: 'Accounts Dashboard', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST], group: 'transit' },
+  { to: '/admin/accounts/consultations', icon: BookOpen, label: 'Consultation Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/accounts/treatment', icon: BookOpen, label: 'Treatment Ledger', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/accounts/expenses', icon: TrendingDown, label: 'Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], hiddenFor: [ROLES.RECEPTIONIST], group: 'transit' },
+  { to: '/admin/accounts/refunds', icon: RotateCcw, label: 'Refund Register', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], group: 'care' },
+  { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING], group: 'admin' },
   
-  { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true },
-  { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true },
-  { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true },
-  { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM] },
-  { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
+  { to: '/admin/team', icon: Users, label: 'Team Members', adminOnly: true, group: 'admin' },
+  { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true, group: 'admin' },
+  { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true, group: 'admin' },
+  { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
+  { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'admin' },
   
 ];
 
 const STORAGE_KEY = 'crm_sidebar_collapsed';
+const GROUP_STORAGE_KEY = 'crm_sidebar_groups';
+
+// Department groups (in this order). Pages without a group are common and stay at the top.
+const NAV_GROUPS = [
+  { key: 'reception', label: 'Reception', icon: CalendarClock },
+  { key: 'postcounselling', label: 'Post Counselling', icon: Users },
+  { key: 'transit', label: 'In Transit', icon: Truck },
+  { key: 'medicine', label: 'Medicine Department', icon: PackageCheck },
+  { key: 'care', label: 'PCC & Care', icon: HeartHandshake },
+  { key: 'admin', label: 'Admin & Tools', icon: Settings },
+];
+// A role's own department comes first and starts open.
+const HOME_GROUP = {
+  [ROLES.RECEPTIONIST]: 'reception', [ROLES.POST_COUNSELOR]: 'postcounselling', [ROLES.IN_TRANSIT]: 'transit',
+  [ROLES.MEDICINE_DEPARTMENT]: 'medicine', [ROLES.ASSISTANT_DOCTOR]: 'care', [ROLES.MANAGER]: 'care',
+};
+const readOpenGroups = () => { try { return JSON.parse(localStorage.getItem(GROUP_STORAGE_KEY) || '{}'); } catch { return {}; } };
+
+// One collapsible department group; its header carries the sum of the orange counts inside.
+const NavGroup = ({ group, items, open, onToggle, count, active, renderItem }) => {
+  const Icon = group.icon;
+  return (
+    <div className="pt-1">
+      <button type="button" aria-expanded={open} onClick={onToggle} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] font-bold transition-colors ${active ? 'text-offwhite-100' : 'text-teal-100/80 hover:bg-teal-800 hover:text-offwhite-100'}`}>
+        <Icon size={15} strokeWidth={2} className="shrink-0" />
+        <span className="min-w-0 flex-1 leading-tight">{group.label}</span>
+        {count > 0 && !open && <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white" title="Waiting for you">{count > 99 ? '99+' : count}</span>}
+        <ChevronDown size={14} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div className="ml-[18px] mt-0.5 space-y-0.5 border-l border-offwhite-100/10 pl-1 [&_a]:!px-2.5">{items.map(renderItem)}</div>}
+    </div>
+  );
+};
 // "Patients by Phase" nav item expands into the 6 phase links instead of linking directly.
 export const StageMenu = ({ collapsed, onNavigate }) => {
   const location = useLocation();
@@ -278,10 +311,11 @@ const Sidebar = ({ mobile = false, onClose }) => {
   };
 
   const isCollapsed = mobile ? false : collapsed;
+  const [openGroups, setOpenGroups] = useState(readOpenGroups);
 
   return (
     <aside
-      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact hidden md:flex ${isCollapsed ? 'w-16' : 'w-56'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
+      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact hidden md:flex ${isCollapsed ? 'w-16' : 'w-60'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
     >
       {/* Collapse / expand toggle */}
       {!mobile && <button
@@ -303,8 +337,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
         {mobile && <button type="button" onClick={onClose} aria-label="Close navigation" className="ml-auto p-2 text-teal-100/70 hover:text-offwhite-100"><X size={18} /></button>}
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-5 scrollbar-thin">
-        {visibleNavItems.map((item) => {
+      <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 py-4 scrollbar-thin">
+        {(() => {
+        const renderItem = (item) => {
           if (item.type === 'stages') {
             return <StageMenu key="stages" collapsed={isCollapsed} onNavigate={onClose} />;
           }
@@ -326,7 +361,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
               onClick={onClose}
               title={isCollapsed ? label : undefined}
               className={({ isActive }) =>
-                `relative flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors duration-150 ${
+                `relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[12.5px] font-medium leading-tight transition-colors duration-150 ${
                   isCollapsed ? 'justify-center px-0' : ''
                 } ${
                   showEmergencyAlert
@@ -338,10 +373,10 @@ const Sidebar = ({ mobile = false, onClose }) => {
                 }`
               }
             >
-              <Icon size={17} strokeWidth={2} className="shrink-0" />
+              <Icon size={16} strokeWidth={2} className="shrink-0" />
               {!isCollapsed && (
                 <>
-                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  <span className="min-w-0 flex-1 break-words">{label}</span>
                   {taskCount > 0 && <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white" title="Waiting for you">{taskCount > 99 ? '99+' : taskCount}</span>}
                   {showAdviceBadge && (
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${showEmergencyAlert ? 'bg-white text-[#B42318]' : 'bg-[#D9B66F] text-teal-950'}`}>
@@ -356,7 +391,81 @@ const Sidebar = ({ mobile = false, onClose }) => {
               )}
             </NavLink>
           );
-        })}
+        };
+        const countOf = (item) => (item.to === '/admin/my-day' ? 0 : Number(taskCounts[item.to] || 0));
+        const hrItem = visibleNavItems.find((item) => item.type === 'hr');
+        // Order inside the menu: home pages, the role's own work, patient pages, then reference pages at the bottom.
+        const TOP = ['/admin/my-day', '/admin'];
+        const REFERENCE = ['/admin/knowledge-library', '/admin/enquiries'];
+        const top = visibleNavItems.filter((item) => TOP.includes(item.to));
+        const reference = visibleNavItems.filter((item) => REFERENCE.includes(item.to));
+        const patientPages = visibleNavItems.filter((item) => !item.group && item.type !== 'hr' && !TOP.includes(item.to) && !REFERENCE.includes(item.to));
+        const workPages = visibleNavItems.filter((item) => item.group);
+        const home = HOME_GROUP[user?.role];
+        // Admin and Doctor see every department, so every department keeps its own group.
+        const fullMenu = [ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role);
+        const allGroups = NAV_GROUPS
+          .map((group) => ({ group, items: visibleNavItems.filter((item) => item.group === group.key) }))
+          .filter((g) => g.items.length);
+        const groups = allGroups.filter((g) => fullMenu || g.items.length > 2 || g.group.key === home)
+          .sort((a, b) => (b.group.key === home) - (a.group.key === home));
+        const loose = allGroups.filter((g) => !groups.includes(g)).flatMap((g) => g.items);
+        const divider = (key) => <div key={key} className="my-2 border-t border-offwhite-100/10" />;
+        // Collapsed bar, or all work in one department: a plain list in the same order.
+        // Only Admin and Doctor get department groups; every other role gets a plain list.
+        if (isCollapsed || !fullMenu || allGroups.length <= 1) {
+          return <>
+            {top.map(renderItem)}
+            {workPages.length > 0 && divider('d1')}
+            {workPages.map(renderItem)}
+            {patientPages.length > 0 && divider('d2')}
+            {patientPages.map(renderItem)}
+            {reference.length > 0 && divider('d3')}
+            {reference.map(renderItem)}
+            {hrItem && renderItem(hrItem)}
+          </>;
+        }
+        const isActiveIn = (items) => items.some((item) => item.to && (item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)));
+        const groupList = (list) => list.map(({ group, items }) => {
+            const active = isActiveIn(items);
+            const stored = openGroups[group.key];
+            const open = stored === undefined ? active || group.key === home : stored || active;
+            return <NavGroup key={group.key} group={group} items={items} open={open} active={active} count={items.reduce((sum, item) => sum + countOf(item), 0)} renderItem={renderItem}
+              onToggle={() => setOpenGroups((prev) => { const next = { ...prev, [group.key]: !open }; try { localStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ } return next; })} />;
+          });
+        if (!fullMenu) {
+          // Department roles: home, own department (open), its smaller tasks, patient pages, other departments, reference.
+          const own = groups.filter((g) => g.group.key === home);
+          const others = groups.filter((g) => g.group.key !== home);
+          return <>
+            {top.map(renderItem)}
+            {divider('d1')}
+            {groupList(own)}
+            {loose.map(renderItem)}
+            {others.length > 0 && groupList(others)}
+            {divider('d2')}
+            {patientPages.map(renderItem)}
+            {reference.length > 0 && divider('d3')}
+            {reference.map(renderItem)}
+            {hrItem && renderItem(hrItem)}
+          </>;
+        }
+        return <>
+          {top.map(renderItem)}
+          {patientPages.map(renderItem)}
+          {reference.map(renderItem)}
+          {loose.map(renderItem)}
+          <div className="my-2 border-t border-offwhite-100/10" />
+          {groups.map(({ group, items }) => {
+            const active = isActiveIn(items);
+            const stored = openGroups[group.key];
+            const open = stored === undefined ? active || group.key === home : stored || active;
+            return <NavGroup key={group.key} group={group} items={items} open={open} active={active} count={items.reduce((sum, item) => sum + countOf(item), 0)} renderItem={renderItem}
+              onToggle={() => setOpenGroups((prev) => { const next = { ...prev, [group.key]: !open }; try { localStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ } return next; })} />;
+          })}
+          {hrItem && renderItem(hrItem)}
+        </>;
+        })()}
       </nav>
 
       <div className="shrink-0 border-t border-offwhite-100/10 px-3 py-4">
