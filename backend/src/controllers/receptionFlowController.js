@@ -7,6 +7,7 @@ const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { dateRoom, postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
+const { notGivenView } = require('../utils/postCounselingNotGiven');
 const {
   SALES_IDS, RECEPTION_IDS, FIRST_SERIAL, TIME_PATTERN, REGISTRATION_FIELDS, FIELD_GROUPS, istDate, patientIdFor, cleanRegistration, missingForSend, defaultsFromSales,
 } = require('../utils/receptionFlow');
@@ -154,9 +155,12 @@ const listPostCounselors = asyncHandler(async (req, res) => {
 
 // @route GET /api/post-counseling/patients
 // A Post Counselor sees only the patients sent to them; Admin / Doctor / Manager see everyone's.
-const listPostCounselingPatients = asyncHandler(async (req, res) => {
+// Patients sent to post counselling, as cards. `notGiven`: list the Treatment Not Given page instead.
+const listSentPatients = (notGiven) => asyncHandler(async (req, res) => {
   // Once the outcome is decided (converted / package not purchased) the patient leaves this list; they stay in Post Counseling Done.
+  // Patients moved to Treatment Not Given leave it too, until they are restored.
   const filter = { 'registration.status': 'sent', 'postCounseling.outcome.kind': { $in: [null, ''] } };
+  filter['postCounseling.notGiven.active'] = notGiven ? true : { $ne: true };
   if (req.user.role === ROLES.POST_COUNSELOR) filter['registration.postCounselor'] = req.user._id;
   else if (validId(req.query.counselor)) filter['registration.postCounselor'] = req.query.counselor;
   const rows = await Management.find(filter).sort({ 'registration.sentAt': -1 }).limit(500);
@@ -172,9 +176,12 @@ const listPostCounselingPatients = asyncHandler(async (req, res) => {
       consultationDate: view.consultationDate, sentAt: view.sentAt, sentByName: entry.registration?.sentByName || '',
       postCounselor: view.postCounselor, postCounselorName: view.postCounselorName,
       recordSavedAt: entry.postCounseling?.savedAt || null,
+      notGiven: notGivenView(entry),
     };
   }).filter((patient) => !query || [patient.patientName, patient.patientId, patient.fields.fatherNumber, patient.fields.motherNumber, patient.fields.whatsappNumber, patient.fields.fatherName, patient.fields.motherName].some((value) => String(value || '').toLowerCase().includes(query)));
   res.json({ success: true, patients, fieldDefs: REGISTRATION_FIELDS, groups: FIELD_GROUPS });
 });
+const listPostCounselingPatients = listSentPatients(false);
+const listNotGivenPatients = listSentPatients(true);
 
-module.exports = { markArrival, getRegistration, saveRegistration, sendRegistration, listPostCounselors, listPostCounselingPatients, registrationView };
+module.exports = { markArrival, getRegistration, saveRegistration, sendRegistration, listPostCounselors, listPostCounselingPatients, listNotGivenPatients, registrationView };

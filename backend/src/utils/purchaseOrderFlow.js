@@ -14,6 +14,8 @@ const paperValue = (field, value, values) => {
   if (value === undefined || value === null || value === '' || value === false) return '';
   if (field.type === 'check') return 'Yes';
   if (field.type === 'money') return `Rs ${Number(value).toLocaleString('en-IN')}`;
+  // Worked-out dues are amounts; older papers may hold text typed in the old due box.
+  if (field.type === 'due') return Number.isFinite(Number(value)) ? `Rs ${Number(value).toLocaleString('en-IN')}` : String(value);
   if (field.type === 'bank') return values.payToBankName || 'Selected';
   return String(value);
 };

@@ -1,3 +1,4 @@
+const { applyParts } = require('./paymentParts');
 // Post-counselling record (the paper "Post-Counselling Record"): guided questions, decision readiness, the
 // customised treatment components with their prices, and the program value / payment structure.
 // Everything is fixed here; the form on the Post Counseling page is drawn from these definitions.
@@ -84,7 +85,7 @@ const emptyRecord = () => ({
   b: Object.fromEntries(SECTION_B.map((field) => [field.key, field.type === 'check' ? false : ''])),
   components: { selected: [], ayurvedicPrice: '' },
   otherComponent: '',
-  e: { approvedProgramFee: '', concession: 0, paymentPlan: '', part1Amount: '', part1Due: '', part2Amount: '', part2Due: '', part3Amount: '', part3Due: '', otherPlan: '' },
+  e: { approvedProgramFee: '', concession: 0, paymentPlan: '', part1Amount: '', part1Due: '', part1DueNote: '', part2Amount: '', part2Due: '', part2DueNote: '', part3Amount: '', part3Due: '', part3DueNote: '', otherPlan: '' },
   totals: totals({ selected: [], ayurvedicPrice: '', approvedFee: '' }),
 });
 
@@ -120,9 +121,10 @@ const cleanRecord = (raw = {}) => {
   record.e = {
     approvedProgramFee: '', concession: 0,
     paymentPlan: pickOne(e.paymentPlan, PAYMENT_PLANS),
-    part1Amount: money(e.part1Amount, 'Part 1'), part1Due: text(e.part1Due, 100),
-    part2Amount: money(e.part2Amount, 'Part 2'), part2Due: text(e.part2Due, 100),
-    part3Amount: money(e.part3Amount, 'Part 3'), part3Due: text(e.part3Due, 100),
+    // Dues are worked out below from the approved fee (balance left after each part); not typed in.
+    part1Amount: money(e.part1Amount, 'Part 1'), part1Due: '', part1DueNote: '',
+    part2Amount: money(e.part2Amount, 'Part 2'), part2Due: '', part2DueNote: '',
+    part3Amount: money(e.part3Amount, 'Part 3'), part3Due: '', part3DueNote: '',
     otherPlan: text(e.otherPlan, 500),
   };
   const reference = totals({ selected, ayurvedicPrice, approvedFee: '' }).referenceValue;
@@ -132,6 +134,7 @@ const cleanRecord = (raw = {}) => {
   record.e.approvedProgramFee = approved;
   record.totals = totals({ selected, ayurvedicPrice, approvedFee: approved });
   record.e.concession = record.totals.concession;
+  applyParts(record.e, e, record.totals.approvedProgramFee);
   return record;
 };
 

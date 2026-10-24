@@ -51,6 +51,7 @@ const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx')
 const PackageNotBought = lazy(() => import('./pages/admin/PackageNotBought.jsx'));
 const PostCounselingPatients = lazy(() => import('./pages/admin/PostCounselingPatients.jsx'));
 const PostCounselingDone = lazy(() => import('./pages/admin/PostCounselingDone.jsx'));
+const TreatmentNotGiven = lazy(() => import('./pages/admin/TreatmentNotGiven.jsx'));
 const PackageNotBoughtDetails = lazy(() => import('./pages/admin/PackageNotBoughtDetails.jsx'));
 const PaymentSettings = lazy(() => import('./pages/admin/PaymentSettings.jsx'));
 const SalesWorkspace = lazy(() => import('./pages/SalesWorkspace.jsx'));
@@ -321,6 +322,14 @@ function App() {
           element={
             <ProtectedRoute roles={INACTIVE_PATIENTS_ROLES}>
               <InactivePatients />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="treatment-not-given"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER]}>
+              <TreatmentNotGiven />
             </ProtectedRoute>
           }
         />

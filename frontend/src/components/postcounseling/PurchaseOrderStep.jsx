@@ -66,7 +66,7 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
       {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <OutcomeBanner outcome={data.outcome} result={result} />
 
-      <PurchaseOrderForm defs={data.purchase.definitions} values={values} onChange={change} fee={fee} contacts={registration} editable={editable} showEmi={data.record?.e?.paymentPlan === 'EMI'} onError={setError} onUploading={setUploading} />
+      <PurchaseOrderForm planFromRecord defs={data.purchase.definitions} values={values} onChange={change} fee={fee} contacts={registration} editable={editable} showEmi={data.record?.e?.paymentPlan === 'EMI'} onError={setError} onUploading={setUploading} />
 
       <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-cardline bg-offwhite-100 pt-3">
         {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}

@@ -6,6 +6,8 @@ import Card from '../../components/ui/Card.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
 import PostCounselingRecordModal from '../../components/postcounseling/PostCounselingRecordModal.jsx';
+import NotGivenModal from '../../components/postcounseling/NotGivenModal.jsx';
+import { Ban } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import { Users as PageTitleIcon } from 'lucide-react';
@@ -28,6 +30,9 @@ const PostCounselingPatients = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [recordPatient, setRecordPatient] = useState(null);
+  // Post counselling not done / treatment not given: moves the patient to the Treatment Not Given page.
+  const [notGivenPatient, setNotGivenPatient] = useState(null);
+  const canMoveNotGiven = [ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -101,12 +106,16 @@ const PostCounselingPatients = () => {
               })}
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-cardline pt-3">
                 <span className={`rounded px-2 py-1 text-xs font-semibold ${patient.recordSavedAt ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{patient.recordSavedAt ? 'Record saved' : 'Record not filled'}</span>
-                <Button size="sm" onClick={() => setRecordPatient(patient)}>{patient.recordSavedAt ? 'Open post counseling record' : 'Fill post counseling record'}</Button>
+                <span className="flex flex-wrap gap-2">
+                  {canMoveNotGiven && <Button size="sm" variant="outline" className="!border-[#FCA5A5] !text-[#9F1D1D] hover:!bg-[#FEF2F2]" onClick={() => setNotGivenPatient(patient)}><Ban size={14} />Treatment not given</Button>}
+                  <Button size="sm" onClick={() => setRecordPatient(patient)}>{patient.recordSavedAt ? 'Open post counseling record' : 'Fill post counseling record'}</Button>
+                </span>
               </div>
               <p className="pt-2 text-xs text-charcoal/50">Sent by {patient.sentByName || 'Reception'} · {formatStamp(patient.sentAt)} · {patient.appointmentCode}</p>
             </Card>
           ))}</div>}
       <PostCounselingRecordModal patient={recordPatient} onClose={() => setRecordPatient(null)} onSaved={load} />
+      <NotGivenModal patient={notGivenPatient} onClose={() => setNotGivenPatient(null)} onDone={load} />
     </div>
   );
 };

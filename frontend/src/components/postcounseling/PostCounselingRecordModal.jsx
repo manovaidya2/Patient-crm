@@ -4,6 +4,7 @@ import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
 import PurchaseOrderStep from './PurchaseOrderStep.jsx';
+import { PARTS, workOutDues, oldDueNote, partOpen } from '../../utils/paymentParts.js';
 import OutcomeBanner from './OutcomeBanner.jsx';
 import Input from '../ui/Input.jsx';
 
@@ -222,12 +223,27 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
                 <p className="mb-1 text-xs font-semibold text-charcoal/70">Payment plan</p>
                 <div className="flex flex-wrap gap-1.5">{defs.paymentPlans.map((plan) => <Chip key={plan} disabled={!editable} active={record.e.paymentPlan === plan} onClick={() => setE('paymentPlan', record.e.paymentPlan === plan ? '' : plan)}>{plan}</Chip>)}</div>
               </div>
-              {[1, 2, 3].map((part) => (
-                <div key={part} className="grid grid-cols-2 gap-2 md:col-span-1">
-                  <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Part {part} (Rs)</p><input disabled={!editable} inputMode="decimal" value={record.e[`part${part}Amount`]} onChange={(event) => setE(`part${part}Amount`, event.target.value)} className={inputClass} /></div>
-                  <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Due</p><input disabled={!editable} value={record.e[`part${part}Due`]} onChange={(event) => setE(`part${part}Due`, event.target.value)} maxLength={100} className={inputClass} /></div>
-                </div>
-              ))}
+              {(() => {
+                // Due = balance of the approved fee left after this part and the parts before it (worked out, not typed).
+                const { dues, problem } = workOutDues(record.e, totals.approved);
+                return <>
+                  {PARTS.map((part) => {
+                    const open = partOpen(record.e, part);
+                    const note = oldDueNote(record.e, part, dues[part]);
+                    return (
+                      <div key={part} className="grid grid-cols-2 gap-2 md:col-span-1">
+                        <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Part {part} (Rs)</p><input disabled={!editable || !open} inputMode="decimal" value={record.e[`part${part}Amount`] ?? ''} onChange={(event) => setE(`part${part}Amount`, event.target.value)} placeholder={open ? '' : `Fill Part ${part - 1} first`} className={inputClass} /></div>
+                        <div>
+                          <p className="mb-1 text-xs font-semibold text-charcoal/70">Due after Part {part} <span className="font-normal text-charcoal/45">(auto)</span></p>
+                          <p className={`rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold ${dues[part] === '' ? 'text-charcoal/40' : dues[part] > 0 ? 'text-[#C2410C]' : 'text-[#1F6B41]'}`}>{dues[part] === '' ? '-' : rupees(dues[part])}</p>
+                          {note && <p className="mt-1 text-[11px] text-charcoal/60" title="Written in the old due box">Earlier note: {note}</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {problem && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 md:col-span-2">{problem}</p>}
+                </>;
+              })()}
               <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Other approved plan / note</p><input disabled={!editable} value={record.e.otherPlan} onChange={(event) => setE('otherPlan', event.target.value)} maxLength={500} className={inputClass} /></div>
             </div>
           </section>

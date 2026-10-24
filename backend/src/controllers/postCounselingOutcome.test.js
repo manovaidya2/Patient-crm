@@ -204,3 +204,73 @@ test('convert needs the payment mode from the PO paper (the PO number is generat
   unpaid.postCounseling.purchase.values = { ...unpaid.postCounseling.purchase.values, amountReceivedNow: '' };
   assert.equal((await run(controller.convertToPatient, {}, unpaid)).res.body.inTransit, true);
 });
+
+test('treatment not given: needs a choice and a reason, then moves the patient off the list with history', async () => {
+  const noKind = await run(controller.markNotGiven, { reason: 'Parents left' }, makeEntry());
+  assert.match(noKind.error.message, /Choose/);
+  const noReason = await run(controller.markNotGiven, { kind: 'treatment_not_given' }, makeEntry());
+  assert.match(noReason.error.message, /reason/);
+  const { res, error, log } = await run(controller.markNotGiven, { kind: 'postcounselling_not_done', reason: 'Parents left before post counselling' }, makeEntry());
+  assert.equal(error, null);
+  assert.equal(res.body.success, true);
+  const { filter, update } = log.claims[0];
+  assert.deepEqual(filter['postCounseling.notGiven.active'], { $ne: true });
+  assert.equal(update.$set['postCounseling.notGiven.active'], true);
+  assert.equal(update.$set['postCounseling.notGiven.kind'], 'postcounselling_not_done');
+  assert.equal(update.$push['postCounseling.notGiven.history'].action, 'moved');
+  assert.equal(update.$push['postCounseling.notGiven.history'].byName, 'Abhishek');
+});
+
+test('treatment not given: a decided patient cannot be moved, and a second move is refused', async () => {
+  const decided = await run(controller.markNotGiven, { kind: 'treatment_not_given', reason: 'x' }, makeEntry({ postCounseling: { outcome: { kind: 'converted' } } }));
+  assert.equal(decided.error.statusCode, 409);
+  const again = await run(controller.markNotGiven, { kind: 'treatment_not_given', reason: 'x' }, makeEntry(), { claim: null });
+  assert.equal(again.error.statusCode, 409);
+});
+
+test('restore brings the patient back to post counselling and keeps the history', async () => {
+  const entry = makeEntry();
+  entry.postCounseling.notGiven = { active: true, kind: 'treatment_not_given', reason: 'Not ready', history: [{ action: 'moved' }] };
+  const { error, log } = await run(controller.restoreNotGiven, { note: 'Parents called back' }, entry);
+  assert.equal(error, null);
+  const { filter, update } = log.claims[0];
+  assert.equal(filter['postCounseling.notGiven.active'], true);
+  assert.equal(update.$set['postCounseling.notGiven.active'], false);
+  assert.equal(update.$push['postCounseling.notGiven.history'].action, 'restored');
+  assert.equal(update.$push['postCounseling.notGiven.history'].reason, 'Parents called back');
+});
+
+test('a Treatment Not Given patient cannot be converted until restored', async () => {
+  const entry = makeEntry();
+  entry.postCounseling.notGiven = { active: true, kind: 'treatment_not_given' };
+  const { error, log } = await run(controller.convertToPatient, {}, entry);
+  assert.equal(error.statusCode, 409);
+  assert.match(error.message, /Restore/);
+  assert.equal(log.patients.length, 0);
+});
+
+test('payment page: plan and parts come from the record, and the first payment starts as Part 1', async () => {
+  const purchase = require('../utils/purchaseOrderRecord');
+  const rec = cleanRecord({ components: { selected: ['dosDontsDiet'] }, e: { approvedProgramFee: '18000', paymentPlan: '3 Parts', part1Amount: '5000', part2Amount: '4000' } });
+  const first = purchase.defaults({ record: rec, registration: {}, counselorName: 'Abhishek', today: '2026-10-24' });
+  assert.equal(first.plan, '3 Parts');
+  assert.equal(first.part1Amount, 5000);
+  assert.equal(first.part1Due, 13000);
+  assert.equal(first.part2Due, 9000);
+  assert.equal(first.amountReceivedNow, 5000);
+  const full = purchase.defaults({ record: cleanRecord({ components: { selected: ['dosDontsDiet'] }, e: { approvedProgramFee: '18000', paymentPlan: 'Full' } }), registration: {}, today: '2026-10-24' });
+  assert.equal(full.amountReceivedNow, 18000);
+});
+
+test('payment page save keeps the record plan even if the paper sent other parts', async () => {
+  const entry = makeEntry();
+  entry.postCounseling.record = cleanRecord({ components: { selected: ['dosDontsDiet'] }, e: { approvedProgramFee: '18000', paymentPlan: '2 Parts', part1Amount: '5000' } });
+  entry.postCounseling.purchase = undefined;
+  const { error, log } = await run(controller.savePurchase, { purchase: { mode: 'Cash', amountReceivedNow: '5000', plan: 'Full', part1Amount: '999', part2Amount: '1' } }, entry);
+  assert.equal(error, null);
+  const saved = log.claims[0].update.$set['postCounseling.purchase'].values;
+  assert.equal(saved.plan, '2 Parts');
+  assert.equal(saved.part1Amount, 5000);
+  assert.equal(saved.part1Due, 13000);
+  assert.equal(saved.part2Amount, '');
+});

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, FileText, Paperclip, X } from 'lucide-react';
 import api from '../../api/axios.js';
+import { workOutDues } from '../../utils/paymentParts.js';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
 const serverBase = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
@@ -18,7 +19,9 @@ const Auto = ({ label, value }) => (
 
 // The purchase order / payment paper (sections F, G, H). Used after post-counselling and when converting from Package Not Bought.
 // It only shows and edits `values`; saving and converting belong to the screen that uses it.
-const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editable, showEmi = false, onError, onUploading, uploadUrl = '/post-counseling/upload' }) => {
+// `planFromRecord`: the approved plan and its parts come from the post-counselling record (shown, not typed here).
+const RECORD_PLAN_KEYS = ['plan', 'part1Amount', 'part2Amount', 'part3Amount'];
+const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editable, showEmi = false, onError, onUploading, uploadUrl = '/post-counseling/upload', planFromRecord = false }) => {
   const [banks, setBanks] = useState([]);
   const [uploading, setUploading] = useState(false);
 
@@ -88,6 +91,17 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
         </div>
       );
     }
+    if (planFromRecord && RECORD_PLAN_KEYS.includes(field.key)) {
+      const raw = values[field.key];
+      const shown = raw === '' || raw === null || raw === undefined ? '-' : field.type === 'money' ? rupees(raw) : raw;
+      return <div key={field.key} className={wrap}><Auto label={field.label} value={shown} /></div>;
+    }
+    if (field.type === 'due') {
+      const n = Number(field.key.match(/part(\d)Due/)?.[1]);
+      const due = workOutDues(values, fee).dues[n];
+      return <div key={field.key} className={wrap}><Auto label={field.label} value={due === '' ? '-' : rupees(due)} /></div>;
+    }
+    if (field.type === 'dueNote') return values[field.key] ? <div key={field.key} className={wrap}><Auto label={field.label} value={values[field.key]} /></div> : null;
     if (field.type === 'auto') return <div key={field.key} className={wrap}><Auto label={field.label} value={values[field.key] || 'Generated on convert (PO-xxxx)'} /></div>;
     if (field.type === 'check') return <label key={field.key} className={`flex items-center gap-2 pt-6 text-sm font-semibold text-charcoal ${wrap}`}><input type="checkbox" disabled={!editable} checked={Boolean(values[field.key])} onChange={(event) => onChange(field.key, event.target.checked)} className="h-4 w-4 accent-sage" />{field.label}</label>;
     return (
@@ -110,6 +124,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
 
       <section className="space-y-3">
         <SectionTitle letter="F" hint="Payment collection & approved instalment plan">Payment collection</SectionTitle>
+        {planFromRecord && <p className="rounded-lg bg-[#FBF7ED] px-3 py-2 text-xs text-charcoal/70">The approved plan and its parts come from the post-counselling record (section E). Each due is the balance left after that part. Change them on the record.</p>}
         <div className="grid gap-3 md:grid-cols-2">
           {defs.sectionF.map(renderField)}
           {values.mode === 'Card (+3%)' && <Auto label="3% card charge (Rs)" value={rupees(card)} />}

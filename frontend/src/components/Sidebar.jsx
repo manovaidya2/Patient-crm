@@ -42,6 +42,7 @@ import {
   Activity,
   BarChart3,
   FlaskConical,
+  Ban,
   LayoutDashboard,
   CalendarCheck,
   ListChecks,
@@ -80,7 +81,7 @@ import BrandLogo from './BrandLogo.jsx';
 
 // Pages shown at the very top of a role's menu, in this order.
 const ROLE_FIRST_PAGES = {
-  [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/post-counseling-done'],
+  [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/treatment-not-given', '/admin/post-counseling-done'],
 };
 
 export const navItems = [
@@ -103,6 +104,7 @@ export const navItems = [
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: UserCheck, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
+  { to: '/admin/treatment-not-given', icon: Ban, label: 'Treatment Not Given', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/package-not-bought', icon: UserMinus, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR], group: 'postcounselling' },
   { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/followups', icon: PhoneCall, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },

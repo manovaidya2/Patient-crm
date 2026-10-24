@@ -13,6 +13,7 @@ const { patientInputFromRegistration, assertPurchaseComplete, withBankName, crea
 const { postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 
 const fail = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+const { NOT_GIVEN_KINDS, notGivenView } = require('../utils/postCounselingNotGiven');
 const text = (value, max = 200) => String(value ?? '').trim().slice(0, max);
 
 // The record belongs to a patient reception has sent to a Post Counselor. Only that counselor (or Admin) may fill it;
@@ -47,7 +48,10 @@ const purchaseView = (entry, registration) => {
   const saved = entry.postCounseling?.purchase;
   const record = entry.postCounseling?.record;
   const fee = record?.totals?.approvedProgramFee || 0;
-  const values = saved?.values || purchase.defaults({ record, registration: registration.fields, counselorName: registration.postCounselorName, today: istDate() });
+  const decided = Boolean(entry.postCounseling?.outcome?.kind);
+  const values = saved?.values
+    ? (decided ? saved.values : { ...saved.values, ...purchase.planFromRecord(record) })
+    : purchase.defaults({ record, registration: registration.fields, counselorName: registration.postCounselorName, today: istDate() });
   return { values, totals: purchase.totals(values, fee), saved: Boolean(saved?.savedAt), savedAt: saved?.savedAt || null, savedByName: saved?.savedByName || '', definitions: purchase.definitions() };
 };
 
@@ -63,6 +67,7 @@ const view = (entry, canEdit) => {
     definitions: definitions(),
     purchase: purchaseView(entry, registration),
     outcome: outcomeView(entry),
+    notGiven: notGivenView(entry),
     registration: { fields: registration.fields, fieldDefs: REGISTRATION_FIELDS, groups: FIELD_GROUPS, meta: registration.meta, consultationDate: registration.consultationDate, postCounselorName: registration.postCounselorName, patientId: registration.patientId },
     patient: { patientId: registration.patientId, patientName: registration.fields.patientName },
   };
@@ -102,7 +107,8 @@ const savePurchase = asyncHandler(async (req, res) => {
   if (!canEdit) throw fail('Only the assigned Post Counselor can fill this', 403);
   if (!entry.postCounseling?.savedAt) throw fail('Save the post-counselling record first');
   if (entry.postCounseling?.outcome?.kind) throw fail('This patient has already been converted or marked package not purchased', 409);
-  const cleaned = purchase.cleanPurchase(req.body.purchase, entry.postCounseling.record?.totals?.approvedProgramFee);
+  const fromRecord = purchase.planFromRecord(entry.postCounseling.record);
+  const cleaned = purchase.cleanPurchase({ ...(req.body.purchase || {}), ...fromRecord }, entry.postCounseling.record?.totals?.approvedProgramFee);
   cleaned.values = await withBankName(cleaned.values);
   const now = new Date();
   const updated = await Management.findOneAndUpdate({ _id: entry._id }, {
@@ -115,8 +121,9 @@ const savePurchase = asyncHandler(async (req, res) => {
 
 // Claims the decision so pressing a button twice (or two people at once) can only ever do it once.
 const claimOutcome = async (entry, kind, user) => {
+  if (entry.postCounseling?.notGiven?.active) throw fail('This patient is on the Treatment Not Given page. Restore them to Post Counseling first.', 409);
   const claimed = await Management.findOneAndUpdate(
-    { _id: entry._id, 'postCounseling.outcome.kind': { $in: [null, ''] } },
+    { _id: entry._id, 'postCounseling.outcome.kind': { $in: [null, ''] }, 'postCounseling.notGiven.active': { $ne: true } },
     { $set: { 'postCounseling.outcome.kind': kind, 'postCounseling.outcome.at': new Date(), 'postCounseling.outcome.byName': user.name } },
     { new: true },
   );
@@ -212,6 +219,53 @@ const markNotPurchased = asyncHandler(async (req, res) => {
   res.json({ success: true, packageNotBoughtId: String(row._id) });
 });
 
+// @route POST /api/post-counseling/patients/:id/not-given   { kind, reason }
+// Post counselling did not happen, or treatment is not given: the patient moves to the Treatment Not Given page.
+const markNotGiven = asyncHandler(async (req, res) => {
+  const { entry, canEdit } = await loadAccessible(req);
+  if (!canEdit) throw fail('Only the assigned Post Counselor can do this', 403);
+  if (entry.postCounseling?.outcome?.kind) throw fail('This patient already has an outcome (converted or package not purchased)', 409);
+  const body = req.body || {};
+  const kind = Object.hasOwn(NOT_GIVEN_KINDS, body.kind) ? body.kind : '';
+  if (!kind) throw fail('Choose: post counselling not done, or treatment not given');
+  const reason = text(body.reason, 1000);
+  if (!reason) throw fail('Enter the reason');
+  const now = new Date();
+  const updated = await Management.findOneAndUpdate(
+    { _id: entry._id, 'postCounseling.outcome.kind': { $in: [null, ''] }, 'postCounseling.notGiven.active': { $ne: true } },
+    {
+      $set: { 'postCounseling.notGiven.active': true, 'postCounseling.notGiven.kind': kind, 'postCounseling.notGiven.reason': reason, 'postCounseling.notGiven.at': now, 'postCounseling.notGiven.byName': req.user.name },
+      $push: { 'postCounseling.notGiven.history': { action: 'moved', kind, reason, at: now, byName: req.user.name } },
+    },
+    { new: true },
+  );
+  if (!updated) throw fail('This patient is already on the Treatment Not Given page or has an outcome', 409);
+  await audit(req, entry, `Moved to Treatment Not Given: ${NOT_GIVEN_KINDS[kind]}`, reason);
+  emitChanged(req, entry);
+  res.json({ success: true, notGiven: notGivenView(updated) });
+});
+
+// @route POST /api/post-counseling/patients/:id/restore   { note }
+// Brings a Treatment Not Given patient back to the Post Counseling Patients list.
+const restoreNotGiven = asyncHandler(async (req, res) => {
+  const { entry, canEdit } = await loadAccessible(req);
+  if (!canEdit) throw fail('Only the assigned Post Counselor can do this', 403);
+  const note = text(req.body?.note, 1000);
+  const now = new Date();
+  const updated = await Management.findOneAndUpdate(
+    { _id: entry._id, 'postCounseling.notGiven.active': true },
+    {
+      $set: { 'postCounseling.notGiven.active': false, 'postCounseling.notGiven.restoredAt': now, 'postCounseling.notGiven.restoredByName': req.user.name },
+      $push: { 'postCounseling.notGiven.history': { action: 'restored', kind: entry.postCounseling?.notGiven?.kind || '', reason: note, at: now, byName: req.user.name } },
+    },
+    { new: true },
+  );
+  if (!updated) throw fail('This patient is not on the Treatment Not Given page', 409);
+  await audit(req, entry, 'Restored to Post Counseling', note);
+  emitChanged(req, entry);
+  res.json({ success: true, notGiven: notGivenView(updated) });
+});
+
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 
 // @route GET /api/post-counseling/done?from=&to=&q=&counselor=
@@ -246,4 +300,4 @@ const listDone = asyncHandler(async (req, res) => {
   res.json({ success: true, patients });
 });
 
-module.exports = { getRecord, saveRecord, savePurchase, uploadScreenshots, convertToPatient, markNotPurchased, listDone };
+module.exports = { getRecord, saveRecord, savePurchase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone };

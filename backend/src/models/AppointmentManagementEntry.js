@@ -20,6 +20,15 @@ const registrationSchema = new mongoose.Schema({
   consultationDate: { type: String, default: '' },
 }, { _id: false });
 
+// "Treatment not given" moves (and restores) of a post-counselling patient; the full history is kept.
+const notGivenHistorySchema = new mongoose.Schema({
+  action: { type: String, enum: ['moved', 'restored'], required: true },
+  kind: { type: String, default: '' },
+  reason: { type: String, trim: true, default: '', maxlength: 1000 },
+  at: { type: Date, default: Date.now },
+  byName: { type: String, trim: true, default: '' },
+}, { _id: false });
+
 // The post-counselling record filled in by the Post Counselor (see utils/postCounselingRecord.js).
 const postCounselingSchema = new mongoose.Schema({
   record: { type: mongoose.Schema.Types.Mixed, default: undefined },
@@ -35,6 +44,17 @@ const postCounselingSchema = new mongoose.Schema({
     byName: { type: String, trim: true, default: '' },
     patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
     packageNotBought: { type: mongoose.Schema.Types.ObjectId, ref: 'PackageNotBoughtPatient', default: null },
+  },
+  // On the Treatment Not Given page while active (post counselling not done / treatment not given); restorable.
+  notGiven: {
+    active: { type: Boolean, default: false },
+    kind: { type: String, enum: ['postcounselling_not_done', 'treatment_not_given'], default: undefined },
+    reason: { type: String, trim: true, default: '', maxlength: 1000 },
+    at: { type: Date, default: null },
+    byName: { type: String, trim: true, default: '' },
+    restoredAt: { type: Date, default: null },
+    restoredByName: { type: String, trim: true, default: '' },
+    history: { type: [notGivenHistorySchema], default: undefined },
   },
 }, { _id: false });
 
