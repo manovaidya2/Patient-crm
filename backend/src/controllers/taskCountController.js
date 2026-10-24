@@ -8,6 +8,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { loadPoViews } = require('./purchaseOrderController');
 const { jobActionBy } = require('./medicineJobController');
+const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
 const { explanationOwner } = require('./transitController');
 
 // Open work per sidebar page for the signed-in role (the orange badges). Every number is derived from the current state
@@ -90,10 +91,12 @@ const COUNTERS = {
   // Requests to accept or to make.
   async '/admin/medicine-requests'() { return countRequests(['requested', 'in_process']); },
   // Made, waiting for packaging / release.
-  async '/admin/medicine-made'() { return countRequests(['made']); },
+  // Old-flow medicine (made without a fulfilment job, or already handed over) is complete, not pending.
+  async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return countRequests(['made'], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
-    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('status currentStage hold').lean();
-    return jobs.filter((j) => jobActionBy(j).includes(user.role)).length;
+    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('status currentStage hold requestId').lean();
+    const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
+    return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).length;
   },
   // Stock items at or below their minimum level (or expired).
   async '/admin/stocks'() {

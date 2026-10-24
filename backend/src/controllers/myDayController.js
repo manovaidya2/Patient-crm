@@ -8,6 +8,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { loadPoViews } = require('./purchaseOrderController');
 const { jobActionBy } = require('./medicineJobController');
+const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
 const { explanationOwner } = require('./transitController');
 const { PAGES, COUNTERS } = require('./taskCountController');
 const { STAGES } = require('../utils/medicineJobFlow');
@@ -72,10 +73,11 @@ const COLLECTORS = {
     return requestItems('/admin/courier', ['sent_to_courier'], (r) => ((r.courier?.status || 'pending') === 'dispatched' ? `Dispatched · confirm delivery${r.courier?.trackingNumber ? ` · ${r.courier.trackingNumber}` : ''}` : 'Released · dispatch it'), (r) => ['pending', 'dispatched'].includes(r.courier?.status || 'pending'));
   },
   async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status]); },
-  async '/admin/medicine-made'() { return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status]); },
+  async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
-    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber phase status currentStage hold readyByDate').lean();
-    return jobs.filter((j) => jobActionBy(j).includes(user.role)).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
+    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber phase status currentStage hold readyByDate requestId').lean();
+    const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
+    return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
   },
   async '/admin/stocks'() {
     const items = await StockItem.find({ isActive: { $ne: false } }).lean();

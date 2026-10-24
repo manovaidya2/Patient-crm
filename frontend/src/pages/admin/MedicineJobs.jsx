@@ -19,7 +19,7 @@ const URG = { breached: ['Overdue', 'bg-[#8C3B2E]/10 text-[#8C3B2E]'], critical:
 // The Medicine Department's fulfilment queue: every open job, soonest ready date first.
 export default function MedicineJobs() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState('open');
+  const [status, setStatus] = useState('all');
   const { user } = useAuth();
   const [items, setItems] = useState(null);
   const [counts, setCounts] = useState(null);
@@ -60,7 +60,7 @@ export default function MedicineJobs() {
                   const at = j.status === 'released' ? 12 : j.currentStage;
                   return (
                     <button key={j.id} type="button" onClick={() => navigate(`/admin/medicine-jobs/${j.id}`)} className={`flex flex-col gap-1.5 rounded-xl border p-3 text-left shadow-[0_1px_2px_rgba(39,50,56,0.05)] transition hover:-translate-y-px hover:shadow-md ${mine ? 'border-2 border-[#FDBA74] bg-[#FFF7ED]' : 'border-[#E8DFCB] bg-white'}`}>
-                      <span className="flex items-center justify-between gap-2"><b className="truncate text-[13px] text-charcoal">{j.patientName}</b>{j.hold ? <Badge tone="danger">On hold</Badge> : j.readyByDate ? <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${ut}`}>{ul}</span> : null}</span>
+                      <span className="flex items-center justify-between gap-2"><b className="truncate text-[13px] text-charcoal">{j.patientName}</b>{j.handedOverOldFlow && <span className="shrink-0 rounded-full bg-[#E6F2EA] px-2 py-0.5 text-[10px] font-bold text-[#1F6B41]" title="Medicine already handed over the old way">Completed (old flow)</span>}{j.hold ? <Badge tone="danger">On hold</Badge> : j.readyByDate ? <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${ut}`}>{ul}</span> : null}</span>
                       <span className="truncate text-[11.5px] text-charcoal/60">{[j.patientCode, j.poNumber && `PO ${j.poNumber}`, j.supplyLabel, j.ageBandLabel].filter(Boolean).join(' · ')}</span>
                       <span className="flex gap-0.5" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} className={`h-1 flex-1 rounded-full ${i < at ? 'bg-[#2F8F5B]' : i === at ? 'bg-[#F97316]' : 'bg-[#EFE3CF]'}`} />)}</span>
                       <span className={`text-[11.5px] ${mine ? 'font-bold text-[#C2410C]' : 'text-charcoal/65'}`}>{j.status === 'released' ? 'Released to In Transit' : `${j.currentStage + 1}. ${j.currentLabel}`}{j.readyByDate ? ` · ready by ${day(j.readyByDate)}` : ''}</span>

@@ -2923,6 +2923,14 @@ const listMedicineRequests = asyncHandler(async (req, res) => {
     });
   });
 
+  if (rows.some((row) => row.medicineRequest?.status === 'made')) {
+    const { activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
+    const active = await activeJobRequestIds();
+    rows.forEach((row) => {
+      if (row.medicineRequest?.status === 'made') row.medicineRequest.oldFlowComplete = !madeStillPending({ ...row.medicineRequest, requestId: row.medicineRequest.requestId || row.requestId }, active);
+    });
+  }
+
   rows.sort((a, b) => {
     const left = a.medicineRequest.requestedAt || a.medicineRequest.madeAt || 0;
     const right = b.medicineRequest.requestedAt || b.medicineRequest.madeAt || 0;

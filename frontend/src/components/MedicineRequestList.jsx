@@ -322,7 +322,9 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
             {filteredRows.map((row) => {
               const request = row.medicineRequest;
               // Orange while an action of this page is still open for the request.
-              const pending = pendingStatuses.includes(request.status) || actions.some((a) => (a.from || []).includes(request.status));
+              // Medicine made and handed over the old way (before fulfilment jobs) is complete, not pending.
+              const oldFlowComplete = Boolean(request.oldFlowComplete);
+              const pending = !oldFlowComplete && (pendingStatuses.includes(request.status) || actions.some((a) => (a.from || []).includes(request.status)));
               return (
                 <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className={`grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto] ${pending ? 'bg-orange-50/70 shadow-[inset_4px_0_0_#f97316]' : ''}`}>
                   <div>
@@ -336,6 +338,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                       )}
                       <Badge tone="teal">Phase {row.stage}</Badge>
                       {pending && <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Pending</span>}
+                      {oldFlowComplete && <span className="rounded-full bg-[#E6F2EA] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1F6B41]" title="Made and handed over the old way, before fulfilment jobs">Completed (old flow)</span>}
                       <Badge tone={statusTone[request.status] || 'default'}>{request.statusLabel}</Badge>
                     </div>
                     {(request.poNumber || request.supplyLabel || request.ageBandLabel) && (

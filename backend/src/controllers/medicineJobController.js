@@ -10,6 +10,7 @@ const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlan
 const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
+const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
 const { moveStock } = require('./stockController');
 
@@ -145,15 +146,18 @@ const listJobs = asyncHandler(async (req, res) => {
   const jobs = await MedicineJob.find(filter).select('-events -formulation -chits -consumption').sort({ readyByDate: 1, createdAt: -1 }).limit(500).lean();
   const items = jobs.map((j) => buildJobView(j));
   // Chip counts (and how many wait for this role) across the open / ready / released lists.
-  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold').lean();
+  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId').lean();
+  const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
-  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j).includes(req.user.role)) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
-  res.json({ success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i]) })) });
+  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(req.user.role)) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
+  res.json({ success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) });
 });
 
 // Who has to act on a job now: the roles of its current stage (whoever resumes it while on hold; nobody once released).
-const jobActionBy = (job) => {
+// `handedOver` (optional): request ids whose medicine already reached the patient in the old flow; those jobs are done.
+const jobActionBy = (job, handedOver) => {
   if (job.status === 'released' || job.status === 'cancelled') return [];
+  if (handedOver?.has(String(job.requestId))) return [];
   if (job.hold?.active) return JOB_ROLES;
   return STAGES[job.currentStage || 0]?.roles || [];
 };

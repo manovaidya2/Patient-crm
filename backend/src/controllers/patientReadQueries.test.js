@@ -98,10 +98,15 @@ test('center filters match literal text and preserve assigned-patient scope', as
 });
 
 test('medicine reads filter legacy and multiple requests in Mongo and exclude unrelated stages data', async () => {
-  const result = await invoke(controller.listMedicineRequests, {
+  // r2 has an open fulfilment job (new flow); the legacy request has none, so it counts as old-flow complete.
+  const MedicineJob = require('../models/MedicineJob');
+  const originalJobFind = MedicineJob.find;
+  MedicineJob.find = () => ({ select: () => ({ lean: async () => [{ requestId: 'r2' }] }) });
+  let result;
+  try { result = await invoke(controller.listMedicineRequests, {
     query: { status: 'made' },
     patients: [{ _id: 'p1', patientName: 'Test', stages: [{ number: 1, medicineRequest: { status: 'made' }, medicineRequests: [{ requestId: 'r2', status: 'made' }, { status: 'requested' }] }] }],
-  });
+  }); } finally { MedicineJob.find = originalJobFind; }
   assert.deepEqual(result.filter.$or, [
     { 'stages.medicineRequest.status': { $in: ['made'] } },
     { 'stages.medicineRequests.status': { $in: ['made'] } },
@@ -110,6 +115,7 @@ test('medicine reads filter legacy and multiple requests in Mongo and exclude un
   assert.equal(result.lean, true);
   assert.equal(result.response.data.rows.length, 2);
   assert.deepEqual(result.response.data.rows.map((row) => row.requestId), ['legacy', 'r2']);
+  assert.deepEqual(result.response.data.rows.map((row) => row.medicineRequest.oldFlowComplete), [true, false]);
 });
 
 test('courier list keeps its status selection and checks sent-to-courier in Mongo', async () => {
