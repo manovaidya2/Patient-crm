@@ -5,7 +5,6 @@ import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
-import RegisterTabs from '../../components/RegisterTabs.jsx';
 import { PageHeader, StatRow, StatTile } from '../../components/ui/Layout.jsx';
 import { ClipboardList } from 'lucide-react';
 
@@ -90,8 +89,7 @@ export default function ReceptionRegister({ kind }) {
     return <input {...props} type={item.type === 'phone' ? 'tel' : item.type} step={item.type === 'number' ? 'any' : undefined} maxLength={2000} />;
   };
   return <div className="space-y-4 text-charcoal">
-    <RegisterTabs />
-    <PageHeader icon={ClipboardList} eyebrow="Registers & ledger" title={title} subtitle="Everything the front desk records, in one place."
+    <PageHeader icon={ClipboardList} eyebrow="Reception" title={title}
       actions={<div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={loading || !!error} onClick={() => { setModalError(''); setArrangeOpen(true); }}><ArrowUp size={16} />Arrange columns</Button><Button variant="outline" size="sm" onClick={() => { setColumn(blankColumn); setModalError(''); setColumnOpen(true); }}><Columns3 size={16} />Add column</Button><Button size="sm" disabled={loading || !!error} onClick={() => { setModalError(''); setImage(null); setDraft({ date: date || today(), values: {} }); }}><Plus size={16} />Add entry</Button></div>} />
     <StatRow min={150}>
       <StatTile label={date ? `Entries on ${new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : 'All entries'} value={loading ? '...' : data.total} hint={search ? 'matching the search' : date ? 'for the chosen date' : 'every date'} />
