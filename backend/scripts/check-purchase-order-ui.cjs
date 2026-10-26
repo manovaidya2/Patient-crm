@@ -165,7 +165,7 @@ async function main() {
       ['master', '/admin/formulation-master', 'Document values'],
       ['master-edit', '/admin/formulation-master', 'Document values'],
       ['explanations', '/admin/medicine-explanations', 'Ready to explain'],
-      ['followups', '/admin/followups', 'Kabir Sethi'],
+      ['followups', '/admin/followups', 'Aarav Mehra'],
       ['admin-po-revert', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
       ['pnb-list', '/admin/package-not-bought', 'Kabir Sethi'],
       ['pnb-detail', '/admin/package-not-bought/6500000000000000000000d1', 'Convert to Patient'],
@@ -207,8 +207,12 @@ async function main() {
         }
         if (name === 'po-list') {
           // Orange task marks: sidebar count and the PO waiting for In Transit.
+          // The desktop sidebar is closed by default and opens on hover, so hover it to read the counts.
+          if (width >= 768) { await page.hover('aside.sidebar-compact'); await new Promise((resolve) => setTimeout(resolve, 600)); }
           const marks = await page.evaluate(() => ({ badge: [...document.querySelectorAll('nav a')].find((a) => a.innerText.includes('Purchase Orders'))?.querySelector('.bg-orange-500')?.innerText, rows: document.body.innerText.toUpperCase().split('YOUR ACTION').length - 1 }));
-          assert.equal(marks.badge, '2', 'sidebar shows the orange task count');
+          if (width >= 768) assert.equal(marks.badge, '2', 'sidebar shows the orange task count');
+          // Phones: the count is on the bottom tab bar instead.
+          else assert.equal(await page.evaluate(() => document.querySelector('nav[aria-label="Quick navigation"] a[href="/admin/purchase-orders"] [class*="F97316"]')?.innerText), '2', 'phone tab bar shows the orange task count');
           assert.ok(marks.rows >= 1, 'the PO waiting for In Transit is marked');
         }
         if (name === 'po-detail') {

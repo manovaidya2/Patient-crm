@@ -215,7 +215,7 @@ const ReceptionistDashboard = () => {
   const [registrationRow, setRegistrationRow] = useState(null);
   const canFlow = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
   // Only an appointment whose patient has not arrived can be moved to another day.
-  const canReschedule = (row) => canFlow && !row.patientId && row.arrivalStatus !== 'Arrived' && !row.registrationStatus;
+  const canReschedule = (row) => canFlow && !row.patientId && !['Arrived', 'Online'].includes(row.arrivalStatus) && !row.registrationStatus;
   const openReschedule = (row) => { setRescheduleRow(row); setRescheduleDate(''); setRescheduleNote(''); setRescheduleError(''); };
   const submitReschedule = async (event) => {
     event.preventDefault();

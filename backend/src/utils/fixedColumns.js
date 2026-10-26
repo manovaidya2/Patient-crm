@@ -41,6 +41,8 @@ const RECEPTION_FIELDS = [
   field('6ad1f8fbde5dded53d756b39', 'Location and parking check list', 'select', 19, 'confirmation', { options: ['Sent', 'Not Sent'] }),
 ];
 
+const ARRIVAL_STATUS_ID = '6ab7c235bf916b34dfda543c';
+
 const SALES_FIELD_IDS = new Set(SALES_FIELDS.map((item) => item.id));
 const RECEPTION_FIELD_IDS = new Set(RECEPTION_FIELDS.map((item) => item.id));
 const isFixedSalesColumn = (id) => SALES_FIELD_IDS.has(String(id));
@@ -67,6 +69,8 @@ const syncFixedColumns = async ({ SalesColumn, ManagementColumn } = {}) => {
   };
   await sync(Sales, SALES_FIELDS);
   await sync(Management, RECEPTION_FIELDS, { highlightValue: '' });
+  // Arrival Status: add "Online" next to Arriving / Arrived (only adds the option, never removes or reorders).
+  await Management.collection.updateOne({ _id: new mongoose.Types.ObjectId(ARRIVAL_STATUS_ID) }, { $addToSet: { options: 'Online' } });
 };
 
 module.exports = { SALES_FIELDS, RECEPTION_FIELDS, isFixedSalesColumn, isFixedReceptionColumn, fixedMessage, syncFixedColumns };

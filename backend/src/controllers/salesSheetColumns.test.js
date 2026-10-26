@@ -75,11 +75,19 @@ test('fixed fields: the list is unique, valid and keeps the existing ids', () =>
 
 test('fixed fields: sync writes every fixed field to its own id and nothing else', async () => {
   const calls = [];
-  const fakeModel = (name) => ({ collection: { updateOne: async (filter, update, options) => { calls.push({ name, id: String(filter._id), set: update.$set, upsert: options.upsert }); } } });
+  const fakeModel = (name) => ({ collection: { updateOne: async (filter, update, options) => { calls.push({ name, id: String(filter._id), set: update.$set, addToSet: update.$addToSet, upsert: options?.upsert }); } } });
   await syncFixedColumns({ SalesColumn: fakeModel('sales'), ManagementColumn: fakeModel('management') });
-  assert.equal(calls.filter((call) => call.name === 'sales').length, SALES_FIELDS.length);
-  assert.equal(calls.filter((call) => call.name === 'management').length, RECEPTION_FIELDS.length);
-  assert.ok(calls.every((call) => call.upsert === true && call.set.isActive === true));
+  // The Arrival Status column only gets the "Online" option added (no upsert, nothing else changed).
+  const arrival = calls.filter((call) => call.addToSet);
+  assert.equal(arrival.length, 1);
+  assert.equal(arrival[0].name, 'management');
+  assert.equal(arrival[0].id, '6ab7c235bf916b34dfda543c');
+  assert.deepEqual(arrival[0].addToSet, { options: 'Online' });
+  assert.equal(arrival[0].upsert, undefined);
+  const fixed = calls.filter((call) => !call.addToSet);
+  assert.equal(fixed.filter((call) => call.name === 'sales').length, SALES_FIELDS.length);
+  assert.equal(fixed.filter((call) => call.name === 'management').length, RECEPTION_FIELDS.length);
+  assert.ok(fixed.every((call) => call.upsert === true && call.set.isActive === true));
   const patient = calls.find((call) => call.id === '6ab7b2adbf916b34dfd9f5f7');
   assert.equal(patient.set.label, 'Patient Name');
   assert.equal(patient.set.required, true);

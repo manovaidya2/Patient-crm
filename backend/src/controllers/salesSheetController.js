@@ -453,7 +453,7 @@ const rescheduleManagedAppointment = asyncHandler(async (req, res) => {
   const entry = await AppointmentManagementEntry.findById(req.params.id);
   if (!entry) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (nextDate === entry.appointmentDate) return res.status(400).json({ success: false, message: 'Choose a different appointment date' });
-  const arrived = entry.values?.get(RECEPTION_IDS.arrivalStatus) === 'Arrived' || entry.values?.get(RECEPTION_IDS.patientId) || entry.registration?.status;
+  const arrived = ['Arrived', 'Online'].includes(entry.values?.get(RECEPTION_IDS.arrivalStatus)) || entry.values?.get(RECEPTION_IDS.patientId) || entry.registration?.status;
   if (arrived) return res.status(409).json({ success: false, message: 'This patient has already arrived, so the appointment cannot be rescheduled' });
 
   const previousDate = entry.appointmentDate;

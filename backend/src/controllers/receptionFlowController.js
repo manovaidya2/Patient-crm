@@ -81,21 +81,23 @@ const markArrival = asyncHandler(async (req, res) => {
   const entry = await loadEntry(req);
   const status = String(req.body.status || '');
   const time = String(req.body.time || '').trim();
-  if (!['Arriving', 'Arrived'].includes(status)) throw fail('Choose Arriving or Arrived');
-  if (status === 'Arrived' && !TIME_PATTERN.test(time)) throw fail('Enter the arrival time');
+  if (!['Arriving', 'Arrived', 'Online'].includes(status)) throw fail('Choose Arriving, Arrived or Online');
+  // Online = the patient joins an online consultation: like Arrived, it needs the time and gets a Patient ID.
+  const joined = status === 'Arrived' || status === 'Online';
+  if (joined && !TIME_PATTERN.test(time)) throw fail(status === 'Online' ? 'Enter the online consultation time' : 'Enter the arrival time');
   if (time && !TIME_PATTERN.test(time)) throw fail('Enter a valid arrival time');
   await Management.updateOne({ _id: entry._id }, {
     $set: { [`values.${RECEPTION_IDS.arrivalStatus}`]: status, [`values.${RECEPTION_IDS.arrivalTime}`]: time, updatedByName: req.user.name, lastEditedAt: new Date() },
   });
   let patientId = valueOf(entry, RECEPTION_IDS.patientId);
   let generated = false;
-  if (status === 'Arrived' && !patientId) {
+  if (joined && !patientId) {
     const candidate = await generatePatientId(mapValue(entry.salesValues, SALES_IDS.patientName));
     const result = await Management.updateOne({ _id: entry._id, $or: [{ [patientIdPath]: { $exists: false } }, { [patientIdPath]: '' }] }, { $set: { [patientIdPath]: candidate } });
     if (result.modifiedCount) { patientId = candidate; generated = true; }
     else patientId = valueOf(await Management.findById(entry._id), RECEPTION_IDS.patientId);
   }
-  await audit(req, entry, 'Arrival marked', `${status}${time ? ` at ${time}` : ''}${generated ? `, Patient ID ${patientId}` : ''}`);
+  await audit(req, entry, status === 'Online' ? 'Online consultation marked' : 'Arrival marked', `${status}${time ? ` at ${time}` : ''}${generated ? `, Patient ID ${patientId}` : ''}`);
   emitChanged(req, entry);
   res.json({ success: true, arrivalStatus: status, arrivalTime: time, patientId, generated });
 });

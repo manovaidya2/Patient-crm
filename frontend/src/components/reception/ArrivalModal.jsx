@@ -35,7 +35,7 @@ const ArrivalModal = ({ row, onClose, onSaved }) => {
     } finally { setBusy(false); }
   };
 
-  const title = result ? 'Arrival saved' : 'Mark arrival';
+  const title = result ? (result.arrivalStatus === 'Online' ? 'Online consultation saved' : 'Arrival saved') : 'Mark arrival';
   return (
     <Modal open={Boolean(row)} onClose={onClose} title={title} className="max-w-md">
       {result ? (
@@ -46,7 +46,7 @@ const ArrivalModal = ({ row, onClose, onSaved }) => {
               <p className="text-sm text-charcoal/70">Patient ID{result.generated ? ' generated' : ''}. Please note it down.</p>
               <p className="rounded-lg border border-sage/40 bg-sage/10 py-4 font-display text-3xl font-bold tracking-wide text-charcoal">{result.patientId}</p>
             </>
-          ) : <p className="text-sm text-charcoal/70">Marked as {result.arrivalStatus.toLowerCase()}. The Patient ID is created when the patient is marked Arrived.</p>}
+          ) : <p className="text-sm text-charcoal/70">Marked as {result.arrivalStatus.toLowerCase()}. The Patient ID is created when the patient is marked Arrived or Online.</p>}
           <Button onClick={onClose} className="w-full">Okay</Button>
         </div>
       ) : (
@@ -58,9 +58,11 @@ const ArrivalModal = ({ row, onClose, onSaved }) => {
             <select value={status} onChange={(event) => setStatus(event.target.value)} className={selectClass}>
               <option value="Arrived">Arrived</option>
               <option value="Arriving">Arriving</option>
+              <option value="Online">Online (online consultation)</option>
             </select>
           </div>
-          <Input label="Arrival time" type="time" value={time} onChange={(event) => setTime(event.target.value)} required={status === 'Arrived'} />
+          <Input label={status === 'Online' ? 'Online consultation time' : 'Arrival time'} type="time" value={time} onChange={(event) => setTime(event.target.value)} required={status === 'Arrived' || status === 'Online'} />
+          {status === 'Online' && <p className="text-xs text-charcoal/60">An online consultation gets a Patient ID just like an arrival, so registration can be filled and sent to post counselling.</p>}
           {row?.patientId && <p className="text-xs text-charcoal/60">Patient ID <b>{row.patientId}</b> already exists and will stay the same.</p>}
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button></div>
         </form>

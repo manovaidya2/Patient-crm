@@ -78,6 +78,37 @@ test('arrival: Arrived + time generates the Patient ID once', async () => {
   });
 });
 
+test('arrival: Online (online consultation) needs a time and generates the Patient ID like Arrived', async () => {
+  const state = { writes: [], seq: 0, stored: '' };
+  const stubs = [
+    [Management, 'findById', async () => entry({ ...(state.stored ? { [RECEPTION_IDS.patientId]: state.stored } : {}) })],
+    [Management, 'updateOne', async (filter, update) => {
+      state.writes.push(update.$set);
+      const key = `values.${RECEPTION_IDS.patientId}`;
+      if (update.$set[key]) { if (state.stored) return { modifiedCount: 0 }; state.stored = update.$set[key]; }
+      return { modifiedCount: 1 };
+    }],
+    [Management, 'exists', async () => null], [Patient, 'exists', async () => null],
+    [PatientIdCounter, 'findOneAndUpdate', async () => ({ seq: ++state.seq })],
+  ];
+  await withStubs(stubs, async () => {
+    const noTime = await call(controller.markArrival, { body: { status: 'Online', time: '' } });
+    assert.equal(noTime.error.statusCode, 400);
+    assert.match(noTime.error.message, /online consultation time/);
+    const online = await call(controller.markArrival, { body: { status: 'Online', time: '11:00' } });
+    assert.equal(online.error, null);
+    assert.equal(online.res.body.arrivalStatus, 'Online');
+    assert.equal(online.res.body.generated, true);
+    assert.match(online.res.body.patientId, /^V-\d{6}-11$/);
+    assert.equal(state.writes[0][`values.${RECEPTION_IDS.arrivalStatus}`], 'Online');
+    // Switching to Arrived later keeps the same Patient ID.
+    const arrived = await call(controller.markArrival, { body: { status: 'Arrived', time: '11:30' } });
+    assert.equal(arrived.res.body.generated, false);
+    assert.equal(arrived.res.body.patientId, online.res.body.patientId);
+    assert.equal(state.seq, 1);
+  });
+});
+
 test('arrival: Arriving does not create a Patient ID', async () => {
   let counterUsed = false;
   await withStubs([

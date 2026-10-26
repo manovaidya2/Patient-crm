@@ -53,7 +53,7 @@ const getDesk = asyncHandler(async (req, res) => {
     const arrival = v[RECEPTION_IDS.arrivalStatus] || '';
     const base = card(m, values, { patientId: v[RECEPTION_IDS.patientId] || '', arrivalTime: v[RECEPTION_IDS.arrivalTime] || '', concern: v[RECEPTION_IDS.primaryConcern] || '', href: '/admin/appointment-management' });
     if (m.registration?.status === 'sent') lanes.done.push({ ...base, state: 'post_counselling', note: m.registration.postCounselorName ? `to ${m.registration.postCounselorName}` : '' });
-    else if (arrival === 'Arrived') lanes.inClinic.push({ ...base, state: m.registration?.savedAt || m.registration?.status ? 'registration_saved' : 'arrived' });
+    else if (arrival === 'Arrived' || arrival === 'Online') lanes.inClinic.push({ ...base, online: arrival === 'Online', state: m.registration?.savedAt || m.registration?.status ? 'registration_saved' : arrival === 'Online' ? 'online' : 'arrived' });
     else lanes.expected.push({ ...base, state: arrival === 'Arriving' ? 'arriving' : 'accepted', acceptedBy: m.acceptedByName || '' });
   }
   const byTime = (a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99'));

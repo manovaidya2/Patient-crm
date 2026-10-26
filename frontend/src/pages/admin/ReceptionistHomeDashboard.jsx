@@ -21,6 +21,7 @@ const STATE = {
   pending_acceptance: ['Pending acceptance', 'action'],
   accepted: ['Accepted · expected', 'teal'],
   arriving: ['Arriving', 'amber'],
+  online: ['Online consultation · fill registration', 'purple'],
   arrived: ['Arrived · fill registration', 'orange'],
   registration_saved: ['Registration saved', 'green'],
   post_counselling: ['Sent to post counselling', 'purple'],
@@ -30,7 +31,7 @@ const STATE = {
 const LANES = [
   ['toAccept', 'To accept', 'From the sales sheet, not accepted yet'],
   ['expected', 'Expected', 'Accepted, not arrived yet'],
-  ['inClinic', 'In clinic', 'Arrived · registration and doctor'],
+  ['inClinic', 'In clinic / online', 'Arrived or online · registration and doctor'],
   ['done', 'Done today', 'Sent on, not coming or rescheduled'],
 ];
 
@@ -113,18 +114,18 @@ const ReceptionistHomeDashboard = () => {
               {list.length === 0 && <p className="rounded-xl border border-dashed border-cardline px-3 py-4 text-center text-xs text-charcoal/45">{loading ? 'Loading...' : 'Nobody here'}</p>}
               {list.map((c) => {
                 const [label, tone] = STATE[c.state] || [c.state, 'default'];
-                const mine = ['pending_acceptance', 'arrived'].includes(c.state);
+                const mine = ['pending_acceptance', 'arrived', 'online'].includes(c.state);
                 return (
                   <article key={c.id} className={`rounded-xl border p-3 ${mine ? 'border-2 border-[#FDBA74] bg-[#FFF7ED]' : key === 'done' ? 'border-[#E8DFCB] bg-[#FBF7ED]' : 'border-[#E8DFCB] bg-white'}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-display text-[12px] font-extrabold text-charcoal/60">{c.arrivalTime ? `Arrived ${clock(c.arrivalTime)}` : clock(c.time) || 'No time'}</span>
+                      <span className="font-display text-[12px] font-extrabold text-charcoal/60">{c.arrivalTime ? `${c.online ? 'Online' : 'Arrived'} ${clock(c.arrivalTime)}` : clock(c.time) || 'No time'}</span>
                       <Badge tone={tone}>{label}</Badge>
                     </div>
                     <p className="mt-1 text-[13px] font-bold text-charcoal">{c.name}{c.age ? <span className="font-normal text-charcoal/60"> · {c.age}</span> : ''}</p>
                     <p className="text-[11.5px] text-charcoal/60">{[c.guardian, c.city, c.category].filter(Boolean).join(' · ')}</p>
                     <p className="text-[11px] text-charcoal/45">{[c.code, c.patientId && `ID ${c.patientId}`, c.bookedBy && `by ${c.bookedBy}`, c.acceptedBy && `accepted by ${c.acceptedBy}`, c.note].filter(Boolean).join(' · ')}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Link to={c.href} className={`inline-flex items-center rounded-lg px-2.5 py-1.5 text-xs font-bold ${mine ? 'bg-[#F97316] text-white' : 'border border-cardline bg-white text-charcoal'}`}>{c.state === 'pending_acceptance' ? 'Review & accept' : c.state === 'arrived' ? 'Open registration' : 'Open'}</Link>
+                      <Link to={c.href} className={`inline-flex items-center rounded-lg px-2.5 py-1.5 text-xs font-bold ${mine ? 'bg-[#F97316] text-white' : 'border border-cardline bg-white text-charcoal'}`}>{c.state === 'pending_acceptance' ? 'Review & accept' : ['arrived', 'online'].includes(c.state) ? 'Open registration' : 'Open'}</Link>
                       {c.phone && <a href={`tel:${c.phone}`} className="inline-flex items-center gap-1 rounded-lg border border-cardline bg-white px-2.5 py-1.5 text-xs font-bold text-charcoal"><Phone size={12} />Call</a>}
                     </div>
                   </article>

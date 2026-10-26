@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import useTaskCounts from '../hooks/useTaskCounts.js';
 import {
@@ -140,7 +140,9 @@ export const navItems = [
   
 ];
 
-const STORAGE_KEY = 'crm_sidebar_collapsed';
+// Desktop: the sidebar stays closed (icons only) and opens while the cursor is on it; the page moves with it.
+// "Pinned" keeps it open and gives it its own space (remembered on this browser).
+const PIN_KEY = 'crm_sidebar_pinned';
 const GROUP_STORAGE_KEY = 'crm_sidebar_groups';
 
 // Department groups (in this order). Pages without a group are common and stay at the top.
@@ -295,7 +297,9 @@ const HrMenu = ({ collapsed, onNavigate }) => {
 
 const Sidebar = ({ mobile = false, onClose }) => {
   const { user, logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true');
+  const [pinned, setPinned] = useState(() => { try { return localStorage.getItem(PIN_KEY) === 'true'; } catch { return false; } });
+  const [hovered, setHovered] = useState(false);
+  const hoverTimer = useRef(null);
   const [adviceUnreadCount, setAdviceUnreadCount] = useState(0);
   const [urgentAdviceCount, setUrgentAdviceCount] = useState(0);
   // Open work per page for this role (orange badges); drops as soon as the steps are completed.
@@ -333,29 +337,38 @@ const Sidebar = ({ mobile = false, onClose }) => {
     return () => window.clearInterval(intervalId);
   }, [canSeeAdviceCount]);
 
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
+  const togglePinned = () => {
+    setPinned((prev) => {
       const next = !prev;
-      localStorage.setItem(STORAGE_KEY, String(next));
+      try { localStorage.setItem(PIN_KEY, String(next)); } catch { /* optional */ }
       return next;
     });
+    setHovered(false);
   };
+  // Small delays so passing the cursor over the edge does not flicker it open/closed.
+  const onEnter = () => { if (mobile || pinned) return; window.clearTimeout(hoverTimer.current); hoverTimer.current = window.setTimeout(() => setHovered(true), 120); };
+  const onLeave = () => { if (mobile || pinned) return; window.clearTimeout(hoverTimer.current); hoverTimer.current = window.setTimeout(() => setHovered(false), 200); };
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+  // Close the hover panel after a page is chosen.
+  useEffect(() => { setHovered(false); }, [location.pathname]);
 
-  const isCollapsed = mobile ? false : collapsed;
+  const isCollapsed = mobile ? false : !(pinned || hovered);
   const [openGroups, setOpenGroups] = useState(readOpenGroups);
 
-  return (
+  const aside = (
     <aside
-      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact hidden md:flex ${isCollapsed ? 'w-16' : 'w-60'} sticky top-0 z-30 shrink-0`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact flex ${isCollapsed ? 'w-16' : 'w-60'} sticky top-0 z-30`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
     >
-      {/* Collapse / expand toggle */}
+      {/* Pin: keep the sidebar open; unpinned it opens on hover */}
       {!mobile && <button
-        onClick={toggleCollapsed}
-        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        onClick={togglePinned}
+        aria-label={pinned ? 'Unpin sidebar (open on hover)' : 'Keep sidebar open'}
+        title={pinned ? 'Unpin: open only on hover' : 'Keep sidebar open'}
         className="absolute -right-3 top-6 h-6 w-6 rounded-full bg-teal-700 border border-teal-950 text-offwhite-100 flex items-center justify-center hover:bg-teal-600 transition-colors z-10"
       >
-        {isCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+        {pinned ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
       </button>}
 
       <div
@@ -519,6 +532,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
       </div>
     </aside>
   );
+  if (mobile) return aside;
+  // Desktop: the sidebar sits beside the page, so the page narrows and widens with it as it opens and closes.
+  return <div className={`hidden shrink-0 md:block ${isCollapsed ? 'w-16' : 'w-60'} transition-[width] duration-200`}>{aside}</div>;
 };
 
 export default Sidebar;
