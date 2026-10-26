@@ -3,6 +3,9 @@ const generateToken = require('../utils/generateToken');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLE_LABELS, isRetiredRole } = require('../constants/roles');
 const CrmAuditLog = require('../models/CrmAuditLog');
+const { dropOtherSockets } = require('../utils/sessionGuard');
+// The token this request came with (this device stays signed in after its own password change).
+const requestToken = (req) => String(req.headers?.authorization || '').replace(/^Bearer\s+/i, '');
 
 const formatUser = (user) => ({
   id: user._id,
@@ -88,8 +91,10 @@ const changePassword = asyncHandler(async (req, res) => {
 
   user.password = newPassword;
   await user.save();
+  const token = generateToken(user._id);
+  dropOtherSockets(req.app?.get?.('io'), user._id, requestToken(req));
 
-  res.status(200).json({ success: true, message: 'Password changed successfully' });
+  res.status(200).json({ success: true, message: 'Password changed successfully. You were logged out on your other devices.', token });
 });
 
 // @desc    Admin changes their own login: email and/or password (and name). The current password is required.
@@ -124,7 +129,10 @@ const updateMyAccount = asyncHandler(async (req, res) => {
   }
   if (!changes.length) return res.status(400).json({ success: false, message: 'Nothing to change' });
   await user.save();
-  res.status(200).json({ success: true, changed: changes, user: formatUser(user) });
+  // A new password logs the admin out on every other device; this device continues with a fresh token.
+  const token = changes.includes('password') ? generateToken(user._id) : undefined;
+  if (token) dropOtherSockets(req.app?.get?.('io'), user._id, requestToken(req));
+  res.status(200).json({ success: true, changed: changes, user: formatUser(user), ...(token ? { token } : {}) });
 });
 
 module.exports = { login, getMe, changePassword, updateMyAccount, formatUser };

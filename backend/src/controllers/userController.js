@@ -2,6 +2,7 @@ const User = require('../models/User');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { CREATABLE_ROLES, RETIRED_ROLES, ROLE_LABELS, ROLES } = require('../constants/roles');
 const { formatUser } = require('./authController');
+const { dropOtherSockets } = require('../utils/sessionGuard');
 
 // @desc    Admin creates a login for a team member (manager, counselor, doctor, etc.)
 // @route   POST /api/users
@@ -92,8 +93,11 @@ const updateUser = asyncHandler(async (req, res) => {
     user.password = password;
   }
 
+  const passwordChanged = password !== undefined && password !== '';
   await user.save();
-  res.status(200).json({ success: true, user: formatUser(user) });
+  // The member is logged out on every device they were signed in on.
+  if (passwordChanged) dropOtherSockets(req.app?.get?.('io'), user._id);
+  res.status(200).json({ success: true, user: formatUser(user), ...(passwordChanged ? { loggedOutEverywhere: true } : {}) });
 });
 
 // @desc    Delete a team member

@@ -108,6 +108,7 @@ const TeamMembers = () => {
         if (form.password.trim()) payload.password = form.password;
         await api.patch(`/users/${editingUser.id}`, payload);
         const emailChanged = form.email.trim().toLowerCase() !== String(editingUser.email || '').toLowerCase();
+        if (form.password.trim()) showToast(`${form.name} is logged out on every device and must log in with the new password.`);
         showToast([emailChanged && 'login email', form.password.trim() && 'password'].filter(Boolean).length
           ? `Team member updated (${[emailChanged && 'login email', form.password.trim() && 'password'].filter(Boolean).join(' and ')} changed)`
           : 'Team member updated');
@@ -173,10 +174,12 @@ const TeamMembers = () => {
         email: nextEmail,
         ...(adminPasswordForm.newPassword ? { newPassword: adminPasswordForm.newPassword } : {}),
       });
+      // A new password logs out the other devices; this one continues with the new token.
+      if (data.token) localStorage.setItem('crm_token', data.token);
       refreshUser(data.user);
       setAdminPasswordForm({ email: data.user?.email || nextEmail, currentPassword: '', newPassword: '', confirmPassword: '' });
       setAdminPasswordErrors({});
-      showToast(`Admin ${(data.changed || []).join(' and ') || 'login'} changed`);
+      showToast(`Admin ${(data.changed || []).join(' and ') || 'login'} changed${data.token ? '. Logged out on your other devices.' : ''}`);
     } catch (err) {
       showToast(err.response?.data?.message || 'Could not change password', 'error');
     } finally {

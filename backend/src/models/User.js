@@ -46,9 +46,14 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// When the password last changed: tokens issued before this stop working (logged out on every other device).
+userSchema.add({ passwordChangedAt: { type: Date, default: null } });
+
 // Hash password before saving, only if it was modified
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
+  // One second back so a token issued right after the change (same second) is still accepted.
+  if (!this.isNew) this.passwordChangedAt = new Date(Date.now() - 1000);
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();

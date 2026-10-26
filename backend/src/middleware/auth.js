@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { isRetiredRole } = require('../constants/roles');
+const { tokenStillValid, PASSWORD_CHANGED_MESSAGE } = require('../utils/sessionGuard');
 const { attachCrmAudit } = require('./crmAudit');
 
 // Verifies the JWT and attaches the logged-in user to req.user
@@ -26,6 +27,11 @@ const protect = async (req, res, next) => {
 
     if (!user.isActive) {
       return res.status(403).json({ success: false, message: 'Your account has been deactivated. Contact admin.' });
+    }
+
+    // Logged out here because the password was changed (on this or another device).
+    if (!tokenStillValid(user, decoded)) {
+      return res.status(401).json({ success: false, message: PASSWORD_CHANGED_MESSAGE, reason: 'password_changed' });
     }
 
     if (isRetiredRole(user.role)) {
