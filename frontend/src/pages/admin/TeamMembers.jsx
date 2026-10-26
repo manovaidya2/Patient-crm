@@ -17,7 +17,7 @@ const emptyForm = { name: '', email: '', password: '', role: '', phone: '' };
 
 const TeamMembers = () => {
   const { toasts, showToast, dismissToast } = useToast();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +31,8 @@ const TeamMembers = () => {
   const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState({});
   const [saving, setSaving] = useState(false);
-  const [adminPasswordForm, setAdminPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [adminPasswordForm, setAdminPasswordForm] = useState({ email: '', currentPassword: '', newPassword: '', confirmPassword: '' });
+  useEffect(() => { if (user?.email) setAdminPasswordForm((f) => (f.email ? f : { ...f, email: user.email })); }, [user?.email]);
   const [adminPasswordErrors, setAdminPasswordErrors] = useState({});
   const [changingAdminPassword, setChangingAdminPassword] = useState(false);
 
@@ -100,12 +101,16 @@ const TeamMembers = () => {
       if (editingUser) {
         const payload = {
           name: form.name,
+          email: form.email,
           role: form.role,
           phone: form.phone,
         };
         if (form.password.trim()) payload.password = form.password;
         await api.patch(`/users/${editingUser.id}`, payload);
-        showToast(form.password.trim() ? 'Team member and password updated' : 'Team member updated');
+        const emailChanged = form.email.trim().toLowerCase() !== String(editingUser.email || '').toLowerCase();
+        showToast([emailChanged && 'login email', form.password.trim() && 'password'].filter(Boolean).length
+          ? `Team member updated (${[emailChanged && 'login email', form.password.trim() && 'password'].filter(Boolean).join(' and ')} changed)`
+          : 'Team member updated');
       } else {
         await api.post('/users', form);
         showToast('Login created successfully');
@@ -147,8 +152,11 @@ const TeamMembers = () => {
   const handleAdminPasswordChange = async (e) => {
     e.preventDefault();
     const errors = {};
+    const nextEmail = adminPasswordForm.email.trim().toLowerCase();
+    const emailChanged = nextEmail && nextEmail !== String(user?.email || '').toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(nextEmail)) errors.email = 'Enter a valid email';
     if (!adminPasswordForm.currentPassword) errors.currentPassword = 'Current password is required';
-    if (!adminPasswordForm.newPassword) errors.newPassword = 'New password is required';
+    if (!emailChanged && !adminPasswordForm.newPassword) errors.newPassword = 'Enter a new password or a new email';
     if (adminPasswordForm.newPassword && adminPasswordForm.newPassword.length < 6) {
       errors.newPassword = 'Password must be at least 6 characters';
     }
@@ -160,13 +168,15 @@ const TeamMembers = () => {
 
     setChangingAdminPassword(true);
     try {
-      await api.patch('/auth/password', {
+      const { data } = await api.patch('/auth/account', {
         currentPassword: adminPasswordForm.currentPassword,
-        newPassword: adminPasswordForm.newPassword,
+        email: nextEmail,
+        ...(adminPasswordForm.newPassword ? { newPassword: adminPasswordForm.newPassword } : {}),
       });
-      setAdminPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      refreshUser(data.user);
+      setAdminPasswordForm({ email: data.user?.email || nextEmail, currentPassword: '', newPassword: '', confirmPassword: '' });
       setAdminPasswordErrors({});
-      showToast('Admin password changed');
+      showToast(`Admin ${(data.changed || []).join(' and ') || 'login'} changed`);
     } catch (err) {
       showToast(err.response?.data?.message || 'Could not change password', 'error');
     } finally {
@@ -196,11 +206,20 @@ const TeamMembers = () => {
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide font-semibold text-charcoal/55">Admin Security</p>
-              <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Change your admin password</h2>
-              <p className="mt-1 text-sm text-charcoal/55">{user?.email}</p>
+              <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Your admin login</h2>
+              <p className="mt-1 text-sm text-charcoal/55">Signed in as {user?.email}. Change the email, the password, or both; your current password confirms it.</p>
             </div>
           </div>
-          <form onSubmit={handleAdminPasswordChange} className="grid w-full gap-3 lg:max-w-3xl lg:grid-cols-3">
+          <form onSubmit={handleAdminPasswordChange} className="grid w-full gap-3 lg:max-w-3xl lg:grid-cols-2">
+            <Input
+              id="admin-email"
+              type="email"
+              label="Login email"
+              value={adminPasswordForm.email}
+              onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, email: e.target.value })}
+              error={adminPasswordErrors.email}
+              autoComplete="username"
+            />
             <Input
               id="admin-current-password"
               type="password"
@@ -213,7 +232,8 @@ const TeamMembers = () => {
             <Input
               id="admin-new-password"
               type="password"
-              label="New password"
+              label="New password (optional)"
+              placeholder="Leave blank to keep it"
               value={adminPasswordForm.newPassword}
               onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })}
               error={adminPasswordErrors.newPassword}
@@ -230,7 +250,7 @@ const TeamMembers = () => {
                 autoComplete="new-password"
               />
               <Button type="submit" className="w-full" disabled={changingAdminPassword}>
-                {changingAdminPassword ? 'Changing...' : 'Change password'}
+                {changingAdminPassword ? 'Saving...' : 'Save login'}
               </Button>
             </div>
           </form>
@@ -357,8 +377,8 @@ const TeamMembers = () => {
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             error={formErrors.email}
-            disabled={!!editingUser}
           />
+          {editingUser && <p className="-mt-2 text-xs text-charcoal/55">This is the login email. If you change it, the member signs in with the new email from now on.</p>}
           <Input
             id="password"
             type="password"

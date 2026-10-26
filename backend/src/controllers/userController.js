@@ -53,7 +53,7 @@ const getUsers = asyncHandler(async (req, res) => {
 // @route   PATCH /api/users/:id
 // @access  Private/Admin
 const updateUser = asyncHandler(async (req, res) => {
-  const { name, role, phone, isActive, password } = req.body;
+  const { name, role, phone, isActive, password, email } = req.body;
 
   const user = await User.findById(req.params.id);
   if (!user) {
@@ -69,6 +69,17 @@ const updateUser = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid role' });
     }
     user.role = role;
+  }
+
+  // Login email (the user signs in with it): must be valid and not used by anyone else.
+  if (email !== undefined) {
+    const nextEmail = String(email || '').toLowerCase().trim();
+    if (!/^\S+@\S+\.\S+$/.test(nextEmail)) return res.status(400).json({ success: false, message: 'Enter a valid email' });
+    if (nextEmail !== user.email) {
+      const taken = await User.findOne({ email: nextEmail, _id: { $ne: user._id } }).select('_id');
+      if (taken) return res.status(400).json({ success: false, message: 'A user with this email already exists' });
+      user.email = nextEmail;
+    }
   }
 
   if (name !== undefined) user.name = name;

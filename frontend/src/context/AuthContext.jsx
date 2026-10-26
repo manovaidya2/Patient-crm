@@ -45,8 +45,15 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  // After the signed-in user's own details change (e.g. the admin edits their login email).
+  const refreshUser = (next) => {
+    if (!next) return;
+    localStorage.setItem('crm_user', JSON.stringify(next));
+    setUser(next);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

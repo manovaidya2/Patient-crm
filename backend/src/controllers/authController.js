@@ -92,4 +92,39 @@ const changePassword = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, message: 'Password changed successfully' });
 });
 
-module.exports = { login, getMe, changePassword, formatUser };
+// @desc    Admin changes their own login: email and/or password (and name). The current password is required.
+// @route   PATCH /api/auth/account
+// @access  Private/Admin
+const updateMyAccount = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only the admin can change their login email here' });
+  const { currentPassword, email, newPassword, name } = req.body || {};
+  if (!currentPassword) return res.status(400).json({ success: false, message: 'Enter your current password to confirm' });
+  const user = await User.findById(req.user._id).select('+password');
+  if (!user || !(await user.matchPassword(currentPassword))) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+
+  const changes = [];
+  if (email !== undefined && String(email).trim() !== '') {
+    const nextEmail = String(email).toLowerCase().trim();
+    if (!/^\S+@\S+\.\S+$/.test(nextEmail)) return res.status(400).json({ success: false, message: 'Enter a valid email' });
+    if (nextEmail !== user.email) {
+      const taken = await User.findOne({ email: nextEmail, _id: { $ne: user._id } }).select('_id');
+      if (taken) return res.status(400).json({ success: false, message: 'A user with this email already exists' });
+      user.email = nextEmail;
+      changes.push('email');
+    }
+  }
+  if (newPassword) {
+    if (String(newPassword).length < 6) return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
+    user.password = newPassword;
+    changes.push('password');
+  }
+  if (name !== undefined && String(name).trim() && String(name).trim() !== user.name) {
+    user.name = String(name).trim().slice(0, 100);
+    changes.push('name');
+  }
+  if (!changes.length) return res.status(400).json({ success: false, message: 'Nothing to change' });
+  await user.save();
+  res.status(200).json({ success: true, changed: changes, user: formatUser(user) });
+});
+
+module.exports = { login, getMe, changePassword, updateMyAccount, formatUser };
