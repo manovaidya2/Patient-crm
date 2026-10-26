@@ -1,4 +1,5 @@
 const Patient = require('../models/Patient');
+const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
 const RecordRoom = require('../models/RecordRoom');
@@ -604,6 +605,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
           payToBankName: pay.payToBankName || '',
           utr: pay.utr || '',
           transactionId: pay.transactionId || '',
+          utrEntries: pay.utrEntries || [],
           receivedBy: pay.receivedBy || '',
           notes: pay.notes || '',
           screenshotUrl: pay.screenshotUrl || null,
@@ -1329,6 +1331,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
           payToBankName: payment.payToBankName || '',
           utr: payment.utr || '',
           transactionId: payment.transactionId || '',
+          utrEntries: payment.utrEntries || [],
           receivedBy: payment.receivedBy || '',
           notes: payment.notes || '',
           recordedByName: payment.recordedByName || '',
@@ -1672,6 +1675,7 @@ const pendingPaymentsOf = (patient) => {
         payToBankName: payment.payToBankName || '',
         utr: payment.utr || '',
         transactionId: payment.transactionId || '',
+        utrEntries: payment.utrEntries || [],
         receivedBy: payment.receivedBy || '',
         notes: payment.notes || '',
         recordedByName: payment.recordedByName || '',
@@ -2174,7 +2178,9 @@ const addStagePayment = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
-  const amountNum = Number(req.body.amount);
+  const isOnline = (req.body.paymentMode || PAYMENT_MODES.ONLINE) === PAYMENT_MODES.ONLINE;
+  const utrs = resolveUtrs({ entries: isOnline ? parseUtrEntries(req.body.utrEntries) : [], amount: Number(req.body.amount), utr: req.body.utr, transactionId: req.body.transactionId });
+  const amountNum = Number(utrs.amount);
   if (!amountNum || amountNum <= 0) {
     return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
   }
@@ -2210,8 +2216,9 @@ const addStagePayment = asyncHandler(async (req, res) => {
     paymentMode,
     payToBank: bank.payToBank,
     payToBankName: bank.payToBankName,
-    utr: paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '',
-    transactionId: paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '',
+    utr: paymentMode === PAYMENT_MODES.ONLINE ? utrs.utr : '',
+    transactionId: paymentMode === PAYMENT_MODES.ONLINE ? utrs.transactionId : '',
+    utrEntries: paymentMode === PAYMENT_MODES.ONLINE ? utrs.utrEntries : [],
     receivedBy: paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '',
     notes: String(req.body.notes || '').trim(),
     screenshotUrl: screenshotFiles[0]?.url || null,
@@ -2223,7 +2230,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
     patient,
     req.user,
     `Payment added for Phase ${stageNum}`,
-    `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]} — pending accounts approval${req.body.notes ? ` | Note: ${String(req.body.notes).trim()}` : ''}`
+    `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers: ${utrs.utr})` : ''} — pending accounts approval${req.body.notes ? ` | Note: ${String(req.body.notes).trim()}` : ''}`
   );
 
   await patient.save();
@@ -2260,7 +2267,9 @@ const updateStagePayment = asyncHandler(async (req, res) => {
     return res.status(409).json({ success: false, message: 'Approved or cancelled payments cannot be edited. Use cancellation or refund.' });
   }
 
-  const amountNum = Number(req.body.amount);
+  const editOnline = (req.body.paymentMode || PAYMENT_MODES.ONLINE) === PAYMENT_MODES.ONLINE;
+  const editUtrs = resolveUtrs({ entries: editOnline ? parseUtrEntries(req.body.utrEntries) : [], amount: Number(req.body.amount), utr: req.body.utr, transactionId: req.body.transactionId });
+  const amountNum = Number(editUtrs.amount);
   if (!amountNum || amountNum <= 0) {
     return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
   }
@@ -2277,8 +2286,9 @@ const updateStagePayment = asyncHandler(async (req, res) => {
   const bank = await resolvePayToBank(paymentMode, req.body.payToBank);
   payment.payToBank = bank.payToBank;
   payment.payToBankName = bank.payToBankName;
-  payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? req.body.utr || '' : '';
-  payment.transactionId = paymentMode === PAYMENT_MODES.ONLINE ? req.body.transactionId || '' : '';
+  payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.utr : '';
+  payment.transactionId = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.transactionId : '';
+  payment.utrEntries = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.utrEntries : [];
   payment.receivedBy = paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '';
   payment.notes = String(req.body.notes || '').trim();
   payment.editedByName = req.user.name;

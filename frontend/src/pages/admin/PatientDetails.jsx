@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
+import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload, utrRowsFrom } from '../../components/payments/UtrRows.jsx';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -208,6 +209,7 @@ const FileLinks = ({ files = [], fallbackUrl, fallbackName = 'View file', label 
 
 const emptyPaymentForm = {
   amount: '',
+  utrRows: [emptyUtrRow()],
   date: new Date().toISOString().slice(0, 10),
   paymentMode: PAYMENT_MODES.ONLINE,
   payToBank: '',
@@ -245,17 +247,19 @@ const AddPaymentField = ({ onAdd }) => {
     setModalOpen(true);
   };
 
+  const multiUtr = form.paymentMode === PAYMENT_MODES.ONLINE && isMultiUtr(form.utrRows);
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const amt = Number(form.amount);
+    const amt = multiUtr ? utrTotal(form.utrRows) : Number(form.amount);
     if (!amt || amt <= 0) {
-      setError('Enter a valid amount');
+      setError(multiUtr ? 'Enter the amount of each UTR' : 'Enter a valid amount');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await onAdd({ ...form, amount: amt, files });
+      const first = form.utrRows[0] || {};
+      await onAdd({ ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', files });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not add payment');
@@ -285,9 +289,10 @@ const AddPaymentField = ({ onAdd }) => {
               id="paymentAmount"
               type="number"
               min="0"
-              label="Amount"
+              label={multiUtr ? 'Amount (total of UTRs)' : 'Amount'}
               placeholder="0"
-              value={form.amount}
+              value={multiUtr ? utrTotal(form.utrRows) : form.amount}
+              disabled={multiUtr}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
             <Input
@@ -331,22 +336,7 @@ const AddPaymentField = ({ onAdd }) => {
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input
-                  id="utr"
-                  label="UTR"
-                  placeholder="Optional"
-                  value={form.utr}
-                  onChange={(e) => setForm({ ...form, utr: e.target.value })}
-                />
-                <Input
-                  id="transactionId"
-                  label="Transaction ID"
-                  placeholder="Optional"
-                  value={form.transactionId}
-                  onChange={(e) => setForm({ ...form, transactionId: e.target.value })}
-                />
-              </div>
+              <UtrRows idPrefix="utr" rows={form.utrRows} onChange={(utrRows) => setForm({ ...form, utrRows })} />
             </>
           ) : (
             <Input
@@ -449,6 +439,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
       payToBank: payment.payToBank || '',
       utr: payment.utr || '',
       transactionId: payment.transactionId || '',
+      utrRows: utrRowsFrom(payment),
       receivedBy: payment.receivedBy || '',
       notes: payment.notes || '',
     });
@@ -457,17 +448,19 @@ const EditPaymentButton = ({ payment, onSave }) => {
     setModalOpen(true);
   };
 
+  const multiUtr = form.paymentMode === PAYMENT_MODES.ONLINE && isMultiUtr(form.utrRows);
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const amt = Number(form.amount);
+    const amt = multiUtr ? utrTotal(form.utrRows) : Number(form.amount);
     if (!amt || amt <= 0) {
-      setError('Enter a valid amount');
+      setError(multiUtr ? 'Enter the amount of each UTR' : 'Enter a valid amount');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await onSave(payment.id, { ...form, amount: amt, files });
+      const first = form.utrRows?.[0] || {};
+      await onSave(payment.id, { ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', files });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not update payment');
@@ -495,9 +488,10 @@ const EditPaymentButton = ({ payment, onSave }) => {
               id={`editPaymentAmount-${payment.id}`}
               type="number"
               min="0"
-              label="Amount"
+              label={multiUtr ? 'Amount (total of UTRs)' : 'Amount'}
               placeholder="0"
-              value={form.amount}
+              value={multiUtr ? utrTotal(form.utrRows) : form.amount}
+              disabled={multiUtr}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
             <Input
@@ -541,22 +535,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input
-                  id={`editUtr-${payment.id}`}
-                  label="UTR"
-                  placeholder="Optional"
-                  value={form.utr}
-                  onChange={(e) => setForm({ ...form, utr: e.target.value })}
-                />
-                <Input
-                  id={`editTransactionId-${payment.id}`}
-                  label="Transaction ID"
-                  placeholder="Optional"
-                  value={form.transactionId}
-                  onChange={(e) => setForm({ ...form, transactionId: e.target.value })}
-                />
-              </div>
+              <UtrRows idPrefix="editUtr" rows={form.utrRows} onChange={(utrRows) => setForm({ ...form, utrRows })} />
             </>
           ) : (
             <Input
@@ -2709,6 +2688,7 @@ const PatientDetails = () => {
       formData.append('payToBank', payload.payToBank || '');
       formData.append('utr', payload.utr || '');
       formData.append('transactionId', payload.transactionId || '');
+      if (payload.utrEntries) formData.append('utrEntries', payload.utrEntries);
     } else {
       formData.append('receivedBy', payload.receivedBy || '');
     }
@@ -2727,6 +2707,8 @@ const PatientDetails = () => {
       formData.append('payToBank', payload.payToBank || '');
       formData.append('utr', payload.utr || '');
       formData.append('transactionId', payload.transactionId || '');
+      // Always sent on edit so going back to one UTR clears the old list.
+      formData.append('utrEntries', payload.utrEntries || '[]');
     } else {
       formData.append('receivedBy', payload.receivedBy || '');
     }

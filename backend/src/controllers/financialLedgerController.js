@@ -71,6 +71,7 @@ const ledgerPipeline = (kind = 'all') => [
     paymentMode: '$stages.payments.paymentMode', bankName: '$stages.payments.payToBankName',
     transactionId: { $ifNull: ['$stages.payments.transactionId', ''] },
     utr: { $ifNull: ['$stages.payments.utr', ''] },
+    utrEntries: { $ifNull: ['$stages.payments.utrEntries', []] },
     reference: { $ifNull: ['$stages.payments.utr', ''] },
     notes: '$stages.payments.notes', recordedByName: '$stages.payments.recordedByName',
     receivedBy: '$stages.payments.receivedBy', editedByName: '$stages.payments.editedByName', editedAt: '$stages.payments.editedAt',

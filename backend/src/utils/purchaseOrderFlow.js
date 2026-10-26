@@ -13,6 +13,7 @@ const PAPER_SECTIONS = [['F', 'Payment collection & instalment plan', 'sectionF'
 const paperValue = (field, value, values) => {
   if (value === undefined || value === null || value === '' || value === false) return '';
   if (field.type === 'check') return 'Yes';
+  if (field.type === 'utrs') return Array.isArray(value) && value.length ? value.map((row) => `${row.utr || row.transactionId || '-'} (Rs ${Number(row.amount || 0).toLocaleString('en-IN')})`).join(', ') : '';
   if (field.type === 'money') return `Rs ${Number(value).toLocaleString('en-IN')}`;
   // Worked-out dues are amounts; older papers may hold text typed in the old due box.
   if (field.type === 'due') return Number.isFinite(Number(value)) ? `Rs ${Number(value).toLocaleString('en-IN')}` : String(value);

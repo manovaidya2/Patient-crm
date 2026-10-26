@@ -6,6 +6,7 @@ const User = require('../models/User');
 const { ROLES } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODES, MODE_LABEL } = require('../utils/transitFlow');
+const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const clean = (value, max = 300) => String(value ?? '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
@@ -154,20 +155,23 @@ const ACTIONS = {
     return `Patient confirmed: ${MODE_LABEL[mode]}${body.note ? ` - ${clean(body.note, 300)}` : ''}`;
   },
   add_payment({ stage, body, req }) {
-    const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) fail('Enter a valid payment amount');
     const paymentMode = body.paymentMode;
     if (!['cash', 'online'].includes(paymentMode)) fail('Select cash or online');
+    // Several same-day transfers (UTRs) make up one payment: its amount is their total.
+    const utrs = resolveUtrs({ entries: paymentMode === 'online' ? parseUtrEntries(body.utrEntries) : [], amount: Number(body.amount), utr: body.utr, transactionId: body.transactionId });
+    const amount = Number(utrs.amount);
+    if (!Number.isFinite(amount) || amount <= 0) fail('Enter a valid payment amount');
     const files = fileItems(req);
     if (paymentMode === 'online' && !files.length) fail('Payment proof is required for an online payment');
-    const utr = paymentMode === 'online' ? required(body.utr, 'UTR / reference', 120) : '';
+    const utr = paymentMode === 'online' ? required(utrs.utr, 'UTR / reference', 1000) : '';
     const receivedBy = paymentMode === 'cash' ? required(body.receivedBy, 'Cash received by', 120) : '';
     stage.payments.push({
       amount, date: body.date ? parseDate(body.date, 'payment date') : new Date(), paymentMode, utr, receivedBy,
+      transactionId: paymentMode === 'online' ? clean(utrs.transactionId, 1000) : '', utrEntries: paymentMode === 'online' ? utrs.utrEntries : [],
       notes: clean(body.notes, 2000), screenshotUrl: files[0]?.url || null, screenshotFiles: files,
       recordedByName: req.user.name, approvalStatus: 'pending',
     });
-    return `Payment added: Rs ${amount} via ${paymentMode} - pending accounts approval`;
+    return `Payment added: Rs ${amount} via ${paymentMode}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers)` : ''} - pending accounts approval`;
   },
   // After the medicine is ready: how the patient gets it (self pickup / porter / courier) with its date, and the
   // medicine explanation date - fixed on the call with the patient. One action, so nothing is half planned.

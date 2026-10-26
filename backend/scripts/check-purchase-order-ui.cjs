@@ -219,6 +219,17 @@ async function main() {
           // The PO timeline carries the handover and treatment steps after "Medicine ready".
           const text = await page.evaluate(() => document.body.innerText);
           for (const step of ['Delivery & explanation scheduled', 'Full payment verified', 'PCC assigned', 'Medicine explained']) assert.ok(text.includes(step), `po-detail lacks step "${step}"`);
+          // Several same-day UTRs in one payment: "+ Add another UTR" adds a row and the amount is their total.
+          const canAdd = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === 'Add payment'); if (b) b.click(); return !!b; });
+          if (canAdd) {
+            await page.waitForFunction(() => document.body.innerText.includes('Add another UTR (same day)'), { timeout: 15000 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find((x) => x.innerText.includes('Add another UTR')).click());
+            await page.waitForFunction(() => document.body.innerText.includes('2 transfers'), { timeout: 15000 });
+            const amounts = await page.$$('input[inputmode="decimal"][placeholder="0"]');
+            for (const input of amounts.slice(-2)) await input.type('2000');
+            await page.waitForFunction(() => document.body.innerText.includes('Rs 4,000'), { timeout: 15000 });
+            await page.keyboard.press('Escape');
+          }
         }
         if (name === 'explanations') {
           const text = await page.evaluate(() => document.body.innerText);

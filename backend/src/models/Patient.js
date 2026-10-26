@@ -78,6 +78,11 @@ const paymentEntrySchema = new mongoose.Schema(
     payToBankName: { type: String, trim: true, default: '' },
     utr: { type: String, trim: true, default: '' },
     transactionId: { type: String, trim: true, default: '' },
+    // Several online transfers making up this one payment (same day); utr / transactionId hold them joined.
+    utrEntries: {
+      type: [{ _id: false, utr: { type: String, trim: true, default: '' }, transactionId: { type: String, trim: true, default: '' }, amount: { type: Number, min: 0, default: 0 } }],
+      default: [],
+    },
     receivedBy: { type: String, trim: true, default: '' },
     notes: { type: String, trim: true, default: '', maxlength: 2000 },
     screenshotUrl: { type: String, default: null },

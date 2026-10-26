@@ -64,7 +64,8 @@ const paymentFromPaper = (values, { cardCharge = 0, user }) => {
     _id: new mongoose.Types.ObjectId(),
     amount: received, date: paidOn ? new Date(`${paidOn}T12:00:00.000Z`) : new Date(), paymentMode: cash ? 'cash' : 'online',
     payToBank: !cash && values.payToBank ? values.payToBank : null, payToBankName: cash ? '' : text(values.payToBankName),
-    utr: cash ? '' : text(values.utrReference), transactionId: cash ? '' : text(values.transactionId), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : '',
+    utr: cash ? '' : text(values.utrReference, 1000), transactionId: cash ? '' : text(values.transactionId, 1000), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : '',
+    utrEntries: cash ? [] : (Array.isArray(values.utrEntries) ? values.utrEntries : []),
     screenshotUrl: screenshots[0]?.url || null, screenshotFiles: screenshots,
     notes, recordedByName: user.name, approvalStatus: 'pending',
   };

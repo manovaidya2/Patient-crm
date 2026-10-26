@@ -187,6 +187,14 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
         <PaymentDetail label="Paid on" value={dateLabel(selected.date)} />
         <PaymentDetail label="Payment mode" value={selected.paymentMode === 'online' ? 'Online' : selected.paymentMode === 'cash' ? 'Cash' : selected.paymentMode} />
         {selected.kind === 'treatment' && <><PaymentDetail label="Transaction ID" value={selected.transactionId} /><PaymentDetail label="UTR" value={selected.utr} /></>}
+        {(selected.utrEntries || []).length >= 2 && (
+          <div className="sm:col-span-2">
+            <dt className="text-xs text-charcoal/70">Paid in {selected.utrEntries.length} transfers (same day)</dt>
+            <dd className="mt-1 overflow-hidden rounded-[10px] border border-[#EFE3CF]">
+              {selected.utrEntries.map((row, index) => <div key={index} className="flex flex-wrap items-center justify-between gap-2 border-b border-[#F5EFE3] px-3 py-1.5 text-sm last:border-b-0"><span className="min-w-0 break-words"><b>{index + 1}.</b> UTR {row.utr || '-'}{row.transactionId ? ` · Txn ${row.transactionId}` : ''}</span><b>{money(row.amount)}</b></div>)}
+            </dd>
+          </div>
+        )}
         {selected.kind === 'consultation' && <PaymentDetail label="UTR / reference" value={selected.reference} />}
         {selected.paymentMode === 'online' && <PaymentDetail label="Bank" value={selected.bankName || 'Unassigned bank'} />}
         {selected.appointmentCode && <PaymentDetail label="Appointment" value={selected.appointmentCode} />}

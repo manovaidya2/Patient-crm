@@ -2,6 +2,7 @@
 // The approved program fee comes from the post-counselling record (section E); everything here is fixed in code.
 const { SUPPLY_OPTIONS } = require('../constants/supplyPlans');
 const { applyParts } = require('./paymentParts');
+const { parseUtrEntries, resolveUtrs } = require('./utrEntries');
 
 const MODES = ['Cash', 'Online', 'Card (+3%)', 'EMI', 'Other'];
 const PLANS = ['Full', '2 Parts', '3 Parts', 'Other Approved'];
@@ -16,6 +17,8 @@ const SECTION_F = [
   { key: 'amountReceivedNow', label: 'Amount received now (Rs)', type: 'money' },
   { key: 'utrReference', label: 'UTR / payment / tracking reference', type: 'text', hideFor: ['Cash'] },
   { key: 'transactionId', label: 'Transaction ID', type: 'text', hideFor: ['Cash'] },
+  // Several same-day transfers: each UTR with its amount; the amount received now is their total.
+  { key: 'utrEntries', label: 'UTRs (several transfers)', type: 'utrs', hideFor: ['Cash'] },
   { key: 'payToBank', label: 'Paid to bank', type: 'bank', hideFor: ['Cash'] },
   { key: 'screenshots', label: 'Payment screenshots', type: 'files', hideFor: ['Cash'], wide: true },
   { key: 'cashHandedTo', label: 'Cash handed to', type: 'text', onlyFor: ['Cash'] },
@@ -129,6 +132,7 @@ const cleanPurchase = (raw = {}, approvedFee) => {
     else if (field.type === 'single') values[field.key] = field.options.includes(value) ? value : '';
     else if (field.type === 'money') values[field.key] = money(value, field.label);
     else if (field.type === 'due' || field.type === 'dueNote') continue; // worked out after the loop
+    else if (field.type === 'utrs') continue; // worked out after the loop
     else if (field.type === 'bank') {
       const id = text(value, 24);
       if (id && !/^[a-f0-9]{24}$/i.test(id)) throw fail('Select a valid bank');
@@ -149,7 +153,12 @@ const cleanPurchase = (raw = {}, approvedFee) => {
       values[field.key] = v;
     } else values[field.key] = text(value, field.wide ? 500 : 200);
   }
-  if (values.mode === 'Cash') { values.utrReference = ''; values.transactionId = ''; values.payToBank = ''; values.screenshots = []; }
+  {
+    const utrs = resolveUtrs({ entries: parseUtrEntries(raw?.utrEntries), amount: values.amountReceivedNow, utr: values.utrReference, transactionId: values.transactionId });
+    values.utrEntries = utrs.utrEntries;
+    if (utrs.utrEntries.length) { values.utrReference = utrs.utr.slice(0, 1000); values.transactionId = utrs.transactionId.slice(0, 1000); values.amountReceivedNow = utrs.amount; }
+  }
+  if (values.mode === 'Cash') { values.utrReference = ''; values.transactionId = ''; values.payToBank = ''; values.screenshots = []; values.utrEntries = []; }
   else { values.cashHandedTo = ''; values.cashReceiver = ''; }
   if (Number(values.amountReceivedNow || 0) > Number(approvedFee || 0)) throw fail('The amount received cannot be more than the approved program fee');
   applyParts(values, raw, approvedFee);

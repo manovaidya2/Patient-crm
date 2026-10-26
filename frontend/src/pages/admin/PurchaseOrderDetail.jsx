@@ -5,6 +5,7 @@ import {
   PauseCircle, Phone, PhoneCall, Pill, PlayCircle, Plus, RotateCcw, Send, ShieldCheck, Stethoscope, Truck, UserRound, X,
 } from 'lucide-react';
 import api from '../../api/axios.js';
+import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../../components/payments/UtrRows.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -168,6 +169,8 @@ function EditRejectedForm({ po, onDone }) {
 
 function AddPaymentModal({ po, open, onClose, onDone }) {
   const [values, setValues] = useState({ paymentAmount: '', paymentMode: 'online', paymentDate: inputDay(new Date()), utr: '', receivedBy: '', paymentNotes: '' });
+  const [utrRows, setUtrRows] = useState([emptyUtrRow()]);
+  const multiUtr = values.paymentMode === 'online' && isMultiUtr(utrRows);
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -176,7 +179,9 @@ function AddPaymentModal({ po, open, onClose, onDone }) {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const body = new FormData();
-      Object.entries(values).forEach(([key, value]) => { if (value) body.append(key, value); });
+      const first = utrRows[0] || {};
+      const send = { ...values, ...(values.paymentMode === 'online' ? { utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: utrEntriesPayload(utrRows) } : {}), ...(multiUtr ? { paymentAmount: String(utrTotal(utrRows)) } : {}) };
+      Object.entries(send).forEach(([key, value]) => { if (value) body.append(key, value); });
       files.forEach((file) => body.append('screenshot', file));
       const { data } = await api.post(`/purchase-orders/${po.id}/payments`, body);
       onDone(data.purchaseOrder, `Payment saved in Phase ${po.phase} payments. In Transit verifies it.`);
@@ -187,11 +192,11 @@ function AddPaymentModal({ po, open, onClose, onDone }) {
       <form onSubmit={submit} className="space-y-3">
         <ErrorText>{error}</ErrorText>
         <div className="grid gap-3 sm:grid-cols-2">
-          <FieldLabel label="Amount (Rs)" required><input className={poInput} required inputMode="decimal" value={values.paymentAmount} onChange={(e) => set('paymentAmount', e.target.value)} /></FieldLabel>
+          <FieldLabel label={multiUtr ? 'Amount (total of UTRs)' : 'Amount (Rs)'} required><input className={poInput} required={!multiUtr} disabled={multiUtr} inputMode="decimal" value={multiUtr ? utrTotal(utrRows) : values.paymentAmount} onChange={(e) => set('paymentAmount', e.target.value)} /></FieldLabel>
           <div><p className="mb-1 text-sm font-medium text-charcoal">Mode</p><div className="flex gap-1.5"><Chip active={values.paymentMode === 'online'} onClick={() => set('paymentMode', 'online')}>Online</Chip><Chip active={values.paymentMode === 'cash'} onClick={() => set('paymentMode', 'cash')}>Cash</Chip></div></div>
           <FieldLabel label="Payment date"><input className={poInput} type="date" value={values.paymentDate} onChange={(e) => set('paymentDate', e.target.value)} /></FieldLabel>
           {values.paymentMode === 'online'
-            ? <FieldLabel label="UTR / reference" required><input className={poInput} required value={values.utr} onChange={(e) => set('utr', e.target.value)} /></FieldLabel>
+            ? <div className="sm:col-span-2"><UtrRows idPrefix="po-utr" utrLabel="UTR / reference" rows={utrRows} onChange={setUtrRows} /></div>
             : <FieldLabel label="Cash received by" required><input className={poInput} required value={values.receivedBy} onChange={(e) => set('receivedBy', e.target.value)} /></FieldLabel>}
           {values.paymentMode === 'online' && <FieldLabel label="Payment screenshot" required className="sm:col-span-2"><input className={`${poInput} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></FieldLabel>}
           <FieldLabel label="Note" className="sm:col-span-2"><input className={poInput} value={values.paymentNotes} onChange={(e) => set('paymentNotes', e.target.value)} /></FieldLabel>

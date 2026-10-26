@@ -10,6 +10,7 @@ const { supplyOption, supplyOptionByLabel, AGE_BANDS } = require('../constants/s
 const purchase = require('../utils/purchaseOrderRecord');
 const { assertPurchaseComplete, withBankName, paymentFromPaper } = require('../utils/convertPatient');
 const { createWithPoNumber } = require('../utils/poNumber');
+const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const { buildPoView, STAGE_KEYS, isPendingStage, findRequest } = require('../utils/purchaseOrderFlow');
 
 const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -78,13 +79,15 @@ const respond = async (res, po, patient, status = 200) => {
 
 // Validates the payment typed on a PO form. Returns null when no payment was entered.
 const paymentFromBody = async (body, files, user, poNumber) => {
-  const amount = amountOf(body.paymentAmount, 'payment amount');
-  if (!amount) return null;
   const mode = body.paymentMode;
+  // Several same-day transfers (UTRs) make up one payment: its amount is their total.
+  const utrs = resolveUtrs({ entries: mode === 'online' ? parseUtrEntries(body.utrEntries) : [], amount: null, utr: body.utr, transactionId: body.transactionId });
+  const amount = utrs.utrEntries.length ? utrs.amount : amountOf(body.paymentAmount, 'payment amount');
+  if (!amount) return null;
   if (!['cash', 'online'].includes(mode)) fail('Select cash or online for the payment');
   let bank = { payToBank: null, payToBankName: '' };
   if (mode === 'online') {
-    if (!clean(body.utr, 120)) fail('Enter the UTR / reference of the online payment');
+    if (!clean(utrs.utr, 120) && !utrs.utrEntries.length) fail('Enter the UTR / reference of the online payment');
     if (!files.length) fail('Attach the payment screenshot');
     const bankId = clean(body.payToBank, 24);
     if (bankId) {
@@ -99,8 +102,9 @@ const paymentFromBody = async (body, files, user, poNumber) => {
     _id: new mongoose.Types.ObjectId(),
     amount, date: parseDay(body.paymentDate, 'payment date') || new Date(), paymentMode: mode,
     ...bank,
-    utr: mode === 'online' ? clean(body.utr, 120) : '',
-    transactionId: mode === 'online' ? clean(body.transactionId, 120) : '',
+    utr: mode === 'online' ? clean(utrs.utr, 1000) : '',
+    transactionId: mode === 'online' ? clean(utrs.transactionId, 1000) : '',
+    utrEntries: mode === 'online' ? utrs.utrEntries : [],
     receivedBy: mode === 'cash' ? clean(body.receivedBy, 120) : '',
     notes: [`PO ${poNumber}`, longText(body.paymentNotes, 1500)].filter(Boolean).join(' | '),
     screenshotUrl: items[0]?.url || null, screenshotFiles: items,

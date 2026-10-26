@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, FileText, Paperclip, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import { workOutDues } from '../../utils/paymentParts.js';
+import UtrRows, { isMultiUtr, utrTotal } from '../payments/UtrRows.jsx';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
 const serverBase = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
@@ -30,6 +31,18 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
   }, []);
   useEffect(() => { onUploading?.(uploading); }, [uploading, onUploading]);
 
+  // Several same-day UTRs: rows kept in values.utrEntries; the first row is also utrReference / transactionId.
+  const utrRows = (values.utrEntries || []).length >= 2
+    ? values.utrEntries.map((r) => ({ utr: r.utr || '', transactionId: r.transactionId || '', amount: r.amount ?? '' }))
+    : [{ utr: values.utrReference || '', transactionId: values.transactionId || '', amount: '' }];
+  const multiUtr = isMultiUtr(utrRows);
+  const setUtrRows = (rows) => {
+    const first = rows[0] || {};
+    onChange('utrReference', first.utr || '');
+    onChange('transactionId', first.transactionId || '');
+    onChange('utrEntries', isMultiUtr(rows) ? rows : []);
+    if (isMultiUtr(rows)) onChange('amountReceivedNow', String(utrTotal(rows)));
+  };
   const received = Number(values.amountReceivedNow || 0);
   const card = values.mode === 'Card (+3%)' ? Math.round(received * defs.cardRate * 100) / 100 : 0;
   const outstanding = Math.max(Number(fee || 0) - received, 0);
@@ -91,6 +104,10 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
         </div>
       );
     }
+    // The UTR field shows all transfers; Transaction ID sits inside each transfer row.
+    if (field.key === 'utrReference') return <div key={field.key} className="md:col-span-2"><UtrRows idPrefix="paper-utr" utrLabel={field.label} rows={utrRows} onChange={setUtrRows} disabled={!editable} /></div>;
+    if (field.key === 'transactionId' || field.type === 'utrs') return null;
+    if (field.key === 'amountReceivedNow' && multiUtr) return <div key={field.key} className={wrap}><Auto label={`${field.label} (total of UTRs)`} value={rupees(utrTotal(utrRows))} /></div>;
     if (planFromRecord && RECORD_PLAN_KEYS.includes(field.key)) {
       const raw = values[field.key];
       const shown = raw === '' || raw === null || raw === undefined ? '-' : field.type === 'money' ? rupees(raw) : raw;
