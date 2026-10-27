@@ -76,7 +76,7 @@ const PostCounselingPatients = () => {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-display text-lg font-bold text-charcoal">{patient.patientName}</p>
-                  <p className="text-sm font-semibold text-sage">{patient.patientId}</p>
+                  <p className="text-sm font-semibold text-sage">{patient.patientId}{patient.existingPatientCode && <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-900">Existing patient · next phase</span>}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5"><Badge>{CATEGORY[patient.category] || patient.category}</Badge></div>
               </div>

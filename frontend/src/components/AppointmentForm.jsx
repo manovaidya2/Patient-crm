@@ -22,6 +22,40 @@ const appointmentColumnsFor = (columns, sheet, role) => (sheet === 'management' 
     ? { ...column, required: false }
     : column)
   : columns);
+// Sales "Patient Type" = Existing asks for the old Patient ID (a field with showWhen). The ID is checked as it is typed
+// and shows who it is and which phase this visit's purchase will go into.
+const OLD_PATIENT_ID = '6b1f0a3c9d2e4f5a6b7c8d01';
+// Age is not copied: the child is older now, and each phase keeps the age told at that visit.
+const PREFILL_FROM_PATIENT = { '6ab7b2adbf916b34dfd9f5f7': 'patientName', '6ab7b2fdbf916b34dfd9f66b': 'guardianName', '6ab7b33fbf916b34dfd9f6c2': 'number' };
+const isShown = (column, values) => !column.showWhen || String(values?.[column.showWhen.columnId] ?? '') === column.showWhen.value;
+// A field that appears because of another choice must be filled.
+const isRequired = (column, values) => column.required || Boolean(column.showWhen && isShown(column, values));
+function ExistingPatientCheck({ code, onFound }) {
+  const [state, setState] = useState({ status: 'idle' });
+  useEffect(() => {
+    const clean = String(code || '').trim();
+    if (!clean) { setState({ status: 'idle' }); return undefined; }
+    setState({ status: 'checking' });
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/sales-sheet/existing-patient', { params: { code: clean }, signal: controller.signal, skipCache: true });
+        setState({ status: 'found', patient: data.patient });
+        onFound?.(data.patient);
+      } catch (err) {
+        if (!controller.signal.aborted) setState({ status: 'missing', message: err.response?.data?.message || 'Patient not found' });
+      }
+    }, 400);
+    return () => { clearTimeout(timer); controller.abort(); };
+    // onFound is a fresh function on every render; only the code matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+  if (state.status === 'idle') return null;
+  if (state.status === 'checking') return <p className="mt-1 text-xs text-charcoal/60">Checking Patient ID...</p>;
+  if (state.status === 'missing') return <p className="mt-1 text-xs font-semibold text-red-700">{state.message}</p>;
+  const p = state.patient;
+  return <p className="mt-1 rounded bg-sky-50 px-2 py-1 text-xs text-sky-950"><b>{p.patientName}</b> ({p.patientCode}){p.age ? ` · age in record ${p.age} (enter today's age)` : ''}{p.categoryLabel ? ` · ${p.categoryLabel}` : ''} · {p.nextPhase ? <>next purchase goes to <b>Phase {p.nextPhase}</b></> : <b>all phases in use</b>}{p.isActive ? '' : ' · closed patient'}</p>;
+}
 const Label = ({ title, children }) => <label className="block min-w-0"><span className="mb-1 block text-xs font-semibold text-charcoal/80">{title}</span>{children}</label>;
 
 function Value({ column, value, onRemove }) {
@@ -157,7 +191,7 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     const requiredField = [
       ...data.salesColumns.map((column) => ({ column, source: 'sales', value: data.salesValues[column.id] })),
       ...(sheet === 'management' ? data.columns.map((column) => ({ column, source: 'reception', value: data.values[column.id] })) : []),
-    ].find(({ column, value }) => column.required && !String(value ?? '').trim());
+    ].find(({ column, value, source }) => isRequired(column, source === 'sales' ? data.salesValues : data.values) && isShown(column, source === 'sales' ? data.salesValues : data.values) && !String(value ?? '').trim());
     if (requiredField) {
       const section = columnSection(requiredField.column);
       setTab(section === 'payments' ? 'payments' : requiredField.source === 'sales'
@@ -188,8 +222,17 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
   const remaining = data?.consultationFee == null ? null : data.consultationFee - received;
   const fieldSource = tab.startsWith('sales') ? 'sales' : 'reception';
   const fieldSection = tab.endsWith('confirmation') ? 'confirmation' : 'details';
-  const columns = (fieldSource === 'sales' ? data?.salesColumns : data?.columns)?.filter((column) => columnSection(column) === fieldSection) || [];
   const values = fieldSource === 'sales' ? data?.salesValues : data?.values;
+  const columns = (fieldSource === 'sales' ? data?.salesColumns : data?.columns)?.filter((column) => columnSection(column) === fieldSection && isShown(column, values)) || [];
+  // Fill the empty name / age / parent / mobile from the existing patient while the form is being filled in.
+  const fillFromPatient = (patient) => {
+    if (fieldSource !== 'sales' || !(!row.id || editingAll)) return;
+    setData((old) => {
+      const next = { ...old.salesValues };
+      Object.entries(PREFILL_FROM_PATIENT).forEach(([id, key]) => { if (!String(next[id] ?? '').trim() && patient[key] !== '' && patient[key] != null) next[id] = String(patient[key]); });
+      return { ...old, salesValues: next };
+    });
+  };
   const tabs = sheet === 'sales'
     ? [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ...(row.id && [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role) ? [['reception-confirmation', 'Reception calls']] : [])]
     : [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ['reception-confirmation', 'Reception call confirmation'], ['reception', 'Reception details']];
@@ -239,8 +282,9 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
         <div className={`flex items-center justify-between gap-3 border-l-4 px-4 py-4 ${sectionTones[tab]?.heading || sectionTones.sales.heading}`}><h3 className="text-base font-bold text-charcoal sm:text-lg">{tabs.find(([key]) => key === tab)?.[1]}</h3>{user?.role === ROLES.RECEPTIONIST && tab === 'sales-confirmation' && <span className="shrink-0 text-xs font-semibold">Read only</span>}</div>
         {error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         {data && tab !== 'payments' && (sheet !== 'sales' || tab !== 'reception-confirmation') && <div className="space-y-3">{tab.endsWith('confirmation') && <h3 className="text-sm font-bold">Confirmation details</h3>}<div className="flex justify-end">{row.id && canEditSection && !editing && !editingAll && columns.length > 0 && <Button size="sm" variant="outline" onClick={beginEditAll}><Pencil size={14} />Edit all details</Button>}</div><div className="grid gap-x-6 bg-white/70 px-4 sm:grid-cols-2 lg:grid-cols-3">{columns.map((column) => <div key={column.id} className="min-w-0 border-b border-cardline py-3">
-          <div className="mb-2 flex items-start justify-between gap-2"><p className="text-xs font-semibold text-charcoal/75">{column.label}{column.required ? ' *' : ''}</p>{row.id && canEditSection && !editing && !editingAll && <button aria-label={`Edit ${column.label}`} title={`Edit ${column.label}`} onClick={() => { setEditing({ column, source: fieldSource, previous: values[column.id] || '' }); setValue(values[column.id] || ''); setError(''); }} className="shrink-0 text-sage"><Pencil size={14} /></button>}</div>
+          <div className="mb-2 flex items-start justify-between gap-2"><p className="text-xs font-semibold text-charcoal/75">{column.label}{isRequired(column, values) ? ' *' : ''}</p>{row.id && canEditSection && !editing && !editingAll && <button aria-label={`Edit ${column.label}`} title={`Edit ${column.label}`} onClick={() => { setEditing({ column, source: fieldSource, previous: values[column.id] || '' }); setValue(values[column.id] || ''); setError(''); }} className="shrink-0 text-sage"><Pencil size={14} /></button>}</div>
           {((!row.id || editingAll) && canEditSection) ? <Field column={column} value={values[column.id] || ''} onChange={(next) => { const key = fieldSource === 'sales' ? 'salesValues' : 'values'; setData((old) => ({ ...old, [key]: { ...old[key], [column.id]: next } })); }} onError={setError} onUploading={setUploading} /> : editing?.column.id === column.id ? <form onSubmit={saveField} className="space-y-2"><Field column={column} value={value} onChange={setValue} onError={setError} onUploading={setUploading} /><div className="flex gap-2"><Button type="submit" size="sm" disabled={saving || uploading}><Save size={13} />Save</Button><Button size="sm" variant="outline" disabled={saving || uploading} onClick={() => setEditing(null)}>Cancel</Button></div></form> : <Value column={column} value={values[column.id]} onRemove={isAdmin && column.type === 'file' && values[column.id] ? () => removeSavedField(column, fieldSource, values[column.id]) : undefined} />}
+          {column.id === OLD_PATIENT_ID && <ExistingPatientCheck code={editing?.column.id === column.id ? value : values[column.id]} onFound={fillFromPatient} />}
         </div>)}{!columns.length && <p className="py-8 text-sm text-charcoal/70">No fields in this section</p>}</div>{editingAll && <div className="flex justify-end gap-2 border-t border-cardline pt-3"><Button variant="outline" disabled={saving || uploading} onClick={() => { setEditingAll(false); load().catch(() => { }); }}>Cancel</Button><Button disabled={saving || uploading} onClick={saveAllFields}><Save size={15} />{saving ? 'Saving...' : 'Save details'}</Button></div>}</div>}
         {data && tab === 'sales-confirmation' && row.id && (sheet === 'sales' || data.callTarget?.sheet === 'sales') && [ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><h3 className="mb-3 text-sm font-bold">Sales calls</h3><SalesCallHistory embedded key={`sales:${sheet === 'sales' ? row.id : data.callTarget.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={`/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/sales-calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
         {data && tab === 'reception-confirmation' && row.id && (sheet === 'sales' || data.callTarget) && [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><SalesCallHistory embedded key={`reception:${sheet}:${row.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={sheet === 'sales' || data.callTarget.sheet === 'sales' ? `/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/calls` : `/sales-sheet/forms/management/${data.callTarget.id}/calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}

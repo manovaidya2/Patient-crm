@@ -106,6 +106,12 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
         <div className="space-y-4">
           {sent && <div className="rounded border border-sage/40 bg-sage/10 px-3 py-2 text-sm text-charcoal">Already sent to <b>{data.postCounselorName}</b>. These details can no longer be changed here.</div>}
           <div className="rounded-lg border border-sage/40 bg-sage/10 px-3 py-2 text-sm"><span className="text-charcoal/60">Patient ID</span> <b className="ml-1 text-base text-charcoal">{data.patientId}</b><span className="ml-3 text-xs text-charcoal/50">Appointment {data.appointmentCode}{data.meta?.tokenNumber ? ` · Token ${data.meta.tokenNumber}` : ''}{data.meta?.arrivalTime ? ` · Arrived ${data.meta.arrivalTime}` : ''}</span></div>
+          {data.existingPatient && (
+            <div className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+              <b>Existing patient</b> · old Patient ID kept, no new ID was made. Details below come from the patient's record where they were empty.
+              {data.existingPatient.nextPhase ? <> This visit's purchase will go into <b>Phase {data.existingPatient.nextPhase}</b>.</> : <> <b>All phases are already in use.</b></>}
+            </div>
+          )}
           {(data.groups || []).map(([groupKey, groupLabel]) => {
             const defs = visibleDefs.filter((definition) => definition.group === groupKey);
             if (!defs.length) return null;

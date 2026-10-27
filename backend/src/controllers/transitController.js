@@ -23,7 +23,7 @@ const CALL_OUTCOMES = ['connected', 'not_reachable', 'busy', 'call_back', 'wrong
 const day = (value) => value.toISOString().slice(0, 10);
 
 const LIST_FIELDS = 'patientName patientCode number guardianName relativeName age category address centerName centerId approvalStatus createdAt assignedDoctor assignedPsychologist updatedAt isActive '
-  + 'stages.number stages.purchaseOrder stages.totalAmount stages.payments stages.postCounselor stages.medicineExplainDate '
+  + 'stages.number stages.age stages.purchaseOrder stages.totalAmount stages.payments stages.postCounselor stages.medicineExplainDate '
   + 'stages.transit stages.poPaper stages.packageName stages.medicineRequest stages.medicineRequests';
 const TRANSIT_FILTER = {
   isActive: { $ne: false },

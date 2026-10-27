@@ -1303,11 +1303,12 @@ const ScheduleCard = ({
 
   const openDoneModal = (entry) => {
     const defaultName = patient?.guardianName || patient?.relativeName || '';
+    const phaseAgeText = (patient?.stages || []).find((s) => s.number === stageNumber)?.age || patient?.age || '';
     const filledOn = formatDateTime(new Date());
     const patientLine = [
       patient?.patientName,
       `ID: ${patient?.patientCode || `PT-${String(patient?.id || '').slice(-6).toUpperCase()}`}`,
-      patient?.age ? `Age: ${patient.age}` : '',
+      phaseAgeText ? `Age: ${phaseAgeText}` : '',
       defaultName ? `Parent/Relative: ${defaultName}` : '',
       patient?.number ? `${patient?.category === PATIENT_CATEGORIES.AUTISM_ADHD ? "Father's Number" : 'Phone Number'}: ${patient.number}` : '',
     ].filter(Boolean).join(' | ');
@@ -3464,6 +3465,13 @@ const PatientDetails = () => {
             <div className="px-3.5 pb-3.5 sm:px-6 sm:pb-6">
               {activeTab === 'phases' && <>
               <div className="mb-4 grid grid-cols-1 gap-px border border-cardline bg-cardline sm:grid-cols-2">
+                <EditableField
+                  label={`Age - Phase ${activeStage.number}`}
+                  value={activeStage.age || ''}
+                  placeholder={patient.age ? `${patient.age} (patient's age)` : 'Not added'}
+                  onSave={(val) => saveStageField('age', val)}
+                  readOnly={!canEditPatientDetails}
+                />
                 <EditableField
                   label={`Patient History By - Phase ${activeStage.number}`}
                   value={activeStage.patientHistoryBy || ''}

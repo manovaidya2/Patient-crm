@@ -105,7 +105,8 @@ const firstPayment = (record) => {
 };
 
 // First values shown when the form is opened: what is already known from the registration and the record.
-const defaults = ({ record, registration, counselorName, today }) => {
+// phase: the phase this purchase goes into (an existing patient buys their next phase).
+const defaults = ({ record, registration, counselorName, today, phase = 1 }) => {
   const e = record?.e || {};
   const emi = e.paymentPlan === 'EMI';
   const categoryLabel = registration?.category === 'mental_health' ? 'Mental Health' : 'Autism / ADHD';
@@ -117,7 +118,7 @@ const defaults = ({ record, registration, counselorName, today }) => {
     ...planFromRecord(record),
     amountReceivedNow: firstPayment(record),
     poDate: today, consentDate: today, paymentDate: today,
-    orderedTreatment: `${categoryLabel} / Phase 1`,
+    orderedTreatment: `${categoryLabel} / Phase ${phase || 1}`,
     guardianName: registration?.fatherName || registration?.motherName || '',
     guardianMobile: registration?.fatherNumber || registration?.motherNumber || '',
     counsellorWitness: counselorName || '',

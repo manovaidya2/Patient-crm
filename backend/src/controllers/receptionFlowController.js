@@ -8,6 +8,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { dateRoom, postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 const { notGivenView } = require('../utils/postCounselingNotGiven');
+const { PATIENT_TYPE_ID, EXISTING, existingCodeFrom, resolveExisting, findByCode, summaryOf } = require('../utils/existingPatient');
 const {
   SALES_IDS, RECEPTION_IDS, FIRST_SERIAL, TIME_PATTERN, REGISTRATION_FIELDS, FIELD_GROUPS, istDate, patientIdFor, cleanRegistration, missingForSend, defaultsFromSales,
 } = require('../utils/receptionFlow');
@@ -62,6 +63,8 @@ const registrationView = (entry) => {
     id: String(entry._id),
     appointmentCode: entry.appointmentCode || '',
     patientId: valueOf(entry, RECEPTION_IDS.patientId),
+    // The old Patient ID when Sales marked this as an existing patient's appointment.
+    existingPatientCode: existingCodeFrom(entry.salesValues || {}),
     arrivalStatus: valueOf(entry, RECEPTION_IDS.arrivalStatus),
     arrivalTime: valueOf(entry, RECEPTION_IDS.arrivalTime),
     fields: { ...defaultsFromSales(salesValues), ...saved },
@@ -91,20 +94,57 @@ const markArrival = asyncHandler(async (req, res) => {
   });
   let patientId = valueOf(entry, RECEPTION_IDS.patientId);
   let generated = false;
+  let existing = false;
+  // An existing patient keeps their old Patient ID: no new one is generated.
+  const isExisting = mapValue(entry.salesValues, PATIENT_TYPE_ID) === EXISTING;
+  let existingCode = '';
+  if (joined && !patientId && isExisting) {
+    const code = existingCodeFrom(entry.salesValues);
+    if (!code) throw fail('This appointment is for an existing patient. Enter the Old Patient ID in Sales details first.');
+    const found = await findByCode(code, 'patientCode');
+    if (!found) throw fail(`This appointment is for an existing patient, but no patient has Patient ID ${code}. Correct the Old Patient ID in Sales details first.`);
+    existingCode = found.patientCode;
+  }
   if (joined && !patientId) {
-    const candidate = await generatePatientId(mapValue(entry.salesValues, SALES_IDS.patientName));
+    const candidate = existingCode || await generatePatientId(mapValue(entry.salesValues, SALES_IDS.patientName));
     const result = await Management.updateOne({ _id: entry._id, $or: [{ [patientIdPath]: { $exists: false } }, { [patientIdPath]: '' }] }, { $set: { [patientIdPath]: candidate } });
-    if (result.modifiedCount) { patientId = candidate; generated = true; }
+    if (result.modifiedCount) { patientId = candidate; generated = !existingCode; existing = Boolean(existingCode); }
     else patientId = valueOf(await Management.findById(entry._id), RECEPTION_IDS.patientId);
   }
-  await audit(req, entry, status === 'Online' ? 'Online consultation marked' : 'Arrival marked', `${status}${time ? ` at ${time}` : ''}${generated ? `, Patient ID ${patientId}` : ''}`);
+  await audit(req, entry, status === 'Online' ? 'Online consultation marked' : 'Arrival marked', `${status}${time ? ` at ${time}` : ''}${generated ? `, Patient ID ${patientId}` : ''}${existing ? `, existing patient ${patientId} (no new ID)` : ''}`);
   emitChanged(req, entry);
-  res.json({ success: true, arrivalStatus: status, arrivalTime: time, patientId, generated });
+  res.json({ success: true, arrivalStatus: status, arrivalTime: time, patientId, generated, existing });
 });
+
+// An existing patient's registration starts from what the CRM already has about them (only empty fields are filled),
+// and says which phase this visit's purchase will go into.
+const PATIENT_FIELD_FOR = { fatherNumber: 'number', motherNumber: 'alternateNumber' };
+const CHANGES_WITH_TIME = new Set(['age', 'weight', 'height', 'headCircumference']);
+const withExistingPatient = async (view) => {
+  // Only a visit Sales marked Existing is looked up; its Patient ID is the patient's old one.
+  if (!view.existingPatientCode || !view.patientId) return view;
+  const patient = await findByCode(view.patientId);
+  if (!patient) return view;
+  const fields = { ...view.fields };
+  REGISTRATION_FIELDS.forEach(({ key }) => {
+    // These change as the child grows, so they are asked again at every visit, never copied from the old record.
+    if (CHANGES_WITH_TIME.has(key)) return;
+    const known = patient[PATIENT_FIELD_FOR[key] || key];
+    if (!String(fields[key] ?? '').trim() && known !== undefined && known !== null && String(known).trim()) fields[key] = String(known);
+  });
+  return { ...view, fields, existingPatient: await summaryOf(patient) };
+};
 
 // @route GET /api/sales-sheet/management/:id/registration
 const getRegistration = asyncHandler(async (req, res) => {
-  res.json({ success: true, registration: registrationView(await loadEntry(req)) });
+  res.json({ success: true, registration: await withExistingPatient(registrationView(await loadEntry(req))) });
+});
+
+// @route GET /api/sales-sheet/existing-patient?code=   (Sales / Reception: check an old Patient ID)
+const lookupExistingPatient = asyncHandler(async (req, res) => {
+  const found = await resolveExisting(req.query.code);
+  if (found.error) throw fail(found.error, 404);
+  res.json({ success: true, patient: found.summary });
 });
 
 // @route PUT /api/sales-sheet/management/:id/registration   (save without sending)
@@ -179,6 +219,7 @@ const listSentPatients = (notGiven) => asyncHandler(async (req, res) => {
       postCounselor: view.postCounselor, postCounselorName: view.postCounselorName,
       recordSavedAt: entry.postCounseling?.savedAt || null,
       notGiven: notGivenView(entry),
+      existingPatientCode: view.existingPatientCode,
     };
   }).filter((patient) => !query || [patient.patientName, patient.patientId, patient.fields.fatherNumber, patient.fields.motherNumber, patient.fields.whatsappNumber, patient.fields.fatherName, patient.fields.motherName].some((value) => String(value || '').toLowerCase().includes(query)));
   res.json({ success: true, patients, fieldDefs: REGISTRATION_FIELDS, groups: FIELD_GROUPS });
@@ -186,4 +227,4 @@ const listSentPatients = (notGiven) => asyncHandler(async (req, res) => {
 const listPostCounselingPatients = listSentPatients(false);
 const listNotGivenPatients = listSentPatients(true);
 
-module.exports = { markArrival, getRegistration, saveRegistration, sendRegistration, listPostCounselors, listPostCounselingPatients, listNotGivenPatients, registrationView };
+module.exports = { markArrival, getRegistration, lookupExistingPatient, withExistingPatient, saveRegistration, sendRegistration, listPostCounselors, listPostCounselingPatients, listNotGivenPatients, registrationView };

@@ -8,7 +8,7 @@ const { emptyRecord, cleanRecord, normalizeRecord, definitions, COMPONENTS } = r
 const purchase = require('../utils/purchaseOrderRecord');
 const { REGISTRATION_FIELDS, FIELD_GROUPS, CATEGORY_LABEL, RECEPTION_IDS, istDate } = require('../utils/receptionFlow');
 const { PROFILE_KEYS } = require('../utils/patientProfile');
-const { registrationView } = require('./receptionFlowController');
+const { registrationView, withExistingPatient } = require('./receptionFlowController');
 const { patientInputFromRegistration, assertPurchaseComplete, withBankName, createConvertedPatient, linkConsultationReceipts } = require('../utils/convertPatient');
 const { postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 
@@ -44,18 +44,19 @@ const outcomeView = (entry) => {
   return { kind: outcome.kind, at: outcome.at || null, byName: outcome.byName || '', patientId: outcome.patient ? String(outcome.patient) : null, packageNotBoughtId: outcome.packageNotBought ? String(outcome.packageNotBought) : null };
 };
 
-const purchaseView = (entry, registration) => {
+const purchaseView = (entry, registration, existing = null) => {
   const saved = entry.postCounseling?.purchase;
   const record = entry.postCounseling?.record;
   const fee = record?.totals?.approvedProgramFee || 0;
   const decided = Boolean(entry.postCounseling?.outcome?.kind);
   const values = saved?.values
     ? (decided ? saved.values : { ...saved.values, ...purchase.planFromRecord(record) })
-    : purchase.defaults({ record, registration: registration.fields, counselorName: registration.postCounselorName, today: istDate() });
+    : purchase.defaults({ record, registration: registration.fields, counselorName: registration.postCounselorName, today: istDate(), phase: existing?.nextPhase || 1 });
   return { values, totals: purchase.totals(values, fee), saved: Boolean(saved?.savedAt), savedAt: saved?.savedAt || null, savedByName: saved?.savedByName || '', definitions: purchase.definitions() };
 };
 
-const view = (entry, canEdit) => {
+// existing: the CRM patient this visit belongs to (Sales marked it Existing), with the phase the purchase goes into.
+const view = (entry, canEdit, existing = null) => {
   const saved = entry.postCounseling?.record;
   const registration = registrationView(entry);
   return {
@@ -65,7 +66,8 @@ const view = (entry, canEdit) => {
     savedByName: entry.postCounseling?.savedByName || '',
     canEdit,
     definitions: definitions(),
-    purchase: purchaseView(entry, registration),
+    purchase: purchaseView(entry, registration, existing),
+    existingPatient: existing,
     outcome: outcomeView(entry),
     notGiven: notGivenView(entry),
     registration: { fields: registration.fields, fieldDefs: REGISTRATION_FIELDS, groups: FIELD_GROUPS, meta: registration.meta, consultationDate: registration.consultationDate, postCounselorName: registration.postCounselorName, patientId: registration.patientId },
@@ -73,10 +75,12 @@ const view = (entry, canEdit) => {
   };
 };
 
+const existingOf = async (entry) => (await withExistingPatient(registrationView(entry))).existingPatient || null;
+
 // @route GET /api/post-counseling/patients/:id/record
 const getRecord = asyncHandler(async (req, res) => {
   const { entry, canEdit } = await loadAccessible(req);
-  res.json({ success: true, ...view(entry, canEdit) });
+  res.json({ success: true, ...view(entry, canEdit, await existingOf(entry)) });
 });
 
 // @route PUT /api/post-counseling/patients/:id/record
@@ -91,7 +95,7 @@ const saveRecord = asyncHandler(async (req, res) => {
   }, { new: true });
   await audit(req, entry, 'Post counselling record saved', `Reference value Rs ${record.totals.referenceValue}`);
   emitChanged(req, entry);
-  res.json({ success: true, ...view(updated, canEdit) });
+  res.json({ success: true, ...view(updated, canEdit, await existingOf(updated)) });
 });
 
 // @route POST /api/post-counseling/upload   (payment screenshots for the purchase order step)
@@ -116,7 +120,7 @@ const savePurchase = asyncHandler(async (req, res) => {
   }, { new: true });
   await audit(req, entry, 'Purchase order details saved', `Approved fee Rs ${cleaned.totals.approvedProgramFee}, received Rs ${cleaned.totals.partPayment}`);
   emitChanged(req, entry);
-  res.json({ success: true, ...view(updated, canEdit) });
+  res.json({ success: true, ...view(updated, canEdit, await existingOf(updated)) });
 });
 
 // Claims the decision so pressing a button twice (or two people at once) can only ever do it once.
@@ -170,6 +174,7 @@ const convertToPatient = asyncHandler(async (req, res) => {
   try {
     created = await createConvertedPatient({
       input, fee, values, totals: entry.postCounseling.purchase.totals || {}, source: 'post_counseling', user: req.user,
+      existingPatientCode: registration.existingPatientCode,
       activityDetails: `Converted from Post Counseling (${entry.appointmentCode || 'appointment'}) by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {
@@ -178,9 +183,9 @@ const convertToPatient = asyncHandler(async (req, res) => {
   }
   await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': created.patient._id, 'postCounseling.purchase.values.poNo': created.poNumber } });
   await linkConsultationReceipts(entry, created.patient);
-  await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId} — purchase order ${created.poNumber} sent to In Transit`);
+  await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}${created.existing ? ` (returning patient, Phase ${created.phase})` : ''} — purchase order ${created.poNumber} sent to In Transit`);
   emitChanged(req, entry);
-  res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber });
+  res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber, existing: Boolean(created.existing), phase: created.phase || 1 });
 });
 
 // @route POST /api/post-counseling/patients/:id/outcome/not-purchased

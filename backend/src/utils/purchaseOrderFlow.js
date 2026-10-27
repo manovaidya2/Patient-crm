@@ -4,6 +4,7 @@
 const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
 const { supplyLabel, ageBandFor, AGE_BANDS } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
+const { phaseAge } = require('./phaseAge');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
@@ -214,7 +215,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, job = null } = 
     patientName: patient.patientName || po.patientName || '',
     patientCode: patient.patientCode || po.patientCode || '',
     patientPhone: patient.number || '',
-    patientAge: patient.age || '',
+    patientAge: phaseAge(patient, po.phase),
     category: patient.category || '',
     approvalStatus: patient.approvalStatus || 'approved',
     currentStage: patient.currentStage || 1,
@@ -224,7 +225,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, job = null } = 
     supplyPart: po.supplyPart || '',
     supplyLabel: supplyLabel(po.supplyPlan, po.supplyPart),
     ageBand: po.ageBand || '',
-    suggestedAgeBand: ageBandFor(patient.age),
+    suggestedAgeBand: ageBandFor(phaseAge(patient, po.phase)),
     packageName: po.packageName || '',
     amount: num(po.amount),
     medicineReadyDate: iso(po.medicineReadyDate),

@@ -135,7 +135,7 @@ const PatientsByStage = () => {
                       <td className="px-5 py-3.5">
                         <Badge tone={categoryTone(p.category)}>{CATEGORY_LABELS[p.category]}</Badge>
                       </td>
-                      <td className="px-5 py-3.5 text-charcoal/70">{p.age}</td>
+                      <td className="px-5 py-3.5 text-charcoal/70">{(p.stages || []).find((s) => s.number === stage)?.age || p.age}</td>
                       <td className="px-5 py-3.5 text-charcoal/70">{p.number}</td>
                       <td className="px-5 py-3.5">
                         <Badge tone="teal">{p.currentStageLabel}</Badge>

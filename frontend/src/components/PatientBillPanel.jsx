@@ -54,7 +54,7 @@ function PartBillForm({ patient, stage, onClose, onSaved }) {
   const [useCard, setUseCard] = useState(false);
   const [cardOverride, setCardOverride] = useState(null);
   const [outstandingOverride, setOutstandingOverride] = useState(null);
-  const [text, setText] = useState({ purchaseOrder: stage.purchaseOrder || '', helpline: '', emiProvider: '', guardianName: patient.guardianName || patient.relativeName || '', age: patient.age == null ? '' : String(patient.age), gender: patient.gender || '' });
+  const [text, setText] = useState({ purchaseOrder: stage.purchaseOrder || '', helpline: '', emiProvider: '', guardianName: patient.guardianName || patient.relativeName || '', age: String(stage.age || patient.age || ''), gender: patient.gender || '' });
   const [dateOverride, setDateOverride] = useState(null);
   const [noteOverride, setNoteOverride] = useState(null);
   const [instalments, setInstalments] = useState(null);
@@ -179,7 +179,7 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
   const [particulars, setParticulars] = useState(DEFAULT_PARTICULARS);
   const [statuses, setStatuses] = useState(DEFAULT_STATUSES);
   const [info, setInfo] = useState({
-    guardianName: patient.guardianName || patient.relativeName || '', age: patient.age == null ? '' : String(patient.age), gender: patient.gender || '',
+    guardianName: patient.guardianName || patient.relativeName || '', age: String(stage.age || patient.age || ''), gender: patient.gender || '',
     issuedBy: 'Billing Desk', date: dateOnly(approved[approved.length - 1]?.date) || dateOnly(new Date()),
   });
   const [consultationFee, setConsultationFee] = useState('0');

@@ -5,6 +5,7 @@
 // update on the Medicine / Courier / Patient pages shows up here and the other way round.
 
 const { supplyLabel } = require('../constants/supplyPlans');
+const { phaseAge } = require('./phaseAge');
 
 const MEDICINE_ACTIVE = ['requested', 'in_process', 'made', 'sent_to_courier'];
 const SHIPPED_MODES = ['porter', 'courier'];
@@ -171,7 +172,7 @@ function buildTransitCase(patient, stage, now = new Date()) {
     packageName: stage.packageName || '',
     poPaper: stage.poPaper || null,
     expectedReadyDate: iso(t.expectedReadyDate),
-    patientDetails: { age: patient.age, category: patient.category, address: patient.address, centerName: patient.centerName, centerId: patient.centerId },
+    patientDetails: { age: phaseAge(patient, stage.number), category: patient.category, address: patient.address, centerName: patient.centerName, centerId: patient.centerId },
     payment: pay,
     payments: (stage.payments || []).map((p) => ({
       id: String(p._id || ''), amount: num(p.amount), date: iso(p.date), mode: p.paymentMode || 'online',

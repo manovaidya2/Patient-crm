@@ -13,6 +13,7 @@ const { validateReceipt, renderReceipt, receiptFileName, validDate } = require('
 const { validateFinalBill, renderFinalBill } = require('../utils/finalBill');
 const { validateConsultationBill, renderConsultationBill } = require('../utils/consultationBill');
 const { InvoiceSettings, DEFAULT_PARTICULARS, DEFAULT_STATUSES } = require('../models/InvoiceSettings');
+const { phaseAge } = require('../utils/phaseAge');
 
 const readSettings = async () => await InvoiceSettings.findById('final-bill').lean() || { paymentParticulars: DEFAULT_PARTICULARS, paymentStatuses: DEFAULT_STATUSES };
 const getSettings = asyncHandler(async (req, res) => {
@@ -59,8 +60,8 @@ const findPatients = asyncHandler(async (req, res) => {
   if (!q) return res.json({ patients: [] });
   const regex = new RegExp(escapeRegex(q), 'i');
   const patients = await Patient.find({ $or: [{ patientCode: regex }, { patientName: regex }] })
-    .select('patientName patientCode guardianName relativeName age gender currentStage stages.number stages.purchaseOrder').sort({ patientName: 1 }).limit(20).lean();
-  res.json({ patients: patients.map((p) => ({ id: p._id, patientName: p.patientName, patientCode: p.patientCode || '', guardianName: p.guardianName || p.relativeName || '', age: p.age || '', gender: p.gender || '', purchaseOrder: ((p.stages || []).find((s) => s.number === p.currentStage)?.purchaseOrder) || [...(p.stages || [])].reverse().find((s) => s.purchaseOrder)?.purchaseOrder || '' })) });
+    .select('patientName patientCode guardianName relativeName age gender currentStage stages.number stages.purchaseOrder stages.age').sort({ patientName: 1 }).limit(20).lean();
+  res.json({ patients: patients.map((p) => ({ id: p._id, patientName: p.patientName, patientCode: p.patientCode || '', guardianName: p.guardianName || p.relativeName || '', age: phaseAge(p, ((p.stages || []).find((s) => s.number === p.currentStage && s.purchaseOrder) || [...(p.stages || [])].reverse().find((s) => s.purchaseOrder) || {}).number || p.currentStage), gender: p.gender || '', purchaseOrder: ((p.stages || []).find((s) => s.number === p.currentStage)?.purchaseOrder) || [...(p.stages || [])].reverse().find((s) => s.purchaseOrder)?.purchaseOrder || '' })) });
 });
 
 const getPatientConsultationPayments = asyncHandler(async (req, res) => {

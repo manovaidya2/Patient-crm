@@ -37,6 +37,7 @@ router.post('/management/:id/arrival', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST
 router.get('/management/:id/registration', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.getRegistration);
 router.put('/management/:id/registration', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.saveRegistration);
 router.post('/management/:id/registration/send', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.sendRegistration);
+router.get('/existing-patient', receptionFlow.lookupExistingPatient);
 router.get('/post-counselors', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), receptionFlow.listPostCounselors);
 router.patch('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.updateManagedAppointment);
 router.delete('/management/:id', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.deleteManagedAppointment);

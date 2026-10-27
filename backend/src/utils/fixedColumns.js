@@ -10,6 +10,8 @@ const SALES_FIELDS = [
   field('6ab7ba4fbf916b34dfda21aa', 'Center Id', 'text', 1, 'details'),
   field('6ab7ba47bf916b34dfda217a', 'Center Name', 'text', 2, 'details'),
   field('6ab7b22ebf916b34dfd9f5db', 'Patient Type', 'select', 3, 'details', { options: ['New', 'Existing'] }),
+  // Only asked when Patient Type is Existing: their old Patient ID, so no new ID is made and the next phase is used.
+  field('6b1f0a3c9d2e4f5a6b7c8d01', 'Old Patient ID', 'text', 3.5, 'details', { showWhen: { columnId: '6ab7b22ebf916b34dfd9f5db', value: 'Existing' } }),
   field('6ab7b2adbf916b34dfd9f5f7', 'Patient Name', 'text', 4, 'details', { required: true }),
   field('6ab7b2b6bf916b34dfd9f609', 'Age', 'text', 5, 'details', { required: true }),
   field('6ab7b2e2bf916b34dfd9f643', 'Gender', 'select', 6, 'details', { options: ['Male', 'Female'] }),
@@ -44,6 +46,9 @@ const RECEPTION_FIELDS = [
 const ARRIVAL_STATUS_ID = '6ab7c235bf916b34dfda543c';
 
 const SALES_FIELD_IDS = new Set(SALES_FIELDS.map((item) => item.id));
+// A field shown only when another field has a given value: { columnId, value }.
+const SHOW_WHEN = new Map([...SALES_FIELDS, ...RECEPTION_FIELDS].filter((item) => item.showWhen).map((item) => [item.id, item.showWhen]));
+const showWhenOf = (id) => SHOW_WHEN.get(String(id)) || null;
 const RECEPTION_FIELD_IDS = new Set(RECEPTION_FIELDS.map((item) => item.id));
 const isFixedSalesColumn = (id) => SALES_FIELD_IDS.has(String(id));
 const isFixedReceptionColumn = (id) => RECEPTION_FIELD_IDS.has(String(id));
@@ -73,4 +78,4 @@ const syncFixedColumns = async ({ SalesColumn, ManagementColumn } = {}) => {
   await Management.collection.updateOne({ _id: new mongoose.Types.ObjectId(ARRIVAL_STATUS_ID) }, { $addToSet: { options: 'Online' } });
 };
 
-module.exports = { SALES_FIELDS, RECEPTION_FIELDS, isFixedSalesColumn, isFixedReceptionColumn, fixedMessage, syncFixedColumns };
+module.exports = { SALES_FIELDS, RECEPTION_FIELDS, showWhenOf, isFixedSalesColumn, isFixedReceptionColumn, fixedMessage, syncFixedColumns };

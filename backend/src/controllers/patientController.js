@@ -202,6 +202,7 @@ const resolvePayToBank = async (paymentMode, bankId) => {
   return { payToBank: bank._id, payToBankName: bank.displayName || bank.name };
 };
 
+const { cleanAge, phaseAge, setPhaseAge, freezePhaseAges } = require('../utils/phaseAge');
 const { OUTCOMES: SCHEDULE_OUTCOMES, OUTCOME_LABELS: SCHEDULE_OUTCOME_LABELS, monthKeyOf } = require('../utils/patientImprovement');
 const { syncImprovementToMarketing } = require('./digitalMarketingController');
 
@@ -567,6 +568,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       notes: s.notes,
       packageName: s.packageName,
       patientHistoryBy: s.patientHistoryBy || (s.number === 1 ? p.patientHistoryBy || '' : ''),
+      age: s.age || '',
       purchaseOrder: s.purchaseOrder || '',
       poPaper: describePoPaper(s.poPaper),
       totalAmount: s.totalAmount,
@@ -824,7 +826,7 @@ const getPatients = asyncHandler(async (req, res) => {
   const listProjection = [
     'patientCode patientName centerName centerId category age number guardianName alternateNumber relativeName currentStage',
     'approvalStatus isActive inactiveReason inactivatedByName inactivatedAt createdAt',
-    'stages.number stages.totalAmount stages.consultationDate stages.medicineNextConnectDate stages.medicineConnectDone',
+    'stages.number stages.age stages.totalAmount stages.consultationDate stages.medicineNextConnectDate stages.medicineConnectDone',
     'stages.followUps.status stages.familySessions.status',
   ].join(' ');
   const [patients, total] = await Promise.all([
@@ -1888,6 +1890,12 @@ const updatePatient = asyncHandler(async (req, res) => {
     updateField('category', category, 'Patient category');
   }
 
+  // The profile age is the patient's age now: phases bought earlier keep the age they had, the current phase takes the new one.
+  if (age !== undefined && cleanAge(age) && !sameValue(cleanAge(patient.age), cleanAge(age))) {
+    freezePhaseAges(patient);
+    const current = (patient.stages || []).find((s) => s.number === (patient.currentStage || 1));
+    if (current) current.age = cleanAge(age);
+  }
   updateField('age', age, 'Age');
   for (const [key, label, max] of [['centerName', 'Center name', 120], ['centerId', 'Center ID', 80]]) {
     const value = req.body[key];
@@ -1981,6 +1989,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     packageName,
     consultationDate,
     patientHistoryBy,
+    age,
     purchaseOrder,
     totalAmount,
     postCounselor,
@@ -2014,7 +2023,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
       'medicineFullyGiven', 'medicineConnectDone',
     ]);
     const allowedFields = req.user.role === ROLES.MANAGER
-      ? new Set(['patientHistoryBy', 'consultationDate'])
+      ? new Set(['patientHistoryBy', 'consultationDate', 'age'])
       : req.user.role === ROLES.ASSISTANT_DOCTOR ? medicineFields : null;
     if (!allowedFields || !Object.keys(req.body).length ||
         Object.keys(req.body).some((key) => !allowedFields.has(key))) {
@@ -2053,6 +2062,11 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     }
     stageEntry.patientHistoryBy = nextName;
     if (stageNum === 1) patient.patientHistoryBy = '';
+  }
+  if (age !== undefined) {
+    const previousAge = phaseAge(patient, stageNum);
+    if (!cleanAge(age)) return res.status(400).json({ success: false, message: 'Enter the age for this phase' });
+    if (setPhaseAge(patient, stageEntry, age)) addActivity(patient, req.user, `Phase ${stageNum} age updated`, `From ${previousAge || 'Blank'} to ${cleanAge(age)}`);
   }
   if (status !== undefined && !sameValue(stageEntry.status, status)) {
     addActivity(patient, req.user, `Phase ${stageNum} status updated`, `From ${STAGE_STATUS_LABELS[stageEntry.status]} to ${STAGE_STATUS_LABELS[status]}`);

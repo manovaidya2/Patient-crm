@@ -14,7 +14,8 @@ const { ROLES } = require('../constants/roles');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 const { RECEPTION_IDS } = require('../utils/receptionFlow');
-const { isFixedSalesColumn, isFixedReceptionColumn, fixedMessage } = require('../utils/fixedColumns');
+const { isFixedSalesColumn, isFixedReceptionColumn, fixedMessage, showWhenOf } = require('../utils/fixedColumns');
+const { applyExistingPatient } = require('../utils/existingPatient');
 const fieldsAreFixed = (res) => res.status(403).json({ success: false, message: fixedMessage });
 
 const emitColumnsChanged = (req) => req.app.get('io')?.to('sales-sheet').emit('sales-sheet:columns-changed');
@@ -126,6 +127,7 @@ const serializeColumn = (column) => ({
   id: String(column._id), label: column.label, type: column.type, options: column.options || [],
   required: Boolean(column.required), order: column.order, section: column.section || '',
   fixed: isFixedSalesColumn(column._id) || isFixedReceptionColumn(column._id),
+  showWhen: showWhenOf(column._id),
   highlightValue: column.highlightValue || (column.type === 'select' && column.label?.trim().toLowerCase() === 'package status' ? 'Package Purchased' : ''),
 });
 const serializeManagementEntry = (entry, user) => ({
@@ -191,7 +193,7 @@ const cleanValues = async (rawValues, requireComplete = true) => {
     }
     values[String(column._id)] = value;
   }
-  return values;
+  return applyExistingPatient(values, { requireId: requireComplete });
 };
 const cleanManagementValues = async (rawValues, role) => {
   const columns = await AppointmentManagementColumn.find({ isActive: true }).sort({ order: 1 }).lean();

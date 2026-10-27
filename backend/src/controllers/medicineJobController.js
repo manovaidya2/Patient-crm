@@ -10,6 +10,7 @@ const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlan
 const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
+const { phaseAge } = require('../utils/phaseAge');
 const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
 const { moveStock } = require('./stockController');
@@ -92,7 +93,7 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
   job = new MedicineJob({
     patient: patient._id, patientCode: patient.patientCode || '', patientName: patient.patientName, phase: stage.number, requestId,
     purchaseOrder: poDoc?._id || null, poNumber: request.poNumber || poDoc?.poNumber || '',
-    supplyPlan: request.supplyPlan || poDoc?.supplyPlan || '', supplyPart: request.supplyPart || poDoc?.supplyPart || '', ageBand: request.ageBand || poDoc?.ageBand || ageBandFor(patient.age) || '',
+    supplyPlan: request.supplyPlan || poDoc?.supplyPlan || '', supplyPart: request.supplyPart || poDoc?.supplyPart || '', ageBand: request.ageBand || poDoc?.ageBand || ageBandFor(phaseAge(patient, stage.number)) || '',
     medicines: request.medicines || '', requestNotes: request.notes || '', requestedAt: request.requestedAt || new Date(), requestedByName: request.requestedByName || '', readyByDate: request.readyByDate || null,
     status: request.status === 'sent_to_courier' ? 'released' : request.status === 'made' ? 'ready' : 'open',
     currentStage: request.status === 'sent_to_courier' ? STAGES.length : request.status === 'made' ? STAGE_INDEX.release : request.status === 'in_process' ? STAGE_INDEX.review : 0,

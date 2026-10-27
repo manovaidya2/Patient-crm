@@ -43,7 +43,7 @@ const ArrivalModal = ({ row, onClose, onSaved }) => {
           <CheckCircle2 className="mx-auto text-sage" size={40} />
           {result.patientId ? (
             <>
-              <p className="text-sm text-charcoal/70">Patient ID{result.generated ? ' generated' : ''}. Please note it down.</p>
+              <p className="text-sm text-charcoal/70">{result.existing ? 'Existing patient: their old Patient ID is kept, no new ID was made.' : <>Patient ID{result.generated ? ' generated' : ''}. Please note it down.</>}</p>
               <p className="rounded-lg border border-sage/40 bg-sage/10 py-4 font-display text-3xl font-bold tracking-wide text-charcoal">{result.patientId}</p>
             </>
           ) : <p className="text-sm text-charcoal/70">Marked as {result.arrivalStatus.toLowerCase()}. The Patient ID is created when the patient is marked Arrived or Online.</p>}

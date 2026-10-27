@@ -38,7 +38,11 @@ const { syncFixedColumns } = require('./src/utils/fixedColumns');
 
 connectDB()
   .then(() => syncFixedColumns())
-  .catch((error) => console.error(`Fixed appointment fields could not be synced: ${error.message}`));
+  .catch((error) => console.error(`Fixed appointment fields could not be synced: ${error.message}`))
+  // Phases bought before each phase kept its own age get the patient's age once (only empty ones are filled).
+  .then(() => require('./src/utils/phaseAge').backfillPhaseAges())
+  .then((count) => { if (count) console.log(`Phase ages filled for ${count} patient(s)`); })
+  .catch((error) => console.error(`Phase ages could not be filled: ${error.message}`));
 
 const app = express();
 const server = http.createServer(app);

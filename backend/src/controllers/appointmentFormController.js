@@ -11,6 +11,7 @@ const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isSalesConfirmationColumn } = require('../utils/appointmentSections');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 const { isFixedSalesColumn, isFixedReceptionColumn } = require('../utils/fixedColumns');
+const { EXISTING_PATIENT_ID_FIELD, findByCode } = require('../utils/existingPatient');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -115,7 +116,13 @@ const updateField = asyncHandler(async (req, res) => {
   const effectiveColumn = source === 'reception'
     ? { label: column.label, type: column.type, options: column.options || [], required: isManagementColumnRequired(column, req.user.role) }
     : column;
-  const value = normalizedValue(effectiveColumn, req.body.value);
+  let value = normalizedValue(effectiveColumn, req.body.value);
+  // The old Patient ID of an existing patient must be a real one; it is saved the way the CRM spells it.
+  if (source === 'sales' && String(columnId) === EXISTING_PATIENT_ID_FIELD && value) {
+    const found = await findByCode(value, 'patientCode');
+    if (!found) fail(`No patient found with Patient ID ${value}`);
+    value = found.patientCode;
+  }
   const field = `${target.sheet === 'management' && source === 'sales' ? 'salesValues' : 'values'}.${columnId}`;
   const previous = String(previousValue ?? '');
   const condition = previous === '' ? { $or: [{ [field]: '' }, { [field]: { $exists: false } }] } : { [field]: previous };

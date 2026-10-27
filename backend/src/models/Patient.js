@@ -276,6 +276,8 @@ const stageEntrySchema = new mongoose.Schema(
     notes: { type: String, trim: true, default: '' },
     packageName: { type: String, trim: true, default: '' },
     patientHistoryBy: { type: String, trim: true, default: '' },
+    // The patient's age when this phase was bought (see utils/phaseAge.js); patient.age is the latest one.
+    age: { type: String, trim: true, default: '', maxlength: 30 },
     purchaseOrder: { type: String, trim: true, default: '', maxlength: 80 },
     // The purchase order paper this phase was started with (saved when the patient was converted); see utils/purchaseOrderRecord.js
     poPaper: { type: mongoose.Schema.Types.Mixed, default: null },
