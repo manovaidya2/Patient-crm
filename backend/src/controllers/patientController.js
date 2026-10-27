@@ -202,6 +202,9 @@ const resolvePayToBank = async (paymentMode, bankId) => {
   return { payToBank: bank._id, payToBankName: bank.displayName || bank.name };
 };
 
+const { OUTCOMES: SCHEDULE_OUTCOMES, OUTCOME_LABELS: SCHEDULE_OUTCOME_LABELS, monthKeyOf } = require('../utils/patientImprovement');
+const { syncImprovementToMarketing } = require('./digitalMarketingController');
+
 const formatScheduleEntry = (e) => {
   const displayStatus = getDisplayStatus(e);
   return {
@@ -234,6 +237,10 @@ const formatScheduleEntry = (e) => {
     cancelReason: e.cancelReason || '',
     cancelledAt: e.cancelledAt || null,
     cancelledByName: e.cancelledByName || '',
+    outcome: e.outcome || '',
+    outcomeNote: e.outcomeNote || '',
+    outcomeAt: e.outcomeAt || null,
+    outcomeByName: e.outcomeByName || '',
     ...(e.followUpType === 'tracker' && e.status === 'sent'
       ? { displayStatusLabel: 'Tracker Sent' }
       : {}),
@@ -3899,12 +3906,78 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, count: reminders.length, reminders });
 });
 
+// The optional popup after a follow-up / family session is done: "Facing problem" or
+// "Improvement found" with a note. "None" sends nothing. A done entry can be noted again later.
+const setScheduleOutcome = (fieldKey) =>
+  asyncHandler(async (req, res) => {
+    if (cannotUpdateScheduleType(req.user, fieldKey)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to update this schedule' });
+    }
+    const stageNum = parseInt(req.params.number, 10);
+    if (!STAGES.includes(stageNum)) {
+      return res.status(400).json({ success: false, message: 'Invalid phase number' });
+    }
+    const outcome = String(req.body.outcome || '').trim();
+    const note = String(req.body.note || '').trim();
+    if (outcome && !SCHEDULE_OUTCOMES.includes(outcome)) {
+      return res.status(400).json({ success: false, message: 'Choose Facing problem or Improvement found' });
+    }
+    if (outcome && !note) {
+      return res.status(400).json({ success: false, message: outcome === 'problem' ? 'Write the problem the patient is facing' : 'Write what improvement was found' });
+    }
+    if (note.length > 2000) {
+      return res.status(400).json({ success: false, message: 'Keep the note under 2000 characters' });
+    }
+
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+    if (!canAccessPatient(req.user, patient)) {
+      return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+    }
+    const stageEntry = (patient.stages || []).find((stage) => stage.number === stageNum);
+    const entry = stageEntry?.[fieldKey]?.id(req.params.entryId);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Entry not found' });
+    }
+    if (entry.status !== 'completed') {
+      return res.status(400).json({ success: false, message: 'Mark the session done first' });
+    }
+
+    const label = fieldKey === 'followUps' ? 'Follow-up' : 'Family session';
+    entry.outcome = outcome;
+    entry.outcomeNote = outcome ? note : '';
+    entry.outcomeAt = outcome ? new Date() : null;
+    entry.outcomeByName = outcome ? req.user.name || '' : '';
+    addActivity(
+      patient,
+      req.user,
+      outcome ? `${label} outcome noted for Phase ${stageNum}: ${SCHEDULE_OUTCOME_LABELS[outcome]}` : `${label} outcome cleared for Phase ${stageNum}`,
+      outcome ? note : ''
+    );
+    await patient.save();
+
+    const month = monthKeyOf(entry.completedAt || entry.dateTime);
+    try {
+      await syncImprovementToMarketing(patient, month, req.user);
+    } catch (syncError) {
+      // The outcome is saved; the marketing sheet catches up on the next note.
+      console.error('Digital marketing improvement sync failed:', syncError.message);
+    }
+
+    await populateAssignments(patient);
+    res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+  });
+
 const addFollowUp = addScheduleEntry('followUps');
 const updateFollowUp = updateScheduleEntry('followUps');
 const deleteFollowUp = deleteScheduleEntry('followUps');
 const addFamilySession = addScheduleEntry('familySessions');
 const updateFamilySession = updateScheduleEntry('familySessions');
 const deleteFamilySession = deleteScheduleEntry('familySessions');
+const setFollowUpOutcome = setScheduleOutcome('followUps');
+const setFamilySessionOutcome = setScheduleOutcome('familySessions');
 const getFollowUps = listScheduleEntries('followUps', { groupByAssignedDoctor: true });
 const getFamilySessions = listScheduleEntries('familySessions', { groupByAssignedDoctor: true });
 
@@ -3951,6 +4024,8 @@ module.exports = {
   addFamilySession,
   updateFamilySession,
   deleteFamilySession,
+  setFollowUpOutcome,
+  setFamilySessionOutcome,
   getFollowUps,
   getFamilySessions,
   getScheduleReminders,

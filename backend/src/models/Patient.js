@@ -39,6 +39,11 @@ const scheduleEntrySchema = new mongoose.Schema(
     completionFormData: { type: mongoose.Schema.Types.Mixed, default: null },
     completionPdfUrl: { type: String, default: null },
     completionPdfName: { type: String, trim: true, default: '' },
+    // Optional, asked right after the entry is done: is the patient facing a problem or improving?
+    outcome: { type: String, enum: ['', 'problem', 'improvement'], default: '' },
+    outcomeNote: { type: String, trim: true, default: '' },
+    outcomeAt: { type: Date, default: null },
+    outcomeByName: { type: String, trim: true, default: '' },
     // Filled in only when cancelled, via the cancel-with-reason prompt.
     cancelReason: { type: String, trim: true, default: '' },
     cancelledAt: { type: Date, default: null },
@@ -495,5 +500,8 @@ patientSchema.index({ 'stages.medicineRequest.status': 1 });
 patientSchema.index({ 'stages.medicineRequests.status': 1 });
 patientSchema.index({ 'stages.followUps.dateTime': 1 });
 patientSchema.index({ 'stages.familySessions.dateTime': 1 });
+// Patient Improvement counts a session on the day it was done.
+patientSchema.index({ 'stages.followUps.completedAt': 1 });
+patientSchema.index({ 'stages.familySessions.completedAt': 1 });
 
 module.exports = mongoose.model('Patient', patientSchema);

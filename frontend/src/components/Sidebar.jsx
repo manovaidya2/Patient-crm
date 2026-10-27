@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import useTaskCounts from '../hooks/useTaskCounts.js';
 import {
+  TrendingUp,
   LayoutGrid,
   Sun,
   Users,
@@ -109,6 +110,7 @@ export const navItems = [
   { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/followups', icon: PhoneCall, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
   { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/patient-improvement', icon: TrendingUp, label: 'Patient Improvement', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.DIGITAL_MARKETING], group: 'care' },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/request-for-advice', icon: MessageCircleQuestion, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
   { to: '/admin/advice-given', icon: Lightbulb, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },

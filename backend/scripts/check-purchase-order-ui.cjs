@@ -82,6 +82,15 @@ async function main() {
     return bandView(m);
   });
   const masterPayload = (user) => ({ success: true, bands: masters, items: MASTER_ITEMS, doses: MASTER_DOSES, splitDays: SPLIT_DAYS, pendingKeys: PENDING_KEYS, supplyOptions: SUPPLY_OPTIONS, canEdit: ['admin', 'doctor'].includes(user.role) });
+  // Patient Improvement board: one patient, this month, built with the same helpers as the API.
+  const improvementPayload = () => {
+    const imp = require('../src/utils/patientImprovement');
+    const at = (day) => new Date(Date.now() - day * 3600000).toISOString();
+    const done = (id, d, extra) => ({ _id: id, dateTime: at(d), completedAt: at(d), status: 'completed', ...extra });
+    const sessions = imp.collectSessions({ stages: [{ number: 1, followUps: [done('f1', 3, { outcome: 'problem', outcomeNote: 'Anger outbursts' })], familySessions: [done('s1', 2, { outcome: 'improvement', outcomeNote: 'Talks more at home' }), done('s2', 1, { outcome: 'improvement', outcomeNote: 'Eye contact improved' })] }] });
+    const counts = imp.countOutcomes(sessions);
+    return { success: true, month: imp.monthKeyOf(new Date()), kind: 'all', marketingRule: { minImprovements: 2 }, totals: { patients: 1, inMarketing: 1, ...counts }, total: 1, page: 1, pages: 1, limit: 25, rows: [{ id: PATIENT_ID, patientCode: 'MV-1001', patientName: 'Aarav Mehra', parentName: 'Rajnish', program: 'Autism / ADHD', assignedDoctorName: 'Dr Asha', isActive: true, counts, sessions, inMarketing: true, marketingMonth: imp.monthKeyOf(new Date()), qualifies: imp.qualifiesForMarketing(counts) }] };
+  };
   const browser = await puppeteer.launch({ headless: true });
   try {
   // PO / patient pages as In Transit; job, queue and stocks pages as Medicine Department.
@@ -141,6 +150,8 @@ async function main() {
         else if (url.pathname === '/api/tasks/counts') data = { success: true, counts: { '/admin/purchase-orders': 2, '/admin/medicine-jobs': 1 } };
         else if (url.pathname === '/api/transit/explanations') { const ep = explainPatient(); data = { success: true, items: [buildTransitCase(ep, ep.stages[0])] }; }
         else if (url.pathname === '/api/stocks/ledger') data = { success: true, rows: [] };
+        else if (url.pathname === '/api/patient-improvement') data = improvementPayload();
+        else if (url.pathname === '/api/digital-marketing/reviews') { const imp = improvementPayload().rows[0]; data = { success: true, reviews: [{ id: 'r1', patientId: PATIENT_ID, patientCode: 'MV-1001', parentName: 'Rajnish', mobileNumber: '8800611900', patientName: 'Aarav Mehra', program: 'Autism / ADHD', programStartDate: '2026-09-01', latestFollowUpDate: '2026-10-26', improvementSummary: 'Eye contact improved', autoAdded: true, improvementMonth: imp.marketingMonth, monthImprovements: 2, monthProblems: 1, improvement: { totals: imp.counts, notes: imp.sessions.slice().reverse().map((x) => ({ id: x.id, kind: x.kind, kindLabel: x.kindLabel, stage: x.stage, date: x.date, month: x.month, outcome: x.outcome, note: x.outcomeNote, byName: 'Dr Asha' })) } }] }; }
         else if (url.pathname === '/api/purchase-orders/form') data = { success: true, definitions: purchase.definitions(), values: purchase.defaults({ record: null, registration: { category: 'autism_adhd', fatherName: 'Rajnish', fatherNumber: '8800611900' }, counselorName: 'Transit Staff', today: '2026-10-22' }), contacts: { fatherNumber: '8800611900' }, phase: 1 };
         return request.respond({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: JSON.stringify(data) });
       }
@@ -169,6 +180,8 @@ async function main() {
       ['admin-po-revert', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
       ['pnb-list', '/admin/package-not-bought', 'Kabir Sethi'],
       ['pnb-detail', '/admin/package-not-bought/6500000000000000000000d1', 'Convert to Patient'],
+      ['admin-improvement', '/admin/patient-improvement', 'Eye contact improved'],
+      ['admin-digital-marketing', '/admin/digital-marketing', 'Talks more at home'],
       ['admin-job-revert', `/admin/medicine-jobs/${JOB_ID}`, 'Chit on pack'],
     ].filter(pick);
     for (const width of [1440, 390]) {

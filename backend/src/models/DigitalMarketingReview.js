@@ -28,6 +28,13 @@ const digitalMarketingReviewSchema = new mongoose.Schema(
     testimonialConsent: { type: String, trim: true, default: '' },
     approvedBy: { type: String, trim: true, default: '' },
     notes: { type: String, trim: true, default: '' },
+    // Filled by the Patient Improvement page: the latest month this patient clearly improved in.
+    autoAdded: { type: Boolean, default: false },
+    improvementMonth: { type: String, trim: true, default: '' },
+    monthImprovements: { type: Number, default: 0 },
+    monthProblems: { type: Number, default: 0 },
+    // The last summary written automatically; while the team has not changed it, it keeps updating.
+    autoSummary: { type: String, trim: true, default: '' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     createdByName: { type: String, trim: true, default: '' },
     createdByRole: { type: String, trim: true, default: '' },

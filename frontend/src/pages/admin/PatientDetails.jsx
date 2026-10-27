@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
+import SessionOutcomeModal, { OUTCOME_LABELS } from '../../components/patients/SessionOutcomeModal.jsx';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload, utrRowsFrom } from '../../components/payments/UtrRows.jsx';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
@@ -1220,6 +1221,7 @@ const ScheduleCard = ({
   patient,
   stageNumber,
   onAttachmentDeleted,
+  onNoteOutcome,
 }) => {
   const completionPaperRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -1684,6 +1686,21 @@ const ScheduleCard = ({
                   </div>
                 </div>
 
+                {(e.displayStatus === 'done' || e.displayStatus === 'done_late') && (e.outcome || (canUpdate && onNoteOutcome)) && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                    {e.outcome && (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${e.outcome === 'improvement' ? 'bg-[#E8F5EC] text-[#1F6B41]' : 'bg-[#FDECEA] text-[#9F1D1D]'}`}>
+                        {OUTCOME_LABELS[e.outcome]}
+                      </span>
+                    )}
+                    {e.outcomeNote && <span className="min-w-0 break-words text-charcoal/75">{e.outcomeNote}{e.outcomeByName ? <span className="text-charcoal/50"> · {e.outcomeByName}</span> : null}</span>}
+                    {canUpdate && onNoteOutcome && (
+                      <button type="button" onClick={() => onNoteOutcome(e)} className="font-semibold text-sage hover:underline">
+                        {e.outcome ? 'Edit progress' : 'Note progress'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {(e.displayStatus === 'done' || e.displayStatus === 'done_late') && e.completionName && (
                   <div className="mt-2.5 pt-2.5 border-t border-cardline-soft text-xs text-charcoal/70">
                     <p>
@@ -2481,6 +2498,8 @@ const PatientDetails = () => {
   const canAssignDoctor = ASSIGN_DOCTOR_ROLES.includes(user?.role);
   const isLimitedViewer = user?.role === ROLES.SALES_TEAM;
   const [patient, setPatient] = useState(null);
+  // Optional "facing problem / improvement found" popup after a follow-up or family session is done.
+  const [outcomeTarget, setOutcomeTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [callLogs, setCallLogs] = useState([]);
@@ -2841,6 +2860,7 @@ const PatientDetails = () => {
   const handleUpdateFollowUpStatus = async (entryId, status, extra = {}) => {
     const { data } = await patchScheduleEntry(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}`, { status, ...extra });
     setPatient(data.patient);
+    if (status === 'completed') setOutcomeTarget({ field: 'followups', stage: activeStageTab, entryId, label: 'Follow-up' });
   };
 
   const handleUploadFollowUpVideo = async (entryId, video) => {
@@ -2848,6 +2868,7 @@ const PatientDetails = () => {
     formData.append('video', video);
     const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/followups/${entryId}/video`, formData);
     setPatient(data.patient);
+    setOutcomeTarget({ field: 'followups', stage: activeStageTab, entryId, label: 'Follow-up' });
   };
 
   const handleDeleteFollowUp = async (entryId) => {
@@ -2867,6 +2888,7 @@ const PatientDetails = () => {
   const handleUpdateFamilySessionStatus = async (entryId, status, extra = {}) => {
     const { data } = await patchScheduleEntry(`/patients/${id}/stages/${activeStageTab}/family-sessions/${entryId}`, { status, ...extra });
     setPatient(data.patient);
+    if (status === 'completed') setOutcomeTarget({ field: 'family-sessions', stage: activeStageTab, entryId, label: 'Family session' });
   };
 
   const handleDeleteFamilySession = async (entryId) => {
@@ -3699,6 +3721,7 @@ const PatientDetails = () => {
                 onAdd={handleAddFollowUp}
                 onUpdateStatus={handleUpdateFollowUpStatus}
                 onUploadVideo={handleUploadFollowUpVideo}
+                onNoteOutcome={(entry) => setOutcomeTarget({ field: 'followups', stage: activeStage.number, entryId: entry.id, label: 'Follow-up', outcome: entry.outcome, note: entry.outcomeNote })}
                 onDelete={handleDeleteFollowUp}
                 onFetchNotes={() => fetchScheduleNotes('followups')}
                 onAddNote={(text) => addScheduleNote('followups', text)}
@@ -3717,6 +3740,7 @@ const PatientDetails = () => {
                 entries={activeStage.familySessions}
                 onAdd={handleAddFamilySession}
                 onUpdateStatus={handleUpdateFamilySessionStatus}
+                onNoteOutcome={(entry) => setOutcomeTarget({ field: 'family-sessions', stage: activeStage.number, entryId: entry.id, label: 'Family session', outcome: entry.outcome, note: entry.outcomeNote })}
                 onDelete={handleDeleteFamilySession}
                 onFetchNotes={() => fetchScheduleNotes('family-sessions')}
                 onAddNote={(text) => addScheduleNote('family-sessions', text)}
@@ -3911,6 +3935,7 @@ const PatientDetails = () => {
           </div>
         </form>
       </Modal>
+      <SessionOutcomeModal patientId={id} target={outcomeTarget} onClose={() => setOutcomeTarget(null)} onSaved={(next) => next && setPatient(next)} />
     </div>
   );
 };

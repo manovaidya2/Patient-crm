@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Plus, Search, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CalendarClock, HeartHandshake, Megaphone, Plus, Search, Trash2, TrendingUp } from 'lucide-react';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -17,6 +18,7 @@ const columns = [
   { key: 'patientName', label: 'Patient Name', locked: true, width: 'min-w-48' },
   { key: 'program', label: 'Program', locked: true, width: 'min-w-40' },
   { key: 'programStartDate', label: 'Program Start Date', locked: true, width: 'min-w-40' },
+  { key: 'improvementDetails', label: 'Improvement Details (from Patient Improvement)', locked: true, width: 'min-w-[22rem]' },
   { key: 'latestFollowUpDate', label: 'Latest Follow-up Date', type: 'date', width: 'min-w-44' },
   { key: 'improvementSummary', label: 'Improvement Summary (short)', type: 'textarea', width: 'min-w-72' },
   { key: 'parentSatisfied', label: 'Parent Satisfied?', width: 'min-w-40' },
@@ -32,6 +34,46 @@ const columns = [
   { key: 'approvedBy', label: 'Approved By', width: 'min-w-44' },
   { key: 'notes', label: 'Notes', type: 'textarea', width: 'min-w-72' },
 ];
+
+const monthText = (key) => (key ? new Date(`${key}-01T12:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '');
+const dayText = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+
+// Live from the Patient Improvement page: counts and what was noted after each follow-up / family session.
+const ImprovementDetails = ({ row }) => {
+  const improvement = row.improvement || { totals: {}, notes: [] };
+  const totals = improvement.totals || {};
+  return (
+    <div className="space-y-1.5">
+      <p className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+        <span className="rounded-full bg-[#E8F5EC] px-2 py-0.5 font-bold text-[#1F6B41]">{totals.improvements || 0} improvements</span>
+        <span className="rounded-full bg-[#FDECEA] px-2 py-0.5 font-bold text-[#9F1D1D]">{totals.problems || 0} problems</span>
+        <span className="text-charcoal/55">{totals.followUps || 0} FU · {totals.familySessions || 0} FS</span>
+      </p>
+      {row.improvementMonth && (
+        <p className="text-[11.5px] text-charcoal/65">
+          Improved in <b className="text-charcoal">{monthText(row.improvementMonth)}</b> ({row.monthImprovements} / {row.monthProblems}){row.autoAdded ? ' · added automatically' : ''}
+        </p>
+      )}
+      {improvement.notes.length ? (
+        <ul className="max-h-40 space-y-1 overflow-y-auto pr-1">
+          {improvement.notes.map((note) => (
+            <li key={note.id} className={`rounded-[8px] border px-2 py-1 text-[12px] ${note.outcome === 'improvement' ? 'border-[#A7D7B8] bg-[#F1FAF4]' : 'border-[#F5B5B0] bg-[#FDF3F2]'}`}>
+              <p className="flex items-center gap-1 text-[10.5px] font-bold text-charcoal/65">
+                {note.kind === 'followUps' ? <CalendarClock size={11} aria-hidden="true" /> : <HeartHandshake size={11} aria-hidden="true" />}
+                {note.kindLabel} · P{note.stage} · {dayText(note.date)}
+                <span className={note.outcome === 'improvement' ? 'text-[#1F6B41]' : 'text-[#9F1D1D]'}>· {note.outcome === 'improvement' ? 'Improvement' : 'Problem'}</span>
+              </p>
+              <p className="font-normal text-charcoal">{note.note}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[12px] font-normal text-charcoal/45">Nothing noted yet after follow-ups / family sessions.</p>
+      )}
+      <Link to="/admin/patient-improvement" className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-sage hover:underline"><TrendingUp size={12} />Patient Improvement</Link>
+    </div>
+  );
+};
 
 const emptyForm = { patientId: '', improvementSummary: '', notes: '' };
 
@@ -158,6 +200,7 @@ const DigitalMarketing = () => {
   };
 
   const renderCell = (row, col) => {
+    if (col.key === 'improvementDetails') return <ImprovementDetails row={row} />;
     const value = row[col.key] || '';
     if (col.locked) {
       return <span className="block text-sm font-semibold text-charcoal">{value || '-'}</span>;
@@ -197,7 +240,7 @@ const DigitalMarketing = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-3 font-display text-2xl font-bold text-charcoal"><PageTitleIcon size={20} aria-hidden="true" />Digital Marketing</h1>
-          <p className="mt-1 text-sm text-charcoal/60">Patient improvement review sheet for review requests and testimonials.</p>
+          <p className="mt-1 text-sm text-charcoal/60">Patients who improved come here from Patient Improvement automatically, with what the team noted after each follow-up and family session. Use the sheet for review requests and testimonials.</p>
         </div>
         {canAddReview && (
           <Button onClick={openAddModal}>

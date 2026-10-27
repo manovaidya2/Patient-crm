@@ -35,6 +35,8 @@ const {
   addFamilySession,
   updateFamilySession,
   deleteFamilySession,
+  setFollowUpOutcome,
+  setFamilySessionOutcome,
 } = require('../controllers/patientController');
 const {
   listScheduleNotes,
@@ -96,9 +98,11 @@ router.post('/:id/stages/:number/followups', authorize(...PATIENT_WRITE_ROLES), 
 router.patch('/:id/stages/:number/followups/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFollowUp);
 router.post('/:id/stages/:number/followups/:entryId/video', authorize(...PATIENT_WRITE_ROLES), uploadFollowUpVideoMiddleware.single('video'), uploadFollowUpVideo);
 router.delete('/:id/stages/:number/followups/:entryId', authorize(ROLES.ADMIN), deleteFollowUp);
+router.patch('/:id/stages/:number/followups/:entryId/outcome', authorize(...PATIENT_WRITE_ROLES), setFollowUpOutcome);
 router.post('/:id/stages/:number/family-sessions', authorize(...PATIENT_WRITE_ROLES), addFamilySession);
 router.patch('/:id/stages/:number/family-sessions/:entryId', authorize(...PATIENT_WRITE_ROLES), uploadScheduleCompletion.array('completionFiles', 10), updateFamilySession);
 router.delete('/:id/stages/:number/family-sessions/:entryId', authorize(ROLES.ADMIN), deleteFamilySession);
+router.patch('/:id/stages/:number/family-sessions/:entryId/outcome', authorize(...PATIENT_WRITE_ROLES), setFamilySessionOutcome);
 
 // One shared notepad per stage for Follow-ups and one for Family Sessions (not tied to
 // a single scheduled entry) — every user only ever sees, adds and deletes their own

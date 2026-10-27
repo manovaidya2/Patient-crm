@@ -103,6 +103,7 @@ app.use('/api/worksheet', worksheetRoutes);
 app.use('/api/crm-chat', crmChatRoutes);
 app.use('/api/speech', speechRoutes);
 app.use('/api/digital-marketing', digitalMarketingRoutes);
+app.use('/api/patient-improvement', require('./src/routes/patientImprovementRoutes'));
 app.use('/api/package-not-bought', packageNotBoughtRoutes);
 app.use('/api/banks', bankRoutes);
 app.use('/api/sales-sheet', salesSheetRoutes);

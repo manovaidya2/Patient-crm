@@ -21,6 +21,7 @@ const Invoices = lazy(() => import('./pages/admin/Invoices.jsx'));
 const Expenses = lazy(() => import('./pages/admin/Expenses.jsx'));
 const FollowUps = lazy(() => import('./pages/admin/FollowUps.jsx'));
 const FamilySessions = lazy(() => import('./pages/admin/FamilySessions.jsx'));
+const PatientImprovement = lazy(() => import('./pages/admin/PatientImprovement.jsx'));
 const Payments = lazy(() => import('./pages/admin/Payments.jsx'));
 const FinancialLedger = lazy(() => import('./pages/admin/FinancialLedger.jsx'));
 const Refunds = lazy(() => import('./pages/admin/Refunds.jsx'));
@@ -462,6 +463,14 @@ function App() {
           element={
             <ProtectedRoute roles={FAMILY_SESSION_ACCESS_ROLES}>
               <FamilySessions />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="patient-improvement"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING]}>
+              <PatientImprovement />
             </ProtectedRoute>
           }
         />
