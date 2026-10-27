@@ -145,3 +145,22 @@ test('phase ages: phases bought earlier keep their age when the patient age chan
   freezePhaseAges(patient);
   assert.equal(patient.stages[2].age, undefined);
 });
+
+test('convert: a phase the existing patient already bought is refused', async () => {
+  const patient = { _id: PATIENT_OID, patientCode: 'A-3046', patientName: 'Aahil', stages: [{ number: 1, purchaseOrder: 'PO-1', payments: [] }, { number: 2, payments: [] }], activityLog: [], save: async () => {} };
+  let poDeleted = false;
+  await stubAll([
+    [Patient, 'findOne', findByCodeStub(patient)],
+    [PurchaseOrder, 'distinct', async () => [1]],
+    [PurchaseOrder, 'exists', async () => null],
+    [PurchaseOrder, 'create', async (doc) => ({ _id: 'p'.repeat(24), events: [], paymentIds: [], ...doc, save: async () => {} })],
+    [PurchaseOrder, 'deleteOne', async () => { poDeleted = true; }],
+  ], async () => {
+    const args = { existingPatientCode: 'A-3046', input: { patientCode: 'A-3046' }, fee: 1000, values: { mode: 'Cash', amountReceivedNow: 0, orderedTreatment: 'Autism / ADHD / Phase 1' }, totals: {}, user: { name: 'Abhishek', role: 'post_counselor' } };
+    await assert.rejects(createConvertedPatient({ ...args, phase: 1 }), /already has a purchase in Phase 1/);
+    const ok = await createConvertedPatient({ ...args, phase: 2 });
+    assert.equal(ok.phase, 2);
+    assert.equal(patient.stages[1].packageName, 'Autism / ADHD / Phase 2');
+  });
+  assert.equal(poDeleted, false);
+});

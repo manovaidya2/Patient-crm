@@ -89,7 +89,19 @@ const applyExistingPatient = async (values, { requireId = true } = {}) => {
   return values;
 };
 
+// The phase a visit's purchase goes into: the one picked on the registration (Reception, or changed in post
+// counselling), else the existing patient's next phase, else Phase 1. Older registrations never had the field.
+const visitPhaseOf = (registration, existing = null) => {
+  const chosen = Number(registration?.fields?.phase);
+  if (registration?.phaseChosen && STAGES.includes(chosen)) return chosen;
+  return existing?.nextPhase || 1;
+};
+// "Autism / ADHD / Phase 1" -> "Autism / ADHD / Phase 3" on the PO paper when the phase is changed.
+const PHASE_AT_END = /Phase \d+\s*$/i;
+const withPhaseInText = (value, phase) => (PHASE_AT_END.test(String(value || '')) ? String(value).replace(PHASE_AT_END, `Phase ${phase}`) : value);
+
 module.exports = {
+  visitPhaseOf, withPhaseInText,
   PATIENT_TYPE_ID, EXISTING_PATIENT_ID_FIELD, EXISTING,
   existingCodeFrom, findByCode, phaseInUse, nextPhaseOf, summaryOf, resolveExisting, applyExistingPatient,
 };

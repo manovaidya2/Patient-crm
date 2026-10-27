@@ -6,6 +6,7 @@ import Modal from '../ui/Modal.jsx';
 import PurchaseOrderStep from './PurchaseOrderStep.jsx';
 import { PARTS, workOutDues, oldDueNote, partOpen } from '../../utils/paymentParts.js';
 import OutcomeBanner from './OutcomeBanner.jsx';
+import VisitPhase from './VisitPhase.jsx';
 import Input from '../ui/Input.jsx';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
@@ -117,6 +118,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
       {record && defs && step === 'purchase' && !readOnly && (
         <div className="space-y-4">
           <div className="rounded-lg border border-sage/40 bg-sage/10 px-3 py-2 text-sm"><span className="text-charcoal/60">Step 2 of 2 · Purchase order / payment</span> <b className="ml-2 text-charcoal">{patient.patientName}</b> <span className="ml-2 font-semibold text-sage">{patient.patientId}</span></div>
+          <VisitPhase patient={patient} data={data} editable={data.canEdit && !data.outcome} onData={(next) => setData(next)} />
           <PurchaseOrderStep patient={patient} data={data} readOnly={false} onData={(next) => setData(next)} onBack={() => setStep('record')} onDecided={onSaved} />
         </div>
       )}
@@ -129,6 +131,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
           </div>
 
           {!readOnly && <OutcomeBanner outcome={data.outcome} result={result} />}
+          <VisitPhase patient={patient} data={data} editable={!readOnly && data.canEdit && !data.outcome} onData={(next) => setData(next)} />
 
           {readOnly && data.registration && (
             <details className="rounded-lg border border-cardline bg-white/60 p-3" open>

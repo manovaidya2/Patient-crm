@@ -9,6 +9,8 @@ const purchase = require('../utils/purchaseOrderRecord');
 const { REGISTRATION_FIELDS, FIELD_GROUPS, CATEGORY_LABEL, RECEPTION_IDS, istDate } = require('../utils/receptionFlow');
 const { PROFILE_KEYS } = require('../utils/patientProfile');
 const { registrationView, withExistingPatient } = require('./receptionFlowController');
+const { visitPhaseOf, withPhaseInText, phaseInUse } = require('../utils/existingPatient');
+const { STAGES } = require('../constants/treatmentStages');
 const { patientInputFromRegistration, assertPurchaseComplete, withBankName, createConvertedPatient, linkConsultationReceipts } = require('../utils/convertPatient');
 const { postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 
@@ -51,7 +53,7 @@ const purchaseView = (entry, registration, existing = null) => {
   const decided = Boolean(entry.postCounseling?.outcome?.kind);
   const values = saved?.values
     ? (decided ? saved.values : { ...saved.values, ...purchase.planFromRecord(record) })
-    : purchase.defaults({ record, registration: registration.fields, counselorName: registration.postCounselorName, today: istDate(), phase: existing?.nextPhase || 1 });
+    : purchase.defaults({ record, registration: registration.fields, counselorName: registration.postCounselorName, today: istDate(), phase: visitPhaseOf(registration, existing) });
   return { values, totals: purchase.totals(values, fee), saved: Boolean(saved?.savedAt), savedAt: saved?.savedAt || null, savedByName: saved?.savedByName || '', definitions: purchase.definitions() };
 };
 
@@ -68,6 +70,8 @@ const view = (entry, canEdit, existing = null) => {
     definitions: definitions(),
     purchase: purchaseView(entry, registration, existing),
     existingPatient: existing,
+    // The phase this visit's purchase goes into; the Post Counselor can change it before converting.
+    phase: visitPhaseOf(registration, existing),
     outcome: outcomeView(entry),
     notGiven: notGivenView(entry),
     registration: { fields: registration.fields, fieldDefs: REGISTRATION_FIELDS, groups: FIELD_GROUPS, meta: registration.meta, consultationDate: registration.consultationDate, postCounselorName: registration.postCounselorName, patientId: registration.patientId },
@@ -175,6 +179,7 @@ const convertToPatient = asyncHandler(async (req, res) => {
     created = await createConvertedPatient({
       input, fee, values, totals: entry.postCounseling.purchase.totals || {}, source: 'post_counseling', user: req.user,
       existingPatientCode: registration.existingPatientCode,
+      phase: visitPhaseOf(registration, await existingOf(entry)),
       activityDetails: `Converted from Post Counseling (${entry.appointmentCode || 'appointment'}) by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {
@@ -186,6 +191,26 @@ const convertToPatient = asyncHandler(async (req, res) => {
   await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}${created.existing ? ` (returning patient, Phase ${created.phase})` : ''} — purchase order ${created.poNumber} sent to In Transit`);
   emitChanged(req, entry);
   res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber, existing: Boolean(created.existing), phase: created.phase || 1 });
+});
+
+// @route PUT /api/post-counseling/patients/:id/phase   { phase }
+// The Post Counselor corrects which phase this visit is for (Reception picked it on the registration).
+const setVisitPhase = asyncHandler(async (req, res) => {
+  const { entry, canEdit } = await loadAccessible(req);
+  if (!canEdit) throw fail('Only the assigned Post Counselor can do this', 403);
+  if (entry.postCounseling?.outcome?.kind) throw fail('This patient has already been converted or marked package not purchased', 409);
+  const phase = Number(req.body?.phase);
+  if (!STAGES.includes(phase)) throw fail('Choose a phase from 1 to 6');
+  const existing = await existingOf(entry);
+  if (existing?.phasesUsed?.some((used) => used.number === phase)) throw fail(`${existing.patientName} already has a purchase in Phase ${phase}. Choose another phase.`);
+  const before = visitPhaseOf(registrationView(entry), existing);
+  const set = { 'registration.fields.phase': String(phase) };
+  const ordered = entry.postCounseling?.purchase?.values?.orderedTreatment;
+  if (ordered) set['postCounseling.purchase.values.orderedTreatment'] = withPhaseInText(ordered, phase);
+  const updated = await Management.findOneAndUpdate({ _id: entry._id }, { $set: set }, { new: true });
+  await audit(req, entry, 'Phase changed', `Phase ${before} -> Phase ${phase}`);
+  emitChanged(req, entry);
+  res.json({ success: true, ...view(updated, canEdit, existing) });
 });
 
 // @route POST /api/post-counseling/patients/:id/outcome/not-purchased
@@ -305,4 +330,4 @@ const listDone = asyncHandler(async (req, res) => {
   res.json({ success: true, patients });
 });
 
-module.exports = { getRecord, saveRecord, savePurchase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone };
+module.exports = { getRecord, saveRecord, savePurchase, setVisitPhase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone };

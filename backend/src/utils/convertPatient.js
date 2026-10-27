@@ -1,5 +1,5 @@
 // Turning a post-counselling / Package Not Bought record into a real patient. Shared by both routes so the patient, the
-// Phase 1 package, the purchase order and the payment received always look the same.
+// package in the visit's phase, the purchase order and the payment received always look the same.
 const mongoose = require('mongoose');
 const BankAccount = require('../models/BankAccount');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
@@ -9,7 +9,8 @@ const { createPatientRecord } = require('../controllers/patientController');
 const { PROFILE_KEYS } = require('./patientProfile');
 const { createWithPoNumber } = require('./poNumber');
 const { supplyOptionByLabel } = require('../constants/supplyPlans');
-const { findByCode, nextPhaseOf } = require('./existingPatient');
+const { findByCode, nextPhaseOf, phaseInUse, withPhaseInText } = require('./existingPatient');
+const { STAGES } = require('../constants/treatmentStages');
 const { cleanAge, setPhaseAge } = require('./phaseAge');
 
 const text = (value, max = 200) => String(value ?? '').trim().slice(0, max);
@@ -73,12 +74,17 @@ const paymentFromPaper = (values, { cardCharge = 0, user }) => {
   };
 };
 
-// Creates the patient and fills Phase 1 (package, PO, total, the payment received now), and the first PurchaseOrder
+// Creates the patient and fills the visit's phase (Phase 1 unless another was picked: package, PO, total, the payment received now), and the first PurchaseOrder
 // record with a newly generated PO number. The number is reserved first; if anything fails afterwards, the patient and
 // the reserved PO are removed again, so a failed conversion never leaves a half-made patient or a stray PO behind.
 // existingPatientCode: set only when Sales marked the visit as an existing patient's. Then the purchase goes into that
 // patient's next phase. Otherwise a new patient is made (and a Patient ID that is already taken is still refused).
+// phase: the phase picked for this visit (registration / post counselling); a new patient starts in it too.
 const createConvertedPatient = async (args) => {
+  const phase = STAGES.includes(Number(args.phase)) ? Number(args.phase) : null;
+  // The PO paper's "Ordered treatment / phase" text follows the phase that was picked.
+  if (phase && args.values) args = { ...args, values: { ...args.values, orderedTreatment: withPhaseInText(args.values.orderedTreatment, phase) } };
+  args = { ...args, phase };
   if (!args.existingPatientCode) return createNewPatient(args);
   const existing = await findByCode(args.existingPatientCode);
   if (!existing) throw fail(`No patient found with Patient ID ${args.existingPatientCode}`, 404);
@@ -90,9 +96,12 @@ const log = (patient, user, action, details = '') => patient.activityLog.push({ 
 // A returning patient (their old Patient ID was kept at reception): no second patient is made. The purchase, its PO
 // and the payment received now go into the patient's next phase, the one after the phases already bought.
 // Everything is changed in memory and saved once; if anything fails the reserved PO is removed again.
-const addPhaseToExistingPatient = async ({ patient, input, fee, values: rawValues, totals = {}, cardCharge = 0, source = '', user, activityDetails }) => {
-  const phaseNumber = await nextPhaseOf(patient);
+const addPhaseToExistingPatient = async ({ patient, input, fee, values: rawValues, totals = {}, cardCharge = 0, source = '', user, activityDetails, phase: chosen = null }) => {
+  const phaseNumber = chosen || await nextPhaseOf(patient);
   if (!phaseNumber) throw fail(`${patient.patientName} (${patient.patientCode}) already has all phases in use. Ask the admin to check the patient's phases.`, 409);
+  const taken = phaseInUse(patient.stages.find((stage) => stage.number === phaseNumber) || {})
+    || await PurchaseOrder.exists({ patient: patient._id, phase: phaseNumber, status: { $ne: 'cancelled' } });
+  if (taken) throw fail(`${patient.patientName} (${patient.patientCode}) already has a purchase in Phase ${phaseNumber}. Change the phase before converting.`, 409);
   const received = Number(rawValues.amountReceivedNow || 0);
   const supply = supplyOptionByLabel(rawValues.supplyOrder);
   const po = await createWithPoNumber(PurchaseOrder, {
@@ -142,18 +151,19 @@ const addPhaseToExistingPatient = async ({ patient, input, fee, values: rawValue
   return { patient, inTransit: true, poNumber: po.poNumber, values, existing: true, phase: phaseNumber };
 };
 
-const createNewPatient = async ({ input, fee, values: rawValues, totals = {}, cardCharge = totals.cardCharge || 0, source = '', user, activityDetails }) => {
+const createNewPatient = async ({ input, fee, values: rawValues, totals = {}, cardCharge = totals.cardCharge || 0, source = '', user, activityDetails, phase: chosen = null }) => {
+  const phaseNumber = chosen || 1;
   const received = Number(rawValues.amountReceivedNow || 0);
   const supply = supplyOptionByLabel(rawValues.supplyOrder);
   const po = await createWithPoNumber(PurchaseOrder, {
-    phase: 1, status: 'pending', source: 'conversion', createdByName: user.name, createdByRole: user.role || '',
+    phase: phaseNumber, status: 'pending', source: 'conversion', createdByName: user.name, createdByRole: user.role || '',
     supplyPlan: supply?.plan || '', supplyPart: supply?.part || '',
   });
   const values = { ...rawValues, poNo: po.poNumber };
   let patient = null;
   try {
-    patient = await createPatientRecord(input, user, { activityDetails });
-    const phase = patient.stages.find((stage) => stage.number === 1);
+    patient = await createPatientRecord({ ...input, currentStage: phaseNumber }, user, { activityDetails });
+    const phase = patient.stages.find((stage) => stage.number === phaseNumber);
     phase.age = cleanAge(input.age);
     phase.packageName = text(values.orderedTreatment, 120);
     phase.purchaseOrder = po.poNumber;
@@ -170,9 +180,9 @@ const createNewPatient = async ({ input, fee, values: rawValues, totals = {}, ca
     const payment = paymentFromPaper(values, { cardCharge, user });
     if (payment) {
       phase.payments.push(payment);
-      patient.activityLog.push({ action: 'Payment added for Phase 1', details: `${received} via ${values.mode || 'Online'} — pending accounts approval`, actorName: user.name, actorRole: user.role || '' });
+      patient.activityLog.push({ action: `Payment added for Phase ${phaseNumber}`, details: `${received} via ${values.mode || 'Online'} — pending accounts approval`, actorName: user.name, actorRole: user.role || '' });
     }
-    patient.activityLog.push({ action: 'Purchase order created for Phase 1', details: `${po.poNumber}${supply ? ` | ${supply.label}` : ''} | Rs ${fee}`, actorName: user.name, actorRole: user.role || '' });
+    patient.activityLog.push({ action: `Purchase order created for Phase ${phaseNumber}`, details: `${po.poNumber}${supply ? ` | ${supply.label}` : ''} | Rs ${fee}`, actorName: user.name, actorRole: user.role || '' });
     await patient.save();
     const readyBy = phase.transit?.expectedReadyDate || null;
     Object.assign(po, {
@@ -188,7 +198,7 @@ const createNewPatient = async ({ input, fee, values: rawValues, totals = {}, ca
     await PurchaseOrder.deleteOne({ _id: po._id }).catch(() => {});
     throw error;
   }
-  return { patient, inTransit: true, poNumber: po.poNumber, values };
+  return { patient, inTransit: true, poNumber: po.poNumber, values, phase: phaseNumber };
 };
 
 // The consultation fee (e.g. Rs 599) was paid against the appointment. Attach those receipts to the new patient so the

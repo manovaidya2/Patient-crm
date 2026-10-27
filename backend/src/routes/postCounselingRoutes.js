@@ -2,7 +2,7 @@ const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const { listPostCounselingPatients, listNotGivenPatients } = require('../controllers/receptionFlowController');
-const { getRecord, saveRecord, savePurchase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone } = require('../controllers/postCounselingRecordController');
+const { getRecord, saveRecord, savePurchase, setVisitPhase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone } = require('../controllers/postCounselingRecordController');
 
 const { uploadPaymentScreenshot } = require('../middleware/upload');
 
@@ -15,6 +15,7 @@ router.post('/upload', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPayme
 router.get('/patients/:id/record', getRecord);
 router.put('/patients/:id/record', saveRecord);
 router.put('/patients/:id/purchase', savePurchase);
+router.put('/patients/:id/phase', setVisitPhase);
 router.post('/patients/:id/outcome/convert', convertToPatient);
 router.post('/patients/:id/outcome/not-purchased', markNotPurchased);
 router.post('/patients/:id/not-given', markNotGiven);

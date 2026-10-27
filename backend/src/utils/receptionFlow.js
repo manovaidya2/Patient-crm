@@ -33,7 +33,10 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 // The registration form. `required` fields must be filled before it can go to a Post Counselor.
 // Fields that also live on the patient (name, age, numbers, center...) keep their patient meaning.
 const base = (key, label, max, extra = {}) => ({ key, label, max, type: 'text', ...extra });
+const PHASE_OPTIONS = ['1', '2', '3', '4', '5', '6'];
 const REGISTRATION_FIELDS = [
+  // Which phase this visit is for; the purchase made in post counselling goes into this phase.
+  base('phase', 'Phase (this visit is for)', 2, { type: 'select', required: true, group: 'child', options: PHASE_OPTIONS, optionLabels: Object.fromEntries(PHASE_OPTIONS.map((n) => [n, `Phase ${n}`])) }),
   base('patientName', 'Child name', 120, { required: true, group: 'child' }),
   PROFILE_FIELDS.find((item) => item.key === 'dateOfBirth'),
   base('age', 'Age', 30, { required: true, group: 'child' }),
@@ -76,7 +79,7 @@ const text = (value, max = 200) => String(value ?? '').trim().slice(0, max);
 const phone = (value) => String(value ?? '').replace(/[^\d+]/g, '').slice(0, 15);
 
 const cleanValue = (definition, raw) => {
-  if (definition.key === 'category') return definition.options.includes(raw) ? raw : '';
+  if (definition.key === 'category' || definition.key === 'phase') return definition.options.includes(String(raw ?? '')) ? String(raw) : '';
   return cleanProfileValue(definition, raw);
 };
 
@@ -95,6 +98,7 @@ const defaultsFromSales = (salesValues = {}) => {
   const gender = text(salesValues[SALES_IDS.gender], 10);
   return {
     ...Object.fromEntries(REGISTRATION_FIELDS.map((definition) => [definition.key, ''])),
+    phase: '1',
     patientName: text(salesValues[SALES_IDS.patientName], 120),
     age: text(salesValues[SALES_IDS.age], 30),
     gender: ['Male', 'Female'].includes(gender) ? gender : '',
@@ -115,5 +119,5 @@ const defaultsFromSales = (salesValues = {}) => {
 
 module.exports = {
   SALES_IDS, RECEPTION_IDS, CATEGORY_LABEL, FIRST_SERIAL, TIME_PATTERN, REGISTRATION_FIELDS, FIELD_GROUPS,
-  istDate, patientIdFor, categoryFromCase, cleanRegistration, missingForSend, defaultsFromSales,
+  istDate, patientIdFor, categoryFromCase, cleanRegistration, missingForSend, defaultsFromSales, PHASE_OPTIONS,
 };

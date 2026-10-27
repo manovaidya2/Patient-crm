@@ -4,7 +4,14 @@ const { ROLES } = require('../constants/roles');
 const Management = require('../models/AppointmentManagementEntry');
 const purchaseOrder = require('../utils/purchaseOrderRecord');
 const { patientInputFromRegistration, assertPurchaseComplete, withBankName, createConvertedPatient, linkConsultationReceipts } = require('../utils/convertPatient');
-const { findByCode, nextPhaseOf } = require('../utils/existingPatient');
+const { findByCode, summaryOf, visitPhaseOf } = require('../utils/existingPatient');
+
+// The phase picked for the visit this record came from (or the existing patient's next phase).
+const visitPhaseFor = async (entry) => {
+  const registration = registrationView(entry);
+  const existing = registration.existingPatientCode ? await findByCode(registration.existingPatientCode) : null;
+  return visitPhaseOf(registration, existing ? await summaryOf(existing) : null);
+};
 const { registrationView } = require('./receptionFlowController');
 const { postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 const { istDate } = require('../utils/receptionFlow');
@@ -305,9 +312,7 @@ const purchaseFormData = async (row, user) => {
     : { fatherName: row.parentName || '', fatherNumber: row.fatherNumber || '', motherNumber: row.motherNumber || '', category: row.category || '', patientName: row.patientName };
   const record = entry?.postCounseling?.record || { e: { paymentPlan: row.packageDetails?.paymentPlan || '' } };
   // A returning patient (Sales marked the visit Existing) buys their next phase.
-  const existingCode = entry ? registrationView(entry).existingPatientCode : '';
-  const existing = existingCode ? await findByCode(existingCode) : null;
-  const phase = existing ? (await nextPhaseOf(existing)) || 1 : 1;
+  const phase = entry ? await visitPhaseFor(entry) : 1;
   const values = purchaseOrder.defaults({ record, registration, counselorName: user.name, today: istDate(), phase });
   const fee = Number(row.packageDetails?.approvedProgramFee || 0);
   return { entry, registration, values, fee };
@@ -363,6 +368,7 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
     created = await createConvertedPatient({
       input: details, fee, values: cleaned.values, totals: cleaned.totals, source: 'package_not_bought', user: req.user,
       existingPatientCode: entry ? registrationView(entry).existingPatientCode : '',
+      phase: entry ? await visitPhaseFor(entry) : 1,
       activityDetails: `Converted from Package Not Bought by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {

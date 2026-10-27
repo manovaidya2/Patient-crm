@@ -274,3 +274,33 @@ test('payment page save keeps the record plan even if the paper sent other parts
   assert.equal(saved.part1Due, 13000);
   assert.equal(saved.part2Amount, '');
 });
+
+test('phase: the phase picked on the registration is where the new patient, PO and payment go', async () => {
+  const entry = makeEntry();
+  entry.registration.fields.set('phase', '3');
+  const { error, res, log } = await run(controller.convertToPatient, {}, entry);
+  assert.equal(error, null);
+  const patient = log.patients[0];
+  assert.equal(patient.currentStage, 3);
+  const phase = patient.stages.find((stage) => stage.number === 3);
+  assert.match(phase.purchaseOrder, /^PO-\d{4}$/);
+  assert.equal(phase.payments.length, 1);
+  assert.equal(phase.packageName, 'Autism / Phase 3', 'the ordered treatment text follows the phase');
+  assert.equal(patient.stages.find((stage) => stage.number === 1).purchaseOrder || '', '');
+  assert.equal(log.pos[0].phase, 3);
+  assert.equal(res.body.phase, 3);
+});
+
+test('phase: the Post Counselor can change the phase before converting; the PO paper text follows', async () => {
+  const entry = makeEntry();
+  const { error, log } = await run(controller.setVisitPhase, { phase: 2 }, entry);
+  assert.equal(error, null);
+  const set = log.claims[0].update.$set;
+  assert.equal(set['registration.fields.phase'], '2');
+  assert.equal(set['postCounseling.purchase.values.orderedTreatment'], 'Autism / Phase 2');
+  const bad = await run(controller.setVisitPhase, { phase: 9 }, makeEntry());
+  assert.match(bad.error.message, /phase from 1 to 6/);
+  const decided = makeEntry({ postCounseling: { ...makeEntry().postCounseling, outcome: { kind: 'converted' } } });
+  const late = await run(controller.setVisitPhase, { phase: 2 }, decided);
+  assert.equal(late.error.statusCode, 409);
+});

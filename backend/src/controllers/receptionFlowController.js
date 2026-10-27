@@ -65,6 +65,7 @@ const registrationView = (entry) => {
     patientId: valueOf(entry, RECEPTION_IDS.patientId),
     // The old Patient ID when Sales marked this as an existing patient's appointment.
     existingPatientCode: existingCodeFrom(entry.salesValues || {}),
+    phaseChosen: Boolean(saved.phase),
     arrivalStatus: valueOf(entry, RECEPTION_IDS.arrivalStatus),
     arrivalTime: valueOf(entry, RECEPTION_IDS.arrivalTime),
     fields: { ...defaultsFromSales(salesValues), ...saved },
@@ -132,7 +133,10 @@ const withExistingPatient = async (view) => {
     const known = patient[PATIENT_FIELD_FOR[key] || key];
     if (!String(fields[key] ?? '').trim() && known !== undefined && known !== null && String(known).trim()) fields[key] = String(known);
   });
-  return { ...view, fields, existingPatient: await summaryOf(patient) };
+  const existingPatient = await summaryOf(patient);
+  // Until someone picks it, an existing patient's visit is for their next phase.
+  if (!view.phaseChosen && existingPatient.nextPhase) fields.phase = String(existingPatient.nextPhase);
+  return { ...view, fields, existingPatient };
 };
 
 // @route GET /api/sales-sheet/management/:id/registration
@@ -167,6 +171,8 @@ const sendRegistration = asyncHandler(async (req, res) => {
   if (!patientId) throw fail('Mark the patient as arrived first');
   if (entry.registration?.status === 'sent') throw fail('This registration was already sent to a Post Counselor', 409);
   const fields = cleanRegistration(req.body.fields ?? registrationView(entry).fields);
+  // A form opened before the Phase field existed: use Phase 1, or an existing patient's next phase.
+  if (!fields.phase) fields.phase = (await withExistingPatient(registrationView(entry))).fields.phase || '1';
   const missing = missingForSend(fields);
   if (missing.length) throw fail(`Fill these before sending: ${missing.join(', ')}`);
   if (!validId(req.body.postCounselorId)) throw fail('Choose a Post Counselor');

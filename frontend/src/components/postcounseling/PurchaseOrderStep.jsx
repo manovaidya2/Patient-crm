@@ -9,19 +9,6 @@ import PurchaseOrderForm from './PurchaseOrderForm.jsx';
 
 // Step 2 of post-counselling when the patient is being converted: the purchase order / payment paper (prefilled),
 // then "Convert to patient". (Package not purchased is chosen on the first paper and never needs this one.)
-// Shown when Sales / Reception marked this visit as an existing patient's.
-export const ExistingPatientNote = ({ existing }) => (
-  <div className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-950">
-    <b>Existing patient · {existing.patientCode}</b> ({existing.patientName}){existing.isActive ? '' : ' · closed, will be reopened'}
-    <p className="mt-0.5">
-      {existing.phasesUsed?.length ? `Phases already bought: ${existing.phasesUsed.map((p) => `Phase ${p.number}`).join(', ')}. ` : ''}
-      {existing.nextPhase
-        ? <>This purchase goes into <b>Phase {existing.nextPhase}</b> of the same patient.</>
-        : <b>All phases are already in use. Ask the admin before converting.</b>}
-    </p>
-  </div>
-);
-
 const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided }) => {
   const [values, setValues] = useState(data.purchase.values);
   const [saved, setSaved] = useState(data.purchase.saved);
@@ -80,7 +67,6 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
     <div className="space-y-6">
       {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <OutcomeBanner outcome={data.outcome} result={result} />
-      {existing && !decided && <ExistingPatientNote existing={existing} />}
 
       <PurchaseOrderForm planFromRecord defs={data.purchase.definitions} values={values} onChange={change} fee={fee} contacts={registration} editable={editable} showEmi={data.record?.e?.paymentPlan === 'EMI'} onError={setError} onUploading={setUploading} />
 
@@ -88,14 +74,14 @@ const PurchaseOrderStep = ({ patient, data, readOnly, onData, onBack, onDecided 
         {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
         {onBack && <Button variant="outline" onClick={onBack}><ArrowLeft size={15} /> Back</Button>}
         {editable && <Button variant="outline" onClick={save} disabled={busy || uploading}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
-        {editable && <Button onClick={startConvert} disabled={busy || uploading}><UserCheck size={15} /> {existing?.nextPhase ? `Convert: add Phase ${existing.nextPhase}` : 'Convert to patient'}</Button>}
+        {editable && <Button onClick={startConvert} disabled={busy || uploading}><UserCheck size={15} /> {existing ? `Convert: add Phase ${data.phase}` : `Convert to patient · Phase ${data.phase || 1}`}</Button>}
       </div>
 
       <Modal open={dialog} onClose={() => !busy && setDialog(false)} title="Convert to patient" className="max-w-lg">
         <div className="space-y-3">
           {existing
-            ? <p className="text-sm text-charcoal/70"><b>{existing.patientName}</b> ({existing.patientCode}) is an existing patient. No new patient is made: this package and the payment received go into <b>Phase {existing.nextPhase}</b> of the same patient. A purchase order number (PO-xxxx) is generated and the PO goes to In Transit for verification.</p>
-            : <p className="text-sm text-charcoal/70">This creates <b>{registration.patientName}</b> ({patient.patientId}) in All Patients, pending accounts approval, with the registration details, the package and the payment received. A purchase order number (PO-xxxx) is generated and the PO goes to In Transit for verification.</p>}
+            ? <p className="text-sm text-charcoal/70"><b>{existing.patientName}</b> ({existing.patientCode}) is an existing patient. No new patient is made: this package and the payment received go into <b>Phase {data.phase}</b> of the same patient. A purchase order number (PO-xxxx) is generated and the PO goes to In Transit for verification.</p>
+            : <p className="text-sm text-charcoal/70">This creates <b>{registration.patientName}</b> ({patient.patientId}) in All Patients, pending accounts approval, with the registration details, and puts the package and the payment received into <b>Phase {data.phase || 1}</b>. A purchase order number (PO-xxxx) is generated and the PO goes to In Transit for verification.</p>}
           {!(Number(values.amountReceivedNow || 0) > 0) && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">No payment is recorded on this PO. In Transit can add it later.</p>}
           {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
           <Input label="Father's number *" value={form.number || ''} onChange={(event) => setForm((current) => ({ ...current, number: event.target.value }))} />

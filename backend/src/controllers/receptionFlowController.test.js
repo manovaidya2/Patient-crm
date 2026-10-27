@@ -40,8 +40,9 @@ test('category and required fields', () => {
   assert.equal(categoryFromCase('Autism + ADHD'), 'autism_adhd');
   assert.equal(categoryFromCase('Mental Health'), 'mental_health');
   assert.equal(categoryFromCase('Other'), '');
-  assert.deepEqual(missingForSend({ patientName: 'a', age: '', category: 'autism_adhd', patientHistoryBy: '' }), ['Age']);
-  assert.deepEqual(missingForSend({ patientName: 'a', age: '3', category: 'autism_adhd', patientHistoryBy: '' }), []);
+  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', age: '', category: 'autism_adhd', patientHistoryBy: '' }), ['Age']);
+  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', age: '3', category: 'autism_adhd', patientHistoryBy: '' }), []);
+  assert.deepEqual(missingForSend({ patientName: 'a', age: '3', category: 'autism_adhd' }), ['Phase (this visit is for)']);
 });
 
 test('arrival: needs a time when Arrived', async () => {
