@@ -141,9 +141,8 @@ test('the twelve stages run in order with their gates; preparation draws from st
   await assert.rejects(complete(id, 'fill', { unitLog: 'U1' }), /Confirm every chit/);
   v = (await complete(id, 'fill', { unitLog: 'U1' }, { chits: JSON.stringify(v.chits.map((c) => ({ key: c.key, confirmed: true }))) })).job;
   assert.ok(v.chits.every((c) => c.confirmed));
-  // QC by the preparer is refused; by someone else passes.
-  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med), /other than the preparer/);
-  v = (await complete(id, 'qc', { result: 'PASS' }, {}, med2)).job;
+  // The Medicine Department does its own pack QC, the preparer's login included.
+  v = (await complete(id, 'qc', { result: 'PASS' }, {}, med)).job;
   v = (await complete(id, 'pack1', { kitLocation: 'Tray 3' })).job;
   // Doctor only; a HOLD sends the kit back to QC.
   await assert.rejects(complete(id, 'doctor', { result: 'PASS', remarks: 'ok' }, {}, med), /done by/);

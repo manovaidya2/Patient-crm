@@ -56,7 +56,6 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const [err, setErr] = useState('');
   // Errors show at the top of the page and right above the button, so a rejected stage is never missed.
   const report = (message) => { setErr(message); onError(message); };
-  const isPreparer = Boolean(job.preparerName) && (user?.name || '').trim().toLowerCase() === job.preparerName.trim().toLowerCase();
   const [checks, setChecks] = useState({});
   const [fields, setFields] = useState({});
   const [notes, setNotes] = useState('');
@@ -107,8 +106,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {stage.key === 'review' && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={canAct} jobId={job.id} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
-        <p className={`rounded-lg px-3 py-2 text-sm ${isPreparer ? 'bg-[#8C3B2E]/8 text-[#8C3B2E]' : 'bg-offwhite-200/60 text-charcoal/70'}`}>
-          Prepared by <b>{job.preparerName}</b>. {isPreparer ? 'You prepared this medicine, so the pack QC must be completed by a colleague, the doctor or the admin (SOP: independent check).' : 'The pack QC is an independent check, done by someone other than the preparer.'}
+        <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
+          Prepared by <b>{job.preparerName}</b>.
         </p>
       )}
       {stage.key === 'stock' && <>
@@ -141,7 +140,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       {stage.fields.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{stage.fields.map(field)}</div>}
       <FieldLabel label="Stage notes"><input className={poInput} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canAct} /></FieldLabel>
       <ErrorText>{err}</ErrorText>
-      {canAct ? <Button disabled={busy || !allChecked || (stage.key === 'qc' && isPreparer)} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
+      {canAct ? <Button disabled={busy || !allChecked} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
         : <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />This stage is completed by {stage.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}
     </div>
   );

@@ -198,7 +198,7 @@ async function main() {
         await page.screenshot({ path: path.join(output, `${name}-${width}.png`), fullPage: true });
         if (name === 'job-review') {
           // Stage 4 (preparation) and stage 5 (chits) are reachable by clicking the rail; they must render too.
-          for (const [label, text] of [['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC (independent)', 'Opens after']]) {
+          for (const [label, text] of [['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC', 'Opens after']]) {
             await page.evaluate((l) => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes(l)).click(), label.slice(3));
             try { await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 15000 }, text); }
             catch { await page.screenshot({ path: path.join(output, `FAILED-job-${label.slice(0, 1)}-${width}.png`), fullPage: true }); throw new Error(`job stage "${label}" at ${width}: "${text}" not shown. Page says: ${(await page.evaluate(() => document.body.innerText)).slice(0, 500)} | errors: ${errors.join(' / ')}`); }

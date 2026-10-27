@@ -285,9 +285,6 @@ const completeStage = asyncHandler(async (req, res) => {
     detail = `${job.chits.length} chit(s) confirmed`;
   }
   if (stage.key === 'qc') {
-    const preparer = job.stages.find((s) => s.key === 'prepare');
-    const preparerNames = [preparer?.doneByName, preparer?.fields?.preparerName].filter(Boolean).map((n) => n.trim().toLowerCase());
-    if (preparerNames.includes(req.user.name.trim().toLowerCase())) fail(`QC must be done by someone other than the preparer (${preparerNames[0]}). Ask a colleague, the doctor or the admin to complete this stage.`);
     if (fields.result === 'HOLD') {
       Object.assign(job.hold, { active: true, reason: `QC HOLD: ${clean(fields.findings, 500) || 'correction needed'}`, at: now, byName: req.user.name, stageKey: 'qc' });
       event(job, req.user, 'QC hold', clean(fields.findings, 500));
