@@ -991,10 +991,6 @@ const MedicineRequestModal = ({ open, onClose, request, onRequest }) => {
       setError('Medicine details are required');
       return;
     }
-    if (!files.length) {
-      setError('Prescription image or document is required');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
@@ -1032,7 +1028,8 @@ const MedicineRequestModal = ({ open, onClose, request, onRequest }) => {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-charcoal mb-1.5">Prescription Image / Document</label>
+          <label className="block text-sm font-medium text-charcoal mb-1.5">Prescription (optional)</label>
+          <p className="mb-1.5 text-xs text-charcoal/60">Not needed: the Medicine Department reads the patient's whole file from the Records Room.</p>
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-sage hover:text-sage">
             <Paperclip size={14} />
             <span className="truncate">Attach prescriptions</span>

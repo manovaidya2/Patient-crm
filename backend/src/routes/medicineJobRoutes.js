@@ -1,5 +1,5 @@
 const express = require('express');
-const { JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, revertJob } = require('../controllers/medicineJobController');
+const { JOB_ROLES, JOB_VIEW_ROLES, getPatientFile, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, revertJob } = require('../controllers/medicineJobController');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const { uploadMedicineImage } = require('../middleware/fileUploads');
@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(protect);
 router.get('/', authorize(...JOB_VIEW_ROLES), listJobs);
 router.post('/for-request', authorize(...JOB_ROLES), openForRequest);
+router.get('/patient-file/:patientId', authorize(...JOB_VIEW_ROLES), getPatientFile);
 router.get('/:id', authorize(...JOB_VIEW_ROLES), getJob);
 router.patch('/:id/supply', authorize(...JOB_ROLES), setSupply);
 router.patch('/:id/formulation', authorize(...JOB_ROLES), editFormulation);

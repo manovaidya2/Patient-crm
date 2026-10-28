@@ -8,7 +8,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const { createPatientRecord } = require('../controllers/patientController');
 const { PROFILE_KEYS } = require('./patientProfile');
 const { createWithPoNumber } = require('./poNumber');
-const { supplyOptionByLabel } = require('../constants/supplyPlans');
+const { supplyOptionByLabel, ageBandByLabel } = require('../constants/supplyPlans');
 const { findByCode, nextPhaseOf, phaseInUse, withPhaseInText } = require('./existingPatient');
 const { STAGES } = require('../constants/treatmentStages');
 const { cleanAge, setPhaseAge } = require('./phaseAge');
@@ -81,6 +81,13 @@ const paymentFromPaper = (values, { cardCharge = 0, user }) => {
 // patient's next phase. Otherwise a new patient is made (and a Patient ID that is already taken is still refused).
 // phase: the phase picked for this visit (registration / post counselling); a new patient starts in it too.
 const createConvertedPatient = async (args) => {
+  // In Transit and the Medicine Department cannot change these later, so post counselling must decide them now.
+  const plan = args.values || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(plan.medicineReadyDate || ''))) throw fail('Fill the medicine ready expected date on the PO paper');
+  if (!supplyOptionByLabel(plan.supplyOrder)) throw fail('Select the medicine supply on the PO paper (6 months / 1+5 / 2+4)');
+  if (!ageBandByLabel(plan.ageGroup)) throw fail('Enter the patient age on the PO paper (from 3 years; the age group comes from it)');
+  // The age written on the PO paper is the patient's age for this phase.
+  if (String(plan.patientAge || '').trim()) args = { ...args, input: { ...args.input, age: String(plan.patientAge).trim() } };
   const phase = STAGES.includes(Number(args.phase)) ? Number(args.phase) : null;
   // The PO paper's "Ordered treatment / phase" text follows the phase that was picked.
   if (phase && args.values) args = { ...args, values: { ...args.values, orderedTreatment: withPhaseInText(args.values.orderedTreatment, phase) } };
@@ -106,7 +113,7 @@ const addPhaseToExistingPatient = async ({ patient, input, fee, values: rawValue
   const supply = supplyOptionByLabel(rawValues.supplyOrder);
   const po = await createWithPoNumber(PurchaseOrder, {
     phase: phaseNumber, status: 'pending', source: 'conversion', createdByName: user.name, createdByRole: user.role || '',
-    supplyPlan: supply?.plan || '', supplyPart: supply?.part || '',
+    supplyPlan: supply?.plan || '', supplyPart: supply?.part || '', ageBand: ageBandByLabel(rawValues.ageGroup),
   });
   const values = { ...rawValues, poNo: po.poNumber };
   try {
@@ -157,7 +164,7 @@ const createNewPatient = async ({ input, fee, values: rawValues, totals = {}, ca
   const supply = supplyOptionByLabel(rawValues.supplyOrder);
   const po = await createWithPoNumber(PurchaseOrder, {
     phase: phaseNumber, status: 'pending', source: 'conversion', createdByName: user.name, createdByRole: user.role || '',
-    supplyPlan: supply?.plan || '', supplyPart: supply?.part || '',
+    supplyPlan: supply?.plan || '', supplyPart: supply?.part || '', ageBand: ageBandByLabel(rawValues.ageGroup),
   });
   const values = { ...rawValues, poNo: po.poNumber };
   let patient = null;

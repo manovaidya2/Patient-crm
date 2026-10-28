@@ -6,7 +6,8 @@ const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { STAGES } = require('../constants/treatmentStages');
-const { supplyOption, supplyOptionByLabel, AGE_BANDS } = require('../constants/supplyPlans');
+const { supplyOption, supplyOptionByLabel, AGE_BANDS, ageBandByLabel, ageBandFor } = require('../constants/supplyPlans');
+const { setPhaseAge } = require('../utils/phaseAge');
 const purchase = require('../utils/purchaseOrderRecord');
 const { assertPurchaseComplete, withBankName, paymentFromPaper } = require('../utils/convertPatient');
 const { createWithPoNumber } = require('../utils/poNumber');
@@ -44,6 +45,8 @@ const parseSupply = (body, { required = false } = {}) => {
   if (!option) fail('Select a valid supply category');
   return option;
 };
+const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
+const { patientDocuments } = require('../utils/patientDocuments');
 const event = (po, user, action, details = '') => po.events.push({ at: new Date(), action, details, byName: user.name, byRole: user.role });
 const logActivity = (patient, user, action, details = '') => patient.activityLog.push({ action, details, actorName: user.name, actorRole: user.role });
 
@@ -74,7 +77,8 @@ const respond = async (res, po, patient, status = 200) => {
   if (po.medicineRequestId) {
     try { const MedicineJob = require('../models/MedicineJob'); job = await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: po.medicineRequestId }).lean(); } catch { job = null; }
   }
-  res.status(status).json({ success: true, purchaseOrder: buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job }) });
+  const documents = await patientDocuments(patient);
+  res.status(status).json({ success: true, purchaseOrder: { ...buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job }), patientDocuments: documents } });
 };
 
 // Validates the payment typed on a PO form. Returns null when no payment was entered.
@@ -207,7 +211,7 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
 
   const po = await createWithPoNumber(PurchaseOrder, {
     patient: patient._id, patientCode: patient.patientCode || '', patientName: patient.patientName,
-    phase, supplyPlan: supply.plan, supplyPart: supply.part,
+    phase, supplyPlan: supply.plan, supplyPart: supply.part, ageBand: ageBandByLabel(paper.ageGroup),
     packageName: clean(paper.orderedTreatment, 200), amount: fee, medicineReadyDate: readyBy, notes: longText(paper.paymentNotes),
     paperImages: paper.paperImages || [], status: 'pending', source: 'manual', createdByName: req.user.name, createdByRole: req.user.role,
     events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
@@ -248,10 +252,19 @@ const updatePurchaseOrder = asyncHandler(async (req, res) => {
   const body = req.body || {};
   const changes = [];
   const supply = parseSupply(body);
-  if (supply && (supply.plan !== po.supplyPlan || supply.part !== po.supplyPart)) { po.supplyPlan = supply.plan; po.supplyPart = supply.part; changes.push(supply.label); }
+  const admin = canOverrideFixed(req.user);
+  const supplyChanged = supply && (supply.plan !== po.supplyPlan || supply.part !== po.supplyPart);
+  // The supply and the ready date come from post counselling: In Transit cannot change them.
+  if (supplyChanged && po.supplyPlan && !admin) fail('The medicine supply is set by post counselling on the PO paper; only the admin can change it', 403);
+  if (supplyChanged) { po.supplyPlan = supply.plan; po.supplyPart = supply.part; changes.push(supply.label); }
   if (body.packageName !== undefined) po.packageName = clean(body.packageName, 200);
   if (body.amount !== undefined) { po.amount = amountOf(body.amount, 'PO amount'); changes.push(`Rs ${po.amount}`); }
-  if (body.medicineReadyDate !== undefined) po.medicineReadyDate = parseDay(body.medicineReadyDate, 'medicine ready date');
+  if (body.medicineReadyDate !== undefined) {
+    const next = parseDay(body.medicineReadyDate, 'medicine ready date');
+    const changed = String(next?.getTime() || '') !== String(po.medicineReadyDate ? new Date(po.medicineReadyDate).getTime() : '');
+    if (changed && po.medicineReadyDate && !admin) fail('The medicine ready date is set by post counselling on the PO paper; only the admin can change it', 403);
+    if (changed) { po.medicineReadyDate = next; changes.push(`ready by ${next ? next.toISOString().slice(0, 10) : '-'}`); }
+  }
   if (body.notes !== undefined) po.notes = longText(body.notes);
   const paper = fileItems(filesOf(req, 'paper'));
   if (paper.length) { po.paperImages.push(...paper); changes.push(`${paper.length} PO image(s)`); }
@@ -343,6 +356,62 @@ const rejectPurchaseOrder = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
+// @route PATCH /api/purchase-orders/:id/plan   { medicineReadyDate, supplyKey, ageBand }
+// The ready date, supply and age group are decided in post counselling. Only the Post Counselor (or the admin) changes
+// them again, and only until the Medicine Department accepts the medicine request. Everything that carries them follows:
+// the PO, its PO paper, the phase's expected date, a waiting medicine request and its job.
+const updatePlan = asyncHandler(async (req, res) => {
+  if (![ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(req.user.role)) fail('Only the Post Counselor can change the ready date, supply and age group', 403);
+  const po = await loadPo(req.params.id);
+  if (po.status === 'cancelled') fail('This purchase order is cancelled');
+  const patient = await loadPatient(po.patient);
+  const stage = stageOf(patient, po.phase);
+  const request = po.medicineRequestId ? findRequest(stage, po.medicineRequestId) : null;
+  const MedicineJob = require('../models/MedicineJob');
+  const job = request ? await MedicineJob.findOne({ patient: patient._id, phase: po.phase, requestId: po.medicineRequestId }) : null;
+  const accepted = (request && !['requested', 'cancelled'].includes(request.status)) || (job && (job.currentStage || 0) > 0);
+  if (accepted) fail('The Medicine Department has already accepted this request, so the ready date, supply and age group cannot change now', 409);
+
+  const body = req.body || {};
+  const readyBy = body.medicineReadyDate !== undefined ? parseDay(body.medicineReadyDate, 'medicine ready date', { required: true }) : po.medicineReadyDate;
+  const supply = body.supplyKey ? parseSupply(body) : supplyOption(po.supplyPlan, po.supplyPart);
+  const newAge = body.patientAge !== undefined ? clean(body.patientAge, 30) : '';
+  if (body.patientAge !== undefined && !ageBandFor(newAge)) fail('Enter the patient age (from 3 years)');
+  const ageBand = body.patientAge !== undefined ? ageBandFor(newAge) : po.ageBand;
+  const dayOf = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+  const changes = [];
+  if (dayOf(readyBy) !== dayOf(po.medicineReadyDate)) changes.push(`ready date ${dayOf(po.medicineReadyDate) || '-'} -> ${dayOf(readyBy)}`);
+  if (supply && (supply.plan !== po.supplyPlan || supply.part !== po.supplyPart)) changes.push(`supply -> ${supply.label}`);
+  if ((ageBand || '') !== (po.ageBand || '')) changes.push(`age group -> ${AGE_BANDS[ageBand] || '-'}`);
+  if (!changes.length) return respond(res, po, patient);
+
+  Object.assign(po, { medicineReadyDate: readyBy, ageBand: ageBand || '', ...(supply ? { supplyPlan: supply.plan, supplyPart: supply.part } : {}) });
+  // The paper keeps the date as yyyy-mm-dd (India day) and the supply / age group by their labels.
+  const paperDay = readyBy ? new Date(new Date(readyBy).getTime() + 330 * 60000).toISOString().slice(0, 10) : '';
+  const paperPatch = { medicineReadyDate: paperDay, ...(supply ? { supplyOrder: supply.label } : {}), ageGroup: AGE_BANDS[ageBand] || '', ...(newAge ? { patientAge: newAge } : {}) };
+  if (newAge && setPhaseAge(patient, stage, newAge)) changes.push(`age -> ${newAge}`);
+  po.paperValues = { ...(po.paperValues || {}), ...paperPatch };
+  po.markModified('paperValues');
+  if (stage.poPaper?.values && stage.purchaseOrder === po.poNumber) {
+    stage.poPaper = { ...stage.poPaper, values: { ...stage.poPaper.values, ...paperPatch } };
+    patient.markModified('stages');
+  }
+  if (readyBy) stage.transit.expectedReadyDate = readyBy;
+  if (request && request.status === 'requested') {
+    Object.assign(request, { readyByDate: readyBy, readyBySetByName: req.user.name, readyBySetAt: new Date(), ageBand: ageBand || request.ageBand, ...(supply ? { supplyPlan: supply.plan, supplyPart: supply.part } : {}) });
+  }
+  const details = changes.join(' | ');
+  event(po, req.user, 'Plan changed by post counselling', details);
+  logActivity(patient, req.user, `Phase ${po.phase} plan changed (PO ${po.poNumber})`, details);
+  await patient.save();
+  await po.save();
+  if (job && supply) {
+    const { applyPlanToJob } = require('./medicineJobController');
+    await applyPlanToJob(job, { readyBy, plan: supply.plan, part: supply.part, ageBand }, req.user, details);
+  }
+  await respond(res, po, patient);
+});
+
 // @route POST /api/purchase-orders/:id/medicine-request   (multipart: prescription[])
 // One medicine request per purchase order, sent to Medicine Department with the supply category and age band.
 const requestMedicine = asyncHandler(async (req, res) => {
@@ -359,20 +428,23 @@ const requestMedicine = asyncHandler(async (req, res) => {
   if (stage.payments.some((p) => ids.has(String(p._id)) && p.approvalStatus === 'pending')) fail('Verify the pending payment of this PO first');
 
   const body = req.body || {};
-  const supply = parseSupply(body, { required: true });
-  const ageBand = clean(body.ageBand, 10);
+  // The supply and the ready date were fixed in post counselling (PO paper); In Transit only passes them on.
+  const fixedSupply = po.supplyPlan && po.supplyPart ? supplyOption(po.supplyPlan, po.supplyPart) : null;
+  const supply = fixedSupply && !canOverrideFixed(req.user) ? fixedSupply : parseSupply(body, { required: !fixedSupply }) || fixedSupply;
+  const ageBand = po.ageBand && AGE_BANDS[po.ageBand] && !canOverrideFixed(req.user) ? po.ageBand : clean(body.ageBand, 10);
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
   const medicines = longText(body.medicines);
   if (!medicines) fail('Medicine details are required');
-  const readyBy = parseDay(body.readyByDate, 'medicine ready-by date', { required: true });
+  const fixedDate = fixedReadyDate({ po });
+  const readyBy = fixedDate && !canOverrideFixed(req.user) ? new Date(fixedDate) : (parseDay(body.readyByDate, 'medicine ready-by date', { required: !fixedDate }) || new Date(fixedDate));
+  // No prescription upload any more: the Medicine Department reads the patient's Records Room PDF.
   const files = fileItems(filesOf(req, 'prescription'), 'prescriptions');
-  if (!files.length) fail('Prescription image or document is required');
   const now = new Date();
   const requestId = crypto.randomUUID();
   stage.medicineRequests.push({
     requestId, status: 'requested', medicines, notes: longText(body.notes),
     purchaseOrderId: po._id, poNumber: po.poNumber, supplyPlan: supply.plan, supplyPart: supply.part, ageBand,
-    prescriptionUrl: files[0].url, prescriptionFileName: files[0].fileName, prescriptionFiles: files,
+    prescriptionUrl: files[0]?.url || null, prescriptionFileName: files[0]?.fileName || '', prescriptionFiles: files,
     requestedAt: now, requestedByName: req.user.name, readyByDate: readyBy, readyBySetAt: now, readyBySetByName: req.user.name,
   });
   stage.transit.expectedReadyDate = readyBy;
@@ -452,5 +524,5 @@ const activatePhase = asyncHandler(async (req, res) => {
 module.exports = {
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   loadPoViews, revertStep, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
-  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase,
+  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase, updatePlan,
 };

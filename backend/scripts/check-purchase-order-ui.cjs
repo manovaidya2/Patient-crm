@@ -228,6 +228,11 @@ async function main() {
           else assert.equal(await page.evaluate(() => document.querySelector('nav[aria-label="Quick navigation"] a[href="/admin/purchase-orders"] [class*="F97316"]')?.innerText), '2', 'phone tab bar shows the orange task count');
           assert.ok(marks.rows >= 1, 'the PO waiting for In Transit is marked');
         }
+        if (name === 'po-verify') {
+          // In Transit verifies a waiting PO and its payment from the Payments section itself.
+          const text = await page.evaluate(() => document.body.innerText);
+          if (text.includes('Pending')) assert.ok(text.includes('Verify PO & payment'), 'a pending payment on a waiting PO offers Verify PO & payment');
+        }
         if (name === 'po-detail') {
           // The PO timeline carries the handover and treatment steps after "Medicine ready".
           const text = await page.evaluate(() => document.body.innerText);

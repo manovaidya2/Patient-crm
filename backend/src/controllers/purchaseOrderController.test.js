@@ -164,15 +164,14 @@ test('a rejected PO needs a reason and goes back to verification once corrected'
   assert.equal(fixed.amount, 40000);
 });
 
-test('medicine request: one per PO, with supply category, age band, prescription and ready date', async () => {
+test('medicine request: one per PO, with supply category, age band and ready date (no prescription upload)', async () => {
   const patient = makePatient({ approvalStatus: 'approved' });
   memoryPos();
   const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first' }) })).purchaseOrder;
   await verifyBoth(created.id);
   const body = { supplyKey: '1+5:first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', readyByDate: '2026-11-02' };
-  await assert.rejects(call(controller.requestMedicine, { params: { id: created.id }, body, files: [] }), /Prescription/);
   await assert.rejects(call(controller.requestMedicine, { params: { id: created.id }, body: { ...body, ageBand: '' }, files: [file] }), /age group/);
-  const res = (await call(controller.requestMedicine, { params: { id: created.id }, body, files: [file] })).purchaseOrder;
+  const res = (await call(controller.requestMedicine, { params: { id: created.id }, body, files: [] })).purchaseOrder;
   const request = patient.stages[0].medicineRequests[0];
   assert.equal(request.status, 'requested');
   assert.equal(request.poNumber, created.poNumber);
@@ -241,4 +240,64 @@ test('actionBy names the role whose turn it is, and empties once the step is don
   assert.ok(actionByOf({ status: 'rejected' }, 'details', false).includes('post_counselor'));
   assert.ok(jobActionBy({ status: 'open', currentStage: 0 }).includes('medicine_department'));
   assert.deepEqual(jobActionBy({ status: 'released', currentStage: 12 }), []);
+});
+
+const admin = { _id: new mongoose.Types.ObjectId(), name: 'Super Admin', role: 'admin' };
+
+test('ready date and supply come from post counselling: In Transit cannot change them and passes them on', async () => {
+  const patient = makePatient({ approvalStatus: 'approved' });
+  memoryPos();
+  const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first', medicineReadyDate: '2026-11-05' }) })).purchaseOrder;
+  await assert.rejects(call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '6M:full' } }), /supply is set by post counselling/);
+  await assert.rejects(call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { medicineReadyDate: '2026-11-20' } }), /ready date is set by post counselling/);
+  // Sending the same values is not a change.
+  await call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '1+5:first', medicineReadyDate: '2026-11-05' } });
+  await verifyBoth(created.id);
+  // In Transit sends a different supply and date: the request still carries the ones from the PO paper.
+  await call(controller.requestMedicine, { params: { id: created.id }, body: { supplyKey: '6M:full', ageBand: '4-12', medicines: 'As per master', readyByDate: '2026-12-01' }, files: [file] });
+  const request = patient.stages[0].medicineRequests[0];
+  assert.equal(`${request.supplyPlan}:${request.supplyPart}`, '1+5:first');
+  assert.equal(request.readyByDate.toISOString(), new Date('2026-11-05T00:00:00.000+05:30').toISOString());
+});
+
+test('the admin can still correct the ready date and supply', async () => {
+  const patient = makePatient({ approvalStatus: 'approved' });
+  memoryPos();
+  const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first', medicineReadyDate: '2026-11-05' }) })).purchaseOrder;
+  const fixed = (await call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '6M:full', medicineReadyDate: '2026-11-08' }, user: admin })).purchaseOrder;
+  assert.equal(fixed.supplyPlan, '6M');
+  assert.match(fixed.medicineReadyDate, /^2026-11-0[78]/);
+});
+
+const postCounselor = { _id: new mongoose.Types.ObjectId(), name: 'Abhishek', role: 'post_counselor' };
+
+test('only the Post Counselor changes the ready date, supply and age group, and only until the request is accepted', async () => {
+  const MedicineJob = require('../models/MedicineJob');
+  const oldFindOne = MedicineJob.findOne;
+  MedicineJob.findOne = (...args) => { const q = Promise.resolve(null); q.lean = async () => null; return q; };
+  try {
+    const patient = makePatient({ approvalStatus: 'approved' });
+    memoryPos();
+    const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first', medicineReadyDate: '2026-11-05', patientAge: '6' }) })).purchaseOrder;
+    assert.equal(created.ageBand, '4-12', 'the age group comes from the PO paper');
+    await assert.rejects(call(controller.updatePlan, { params: { id: created.id }, body: { medicineReadyDate: '2026-11-09' } }), /Only the Post Counselor/);
+    await verifyBoth(created.id);
+    // In Transit cannot pick another age group either.
+    await call(controller.requestMedicine, { params: { id: created.id }, body: { ageBand: '12-70', medicines: 'As per master' }, files: [file] });
+    const request = patient.stages[0].medicineRequests[0];
+    assert.equal(request.ageBand, '4-12');
+    // Before the Medicine Department accepts: the Post Counselor changes them, and the waiting request follows.
+    const changed = (await call(controller.updatePlan, { params: { id: created.id }, body: { medicineReadyDate: '2026-11-09', supplyKey: '6M:full', patientAge: '20' }, user: postCounselor })).purchaseOrder;
+    assert.equal(changed.supplyPlan, '6M');
+    assert.equal(changed.ageBand, '12-70');
+    assert.equal(request.readyByDate.toISOString(), new Date('2026-11-09T00:00:00.000+05:30').toISOString());
+    assert.equal(request.supplyPlan, '6M');
+    assert.equal(request.ageBand, '12-70');
+    assert.ok(patient.activityLog.some((e) => /plan changed/.test(e.action)));
+    // Once the Medicine Department accepts, the plan is fixed for the Post Counselor too.
+    request.status = 'in_process';
+    await assert.rejects(call(controller.updatePlan, { params: { id: created.id }, body: { medicineReadyDate: '2026-11-20' }, user: postCounselor }), /already accepted/);
+  } finally {
+    MedicineJob.findOne = oldFindOne;
+  }
 });

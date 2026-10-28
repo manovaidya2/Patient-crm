@@ -8,6 +8,7 @@ import Button from './ui/Button.jsx';
 import Badge from './ui/Badge.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
+import { PatientFileButton } from './medicine/PatientFile.jsx';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from './ui/Attachments.jsx';
 import { PackageCheck as PageTitleIcon } from 'lucide-react';
 
@@ -360,7 +361,8 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                     {request.readyByDate && (
                       <p className={`mt-1 text-xs ${['requested', 'in_process'].includes(request.status) && new Date(request.readyByDate).setHours(23, 59, 59) - Date.now() < 2 * 86400000 ? 'font-semibold text-[#8C3B2E]' : 'text-charcoal/55'}`}>
                         Ready by: {new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{request.readyBySetByName ? ` (set by ${request.readyBySetByName})` : ''}
-                        {['requested', 'in_process'].includes(request.status) && (
+                        {/* The ready date comes from post counselling: only the admin can change it here. */}
+                        {['requested', 'in_process'].includes(request.status) && user?.role === ROLES.ADMIN && (
                           <button type="button" className="ml-2 font-semibold text-sage hover:underline" onClick={() => openReadyAction(row, 'change')}>Change</button>
                         )}
                       </p>
@@ -389,7 +391,8 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                     <p className="font-semibold text-charcoal">Medicines</p>
                     <p className="mt-1 whitespace-pre-line">{request.medicines}</p>
                     {request.notes && <p className="mt-2 whitespace-pre-line text-xs text-charcoal/55">{request.notes}</p>}
-                    <CompactAttachments files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescription" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
+                    <PatientFileButton patientId={row.patientId} />
+                    <CompactAttachments files={request.prescriptionFiles} fallbackUrl={request.prescriptionUrl} fallbackName={request.prescriptionFileName || 'Prescription'} label="Prescription (older request)" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
                     <CompactAttachments files={request.medicineImages} fallbackUrl={request.medicineImageUrl} fallbackName={request.medicineImageFileName || 'Medicine Image'} label="Medicine images" deleteUrl={isAdmin ? `/patients/${row.patientId}/attachments` : ''} onDeleted={refresh} />
                     {request.status === 'made' && request.courier?.deliveryMode === 'self' && request.courier?.status === 'delivered' && (
                       <div className="mt-3 rounded-lg border border-cardline bg-offwhite-200 p-3 text-xs text-charcoal/65">
@@ -483,7 +486,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
             {readyError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{readyError}</p>}
             <label className="mt-4 block text-sm font-medium text-charcoal">
               Medicine ready by
-              <input type="date" required value={readyAction.date} onChange={(e) => setReadyAction({ ...readyAction, date: e.target.value })} className="mt-1.5 w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
+              <input type="date" required disabled={Boolean(readyAction.row.medicineRequest?.readyByDate) && user?.role !== ROLES.ADMIN} value={readyAction.date} onChange={(e) => setReadyAction({ ...readyAction, date: e.target.value })} className="mt-1.5 w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setReadyAction(null)}>Cancel</Button>

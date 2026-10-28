@@ -7,6 +7,7 @@ const { ROLES } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODES, MODE_LABEL } = require('../utils/transitFlow');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
+const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const clean = (value, max = 300) => String(value ?? '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
@@ -110,13 +111,15 @@ const ACTIONS = {
     if (paymentSummary(stage).pendingCount) fail('Verify submitted payments first');
     if (request) fail('A medicine request is already running for this phase');
     const medicines = required(body.medicines, 'Medicine details', 2000);
+    // No prescription upload any more: the Medicine Department reads the patient's Records Room PDF.
     const files = fileItems(req);
-    if (!files.length) fail('Prescription image or document is required');
-    const readyByDate = parseDate(body.readyByDate || stage.transit.expectedReadyDate, 'medicine ready-by date');
+    // The ready date fixed in post counselling goes to the Medicine Department as it is.
+    const fixed = fixedReadyDate({ stage }) || stage.transit.expectedReadyDate;
+    const readyByDate = fixed && !canOverrideFixed(req.user) ? new Date(fixed) : parseDate(body.readyByDate || fixed, 'medicine ready-by date');
     stage.transit.expectedReadyDate = readyByDate;
     stage.medicineRequests.push({
       requestId: crypto.randomUUID(), status: 'requested', medicines, notes: clean(body.notes, 2000),
-      prescriptionUrl: files[0].url, prescriptionFileName: files[0].fileName, prescriptionFiles: files,
+      prescriptionUrl: files[0]?.url || null, prescriptionFileName: files[0]?.fileName || '', prescriptionFiles: files,
       requestedAt: now, requestedByName: req.user.name,
       readyByDate, readyBySetAt: now, readyBySetByName: req.user.name,
     });
@@ -125,13 +128,14 @@ const ACTIONS = {
   accept_request({ request, body, req, now }) {
     needRequest(request);
     if (request.status !== 'requested') fail('This request is already accepted');
-    const readyBy = parseDate(body.readyByDate, 'medicine ready-by date');
+    const readyBy = request.readyByDate && !canOverrideFixed(req.user) ? new Date(request.readyByDate) : parseDate(body.readyByDate, 'medicine ready-by date');
     Object.assign(request, { status: 'in_process', inProcessAt: now, inProcessByName: req.user.name, readyByDate: readyBy, readyBySetByName: req.user.name, readyBySetAt: now });
     return `Medicine request accepted - ready by ${day(readyBy)}`;
   },
   set_ready_by({ request, body, req, now }) {
     needRequest(request);
     if (!['requested', 'in_process'].includes(request.status)) fail('The medicine is already made');
+    if (!canOverrideFixed(req.user)) fail('The medicine ready date is set by post counselling on the PO paper; only the admin can change it', 403);
     const readyBy = parseDate(body.readyByDate, 'medicine ready-by date');
     Object.assign(request, { readyByDate: readyBy, readyBySetByName: req.user.name, readyBySetAt: now });
     return `Medicine ready-by date changed to ${day(readyBy)}`;

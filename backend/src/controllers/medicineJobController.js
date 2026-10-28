@@ -11,6 +11,8 @@ const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../con
 const { STAGES, STAGE_INDEX, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
 const { phaseAge } = require('../utils/phaseAge');
+const { canOverrideFixed, fixedSupplyPlan } = require('../utils/medicineDelay');
+const { patientDocuments } = require('../utils/patientDocuments');
 const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
 const { moveStock } = require('./stockController');
@@ -42,11 +44,23 @@ const paymentOf = (patient, stage) => {
   return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && pay.remaining <= 0 && pay.pendingCount === 0 && !(stage.transit?.holdActive || stage.transit?.removedAt) };
 };
 
+const planSentFor = async (job, stage) => fixedSupplyPlan({ po: job.purchaseOrder ? await PurchaseOrder.findById(job.purchaseOrder).lean() : null, stage });
 const respond = async (res, job, status = 200) => {
   const { patient, stage } = await loadPatientAndRequest(job);
+  const sent = await planSentFor(job, stage);
+  const missing = (sent.plan && !job.supplyPlan) || (sent.ageBand && !job.ageBand);
+  if (missing && (job.currentStage || 0) <= STAGE_INDEX.review && job.status === 'open') {
+    Object.assign(job, { supplyPlan: job.supplyPlan || sent.plan, supplyPart: job.supplyPart || sent.part, ageBand: job.ageBand || sent.ageBand });
+    await applyFormulation(job);
+    await job.save();
+  }
   const stocks = await StockItem.find({ isActive: { $ne: false } }).lean();
   const master = job.ageBand ? await getMaster(job.ageBand) : null;
-  res.status(status).json({ success: true, job: buildJobView(job, { stocks, payment: paymentOf(patient, stage), master, includeEvents: true }) });
+  // Which of them post counselling decided (those are read-only here, except for the admin).
+  const fixedPlan = { supply: Boolean(sent.plan), ageBand: Boolean(sent.ageBand) };
+  // The patient's whole file from the Records Room, read instead of a separate prescription.
+  const documents = await patientDocuments(patient);
+  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: paymentOf(patient, stage), master, includeEvents: true }), fixedPlan, patientDocuments: documents } });
 };
 
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
@@ -90,10 +104,11 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
   let job = await MedicineJob.findOne({ patient: patient._id, phase: stage.number, requestId });
   if (job) return job;
   const poDoc = po || (request.purchaseOrderId ? await PurchaseOrder.findById(request.purchaseOrderId) : null);
+  const sent = fixedSupplyPlan({ po: poDoc, stage });
   job = new MedicineJob({
     patient: patient._id, patientCode: patient.patientCode || '', patientName: patient.patientName, phase: stage.number, requestId,
     purchaseOrder: poDoc?._id || null, poNumber: request.poNumber || poDoc?.poNumber || '',
-    supplyPlan: request.supplyPlan || poDoc?.supplyPlan || '', supplyPart: request.supplyPart || poDoc?.supplyPart || '', ageBand: request.ageBand || poDoc?.ageBand || ageBandFor(phaseAge(patient, stage.number)) || '',
+    supplyPlan: sent.plan || request.supplyPlan || poDoc?.supplyPlan || '', supplyPart: sent.part || request.supplyPart || poDoc?.supplyPart || '', ageBand: sent.ageBand || request.ageBand || poDoc?.ageBand || ageBandFor(phaseAge(patient, stage.number)) || '',
     medicines: request.medicines || '', requestNotes: request.notes || '', requestedAt: request.requestedAt || new Date(), requestedByName: request.requestedByName || '', readyByDate: request.readyByDate || null,
     status: request.status === 'sent_to_courier' ? 'released' : request.status === 'made' ? 'ready' : 'open',
     currentStage: request.status === 'sent_to_courier' ? STAGES.length : request.status === 'made' ? STAGE_INDEX.release : request.status === 'in_process' ? STAGE_INDEX.review : 0,
@@ -151,7 +166,7 @@ const listJobs = asyncHandler(async (req, res) => {
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
   all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(req.user.role)) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
-  res.json({ success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) });
+  res.json({ success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) });
 });
 
 // Who has to act on a job now: the roles of its current stage (whoever resumes it while on hold; nobody once released).
@@ -182,6 +197,11 @@ const setSupply = asyncHandler(async (req, res) => {
   const [plan, part] = String(req.body?.supplyKey || '').split(':');
   const option = supplyOption(plan, part);
   if (!option) fail('Select the medicine supply');
+  // The supply (6 months / 1+5 / 2+4) and the age group were decided in post counselling.
+  const { stage: jobStage } = await loadPatientAndRequest(job);
+  const sent = await planSentFor(job, jobStage);
+  if (sent.plan && (option.plan !== job.supplyPlan || option.part !== job.supplyPart) && !canOverrideFixed(req.user)) fail('The medicine supply is set by post counselling on the PO paper; only the admin can change it', 403);
+  if (sent.ageBand && ageBand !== job.ageBand && !canOverrideFixed(req.user)) fail('The age group is set by post counselling on the PO paper; only the admin can change it', 403);
   Object.assign(job, { ageBand, supplyPlan: option.plan, supplyPart: option.part });
   await applyFormulation(job);
   event(job, req.user, 'Supply set', `${option.label} | ${AGE_BANDS[ageBand]}`);
@@ -224,7 +244,9 @@ const completeStage = asyncHandler(async (req, res) => {
   let detail = '';
 
   if (stage.key === 'accept') {
-    const readyBy = parseDay(fields.readyByDate, 'ready-by date');
+    // The ready date came with the request (fixed in post counselling); the Medicine Department cannot change it.
+    const readyBy = job.readyByDate && !canOverrideFixed(req.user) ? new Date(job.readyByDate) : parseDay(fields.readyByDate, 'ready-by date');
+    record.fields.readyByDate = readyBy.toISOString().slice(0, 10);
     job.readyByDate = readyBy;
     Object.assign(request, { status: request.status === 'requested' ? 'in_process' : request.status, inProcessAt: request.inProcessAt || now, inProcessByName: request.inProcessByName || req.user.name, readyByDate: readyBy, readyBySetByName: req.user.name, readyBySetAt: now });
     if (phaseEntry.transit) phaseEntry.transit.expectedReadyDate = readyBy;
@@ -407,4 +429,23 @@ const resumeJob = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
-module.exports = { jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };
+// Post counselling changed the ready date / supply / age group before the request was accepted: the waiting job follows
+// (and its formulation sheet is rebuilt for the new supply and age group).
+const applyPlanToJob = async (job, { readyBy, plan, part, ageBand }, user, details) => {
+  if (!job || (job.currentStage || 0) > 0) return;
+  const sheetChanged = plan !== job.supplyPlan || part !== job.supplyPart || ageBand !== job.ageBand;
+  Object.assign(job, { readyByDate: readyBy, supplyPlan: plan, supplyPart: part, ageBand });
+  if (sheetChanged) await applyFormulation(job);
+  event(job, user, 'Plan changed by post counselling', details);
+  await job.save();
+};
+
+// @route GET /api/medicine-jobs/patient-file/:patientId   The patient's Records Room PDF(s), read with a medicine request.
+const getPatientFile = asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(String(req.params.patientId))) fail('Patient not found', 404);
+  const patient = await Patient.findById(req.params.patientId).select('patientCode').lean();
+  if (!patient) fail('Patient not found', 404);
+  res.json({ success: true, documents: await patientDocuments(patient) });
+});
+
+module.exports = { getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };

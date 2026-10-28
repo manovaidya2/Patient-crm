@@ -35,7 +35,7 @@ const record = () => cleanRecord({ components: { selected: ['dosDontsDiet', 'ayu
 const baseFields = { patientName: 'Riddhima', age: '4', category: 'autism_adhd', fatherName: 'Rajnish', motherName: 'Sonam', fatherNumber: '8800611900', motherNumber: '6265219550', city: 'Delhi', pinCode: '110021', patientHistoryBy: 'Mother' };
 const makeEntry = (extra = {}) => {
   const rec = record();
-  const purchase = cleanPurchase({ mode: 'Online', amountReceivedNow: '10000', utrReference: '166901178274', poNo: 'PO-9', poDate: '2026-10-18', orderedTreatment: 'Autism / Phase 1', medicineReadyDate: '2026-10-30', paymentTime: '15:10', paymentVerifiedBy: 'Accounts', transactionId: 'TXN-77', payToBank: 'b1'.padEnd(24, '0'), paymentDate: '2026-10-19', paymentNotes: 'first part', screenshots: [{ url: '/uploads/payments/1-2.png', fileName: 'proof.png' }, { url: 'https://evil.test/x.png', fileName: 'bad' }] }, rec.totals.approvedProgramFee);
+  const purchase = cleanPurchase({ mode: 'Online', amountReceivedNow: '10000', utrReference: '166901178274', poNo: 'PO-9', poDate: '2026-10-18', orderedTreatment: 'Autism / Phase 1', medicineReadyDate: '2026-10-30', supplyOrder: 'Full 6 months', patientAge: '4', paymentTime: '15:10', paymentVerifiedBy: 'Accounts', transactionId: 'TXN-77', payToBank: 'b1'.padEnd(24, '0'), paymentDate: '2026-10-19', paymentNotes: 'first part', screenshots: [{ url: '/uploads/payments/1-2.png', fileName: 'proof.png' }, { url: 'https://evil.test/x.png', fileName: 'bad' }] }, rec.totals.approvedProgramFee);
   purchase.values.payToBankName = 'Manovaidya Ayurveda';
   return {
     _id: OID, appointmentCode: 'APT-1', appointmentDate: '2026-10-18',
@@ -303,4 +303,19 @@ test('phase: the Post Counselor can change the phase before converting; the PO p
   const decided = makeEntry({ postCounseling: { ...makeEntry().postCounseling, outcome: { kind: 'converted' } } });
   const late = await run(controller.setVisitPhase, { phase: 2 }, decided);
   assert.equal(late.error.statusCode, 409);
+});
+
+test('convert needs the ready date, supply and age group on the PO paper (they are fixed after this)', async () => {
+  for (const [key, message] of [['medicineReadyDate', /ready expected date/], ['supplyOrder', /medicine supply/], ['patientAge', /patient age/]]) {
+    const entry = makeEntry();
+    // Saving the paper works the age group out from the age, so an empty age means no age group.
+    entry.postCounseling.purchase.values = { ...entry.postCounseling.purchase.values, [key]: '', ...(key === 'patientAge' ? { ageGroup: '' } : {}) };
+    const { error, log } = await run(controller.convertToPatient, {}, entry);
+    assert.match(error.message, message);
+    assert.equal(log.patients.length, 0);
+  }
+  const ok = await run(controller.convertToPatient, {}, makeEntry());
+  assert.equal(ok.error, null);
+  assert.equal(ok.log.pos[0].ageBand, '3-4', 'the age group comes from the age on the paper (4 years)');
+  assert.equal(ok.log.patients[0].stages.find((s) => s.number === 1).age, '4', 'the age on the PO paper is the phase age');
 });

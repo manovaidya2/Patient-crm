@@ -8,8 +8,8 @@ import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 
 export const poInput = 'w-full min-w-0 rounded-lg border border-cardline bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 
-export const Chip = ({ active, onClick, children, title }) => (
-  <button type="button" title={title} aria-pressed={active} onClick={onClick} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${active ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/75 hover:border-sage/60'}`}>
+export const Chip = ({ active, onClick, children, title, disabled = false }) => (
+  <button type="button" title={title} aria-pressed={active} onClick={onClick} disabled={disabled} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed ${active ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/75 hover:border-sage/60 disabled:opacity-40'}`}>
     {active && <Check size={12} />}{children}
   </button>
 );

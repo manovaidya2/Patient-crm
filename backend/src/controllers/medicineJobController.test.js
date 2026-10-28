@@ -121,10 +121,11 @@ test('the twelve stages run in order with their gates; preparation draws from st
   await assert.rejects(call(controller.completeStage, { params: { id, key: 'accept' }, body: { checks: '[true,false]', fields: '{}' } }), /Tick every point/);
   await assert.rejects(complete(id, 'accept', {}), /ready by is required/i);
   await assert.rejects(complete(id, 'accept', { readyByDate: '2026-11-02' }, {}, transit), /done by/);
+  const fixedDate = stage.medicineRequests[0].readyByDate.toISOString();
   let v = (await complete(id, 'accept', { readyByDate: '2026-11-02' })).job;
   assert.equal(v.currentKey, 'review');
   assert.equal(stage.medicineRequests[0].status, 'in_process', 'the request shows "in process" to In Transit');
-  assert.equal(stage.medicineRequests[0].readyByDate.toISOString().slice(0, 10), '2026-11-01');
+  assert.equal(stage.medicineRequests[0].readyByDate.toISOString(), fixedDate, 'the date fixed in post counselling stays; the department cannot change it');
   v = (await complete(id, 'review', { formulaRef: 'Dr Garg 22 Oct' })).job;
   v = (await complete(id, 'stock', { batchRefs: 'MG-2610' })).job;
   // Preparation: SHIVA-LEH needs an actual (spoon -> gram not set); everything else follows the sheet.

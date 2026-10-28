@@ -6,6 +6,7 @@
 
 const { supplyLabel } = require('../constants/supplyPlans');
 const { phaseAge } = require('./phaseAge');
+const { medicineDelays, fixedReadyDate } = require('./medicineDelay');
 
 const MEDICINE_ACTIVE = ['requested', 'in_process', 'made', 'sent_to_courier'];
 const SHIPPED_MODES = ['porter', 'courier'];
@@ -215,6 +216,9 @@ function buildTransitCase(patient, stage, now = new Date()) {
       madeAt: iso(request.madeAt),
       medicineImages: [...(request.medicineImages || []), ...(request.medicineImageUrl && !(request.medicineImages || []).some((f) => f.url === request.medicineImageUrl) ? [{ url: request.medicineImageUrl, fileName: request.medicineImageFileName }] : [])],
       readyByDate: iso(readyBy),
+      // The date fixed in post counselling cannot be changed in In Transit (admin only).
+      readyByFixed: Boolean(fixedReadyDate({ stage })),
+      delay: medicineDelays({ expected: readyBy, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, now }),
       readyBySetByName: request.readyBySetByName || '',
       reminderOn: iso(reminderDate(readyBy)),
       readyDays,

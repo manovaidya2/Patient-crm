@@ -2,6 +2,7 @@
 // owner of each. Everything the page shows per stage is defined here, so the backend validates exactly what the UI asks.
 const { ROLES } = require('../constants/roles');
 const { AGE_BANDS, supplyLabel } = require('../constants/supplyPlans');
+const { medicineDelays } = require('./medicineDelay');
 
 const MED = [ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN];
 const DOC = [ROLES.DOCTOR, ROLES.ADMIN];
@@ -115,6 +116,8 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     progress: Math.round((stages.filter((s) => s.state === 'done').length / STAGES.length) * 100),
     hold: job.hold?.active ? { ...job.hold, at: iso(job.hold.at) } : null,
     urgency: u,
+    // Days late against the date fixed in post counselling: made (final check) and released to In Transit.
+    delay: medicineDelays({ expected: job.readyByDate, madeAt: done.get('final')?.doneAt, releasedAt: done.get('release')?.doneAt, now }),
     formulation: job.formulation || null,
     stockTable,
     consumption: (job.consumption || []).map((c) => ({ ...c, txId: c.txId ? String(c.txId) : null })),
@@ -137,7 +140,7 @@ function jobSummary(jobDoc) {
   if (!jobDoc) return null;
   const v = buildJobView(jobDoc);
   return {
-    id: v.id, status: v.status, progress: v.progress, hold: v.hold, urgency: v.urgency, readyByDate: v.readyByDate,
+    id: v.id, status: v.status, progress: v.progress, hold: v.hold, urgency: v.urgency, readyByDate: v.readyByDate, delay: v.delay,
     currentLabel: v.status === 'released' ? 'Released to In Transit' : v.status === 'ready' ? 'Medicine ready - awaiting release' : (STAGES[v.currentStage]?.label || ''),
     stages: v.stages.map((s) => ({ key: s.key, n: s.n, label: s.label, state: s.state, doneAt: s.doneAt, doneByName: s.doneByName })),
   };

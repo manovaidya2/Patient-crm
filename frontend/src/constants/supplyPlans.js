@@ -16,6 +16,17 @@ export const AGE_BANDS = [
 
 export const supplyKeyOf = (plan, part) => (plan && part ? `${plan}:${part}` : '');
 export const ageBandLabel = (value) => AGE_BANDS.find((band) => band.value === value)?.label || '';
+// Same rule as the backend: the dose age group from an age like "6", "4.5" or "13 years".
+export const ageBandFor = (age) => {
+  const match = String(age ?? '').match(/\d+(\.\d+)?/);
+  if (!match) return '';
+  const years = Number(match[0]);
+  if (years < 3) return '';
+  if (years <= 4) return '3-4';
+  if (years <= 12) return '4-12';
+  if (years <= 70) return '12-70';
+  return '70+';
+};
 
 export const PO_STATUS = {
   pending: { label: 'Waiting for verification', tone: 'amber' },

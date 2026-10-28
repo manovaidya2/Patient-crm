@@ -1,6 +1,6 @@
 // Purchase order / payment record (paper page 3, sections F, G and H) filled after the post-counselling record.
 // The approved program fee comes from the post-counselling record (section E); everything here is fixed in code.
-const { SUPPLY_OPTIONS } = require('../constants/supplyPlans');
+const { SUPPLY_OPTIONS, AGE_BANDS, ageBandFor } = require('../constants/supplyPlans');
 const { applyParts } = require('./paymentParts');
 const { parseUtrEntries, resolveUtrs } = require('./utrEntries');
 
@@ -51,6 +51,10 @@ const SECTION_H = [
   // Generated on conversion (PO-1234); shown read-only on the paper.
   { key: 'poNo', label: 'PO No.', type: 'auto' },
   { key: 'supplyOrder', label: 'Medicine supply on this PO', type: 'single', options: SUPPLY_OPTIONS.map((option) => option.label), wide: true },
+  // The patient's age for this phase; the dose age group is worked out from it (never picked by hand). Both are
+  // read-only for In Transit and the Medicine Department.
+  { key: 'patientAge', label: 'Patient age (this phase)', type: 'text' },
+  { key: 'ageGroup', label: 'Age group (medicine dose, from the age)', type: 'ageGroup' },
   { key: 'poDate', label: 'PO date', type: 'date' },
   { key: 'orderedTreatment', label: 'Ordered treatment / phase', type: 'text', wide: true },
   { key: 'formulationRef', label: 'Customized formulation / medicine order ref.', type: 'text', wide: true },
@@ -119,6 +123,8 @@ const defaults = ({ record, registration, counselorName, today, phase = 1 }) => 
     amountReceivedNow: firstPayment(record),
     poDate: today, consentDate: today, paymentDate: today,
     orderedTreatment: `${categoryLabel} / Phase ${phase || 1}`,
+    patientAge: String(registration?.age ?? '').trim(),
+    ageGroup: AGE_BANDS[ageBandFor(registration?.age)] || '',
     guardianName: registration?.fatherName || registration?.motherName || '',
     guardianMobile: registration?.fatherNumber || registration?.motherNumber || '',
     counsellorWitness: counselorName || '',
@@ -134,6 +140,7 @@ const cleanPurchase = (raw = {}, approvedFee) => {
     else if (field.type === 'money') values[field.key] = money(value, field.label);
     else if (field.type === 'due' || field.type === 'dueNote') continue; // worked out after the loop
     else if (field.type === 'utrs') continue; // worked out after the loop
+    else if (field.type === 'ageGroup') continue; // worked out from the age after the loop
     else if (field.type === 'bank') {
       const id = text(value, 24);
       if (id && !/^[a-f0-9]{24}$/i.test(id)) throw fail('Select a valid bank');
@@ -163,6 +170,7 @@ const cleanPurchase = (raw = {}, approvedFee) => {
   else { values.cashHandedTo = ''; values.cashReceiver = ''; }
   if (Number(values.amountReceivedNow || 0) > Number(approvedFee || 0)) throw fail('The amount received cannot be more than the approved program fee');
   applyParts(values, raw, approvedFee);
+  values.ageGroup = AGE_BANDS[ageBandFor(values.patientAge)] || '';
   return { values, totals: totals(values, approvedFee) };
 };
 

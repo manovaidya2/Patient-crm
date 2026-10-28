@@ -3,6 +3,8 @@ import { Bike, Check, Stethoscope, Store, Truck } from 'lucide-react';
 import api from '../../api/axios.js';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../payments/UtrRows.jsx';
 import Button from '../ui/Button.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { FixedNote } from '../medicine/MedicineDelay.jsx';
 
 // The In Transit handover / treatment-start actions (calls, delivery mode, pickup or dispatch, receipt, explanation).
 // They write to the phase's transit record through /api/transit; the PO details page shows them for its medicine.
@@ -19,7 +21,7 @@ const localInput = (value = new Date(), withTime = true) => {
 // ---------- action forms ----------
 // field: [key, label, type, required, options, showIf]
 export const FORMS = {
-  raise_request: { title: 'Raise medicine request', button: 'Raise request', files: { label: 'Prescription (image / PDF)', req: true }, fields: [['medicines', 'Medicines', 'textarea', true], ['readyByDate', 'Expected medicine ready date', 'date', true], ['notes', 'Notes', 'textarea']] },
+  raise_request: { title: 'Raise medicine request', note: 'No prescription upload: the Medicine Department reads the patient\'s whole file from the Records Room.', button: 'Raise request', fields: [['medicines', 'Medicines', 'textarea', true], ['readyByDate', 'Expected medicine ready date', 'date', true], ['notes', 'Notes', 'textarea']] },
   accept_request: { title: 'Accept request and set ready-by date', note: 'An automatic reminder goes to the In Transit and Medicine Department one day before this date.', button: 'Accept request', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   set_ready_by: { title: 'Change ready-by date', note: 'The automatic reminder moves with the date.', button: 'Save date', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   log_call: {
@@ -86,7 +88,7 @@ export async function sendAction(item, action, values = {}, files = []) {
   return data.item;
 }
 
-function Field({ field, value, onChange }) {
+function Field({ field, value, onChange, locked = false }) {
   const [key, label, type, req, options] = field;
   let control;
   if (type === 'pills') {
@@ -101,8 +103,8 @@ function Field({ field, value, onChange }) {
   } else if (type === 'utrs') {
     return <UtrRows idPrefix={`${key}`} utrLabel={label} rows={value || [emptyUtrRow()]} onChange={(rows) => onChange(key, rows)} />;
   } else if (type === 'textarea') control = <textarea className={inputClass} rows={2} required={req} value={value || ''} onChange={(e) => onChange(key, e.target.value)} />;
-  else control = <input className={inputClass} type={type} required={req} min={type === 'number' ? 0 : undefined} value={value || ''} onChange={(e) => onChange(key, e.target.value)} />;
-  return <label className="block space-y-1 text-sm font-medium text-charcoal"><span>{label}{req && <span className="text-red-700"> *</span>}</span>{control}</label>;
+  else control = <input className={inputClass} type={type} required={req} min={type === 'number' ? 0 : undefined} value={value || ''} onChange={(e) => onChange(key, e.target.value)} disabled={locked} />;
+  return <label className="block space-y-1 text-sm font-medium text-charcoal"><span>{label}{req && <span className="text-red-700"> *</span>}</span>{control}{locked && <FixedNote />}</label>;
 }
 
 export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
@@ -112,6 +114,9 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const visible = form.fields.filter((f) => !f[5] || f[5](values));
+  // The expected ready date was fixed in post counselling: In Transit sends it to the Medicine Department as it is.
+  const { user } = useAuth();
+  const dateLocked = formKey === 'raise_request' && Boolean(item.expectedReadyDate) && user?.role !== 'admin';
   const submit = async (event) => {
     event.preventDefault();
     const missingPill = visible.find((f) => f[2] === 'pills' && f[3] && !values[f[0]]);
@@ -141,7 +146,7 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
       {form.note && <p className="text-xs leading-5 text-charcoal/60">{form.note}</p>}
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {visible.map((field) => <div key={field[0]} className={['textarea', 'pills', 'utrs'].includes(field[2]) ? 'sm:col-span-2' : ''}><Field field={field} value={values[field[0]]} onChange={(k, v) => setValues((old) => ({ ...old, [k]: v, ...(k === 'utrRows' && isMultiUtr(v) ? { amount: String(utrTotal(v)) } : {}) }))} /></div>)}
+        {visible.map((field) => <div key={field[0]} className={['textarea', 'pills', 'utrs'].includes(field[2]) ? 'sm:col-span-2' : ''}><Field field={field} locked={dateLocked && field[0] === 'readyByDate'} value={values[field[0]]} onChange={(k, v) => setValues((old) => ({ ...old, [k]: v, ...(k === 'utrRows' && isMultiUtr(v) ? { amount: String(utrTotal(v)) } : {}) }))} /></div>)}
       </div>
       {form.files && <label className="block space-y-1 text-sm font-medium text-charcoal"><span>{form.files.label}{form.files.req && <span className="text-red-700"> *</span>}</span><input className={`${inputClass} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></label>}
       <div className="flex flex-wrap gap-2 pt-1">

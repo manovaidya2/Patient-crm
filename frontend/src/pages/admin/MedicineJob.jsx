@@ -10,6 +10,8 @@ import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/Creat
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, ROLE_LABELS } from '../../constants/roles.js';
 import { AGE_BANDS, SUPPLY_OPTIONS, supplyKeyOf } from '../../constants/supplyPlans.js';
+import { DelayChips, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
+import PatientFile from '../../components/medicine/PatientFile.jsx';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const dateTime = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -93,7 +95,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     const set = (value) => setFields((old) => ({ ...old, [f.key]: value }));
     if (f.type === 'select') return <FieldLabel key={f.key} label={f.label} required={f.required}><select className={poInput} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct}><option value="">Select</option>{f.options.map((o) => <option key={o} value={o}>{o}</option>)}</select></FieldLabel>;
     if (f.type === 'textarea') return <FieldLabel key={f.key} label={f.label} required={f.required} className="sm:col-span-2"><textarea className={poInput} rows={2} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct} /></FieldLabel>;
-    return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct} /></FieldLabel>;
+    const fixed = f.key === 'readyByDate' && Boolean(job.readyByDate) && user?.role !== ROLES.ADMIN;
+    return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct || fixed} />{fixed && <FixedNote />}</FieldLabel>;
   };
   const endDate = job.readyByDate && job.formulation ? new Date(new Date(job.readyByDate).getTime() + job.formulation.days * 86400000) : null;
   return (
@@ -184,6 +187,10 @@ export default function MedicineJobPage() {
   const stageCanAct = canAct && isCurrent && !job.hold && job.status !== 'released' && shown.roles.includes(user?.role);
   const [urgLabel, urgTone] = URGENCY[job.urgency?.level] || URGENCY.normal;
   // Supply / age group belong to the formulation check, so only that stage's owner changes them.
+  // The supply (6 months / 1+5 / 2+4) was chosen in post counselling; only the admin can change it here.
+  // Locked only when post counselling sent them (older requests without a PO paper are still chosen here).
+  const supplyLocked = Boolean(job.fixedPlan?.supply) && user?.role !== ROLES.ADMIN;
+  const ageLocked = Boolean(job.fixedPlan?.ageBand) && user?.role !== ROLES.ADMIN;
   const canChangeSupply = canAct && job.currentStage <= 2 && job.status === 'open' && (job.stages.find((s) => s.key === 'review')?.roles || []).includes(user?.role);
 
   return (
@@ -197,6 +204,7 @@ export default function MedicineJobPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           {job.readyByDate && <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${urgTone}`}>{urgLabel} · ready by {day(job.readyByDate)}</span>}
+          {job.delay && <DelayChips delay={job.delay} />}
           <div className="w-40" title={`${job.progress}% done`}><p className="text-right text-[11px] text-charcoal/60">Stage {Math.min(job.currentStage + 1, job.totalStages)} of {job.totalStages} · <b className="text-charcoal">{job.progress}%</b></p><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#EFE3CF]"><div className="h-full rounded-full bg-sage transition-all" style={{ width: `${job.progress}%` }} /></div></div>
           {job.purchaseOrderId && <Link to={`/admin/purchase-orders/${job.purchaseOrderId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />PO</Button></Link>}
           {canAct && job.status !== 'released' && !job.hold && <Button size="sm" variant="outline" onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={14} />Hold</Button>}
@@ -243,11 +251,14 @@ export default function MedicineJobPage() {
                 <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />Opens after "{job.stages[job.currentStage]?.label}". Done by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>
               ) : (
                 <>
+                  {/* The patient's whole file (Records Room) is read in place of an uploaded prescription. */}
+                  <PatientFile documents={job.patientDocuments || []} className="mb-4" />
                   {shown.key === 'review' && canChangeSupply && (
                     <div className="mb-4 rounded-lg border border-cardline bg-offwhite-200/60 p-3">
-                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">Age group &amp; supply (from the request; change only if the prescription says otherwise)</p>
-                      <div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={supply.ageBand === b.value} onClick={() => setSupply((s) => ({ ...s, ageBand: b.value }))}>{b.label}</Chip>)}</div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={supply.supplyKey === o.key} onClick={() => setSupply((s) => ({ ...s, supplyKey: o.key }))}>{o.label}</Chip>)}</div>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">{supplyLocked || ageLocked ? 'Age group & supply (sent by post counselling)' : 'Age group & supply (choose as per the prescription)'}</p>
+                      <div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={supply.ageBand === b.value} disabled={ageLocked && supply.ageBand !== b.value} onClick={() => !ageLocked && setSupply((s) => ({ ...s, ageBand: b.value }))}>{b.label}</Chip>)}</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={supply.supplyKey === o.key} disabled={supplyLocked && supply.supplyKey !== o.key} onClick={() => !supplyLocked && setSupply((s) => ({ ...s, supplyKey: o.key }))}>{o.label}</Chip>)}</div>
+                      {supplyLocked && <FixedNote />}
                       {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart)) && <Button size="sm" className="mt-2" onClick={saveSupply}>Rebuild sheet</Button>}
                     </div>
                   )}

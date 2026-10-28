@@ -5,6 +5,7 @@ const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
 const { supplyLabel, ageBandFor, AGE_BANDS } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
 const { phaseAge } = require('./phaseAge');
+const { medicineDelays, fixedReadyDate } = require('./medicineDelay');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
@@ -251,6 +252,10 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, job = null } = 
     linkedPayment: linked,
     phasePayment: { totalAmount: phasePay.totalAmount, amountPaid: phasePay.amountPaid, remaining: phasePay.remaining, pendingCount: phasePay.pendingCount },
     phaseHold: Boolean(t.holdActive), phaseRemoved: Boolean(t.removedAt),
+    // Ready date and supply come from post counselling (PO paper): read-only for In Transit and Medicine Department.
+    fixedPlan: { readyDate: iso(fixedReadyDate({ po, stage })), supplyLocked: Boolean(po.supplyPlan && po.supplyPart), ageBandLocked: Boolean(po.ageBand) },
+    // Days late against that date: medicine made (Medicine Department) and released to In Transit.
+    delay: medicineDelays({ expected: po.medicineReadyDate || req?.readyByDate, madeAt: req?.madeAt, releasedAt: req?.sentToCourierAt }),
     medicine: request ? {
       requestId: req.requestId || 'legacy',
       status: req.status,

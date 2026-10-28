@@ -18,7 +18,7 @@ const makeRow = (extra = {}) => ({
   _id: ID, patientName: 'Riddhima', parentName: 'Rajnish', fatherNumber: '8800611900', motherNumber: '6265219550', age: '4', status: 'open', followUps: [],
   packageDetails: { approvedProgramFee: 42000, paymentPlan: '2 Parts' }, async save() { this.saved = true; }, ...extra,
 });
-const paper = (extra = {}) => ({ mode: 'Online', amountReceivedNow: '10000', utrReference: 'UTR-1', poNo: 'PO-9', poDate: '2026-10-19', orderedTreatment: 'Autism / Phase 1', ...extra });
+const paper = (extra = {}) => ({ mode: 'Online', amountReceivedNow: '10000', utrReference: 'UTR-1', poNo: 'PO-9', poDate: '2026-10-19', orderedTreatment: 'Autism / Phase 1', medicineReadyDate: '2026-10-30', supplyOrder: 'Full 6 months', patientAge: '4', ...extra });
 
 const run = async (body, stubs, req = {}) => {
   const restore = [];

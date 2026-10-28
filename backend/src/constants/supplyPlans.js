@@ -36,4 +36,7 @@ const ageBandFor = (age) => {
   return '70+';
 };
 
-module.exports = { SUPPLY_PLANS, SUPPLY_OPTIONS, AGE_BANDS, supplyOption, supplyOptionByLabel, supplyLabel, ageBandFor };
+// The PO paper keeps the age group as its label ("Above 4 - 12 years").
+const ageBandByLabel = (label) => Object.keys(AGE_BANDS).find((key) => AGE_BANDS[key] === label) || '';
+
+module.exports = { SUPPLY_PLANS, SUPPLY_OPTIONS, AGE_BANDS, supplyOption, supplyOptionByLabel, supplyLabel, ageBandFor, ageBandByLabel };

@@ -97,7 +97,7 @@ test('convert: a returning patient gets the next phase, its PO and payment; no s
     existingPatientCode: 'A-3046',
     input: { patientCode: 'A-3046', age: '7', postCounselor: 'b'.repeat(24), consultationDate: '2026-10-27' },
     fee: 30000,
-    values: { mode: 'Cash', amountReceivedNow: 10000, cashHandedTo: 'Prachi', orderedTreatment: 'Autism / ADHD / Phase 3', supplyOrder: '', medicineReadyDate: '2026-11-05' },
+    values: { mode: 'Cash', amountReceivedNow: 10000, cashHandedTo: 'Prachi', orderedTreatment: 'Autism / ADHD / Phase 3', supplyOrder: 'Full 6 months', ageGroup: 'Above 4 - 12 years', medicineReadyDate: '2026-11-05' },
     totals: {}, source: 'post_counseling', user: { name: 'Abhishek', role: 'post_counselor' },
   }));
   assert.equal(created, false, 'no new patient');
@@ -156,7 +156,7 @@ test('convert: a phase the existing patient already bought is refused', async ()
     [PurchaseOrder, 'create', async (doc) => ({ _id: 'p'.repeat(24), events: [], paymentIds: [], ...doc, save: async () => {} })],
     [PurchaseOrder, 'deleteOne', async () => { poDeleted = true; }],
   ], async () => {
-    const args = { existingPatientCode: 'A-3046', input: { patientCode: 'A-3046' }, fee: 1000, values: { mode: 'Cash', amountReceivedNow: 0, orderedTreatment: 'Autism / ADHD / Phase 1' }, totals: {}, user: { name: 'Abhishek', role: 'post_counselor' } };
+    const args = { existingPatientCode: 'A-3046', input: { patientCode: 'A-3046' }, fee: 1000, values: { mode: 'Cash', amountReceivedNow: 0, orderedTreatment: 'Autism / ADHD / Phase 1', medicineReadyDate: '2026-11-05', supplyOrder: 'Full 6 months', ageGroup: 'Above 4 - 12 years' }, totals: {}, user: { name: 'Abhishek', role: 'post_counselor' } };
     await assert.rejects(createConvertedPatient({ ...args, phase: 1 }), /already has a purchase in Phase 1/);
     const ok = await createConvertedPatient({ ...args, phase: 2 });
     assert.equal(ok.phase, 2);

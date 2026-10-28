@@ -3,6 +3,7 @@ import { Check, FileText, Paperclip, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import { workOutDues } from '../../utils/paymentParts.js';
 import UtrRows, { isMultiUtr, utrTotal } from '../payments/UtrRows.jsx';
+import { ageBandFor, ageBandLabel } from '../../constants/supplyPlans.js';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
 const serverBase = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
@@ -119,6 +120,8 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
       return <div key={field.key} className={wrap}><Auto label={field.label} value={due === '' ? '-' : rupees(due)} /></div>;
     }
     if (field.type === 'dueNote') return values[field.key] ? <div key={field.key} className={wrap}><Auto label={field.label} value={values[field.key]} /></div> : null;
+    // Worked out from the age above as it is typed (the server works it out the same way when saving).
+    if (field.type === 'ageGroup') return <div key={field.key} className={wrap}><Auto label={field.label} value={ageBandLabel(ageBandFor(values.patientAge)) || 'Enter the age (from 3 years)'} /></div>;
     if (field.type === 'auto') return <div key={field.key} className={wrap}><Auto label={field.label} value={values[field.key] || 'Generated on convert (PO-xxxx)'} /></div>;
     if (field.type === 'check') return <label key={field.key} className={`flex items-center gap-2 pt-6 text-sm font-semibold text-charcoal ${wrap}`}><input type="checkbox" disabled={!editable} checked={Boolean(values[field.key])} onChange={(event) => onChange(field.key, event.target.checked)} className="h-4 w-4 accent-sage" />{field.label}</label>;
     return (

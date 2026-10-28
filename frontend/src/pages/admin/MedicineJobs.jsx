@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Pill } from 'lucide-react';
+import { DelayChips } from '../../components/medicine/MedicineDelay.jsx';
 import api from '../../api/axios.js';
 import Badge from '../../components/ui/Badge.jsx';
 import { Chip } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
@@ -83,7 +84,7 @@ export default function MedicineJobs() {
                   <tr key={j.id} className={`cursor-pointer border-t border-cardline ${(j.actionBy || []).includes(user?.role) ? 'bg-orange-50/70 shadow-[inset_3px_0_0_#f97316] hover:bg-orange-50' : 'hover:bg-sage/5'}`} onClick={() => navigate(`/admin/medicine-jobs/${j.id}`)}>
                     <td className="px-3 py-2"><b>{j.patientName}</b><div className="text-xs text-charcoal/55">{j.patientCode} · Phase {j.phase}</div></td>
                     <td className="px-3 py-2"><span className="font-mono text-xs font-bold">{j.poNumber || '-'}</span><div className="text-xs text-charcoal/60">{j.supplyLabel || '-'}{j.ageBandLabel ? ` · ${j.ageBandLabel}` : ''}</div></td>
-                    <td className="px-3 py-2">{j.readyByDate ? <><span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${ut}`}>{ul}</span><div className="text-xs text-charcoal/60">{day(j.readyByDate)}</div></> : <span className="text-xs text-charcoal/50">not set</span>}</td>
+                    <td className="px-3 py-2">{j.readyByDate ? <><span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${ut}`}>{ul}</span><div className="text-xs text-charcoal/60">{day(j.readyByDate)}</div>{j.delay && <DelayChips delay={j.delay} show={['medicine']} className="mt-1" />}</> : <span className="text-xs text-charcoal/50">not set</span>}</td>
                     <td className="px-3 py-2">{j.hold ? <Badge tone="danger">On hold</Badge> : <span className="text-charcoal">{j.currentStage + 1 > j.totalStages ? 'Released' : `${j.currentStage + 1}. ${j.currentLabel}`}</span>}</td>
                     <td className="px-3 py-2"><div className="h-1.5 w-28 overflow-hidden rounded-full bg-cardline"><div className="h-full bg-sage" style={{ width: `${j.progress}%` }} /></div><div className="text-[11px] text-charcoal/50">{j.progress}%</div></td>
                   </tr>); })}

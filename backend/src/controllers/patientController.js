@@ -203,6 +203,7 @@ const resolvePayToBank = async (paymentMode, bankId) => {
 };
 
 const { cleanAge, phaseAge, setPhaseAge, freezePhaseAges } = require('../utils/phaseAge');
+const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
 const { OUTCOMES: SCHEDULE_OUTCOMES, OUTCOME_LABELS: SCHEDULE_OUTCOME_LABELS, monthKeyOf } = require('../utils/patientImprovement');
 const { syncImprovementToMarketing } = require('./digitalMarketingController');
 
@@ -2842,10 +2843,8 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
   if (!medicines) {
     return res.status(400).json({ success: false, message: 'Medicine details are required' });
   }
+  // No prescription upload any more: the Medicine Department reads the patient's Records Room PDF.
   const uploadedFiles = filesFromRequest(req);
-  if (!uploadedFiles.length) {
-    return res.status(400).json({ success: false, message: 'Prescription image or document is required' });
-  }
 
   const patient = await Patient.findById(req.params.id);
   if (!patient) {
@@ -2862,10 +2861,13 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
   const prescriptionFiles = toFileItems(uploadedFiles, 'prescriptions');
+  // The ready date fixed in post counselling (PO paper) is used as it is; only the admin can send another one.
+  const fixedDate = fixedReadyDate({ stage: stageEntry });
+  const requestedReadyBy = fixedDate && !canOverrideFixed(req.user) ? fixedDate : (req.body.readyByDate || stageEntry.transit?.expectedReadyDate);
   if (isInTransit(stageEntry)) {
     if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
     if ((patient.approvalStatus || 'approved') !== 'approved' || transitPaymentSummary(stageEntry).pendingCount) return res.status(400).json({ success: false, message: 'Approve the patient and submitted payments before requesting medicine' });
-    const ready = req.body.readyByDate || stageEntry.transit?.expectedReadyDate;
+    const ready = requestedReadyBy;
     if (!ready || !Number.isFinite(new Date(ready).getTime())) return res.status(400).json({ success: false, message: 'Set the medicine ready date in In Transit first' });
   }
   const createNew = req.body.createNew === 'true' || req.body.createNew === true;
@@ -2889,10 +2891,10 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
     status: MEDICINE_STATUSES.REQUESTED,
     medicines,
     notes: notes || '',
-    prescriptionUrl: prescriptionFiles[0].url,
-    prescriptionFileName: prescriptionFiles[0].fileName,
+    prescriptionUrl: prescriptionFiles[0]?.url || existingRequest?.prescriptionUrl || null,
+    prescriptionFileName: prescriptionFiles[0]?.fileName || existingRequest?.prescriptionFileName || '',
     prescriptionFiles: mergeFileItems(existingRequest?.prescriptionFiles || [], prescriptionFiles),
-    readyByDate: req.body.readyByDate || stageEntry.transit?.expectedReadyDate || existingRequest?.readyByDate || null,
+    readyByDate: requestedReadyBy || existingRequest?.readyByDate || null,
     requestedAt: new Date(),
     requestedByName: req.user.name,
   };
@@ -3019,8 +3021,16 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   if (currentRequest.status === MEDICINE_STATUSES.NOT_REQUESTED) {
     return res.status(400).json({ success: false, message: 'Medicine has not been requested for this phase' });
   }
-  const readyByInput = req.body.readyByDate ? new Date(req.body.readyByDate) : null;
-  if (req.body.readyByDate && Number.isNaN(readyByInput.getTime())) {
+  // The ready date fixed in post counselling cannot be changed by In Transit or the Medicine Department.
+  const fixedDate = fixedReadyDate({ stage: stageEntry });
+  const dateLocked = Boolean(fixedDate) && !canOverrideFixed(req.user);
+  if (dateLocked && req.body.action === 'setReadyBy') {
+    return res.status(403).json({ success: false, message: 'The medicine ready date is set by post counselling on the PO paper; only the admin can change it' });
+  }
+  const readyByInput = dateLocked
+    ? (currentRequest.readyByDate ? null : new Date(fixedDate))
+    : (req.body.readyByDate ? new Date(req.body.readyByDate) : null);
+  if (readyByInput && Number.isNaN(readyByInput.getTime())) {
     return res.status(400).json({ success: false, message: 'Enter a valid medicine ready-by date' });
   }
   if (req.body.action === 'setReadyBy') {

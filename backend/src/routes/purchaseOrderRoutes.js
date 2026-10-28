@@ -2,7 +2,7 @@ const express = require('express');
 const {
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
-  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase, revertStep,
+  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase, revertStep, updatePlan,
 } = require('../controllers/purchaseOrderController');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
@@ -23,6 +23,7 @@ router.post('/:id/payments', authorize(...PO_CREATE_ROLES), poFiles, addPurchase
 router.post('/:id/verify-details', authorize(...PO_VERIFY_ROLES), verifyDetails);
 router.post('/:id/verify-payment', authorize(...PO_VERIFY_ROLES), verifyPayment);
 router.post('/:id/reject', authorize(...PO_VERIFY_ROLES), rejectPurchaseOrder);
+router.patch('/:id/plan', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), updatePlan);
 router.post('/:id/medicine-request', authorize(...PO_VERIFY_ROLES), uploadPrescription.array('prescription', 10), requestMedicine);
 router.post('/:id/activate-phase', authorize(...PO_VERIFY_ROLES), activatePhase);
 router.post('/:id/revert', authorize(ROLES.ADMIN), revertStep);

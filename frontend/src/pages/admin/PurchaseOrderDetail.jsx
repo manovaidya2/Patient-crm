@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeft, Check, CheckCircle2, ClipboardList, Clock3, ExternalLink, FileText, IndianRupee, Layers,
-  PauseCircle, Phone, PhoneCall, Pill, PlayCircle, Plus, RotateCcw, Send, ShieldCheck, Stethoscope, Truck, UserRound, X,
+  PauseCircle, Pencil, Phone, PhoneCall, Pill, PlayCircle, Plus, RotateCcw, Send, ShieldCheck, Stethoscope, Truck, UserRound, X,
 } from 'lucide-react';
 import api from '../../api/axios.js';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../../components/payments/UtrRows.jsx';
@@ -14,8 +14,10 @@ import { PoPipelineBoxes, PoTimeline, poDateTime } from '../../components/purcha
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import { ActionForm, AssignPccForm, CALL, FORMS, MODE, formKeyFor, sendAction } from '../../components/transit/TransitActions.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { DelayChips, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
+import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { ROLES } from '../../constants/roles.js';
-import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
+import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
 
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const day = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -98,6 +100,12 @@ function VerifyPanel({ po, onDone }) {
 }
 
 function MedicineRequestForm({ po, onDone }) {
+  const { user } = useAuth();
+  const admin = user?.role === ROLES.ADMIN;
+  // Fixed in post counselling: In Transit passes them on as they are (only the admin can change them).
+  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && !admin;
+  const dateLocked = Boolean(po.fixedPlan?.readyDate) && !admin;
+  const ageLocked = Boolean(po.fixedPlan?.ageBandLocked) && !admin;
   const [values, setValues] = useState({
     supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), ageBand: po.ageBand || po.suggestedAgeBand || '',
     medicines: '', readyByDate: inputDay(po.medicineReadyDate), notes: '',
@@ -110,7 +118,6 @@ function MedicineRequestForm({ po, onDone }) {
     event.preventDefault();
     if (!values.supplyKey) { setError('Select the medicine supply'); return; }
     if (!values.ageBand) { setError('Select the age group'); return; }
-    if (!files.length) { setError('Attach the prescription'); return; }
     setBusy(true); setError('');
     try {
       const body = new FormData();
@@ -124,12 +131,12 @@ function MedicineRequestForm({ po, onDone }) {
     <form onSubmit={submit} className="space-y-3">
       <div className="flex gap-3"><Pill size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">Request medicine from Medicine Department</h3><p className="text-sm text-charcoal/65">Confirm the supply and the age group; Medicine Department prepares by this category.</p></div></div>
       <ErrorText>{error}</ErrorText>
-      <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} title={o.hint} active={values.supplyKey === o.key} onClick={() => set('supplyKey', o.key)}>{o.label}</Chip>)}</div></div>
-      <div><p className="mb-1 text-sm font-medium text-charcoal">Age group<span className="text-red-700"> *</span> {po.patientAge && <span className="font-normal text-charcoal/50">(patient age {po.patientAge})</span>}</p><div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={values.ageBand === b.value} onClick={() => set('ageBand', b.value)}>{b.label}{b.value === po.suggestedAgeBand ? ' (by age)' : ''}</Chip>)}</div></div>
+      <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} title={o.hint} active={values.supplyKey === o.key} disabled={supplyLocked && values.supplyKey !== o.key} onClick={() => !supplyLocked && set('supplyKey', o.key)}>{o.label}</Chip>)}</div>{supplyLocked && <FixedNote />}</div>
+      <div><p className="mb-1 text-sm font-medium text-charcoal">Age group<span className="text-red-700"> *</span> {po.patientAge && <span className="font-normal text-charcoal/50">(patient age {po.patientAge})</span>}</p><div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={values.ageBand === b.value} disabled={ageLocked && values.ageBand !== b.value} onClick={() => !ageLocked && set('ageBand', b.value)}>{b.label}{b.value === po.suggestedAgeBand ? ' (by age)' : ''}</Chip>)}</div>{ageLocked && <FixedNote />}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <FieldLabel label="Medicines" required className="sm:col-span-2"><textarea className={poInput} rows={2} required value={values.medicines} onChange={(e) => set('medicines', e.target.value)} placeholder="Medicines as per the prescription" /></FieldLabel>
-        <FieldLabel label="Medicine ready-by date" required><input className={poInput} type="date" required value={values.readyByDate} onChange={(e) => set('readyByDate', e.target.value)} /></FieldLabel>
-        <FieldLabel label="Prescription (image / PDF)" required><input className={`${poInput} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></FieldLabel>
+        <FieldLabel label="Medicine ready-by date" required><input className={poInput} type="date" required readOnly={dateLocked} disabled={dateLocked} value={values.readyByDate} onChange={(e) => set('readyByDate', e.target.value)} />{dateLocked && <FixedNote />}</FieldLabel>
+        <div className="sm:col-span-2"><p className="mb-1 text-sm text-charcoal/65">No prescription upload: the Medicine Department reads the patient's whole file from the Records Room.</p><PatientFile documents={po.patientDocuments || []} /></div>
         <FieldLabel label="Notes for Medicine Department" className="sm:col-span-2"><input className={poInput} value={values.notes} onChange={(e) => set('notes', e.target.value)} /></FieldLabel>
       </div>
       <Button type="submit" disabled={busy}><Send size={15} />{busy ? 'Sending...' : 'Send medicine request'}</Button>
@@ -137,7 +144,38 @@ function MedicineRequestForm({ po, onDone }) {
   );
 }
 
+function PlanEditModal({ po, onClose, onDone }) {
+  // The age group is never picked: it follows the age entered here.
+  const [values, setValues] = useState({ medicineReadyDate: inputDay(po.medicineReadyDate), supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), patientAge: po.patientAge || '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (key, value) => setValues((v) => ({ ...v, [key]: value }));
+  const submit = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const { data } = await api.patch(`/purchase-orders/${po.id}/plan`, values);
+      onDone(data.purchaseOrder, 'Ready date, supply and age group updated.');
+      onClose();
+    } catch (err) { setError(err.response?.data?.message || 'Could not save'); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open onClose={() => !busy && onClose()} title={`Change plan · ${po.poNumber}`} className="max-w-lg">
+      <form onSubmit={submit} className="space-y-3">
+        <p className="text-sm text-charcoal/65">Decided in post counselling. In Transit and the Medicine Department work to these and cannot change them. They can be changed here until the Medicine Department accepts the request.</p>
+        <ErrorText>{error}</ErrorText>
+        <FieldLabel label="Medicine ready expected date" required><input className={poInput} type="date" required value={values.medicineReadyDate} onChange={(e) => set('medicineReadyDate', e.target.value)} /></FieldLabel>
+        <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply</p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={values.supplyKey === o.key} onClick={() => set('supplyKey', o.key)}>{o.label}</Chip>)}</div></div>
+        <FieldLabel label="Patient age (this phase)" required><input className={poInput} required value={values.patientAge} onChange={(e) => set('patientAge', e.target.value)} placeholder="e.g. 6" /></FieldLabel>
+        <p className="text-sm text-charcoal/70">Age group: <b className="text-charcoal">{ageBandLabel(ageBandFor(values.patientAge)) || 'enter the age (from 3 years)'}</b></p>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button></div>
+      </form>
+    </Modal>
+  );
+}
+
 function EditRejectedForm({ po, onDone }) {
+  const { user } = useAuth();
+  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && user?.role !== ROLES.ADMIN;
   const [values, setValues] = useState({ supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), amount: String(po.amount || ''), notes: po.notes || '' });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -156,7 +194,7 @@ function EditRejectedForm({ po, onDone }) {
     <form onSubmit={submit} className="space-y-3">
       <div className="flex gap-3"><AlertTriangle size={20} className="mt-0.5 shrink-0 text-[#8C3B2E]" /><div><h3 className="text-base font-bold text-charcoal">Rejected - correct and resend</h3><p className="text-sm text-[#8C3B2E]">{po.rejectReason} <span className="text-charcoal/50">({po.rejectedByName}, {poDateTime(po.rejectedAt)})</span></p></div></div>
       <ErrorText>{error}</ErrorText>
-      <div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={values.supplyKey === o.key} onClick={() => setValues((v) => ({ ...v, supplyKey: o.key }))}>{o.label}</Chip>)}</div>
+      <div><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={values.supplyKey === o.key} disabled={supplyLocked && values.supplyKey !== o.key} onClick={() => !supplyLocked && setValues((v) => ({ ...v, supplyKey: o.key }))}>{o.label}</Chip>)}</div>{supplyLocked && <FixedNote />}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <FieldLabel label="PO amount (Rs)"><input className={poInput} value={values.amount} onChange={(e) => setValues((v) => ({ ...v, amount: e.target.value }))} /></FieldLabel>
         <FieldLabel label="Add PO paper image"><input className={`${poInput} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></FieldLabel>
@@ -313,6 +351,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [payOpen, setPayOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   // Admin undo of a timeline step (and every later one), with a reason.
   const [revert, setRevert] = useState(null);
   const [revertReason, setRevertReason] = useState('');
@@ -333,6 +372,17 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(t); }, [notice]);
 
   const done = (next, message) => { setPo(next); setNotice(message); setPayOpen(false); };
+  // A PO still waiting for verification: In Transit checks the details and the payment right here, in one go.
+  const verifyPoHere = async (payment) => {
+    if (!window.confirm(`Verify ${po.poNumber}: the PO details and its payment(s) (${money(po.linkedPayment.pendingAmount || payment.amount)}) together?`)) return;
+    setBusyPayment(payment.id); setError('');
+    try {
+      if (!po.detailsVerifiedAt) await api.post(`/purchase-orders/${po.id}/verify-details`);
+      const { data } = await api.post(`/purchase-orders/${po.id}/verify-payment`);
+      setPo(data.purchaseOrder);
+      setNotice(`${po.poNumber} verified with its payment.`);
+    } catch (err) { setError(err.response?.data?.message || 'Could not verify'); await load(); } finally { setBusyPayment(''); }
+  };
   const verifyPayment = async (payment) => {
     setBusyPayment(payment.id); setError('');
     try { await api.patch(`/patients/${po.patientId}/stages/${po.phase}/payments/${payment.id}/approve`); await load(); setNotice(`Payment of ${money(payment.amount)} verified in Phase ${po.phase} payments.`); }
@@ -408,14 +458,15 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             <Row label="Address" value={po.address} />
             <Row label="Patient approval" value={po.approvalStatus === 'approved' ? 'Approved' : 'Pending'} />
           </Section>}
-          <Section title="Purchase order" icon={FileText}>
+          <Section title="Purchase order" icon={FileText} action={[ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(role) && po.status !== 'cancelled' && (!po.medicine || ['requested', 'cancelled'].includes(po.medicine.status)) && <button type="button" className={smallLink} onClick={() => setPlanOpen(true)}><Pencil size={13} />Change plan</button>}>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Row label="PO number" value={po.poNumber} />
               <Row label="Phase" value={`Phase ${po.phase}`} />
               <Row label="Medicine supply" value={po.supplyLabel || 'Not selected yet'} />
               <Row label="Age group" value={ageBandLabel(po.ageBand)} />
               <Row label="PO value" value={money(po.amount)} />
-              <Row label="Ready expected" value={day(po.medicineReadyDate)} />
+              <Row label="Ready expected" value={po.medicineReadyDate ? <span className="inline-flex flex-wrap items-center gap-1.5">{day(po.medicineReadyDate)}{po.fixedPlan?.readyDate && <span className="text-[11px] text-charcoal/55">(fixed by post counselling)</span>}</span> : ''} />
+              {po.delay && <Row label="Delay" value={<DelayChips delay={po.delay} />} />}
               <Row label="Created" value={`${poDateTime(po.createdAt)}${po.createdByName ? ` by ${po.createdByName}` : ''}`} />
               <Row label="Details verified" value={po.detailsVerifiedAt ? `${poDateTime(po.detailsVerifiedAt)} by ${po.detailsVerifiedByName}` : ''} />
               <Row label="Payment verified" value={po.paymentVerifiedAt ? `${poDateTime(po.paymentVerifiedAt)} by ${po.paymentVerifiedByName}` : ''} />
@@ -449,6 +500,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${p.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : p.status === 'pending' ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-charcoal/50'}`}>{p.status === 'approved' ? 'Verified' : p.status === 'pending' ? 'Pending' : 'Cancelled'}</span>
+                      {canVerify && p.status === 'pending' && po.status === 'pending' && <button type="button" className="rounded-md bg-sage px-2 py-1 text-xs font-semibold text-white hover:bg-sage/90 disabled:opacity-50" disabled={busyPayment === p.id} onClick={() => verifyPoHere(p)}>{busyPayment === p.id ? 'Verifying...' : 'Verify PO & payment'}</button>}
                       {canVerify && p.status === 'pending' && po.status === 'verified' && <button type="button" className="text-xs font-semibold text-sage hover:underline disabled:opacity-50" disabled={busyPayment === p.id} onClick={() => verifyPayment(p)}>{busyPayment === p.id ? 'Verifying...' : 'Verify'}</button>}
                     </div>
                   </li>
@@ -465,7 +517,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
               <Row label="Requested" value={[poDateTime(med.requestedAt), med.requestedByName && `by ${med.requestedByName}`].filter(Boolean).join(' ')} />
               <Row label="Notes" value={med.notes} />
               <Row label="Cancelled" value={med.cancelReason} />
-              <CompactAttachments files={med.prescriptionFiles} label="Prescription" />
+              <PatientFile documents={po.patientDocuments || []} className="mt-2" />
+              {/* Prescriptions uploaded with older requests stay visible. */}
+              <CompactAttachments files={med.prescriptionFiles} label="Prescription (older request)" />
               <CompactAttachments files={med.medicineImages} label="Medicine photos" />
             </> : <p className="text-sm text-charcoal/60">{po.canRequestMedicine ? 'Not requested yet - use the form above.' : po.requestBlockedReason || 'Not requested yet.'}</p>}
           </Section>}
@@ -492,6 +546,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           )}
         </div>
       </div>
+      {planOpen && <PlanEditModal po={po} onClose={() => setPlanOpen(false)} onDone={done} />}
       {payOpen && <AddPaymentModal po={po} open={payOpen} onClose={() => setPayOpen(false)} onDone={done} />}
       <Modal open={Boolean(revert)} onClose={() => !reverting && setRevert(null)} title={revert ? `Revert "${revert.label}"` : ''} className="max-w-lg">
         {revert && (() => {
