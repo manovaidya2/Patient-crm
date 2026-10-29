@@ -76,6 +76,24 @@ function MoveModal({ open, onClose, onSaved, item }) {
   );
 }
 
+// Bottles: for a bottled medicine, how many 100 ml bottles its stock fills and how many it used; for BT-100, the use per medicine.
+function BottleCell({ b }) {
+  if (!b) return <span className="text-charcoal/35">-</span>;
+  if (b.byMedicine) return (
+    <div className="space-y-0.5">
+      <p><b>{num(b.usedTotal)}</b> used{b.usedMonth ? <span className="text-charcoal/55"> · {num(b.usedMonth)} this month</span> : ''}</p>
+      {b.byMedicine.length > 0 && <p className="text-charcoal/65">{b.byMedicine.map((m) => `${m.name} ${num(m.total)}`).join(' · ')}</p>}
+      <p className={b.neededForStock > 0 ? 'text-charcoal/55' : 'hidden'}>Medicine in stock fills {num(b.neededForStock)} bottles</p>
+    </div>
+  );
+  return (
+    <div className="space-y-0.5">
+      <p><b>≈ {num(b.inStock)}</b> bottles in stock <span className="text-charcoal/55">({b.size} ml each)</span></p>
+      <p className="text-charcoal/65"><b className="text-charcoal">{num(b.usedTotal)}</b> {b.bottleCode} used{b.usedMonth ? ` · ${num(b.usedMonth)} this month` : ''}</p>
+    </div>
+  );
+}
+
 export default function Stocks() {
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -119,16 +137,17 @@ export default function Stocks() {
         <div className="flex gap-1.5"><Chip active={!kind} onClick={() => setKind('')}>All</Chip>{KINDS.map(([v, l]) => <Chip key={v} active={kind === v} onClick={() => setKind(v)}>{l}</Chip>)}</div>
       </div>
       <div className="overflow-x-auto rounded-[14px] border border-[#E8DFCB] bg-white">
-        <table className="w-full text-sm"><thead className="bg-[#FBF7ED] text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60"><tr><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-left">Kind</th><th className="px-3 py-2 text-right">In stock</th><th className="px-3 py-2 text-right">Min</th><th className="px-3 py-2 text-left">Batch / expiry</th><th className="px-3 py-2 text-left">Conversion</th><th className="px-3 py-2" /></tr></thead>
+        <table className="w-full text-sm"><thead className="bg-[#FBF7ED] text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60"><tr><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-left">Kind</th><th className="px-3 py-2 text-right">In stock</th><th className="px-3 py-2 text-right">Min</th><th className="px-3 py-2 text-left">Bottles</th><th className="px-3 py-2 text-left">Batch / expiry</th><th className="px-3 py-2 text-left">Conversion</th><th className="px-3 py-2" /></tr></thead>
           <tbody>
-            {items === null ? <tr><td colSpan={7} className="p-6 text-center text-charcoal/55">Loading...</td></tr>
-              : !rows.length ? <tr><td colSpan={7} className="p-6 text-center text-charcoal/55">No stock items.</td></tr>
+            {items === null ? <tr><td colSpan={8} className="p-6 text-center text-charcoal/55">Loading...</td></tr>
+              : !rows.length ? <tr><td colSpan={8} className="p-6 text-center text-charcoal/55">No stock items.</td></tr>
                 : rows.map((i) => (
                   <tr key={i.id} className={`border-t border-[#F0E8D8] ${i.low ? 'bg-[#FFF7ED]' : ''}`}>
                     <td className="px-3 py-2"><b className="font-mono">{i.code}</b><div className="text-xs text-charcoal/60">{i.name}{i.nameHindi ? ` · ${i.nameHindi}` : ''}</div></td>
                     <td className="px-3 py-2 text-xs capitalize">{i.kind}</td>
                     <td className="px-3 py-2 text-right"><span className="font-mono font-bold">{num(i.currentStock)} {i.unit}</span>{i.low && <div className="text-[10px] font-bold text-[#C2410C]">LOW</div>}<div className="ml-auto mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-[#EFE3CF]" title="Stock against twice the minimum level"><div className={`h-full rounded-full ${i.low ? 'bg-[#F97316]' : 'bg-[#2F8F5B]'}`} style={{ width: `${Math.max(4, Math.min(100, Number(i.minLevel) > 0 ? (Number(i.currentStock) / (Number(i.minLevel) * 2)) * 100 : 100))}%` }} /></div></td>
                     <td className="px-3 py-2 text-right font-mono text-charcoal/60">{num(i.minLevel)}</td>
+                    <td className="px-3 py-2 text-xs"><BottleCell b={i.bottles} /></td>
                     <td className="px-3 py-2 text-xs">{i.batchNo || '-'}{i.expiryDate ? <div className={i.expired ? 'font-semibold text-[#8C3B2E]' : ''}>{day(i.expiryDate)}{i.expired ? ' (expired)' : ''}</div> : null}</td>
                     <td className="px-3 py-2 text-xs text-charcoal/60">{i.gramsPerSpoon ? `${i.gramsPerSpoon} g/spoon` : ''}{i.dropsPerMl ? `${i.dropsPerMl} drops/ml` : ''}{!i.gramsPerSpoon && !i.dropsPerMl && (i.unit === 'g' || i.unit === 'ml') && ['SHIVA-LEH', 'BUDDHI-GHRIT'].includes(i.code) ? <span className="text-amber-800">pending</span> : ''}</td>
                     <td className="px-3 py-2"><div className="flex justify-end gap-1"><Button size="sm" onClick={() => setMoving(i)}><Plus size={13} />Stock</Button><Button size="sm" variant="outline" onClick={() => { setEditing(i); setItemOpen(true); }}>Edit</Button><Button size="sm" variant="ghost" onClick={() => setLedgerOf(i)}><History size={13} /></Button></div></td>

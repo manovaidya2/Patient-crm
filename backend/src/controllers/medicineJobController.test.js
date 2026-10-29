@@ -144,12 +144,12 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   assert.equal(txs.filter((t) => t.type === 'consume').length, v.consumption.filter((c) => c.actual > 0).length);
   assert.ok(v.consumption.every((c) => c.actual === 0 || c.txId), 'every consumed line has its ledger row');
   // Chits must all be confirmed.
-  await assert.rejects(complete(id, 'fill', { unitLog: 'U1' }), /Confirm every chit/);
-  v = (await complete(id, 'fill', { unitLog: 'U1' }, { chits: JSON.stringify(v.chits.map((c) => ({ key: c.key, confirmed: true }))) })).job;
+  await assert.rejects(complete(id, 'fill', {}), /Confirm every chit/);
+  v = (await complete(id, 'fill', {}, { chits: JSON.stringify(v.chits.map((c) => ({ key: c.key, confirmed: true }))) })).job;
   assert.ok(v.chits.every((c) => c.confirmed));
   // The Medicine Department does its own pack QC, the preparer's login included.
   v = (await complete(id, 'qc', { result: 'PASS' }, {}, med)).job;
-  v = (await complete(id, 'pack1', { kitLocation: 'Tray 3' })).job;
+  v = (await complete(id, 'pack1', {})).job;
   // Doctor only; a HOLD sends the kit back to QC.
   await assert.rejects(complete(id, 'doctor', { result: 'PASS', remarks: 'ok' }, {}, med), /done by/);
   v = (await complete(id, 'doctor', { result: 'HOLD', remarks: 'Pouch 2 leaking' }, {}, doctor)).job;
@@ -158,7 +158,7 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med2), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Pouch repacked' } })).job;
   v = (await complete(id, 'qc', { result: 'PASS' }, {}, med2)).job;
-  v = (await complete(id, 'pack1', { kitLocation: 'Tray 3' })).job;
+  v = (await complete(id, 'pack1', {})).job;
   v = (await complete(id, 'doctor', { result: 'PASS', remarks: 'All matched' }, {}, doctor)).job;
   await assert.rejects(complete(id, 'photos', {}, { files: {} }), /Photo A/);
   v = (await complete(id, 'photos', {}, { files: { photoA: [file], photoB: [file] } })).job;

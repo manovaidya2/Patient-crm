@@ -62,7 +62,7 @@ const InfoRow = ({ label, value, sub }) => (value === '' || value == null ? null
 ));
 // What was done in a completed stage: every ticked checklist line, every value filled and the notes, each with a green tick.
 // Older jobs may still carry the removed formulation-check fields.
-const FIELD_LABEL = { shortageAccepted: 'Shortage request raised (stock was short)', readyByDate: 'Medicine will be ready by', formulaRef: 'Doctor approval / formula reference', exceptions: 'Patient-specific changes', batchRefs: 'Batch / lot references used', batchNo: 'Preparation batch / job reference', preparerName: 'Prepared by (operator)' };
+const FIELD_LABEL = { shortageAccepted: 'Shortage request raised (stock was short)', readyByDate: 'Medicine will be ready by', formulaRef: 'Doctor approval / formula reference', exceptions: 'Patient-specific changes', batchRefs: 'Batch / lot references used', batchNo: 'Preparation batch / job reference', preparerName: 'Prepared by (operator)', unitLog: 'Per-unit fill log reference', kitLocation: 'Kit tray / location' };
 const fieldText = (field, value) => {
   if (value === true) return 'Yes';
   if (field?.type === 'date' || /^\d{4}-\d{2}-\d{2}/.test(String(value))) return day(value) || String(value);

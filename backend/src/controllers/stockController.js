@@ -3,6 +3,7 @@ const StockItem = require('../models/StockItem');
 const StockTransaction = require('../models/StockTransaction');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
+const { bottleUsageFrom, withBottles } = require('../utils/bottleUsage');
 
 const STOCK_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
@@ -42,7 +43,10 @@ const moveStock = async (item, { type, quantity, delta, user, refType = '', job 
 // @route GET /api/stocks
 const listStocks = asyncHandler(async (req, res) => {
   const items = await StockItem.find(req.query.all === 'true' ? {} : { isActive: { $ne: false } }).sort({ kind: 1, name: 1 });
-  res.json({ success: true, items: items.map(formatItem) });
+  // Bottles: how many each bottled medicine has used (prepared jobs) and how many its stock fills.
+  const MedicineJob = require('../models/MedicineJob');
+  const jobs = await MedicineJob.find({ 'stages.key': 'prepare' }).select('stages.key stages.doneAt formulation.lines').lean();
+  res.json({ success: true, items: withBottles(items.map(formatItem), bottleUsageFrom(jobs)) });
 });
 
 // @route POST /api/stocks
