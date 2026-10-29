@@ -47,7 +47,7 @@ const doneKeys = (c) => stepsOf(c).filter((s) => s.done).map((s) => s.key);
 
 test('the finished case has every step done', () => {
   const c = finishedCase();
-  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'scheduled', 'fullpay', 'released', 'handover', 'pcc', 'explained', 'started']);
+  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'scheduled', 'pcc', 'fullpay', 'handover', 'explained', 'started']);
 });
 
 test('reverting "Medicine ready" undoes everything after it, keeps preparation, and records what was cleared', async () => {
@@ -75,7 +75,9 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   assert.deepEqual(snapshot.ready.stages.map((s) => s.key), ['final'], 'the final-check record is kept in the snapshot');
   assert.equal(snapshot.fullpay.payments.length, 1);
   assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted']);
+  // The final check is open again on the Medicine Dept track, for In Transit to confirm.
   assert.equal(stepsOf(c).find((s) => s.key === 'ready').state, 'current');
+  assert.match(stepsOf(c).find((s) => s.key === 'ready').waitText, /In Transit confirms/);
 });
 
 test('reverting "PO details verified" takes the whole case back: request cancelled, job cancelled, stock returned, payments pending', async () => {

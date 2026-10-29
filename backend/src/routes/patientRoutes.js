@@ -6,7 +6,7 @@ const {
   getStaffDashboardStats,
   getPaymentsLedger,
   getRefundsLedger,
-  getPatientById,
+  getPatientById, getPatientPurchaseOrders,
   deletePatient,
   deletePatientAttachment,
   getPatientCallLogs,
@@ -75,6 +75,7 @@ router.get('/refunds-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRAN
 router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), getPendingApprovals);
 router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id/record-room', getPatientRecordRoom);
+router.get('/:id/purchase-orders', getPatientPurchaseOrders);
 router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
 router.delete('/:id/attachments', authorize(ROLES.ADMIN), deletePatientAttachment);

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const User = require('../models/User');
@@ -141,6 +142,7 @@ const canAccessPatient = (user, patient) => {
 
 const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
 const { paymentSummary: transitPaymentSummary, isInTransit } = require('../utils/transitFlow');
+const { paymentForRequest, paymentsOfPo, poPaymentSummary, linkPaymentToPo } = require('../utils/poPayment');
 const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
 const paidRefundAmount = (payment = {}) => (payment.refunds || [])
@@ -1480,6 +1482,35 @@ const addPoPaperImages = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
 });
 
+// @route GET /api/patients/:id/purchase-orders
+// Each phase's purchase orders with their own payments (a phase can have several POs, each paid on its own) and the
+// payments that are on no PO, so Patient Details shows them apart instead of one merged "paid".
+const getPatientPurchaseOrders = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.params.id).select('approvalStatus isActive stages.number stages.totalAmount stages.payments assignedDoctor assignedPsychologist').lean();
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
+  const PurchaseOrder = require('../models/PurchaseOrder');
+  const pos = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount status source paymentIds medicineRequestId createdAt createdByName').sort({ createdAt: 1 }).lean();
+  const phases = {};
+  for (const stage of patient.stages || []) {
+    const phasePos = pos.filter((po) => po.phase === stage.number);
+    if (!phasePos.length) continue;
+    const onPo = new Set();
+    const purchaseOrders = phasePos.map((po) => {
+      const mine = paymentsOfPo(stage, po, phasePos);
+      mine.forEach((p) => onPo.add(String(p._id)));
+      const pay = poPaymentSummary(stage, po, phasePos);
+      return {
+        id: String(po._id), poNumber: po.poNumber, amount: Number(po.amount || 0), status: po.status, source: po.source || '', createdAt: po.createdAt, createdByName: po.createdByName || '',
+        medicineRequestId: po.medicineRequestId || '', paymentIds: mine.map((p) => String(p._id)),
+        payment: { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, pendingAmount: pay.pendingAmount },
+      };
+    });
+    phases[stage.number] = { purchaseOrders, unlinkedPaymentIds: (stage.payments || []).map((p) => String(p._id)).filter((id) => !onPo.has(id)) };
+  }
+  res.json({ success: true, phases });
+});
+
 const getPatientById = asyncHandler(async (req, res) => {
   // .lean() skips building a full Mongoose document (with getters/subdocument wrappers
   // for every payment/follow-up/activity entry) — this is the single heaviest read on
@@ -2230,6 +2261,13 @@ const addStagePayment = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
+  // A phase with several POs: the payment is added for the PO it pays (Patient Details > the PO's section).
+  let forPo = null;
+  if (req.body.purchaseOrderId) {
+    const PurchaseOrder = require('../models/PurchaseOrder');
+    forPo = mongoose.Types.ObjectId.isValid(String(req.body.purchaseOrderId)) ? await PurchaseOrder.findOne({ _id: req.body.purchaseOrderId, patient: patient._id, phase: stageNum }).select('poNumber').lean() : null;
+    if (!forPo) return res.status(400).json({ success: false, message: 'That purchase order is not in this phase' });
+  }
   const screenshotFiles = toFileItems(filesFromRequest(req), 'payments');
   const bank = await resolvePayToBank(paymentMode, req.body.payToBank);
   stageEntry.payments.push({
@@ -2251,11 +2289,12 @@ const addStagePayment = asyncHandler(async (req, res) => {
   addActivity(
     patient,
     req.user,
-    `Payment added for Phase ${stageNum}`,
+    `Payment added for Phase ${stageNum}${forPo ? ` (${forPo.poNumber})` : ''}`,
     `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers: ${utrs.utr})` : ''} — pending accounts approval${req.body.notes ? ` | Note: ${String(req.body.notes).trim()}` : ''}`
   );
 
   await patient.save();
+  if (forPo) await linkPaymentToPo(forPo._id, stageEntry.payments[stageEntry.payments.length - 1]._id);
   await populateAssignments(patient);
 
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
@@ -3104,7 +3143,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   }
   if (status === MEDICINE_STATUSES.SENT_TO_COURIER) {
     if (currentRequest.status !== MEDICINE_STATUSES.MADE) return res.status(409).json({ success: false, message: 'Mark medicine ready before release' });
-    const pay = transitPaymentSummary(stageEntry);
+    const pay = await paymentForRequest(patient, stageEntry, currentRequest);
     if ((patient.approvalStatus || 'approved') !== 'approved' || pay.remaining > 0 || pay.pendingCount) return res.status(400).json({ success: false, message: 'In Transit must approve the patient and full medicine payment before release' });
     if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
     if (!(req.body.packagedByName || currentRequest.packagedByName) || !(req.body.chitsWrittenByName || currentRequest.chitsWrittenByName) || !(req.body.lastMedicineCheckedByName || currentRequest.lastMedicineCheckedByName)) {
@@ -3303,7 +3342,7 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)) });
   }
 
-  const pay = transitPaymentSummary(stageEntry);
+  const pay = await paymentForRequest(patient, stageEntry, currentRequest);
   if (pay.remaining > 0 || pay.pendingCount || (patient.approvalStatus || 'approved') !== 'approved') return res.status(400).json({ success: false, message: 'Patient approval and full verified payment required before handover' });
   if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
   if (currentCourier.status === COURIER_STATUSES.DELIVERED || (status === COURIER_STATUSES.DISPATCHED && currentCourier.status === COURIER_STATUSES.DISPATCHED)) return res.status(409).json({ success: false, message: 'This handover has already been recorded' });
@@ -4010,7 +4049,7 @@ module.exports = {
   getStaffDashboardStats,
   getPaymentsLedger,
   getRefundsLedger,
-  getPatientById,
+  getPatientById, getPatientPurchaseOrders,
   deletePatient,
   deletePatientAttachment,
   getPatientCallLogs,

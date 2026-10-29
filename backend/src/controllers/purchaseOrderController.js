@@ -82,7 +82,9 @@ const respond = async (res, po, patient, status = 200) => {
     try { const MedicineJob = require('../models/MedicineJob'); job = await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: po.medicineRequestId }).lean(); } catch { job = null; }
   }
   const [documents, caseCategory] = await Promise.all([patientDocuments(patient), patientCaseCategory(patient)]);
-  res.status(status).json({ success: true, purchaseOrder: { ...buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job }), patientDocuments: documents, patientCaseCategory: caseCategory } });
+  // The other POs of the phase: each PO is paid on its own.
+  const phasePos = mongoose.connection.readyState === 1 ? await PurchaseOrder.find({ patient: po.patient, phase: po.phase }).select('poNumber amount paymentIds medicineRequestId status').lean() : [];
+  res.status(status).json({ success: true, purchaseOrder: { ...buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job, phasePos }), patientDocuments: documents, patientCaseCategory: caseCategory } });
 };
 
 // Validates the payment typed on a PO form. Returns null when no payment was entered.
@@ -128,7 +130,11 @@ const loadPoViews = async (filter = { patient: { $ne: null } }) => {
     .select('patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate')
     .lean();
   const byId = new Map(patients.map((p) => [String(p._id), p]));
-  return pos.filter((po) => byId.has(String(po.patient))).map((po) => buildPoView(po, byId.get(String(po.patient))));
+  const MedicineJob = require('../models/MedicineJob');
+  const jobs = await MedicineJob.find({ patient: { $in: patientIds } }).select('patient phase requestId currentStage status hold').lean();
+  const jobOf = new Map(jobs.map((j) => [`${j.patient}-${j.phase}-${j.requestId}`, j]));
+  return pos.filter((po) => byId.has(String(po.patient)))
+    .map((po) => buildPoView(po, byId.get(String(po.patient)), { job: po.medicineRequestId ? jobOf.get(`${po.patient}-${po.phase}-${po.medicineRequestId}`) || null : null, phasePos: pos.filter((o) => String(o.patient) === String(po.patient) && o.phase === po.phase) }));
 };
 
 // @route GET /api/purchase-orders?stage=&q=&patient=
@@ -516,6 +522,53 @@ const revertStep = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
+// @route DELETE /api/purchase-orders/:id   body: { reason }   (admin)
+// Deletes a purchase order with everything on it: its medicine request, its medicine job (drawn stock goes back to
+// Stocks), the In Transit handover of that request, and the payments attached to it. A full copy is kept as a
+// DeletedRecord first, so it can be looked up or put back; uploaded files stay on disk.
+const deletePurchaseOrder = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  const reason = clean(req.body?.reason, 500);
+  if (!reason) fail('Write why this purchase order is deleted');
+  const patient = await loadPatient(po.patient);
+  const stage = stageOf(patient, po.phase);
+  const request = findRequest(stage, po.medicineRequestId);
+  const MedicineJob = require('../models/MedicineJob');
+  const job = request ? await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: request.requestId || 'legacy' }) : null;
+  const linked = new Set((po.paymentIds || []).map(String));
+  const payments = (stage.payments || []).filter((p) => linked.has(String(p._id)));
+  if (payments.some((p) => (p.refunds || []).length)) fail('A payment on this PO has refund history; it cannot be deleted. Settle it in Patient Details first.', 409);
+  const copy = (value) => JSON.parse(JSON.stringify(value?.toObject ? value.toObject() : value ?? null));
+  const now = new Date();
+  // Everything as it was, before any change.
+  const data = { purchaseOrder: copy(po), medicineRequest: copy(request), medicineJob: copy(job), payments: payments.map(copy), phaseTransit: copy(stage.transit), medicineExplainDate: stage.medicineExplainDate || null, phasePurchaseOrder: stage.purchaseOrder || '' };
+  // Undo the done steps first (stock returned, handover cleared, request and job cancelled), the same way an admin revert does.
+  if (po.status !== 'rejected' && po.status !== 'cancelled') {
+    const before = buildPoView(po, patient.toObject(), { job: job ? job.toObject() : null });
+    const { revertPoFrom } = require('../utils/revertFlow');
+    try {
+      await revertPoFrom('details', { po, patient, stage, request, job, steps: before.steps, returnStock: job ? stockReturner(job, req.user) : async () => {}, reason: `PO deleted: ${reason}`, user: req.user, now });
+    } catch (error) { if (!/Nothing to revert/.test(error.message)) throw error; }
+  }
+  // Then remove the records themselves.
+  if (request) {
+    if (stage.medicineRequest && (stage.medicineRequest.requestId || 'legacy') === (request.requestId || 'legacy') && !(stage.medicineRequests || []).includes(request)) stage.medicineRequest = { status: 'not_requested' };
+    else stage.medicineRequests = (stage.medicineRequests || []).filter((r) => (r.requestId || 'legacy') !== (request.requestId || 'legacy'));
+  }
+  stage.payments = (stage.payments || []).filter((p) => !linked.has(String(p._id)));
+  // The phase keeps the number of another PO it still has, if any.
+  const others = await PurchaseOrder.find({ patient: po.patient, phase: po.phase, _id: { $ne: po._id } }).sort({ createdAt: -1 }).select('poNumber').lean();
+  if (stage.purchaseOrder === po.poNumber) stage.purchaseOrder = others[0]?.poNumber || '';
+  const total = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  logActivity(patient, req.user, `Purchase order ${po.poNumber} deleted (Phase ${po.phase})`, `${reason}${request ? ' | medicine request removed' : ''}${job ? ' | medicine job removed' : ''}${payments.length ? ` | ${payments.length} payment(s) removed (Rs ${total})` : ''}`);
+  const DeletedRecord = require('../models/DeletedRecord');
+  await DeletedRecord.create({ kind: 'purchase_order', refId: String(po._id), label: po.poNumber, patient: patient._id, patientName: patient.patientName || '', phase: po.phase, reason, deletedByName: req.user.name, deletedByRole: req.user.role, deletedAt: now, data });
+  await patient.save();
+  if (job) { await MedicineJob.deleteOne({ _id: job._id }); emitMedicineJobChanged(req.app, job._id); }
+  await PurchaseOrder.deleteOne({ _id: po._id });
+  res.json({ success: true, deleted: { poNumber: po.poNumber, medicineRequest: Boolean(request), medicineJob: Boolean(job), payments: payments.length, paymentAmount: total } });
+});
+
 const activatePhase = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
   if (po.status !== 'verified') fail('Verify the purchase order first');
@@ -532,6 +585,6 @@ const activatePhase = asyncHandler(async (req, res) => {
 
 module.exports = {
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
-  loadPoViews, revertStep, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
+  loadPoViews, revertStep, deletePurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
   verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase, updatePlan,
 };

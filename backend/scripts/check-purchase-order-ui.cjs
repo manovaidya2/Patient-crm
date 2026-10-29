@@ -75,6 +75,10 @@ async function main() {
   const job = jobDoc(raw);
   const stocks = stockDocs();
   items[0].medicineJob = jobSummary(job);
+  // The same PO with its job packed (steps 1-11 done): fulfilment step 12 is In Transit's final check.
+  const finalJobDoc = { ...jobDoc(raw), currentStage: STAGES.findIndex((st) => st.key === 'final'), photos: { overview: [{ url: '/uploads/a.png', fileName: 'all.png' }], papers: [], paperSets: [{ name: 'Diet Plan', files: [{ url: '/uploads/b.png', fileName: 'p1.png' }] }] } };
+  finalJobDoc.stages = STAGES.slice(0, finalJobDoc.currentStage).map((st) => ({ key: st.key, doneAt: new Date(), doneByName: 'Meena', doneByRole: 'medicine_department', checks: st.checks.map(() => true), fields: {} }));
+  const poFinal = { ...items[0], id: '6500000000000000000000a9', medicineJob: jobSummary(finalJobDoc), patientDocuments: [{ url: '/uploads/r.pdf', fileName: 'Case history.pdf', label: 'Case history' }] };
   const job2View = buildJobView(reviewJobDoc(raw), { stocks, includeEvents: true });
   // A job waiting for the doctor's formulation step (the Medicine Department sees it blurred).
   const job3Doc = { ...reviewJobDoc(raw), _id: JOB3_ID, requestId: 'req-3', currentStage: 2 };
@@ -128,7 +132,8 @@ async function main() {
         let data = { success: true, items: [], patients: [], reminders: [], rows: [], records: [], callLogs: [], banks: [], doctors: [], psychologists: [], postCounselors: [], count: 0, total: 0 };
         if (url.pathname.endsWith('/auth/me')) data = { user };
         else if (url.pathname === '/api/purchase-orders') data = { success: true, items, counts: { all: 2, pending: 2, verification: 1, medicine: 1, mine: { all: 1, pending: 1, verification: 1 } } };
-        else if (/^\/api\/purchase-orders\/[a-f0-9]{24}$/.test(url.pathname)) data = { success: true, purchaseOrder: items.find((po) => url.pathname.endsWith(po.id)) };
+        else if (/^\/api\/purchase-orders\/[a-f0-9]{24}$/.test(url.pathname)) data = { success: true, purchaseOrder: [...items, poFinal].find((po) => url.pathname.endsWith(po.id)) };
+        else if (url.pathname === `/api/patients/${PATIENT_ID}/purchase-orders`) data = { success: true, phases: { 1: { purchaseOrders: items.map((po, i) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount, status: po.status, createdAt: po.createdAt, createdByName: po.createdByName, medicineRequestId: i === 0 ? 'req-1' : '', paymentIds: raw.stages[0].payments[i] ? [String(raw.stages[0].payments[i]._id)] : [], payment: { totalAmount: po.amount, amountPaid: i === 0 ? 10000 : 0, remaining: i === 0 ? 32000 : 0, pendingCount: i, pendingAmount: 0 } })), unlinkedPaymentIds: [] } } };
         else if (url.pathname === `/api/patients/${PATIENT_ID}`) data = { success: true, patient: formattedPatient(raw) };
         else if (url.pathname === `/api/transit/${PATIENT_ID}/1`) data = { success: true, item: buildTransitCase(raw, raw.stages[0]), events: [] };
         else if (url.pathname === '/api/medicine-jobs/' + JOB_ID) data = { success: true, job: jobView };
@@ -175,7 +180,8 @@ async function main() {
       ['myday', '/admin/my-day', 'Do next'],
       ['desk', '/admin', 'Review & accept'],
       ['po-verify', `/admin/purchase-orders/${items[1].id}`, 'Verify the PO details'],
-      ['po-detail', `/admin/purchase-orders/${items[0].id}`, 'Medicine Department progress'],
+      ['po-detail', `/admin/purchase-orders/${items[0].id}`, 'Medicine Dept'],
+      ['po-final', '/admin/purchase-orders/6500000000000000000000a9', 'Medicine Dept'],
       ['patient-overview', `/admin/patients/${PATIENT_ID}`, 'Care team'],
       ['patient-orders', `/admin/patients/${PATIENT_ID}?tab=orders`, 'PO-4821'],
       ['patient-phases', `/admin/patients/${PATIENT_ID}?tab=phases`, 'Treatment phases & payments'],
@@ -296,6 +302,35 @@ async function main() {
           await page.evaluate(() => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.innerText.trim().startsWith('PO details verified')).click());
           await page.waitForFunction(() => /done in this step/i.test(document.body.innerText), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `po-step-done-${width}.png`), fullPage: false });
+          if (width >= 1280) {
+            // After acceptance the timeline splits: Medicine Dept (fulfilment stages, read-only) | In Transit (its own steps).
+            const tracks = await page.evaluate(() => [...document.querySelectorAll('section[aria-label$="track"]')].map((t) => t.getAttribute('aria-label')));
+            assert.deepEqual(tracks, ['Medicine Dept track', 'In Transit track']);
+            await page.evaluate(() => document.querySelector('section[aria-label="Medicine Dept track"] button[aria-pressed]').click());
+            await page.waitForFunction(() => /fulfilment step/i.test(document.body.innerText) && document.body.innerText.includes('Medicine Department progress'), { timeout: 15000 });
+            await page.evaluate(() => [...document.querySelectorAll('section[aria-label="In Transit track"] button[aria-pressed]')].find((b) => b.innerText.startsWith('Delivery & explanation')).click());
+            await page.waitForFunction(() => /in transit track/i.test(document.body.innerText), { timeout: 15000 });
+            await page.screenshot({ path: path.join(output, `po-tracks-${width}.png`), fullPage: true });
+          }
+        }
+        if (name === 'po-final' && width >= 1280) {
+          // Step 12 on the Medicine Dept track opens In Transit's final check: patient file, dose papers, Yes / No.
+          await page.evaluate(() => [...document.querySelectorAll('section[aria-label="Medicine Dept track"] button[aria-pressed]')].find((b) => b.innerText.startsWith('Final check')).click());
+          await page.waitForFunction(() => document.body.innerText.includes('Is the medicine verified?'), { timeout: 15000 });
+          const text = await page.evaluate(() => document.body.innerText);
+          for (const bit of ['Patient file', 'Diet Plan', 'Yes, verified', 'No, send back']) assert.ok(text.includes(bit), `final check lacks "${bit}"`);
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('No, send back')).click());
+          await page.waitForFunction(() => document.body.innerText.includes('What is wrong?'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `po-final-check-${width}.png`), fullPage: true });
+        }
+        if (name === 'patient-phases') {
+          // A phase with two POs shows each PO's payments apart; the payments drawer tags each payment with its PO and fits the screen.
+          await page.waitForFunction(() => document.body.innerText.includes('payments per PO'), { timeout: 15000 });
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('View payment details')).click());
+          await page.waitForFunction(() => document.body.innerText.includes('Payments & refunds'), { timeout: 15000 });
+          const overflow = await page.evaluate(() => [...document.querySelectorAll('li')].filter((li) => li.closest('[role="dialog"], aside') && li.scrollWidth > li.clientWidth + 1).length);
+          assert.equal(overflow, 0, 'a payment card in the drawer runs out of its box');
+          await page.screenshot({ path: path.join(output, `patient-payments-drawer-${width}.png`), fullPage: false });
         }
         if (name === 'job-papers') {
           // Only the medicine photo is asked; papers are added by name.
@@ -311,6 +346,12 @@ async function main() {
           await page.evaluate(() => { const li = [...document.querySelectorAll('li')].find((l) => l.innerText.startsWith('Medicine requested') && [...l.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Revert')); [...li.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Revert').click(); });
           await page.waitForFunction(() => document.body.innerText.includes('Why is this reverted?') && document.body.innerText.includes('Revert 2 steps'), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `admin-po-revert-modal-${width}.png`), fullPage: true });
+          // Admin only: "Delete PO" lists what goes and asks why.
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Cancel').click());
+          await page.waitForFunction(() => !document.body.innerText.includes('Why is this reverted?'), { timeout: 15000 });
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Delete PO').click());
+          await page.waitForFunction(() => document.body.innerText.includes('Why is this purchase order deleted?'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `admin-po-delete-modal-${width}.png`), fullPage: false });
         }
         if (name === 'admin-job-revert') {
           await page.evaluate(() => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes('Medicine preparation')).click());

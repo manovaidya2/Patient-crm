@@ -6,8 +6,9 @@ const { medicineDelays } = require('./medicineDelay');
 
 const MED = [ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN];
 const DOC = [ROLES.DOCTOR, ROLES.ADMIN];
-// Each stage is filled by its owner only (admin can step in anywhere): the doctor fills Doctor verification, the
-// Medicine Department everything else. Kept as a name for the stages the doctor used to share.
+const TRANSIT = [ROLES.IN_TRANSIT, ROLES.ADMIN];
+// Each stage is filled by its owner only (admin can step in anywhere): the doctor fills the doctor stages, In Transit
+// the final check (from the PO timeline), the Medicine Department everything else. Kept as a name for the stages the doctor used to share.
 const MED_DOC = MED;
 
 // field: { key, label, type: text|date|number|select|textarea, required, options }
@@ -63,14 +64,14 @@ const STAGES = [
     purpose: 'Secure bundle, bubble wrap, tested box, tape, logo and recipient label. Parents / Courier slip faces outward.',
     checks: ['Doctor PASS; medicine photo and every paper page accepted', 'Parents / Courier information slip on the correct outward side', 'Bottles and droppers upright, leak-safe cushioning; pouches and papers protected', 'Box size tested for this kit; voids filled; no movement', 'Tape, logo stickers and recipient label applied'],
     fields: [{ key: 'boxCode', label: 'Box used', type: 'select', required: true, options: ['BX-55 (5x5)', 'BX-L 8x10', 'BX-L 9x10', 'BX-L 10x10', 'Other'] }, { key: 'weight', label: 'Parcel weight (kg)', type: 'number', step: 'any', required: true }, { key: 'materials', label: 'Materials used / wastage', type: 'text' }] },
-  { key: 'final', n: 11, label: 'Final check - medicine ready', hi: 'अंतिम जाँच', roles: MED_DOC, sop: 'SOP S8',
-    purpose: 'Someone other than the Packing-2 operator reconciles the parcel with the job. PASS marks the medicine READY (not released).',
+  { key: 'final', n: 11, label: 'Final check - medicine ready', hi: 'अंतिम जाँच', roles: TRANSIT, sop: 'SOP S8',
+    purpose: 'In Transit checks the packed parcel against the job before it goes out. PASS marks the medicine READY (not released).',
     checks: ['Patient, prescription and supply part match', 'Bottle, dropper and packet counts reconciled; lids and seals intact', 'Medicine papers: same patient name and code on each; first / repeat set complete', 'Medicine photo and every dose-paper page linked and accepted', 'Outer box intact, correct size, logo; recipient details verified'],
     fields: [{ key: 'remarks', label: 'Remarks', type: 'textarea' }] },
   { key: 'release', n: 12, label: 'Release to In Transit', hi: 'रिलीज़', roles: MED, sop: 'SOP S8 · SOP 2',
     purpose: 'Hand the parcel to In Transit. Allowed only after full verified payment; the medicine stays in department custody until then.',
     checks: ['Full payment verified by In Transit (checked automatically)', 'Parcel and package ID match this job', 'Receiving In Transit staff recorded'],
-    fields: [{ key: 'handedTo', label: 'Handed to (In Transit staff)', type: 'text', required: true }] },
+    fields: [] },
 ];
 // Numbered in order (1 ... 13).
 STAGES.forEach((s, i) => { s.n = i + 1; });
@@ -86,7 +87,7 @@ function urgency(readyByDate, now = new Date()) {
   return { hours, level: hours < 0 ? 'breached' : hours <= 24 ? 'critical' : hours <= 48 ? 'risk' : 'normal' };
 }
 
-function buildJobView(jobDoc, { stocks = [], payment = null, master = null, includeEvents = false, now = new Date() } = {}) {
+function buildJobView(jobDoc, { stocks = [], payment = null, master = null, includeEvents = false, dispatch = {}, now = new Date() } = {}) {
   const job = plain(jobDoc);
   const done = new Map((job.stages || []).map((s) => [s.key, s]));
   const current = job.status === 'released' ? STAGES.length : job.currentStage || 0;
@@ -132,7 +133,7 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     hold: job.hold?.active ? { ...job.hold, at: iso(job.hold.at) } : null,
     urgency: u,
     // Days late against the date fixed in post counselling: made (final check) and released to In Transit.
-    delay: medicineDelays({ expected: job.readyByDate, madeAt: done.get('final')?.doneAt, releasedAt: done.get('release')?.doneAt, now }),
+    delay: medicineDelays({ expected: job.readyByDate, madeAt: done.get('final')?.doneAt, releasedAt: done.get('release')?.doneAt, ...dispatch, now }),
     formulation: job.formulation || null,
     stockTable,
     consumption: (job.consumption || []).map((c) => ({ ...c, txId: c.txId ? String(c.txId) : null })),
@@ -155,9 +156,17 @@ function jobSummary(jobDoc) {
   if (!jobDoc) return null;
   const v = buildJobView(jobDoc);
   return {
-    id: v.id, status: v.status, progress: v.progress, hold: v.hold, urgency: v.urgency, readyByDate: v.readyByDate, delay: v.delay,
+    id: v.id, status: v.status, currentKey: v.currentKey, progress: v.progress, hold: v.hold, photos: v.photos, urgency: v.urgency, readyByDate: v.readyByDate, delay: v.delay,
     currentLabel: v.status === 'released' ? 'Released to In Transit' : v.status === 'ready' ? 'Medicine ready - awaiting release' : (STAGES[v.currentStage]?.label || ''),
-    stages: v.stages.map((s) => ({ key: s.key, n: s.n, label: s.label, state: s.state, doneAt: s.doneAt, doneByName: s.doneByName })),
+    stages: v.stages.map((s) => ({
+      key: s.key, n: s.n, label: s.label, state: s.state, doneAt: s.doneAt, doneByName: s.doneByName, purpose: s.purpose || '', roles: s.roles, checks: s.checks,
+      // Ticked checklist lines, filled values and notes of a finished stage.
+      done: s.state === 'done' ? [
+        ...s.checks.filter((_, n) => s.checksDone[n]),
+        ...(s.fields || []).map((f) => [f.label, s.values?.[f.key]]).filter(([, value]) => value !== undefined && value !== null && value !== '').map(([label, value]) => `${label}: ${value}`),
+        ...(s.notes ? [`Notes: ${s.notes}`] : []),
+      ] : [],
+    })),
   };
 }
 

@@ -31,7 +31,7 @@ export const FORMS = {
   confirm_mode: { title: 'Patient confirmed delivery mode', note: 'Porter / courier: full payment is confirmed before sending. Self pickup: schedule the visit next.', button: 'Confirm', fields: [['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])], ['note', 'Note', 'text']] },
   // After the medicine is ready: delivery mode + its date + the medicine explanation date, fixed on the call.
   schedule_delivery: {
-    title: 'Schedule delivery & medicine explanation', note: 'Fixed with the patient on the call (log the connected call first). Self pickup needs the pickup date; porter / courier the dispatch date and address. The medicine explanation date goes to the PCC once assigned.', button: 'Save schedule',
+    title: 'Schedule delivery & medicine explanation', note: 'Fixed with the patient on the call (log the connected call first). Self pickup needs the pickup date; porter / courier the dispatch date and address. The explanation request goes to the PCC chosen here, with the treatment papers and the patient file.', button: 'Save schedule',
     fields: [
       ['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])],
       ['visitAt', 'Self pickup date & time', 'datetime-local', true, null, (v) => v.mode === 'pickup'],
@@ -40,6 +40,7 @@ export const FORMS = {
       ['address', 'Delivery address', 'textarea', true, null, (v) => ['courier', 'porter'].includes(v.mode)],
       ['explanationAt', 'Medicine explanation date & time', 'datetime-local', true],
       ['explanationMode', 'Explanation mode', 'pills', true, [['phone', 'Phone'], ['video', 'Video'], ['clinic', 'Clinic']]],
+      ['assistantDoctorId', 'PCC (Patient Care Coordinator) who explains', 'staff', true, 'assistant_doctor'],
       ['note', 'Note', 'text'],
     ],
   },
@@ -70,6 +71,7 @@ const defaults = (formKey, item) => {
       mode: item.mode || '', visitAt: item.visit?.at ? localInput(item.visit.at) : '', dispatchAt: item.deliveryPlan?.at ? localInput(item.deliveryPlan.at) : '',
       courierPartner: item.deliveryPlan?.courier || '', address: item.deliveryPlan?.address || item.patientDetails?.address || '',
       explanationAt: item.explanation?.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation?.mode || 'phone',
+      assistantDoctorId: item.assignments?.assistantDoctor?.id || '',
     };
     case 'add_payment': return { amount: item.payment.remaining ? String(item.payment.remaining) : '', paymentMode: 'online', date: localInput(new Date(), false) };
     case 'schedule_visit': return { visitAt: item.visit.at ? localInput(item.visit.at) : '' };
@@ -88,10 +90,12 @@ export async function sendAction(item, action, values = {}, files = []) {
   return data.item;
 }
 
-function Field({ field, value, onChange, locked = false }) {
+function Field({ field, value, onChange, locked = false, staff = [] }) {
   const [key, label, type, req, options] = field;
   let control;
-  if (type === 'pills') {
+  // A staff member of one role (options = the role), e.g. the PCC.
+  if (type === 'staff') control = <select className={inputClass} required={req} value={value || ''} onChange={(e) => onChange(key, e.target.value)}><option value="">Select</option>{staff.filter((s) => s.role === options).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>;
+  else if (type === 'pills') {
     control = (
       <div className="flex flex-wrap gap-1.5">
         {options.map(([v, l]) => {
@@ -114,12 +118,15 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const visible = form.fields.filter((f) => !f[5] || f[5](values));
+  const [staff, setStaff] = useState([]);
+  const needsStaff = form.fields.some((f) => f[2] === 'staff');
+  useEffect(() => { if (needsStaff) api.get('/transit/staff', { skipCache: true }).then(({ data }) => setStaff(data.staff)).catch(() => setError('Could not load the staff list')); }, [needsStaff]);
   // The expected ready date was fixed in post counselling: In Transit sends it to the Medicine Department as it is.
   const { user } = useAuth();
   const dateLocked = formKey === 'raise_request' && Boolean(item.expectedReadyDate) && user?.role !== 'admin';
   const submit = async (event) => {
     event.preventDefault();
-    const missingPill = visible.find((f) => f[2] === 'pills' && f[3] && !values[f[0]]);
+    const missingPill = visible.find((f) => ['pills', 'staff'].includes(f[2]) && f[3] && !values[f[0]]);
     if (missingPill) { setError(`Select ${missingPill[1].toLowerCase()}`); return; }
     if ((form.files?.req || (formKey === 'add_payment' && values.paymentMode === 'online')) && !files.length) { setError('Upload the required document / payment proof'); return; }
     setSaving(true); setError('');
@@ -146,7 +153,7 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
       {form.note && <p className="text-xs leading-5 text-charcoal/60">{form.note}</p>}
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {visible.map((field) => <div key={field[0]} className={['textarea', 'pills', 'utrs'].includes(field[2]) ? 'sm:col-span-2' : ''}><Field field={field} locked={dateLocked && field[0] === 'readyByDate'} value={values[field[0]]} onChange={(k, v) => setValues((old) => ({ ...old, [k]: v, ...(k === 'utrRows' && isMultiUtr(v) ? { amount: String(utrTotal(v)) } : {}) }))} /></div>)}
+        {visible.map((field) => <div key={field[0]} className={['textarea', 'pills', 'utrs'].includes(field[2]) ? 'sm:col-span-2' : ''}><Field field={field} staff={staff} locked={dateLocked && field[0] === 'readyByDate'} value={values[field[0]]} onChange={(k, v) => setValues((old) => ({ ...old, [k]: v, ...(k === 'utrRows' && isMultiUtr(v) ? { amount: String(utrTotal(v)) } : {}) }))} /></div>)}
       </div>
       {form.files && <label className="block space-y-1 text-sm font-medium text-charcoal"><span>{form.files.label}{form.files.req && <span className="text-red-700"> *</span>}</span><input className={`${inputClass} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></label>}
       <div className="flex flex-wrap gap-2 pt-1">

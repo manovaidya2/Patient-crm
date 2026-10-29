@@ -9,6 +9,8 @@ import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
+import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
+import PatientFile from '../../components/medicine/PatientFile.jsx';
 
 const input = 'w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm';
 const when = (value) => (value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-');
@@ -131,6 +133,14 @@ export default function MedicineExplanations() {
                           <Row label="Assigned" value={item.pcc?.assigned ? `${when(item.pcc.at)} by ${item.pcc.byName}` : ''} />
                           {item.explanation.completedAt && <><Row label="Explained" value={`${when(item.explanation.completedAt)} by ${item.explanation.completedBy}`} /><p className="break-words text-sm text-charcoal/80">{item.explanation.note}</p></>}
                         </div>
+                      </div>
+                      {/* What the PCC explains from: every treatment paper (by name, all pages) and the patient's file. */}
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-[10px] bg-white/70 p-3 ring-1 ring-[#EFE3CF]">
+                          <p className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60"><Pill size={12} />Treatment papers</p>
+                          <DosePapersView job={{ photos: item.treatmentPapers || {} }} />
+                        </div>
+                        <PatientFile documents={item.patientDocuments || []} className="ring-1 ring-[#EFE3CF]" />
                       </div>
                       {!item.explanation.completedAt && (
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

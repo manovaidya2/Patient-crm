@@ -6,7 +6,7 @@
 
 const { supplyLabel } = require('../constants/supplyPlans');
 const { phaseAge } = require('./phaseAge');
-const { medicineDelays, fixedReadyDate } = require('./medicineDelay');
+const { medicineDelays, fixedReadyDate, dispatchDelayInput } = require('./medicineDelay');
 
 const MEDICINE_ACTIVE = ['requested', 'in_process', 'made', 'sent_to_courier'];
 const SHIPPED_MODES = ['porter', 'courier'];
@@ -124,11 +124,12 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   return steps;
 }
 
-function buildTransitCase(patient, stage, now = new Date()) {
+// `payment`: the payment status of the request's PO (poPayment.paymentForRequest); the whole phase when not given.
+function buildTransitCase(patient, stage, now = new Date(), { payment = null } = {}) {
   const t = plain(stage.transit);
   const request = pickRequest(stage);
   const courier = plain(request?.courier);
-  const pay = paymentSummary(stage);
+  const pay = payment || paymentSummary(stage);
   const mode = fulfilmentMode(stage, request);
   const calls = (t.calls || []).map((call) => ({ ...plain(call), at: iso(call.at), nextCallAt: iso(call.nextCallAt) }))
     .sort((a, b) => new Date(b.at) - new Date(a.at));
@@ -218,7 +219,7 @@ function buildTransitCase(patient, stage, now = new Date()) {
       readyByDate: iso(readyBy),
       // The date fixed in post counselling cannot be changed in In Transit (admin only).
       readyByFixed: Boolean(fixedReadyDate({ stage })),
-      delay: medicineDelays({ expected: readyBy, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, now }),
+      delay: medicineDelays({ expected: readyBy, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, ...dispatchDelayInput({ stage, request }), now }),
       readyBySetByName: request.readyBySetByName || '',
       reminderOn: iso(reminderDate(readyBy)),
       readyDays,

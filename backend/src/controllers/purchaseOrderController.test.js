@@ -188,6 +188,33 @@ test('medicine request: one per PO, with supply category, age band and ready dat
   await assert.rejects(call(controller.requestMedicine, { params: { id: created.id }, body, files: [file] }), /already requested/);
 });
 
+test('the admin deletes a PO with its medicine request and payments; a full copy is kept', async () => {
+  const patient = makePatient({ approvalStatus: 'approved' });
+  memoryPos();
+  const admin = { _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' };
+  patient.stages[0].payments.push({ amount: 2000, approvalStatus: 'approved' });
+  const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first', amountReceivedNow: '10000', cashReceiver: 'Prachi' }) })).purchaseOrder;
+  await verifyBoth(created.id);
+  await call(controller.requestMedicine, { params: { id: created.id }, body: { supplyKey: '1+5:first', ageBand: '4-12', readyByDate: '2026-11-02' }, files: [] });
+  const MedicineJob = require('../models/MedicineJob');
+  const DeletedRecord = require('../models/DeletedRecord');
+  mock.method(MedicineJob, 'findOne', async () => null);
+  mock.method(PurchaseOrder, 'find', () => ({ sort: () => ({ select: () => ({ lean: async () => [] }) }) }));
+  const archived = [];
+  mock.method(DeletedRecord, 'create', async (doc) => { archived.push(doc); return doc; });
+  await assert.rejects(call(controller.deletePurchaseOrder, { params: { id: created.id }, body: {}, user: admin }), /why/);
+  const res = await call(controller.deletePurchaseOrder, { params: { id: created.id }, body: { reason: 'Created twice' }, user: admin });
+  assert.deepEqual({ ...res.deleted, poNumber: undefined }, { poNumber: undefined, medicineRequest: true, medicineJob: false, payments: 1, paymentAmount: 10000 });
+  assert.equal(await PurchaseOrder.findById(created.id), null, 'the PO is gone');
+  assert.equal(patient.stages[0].medicineRequests.length, 0, 'its medicine request is gone');
+  assert.deepEqual(patient.stages[0].payments.map((p) => p.amount), [2000], "only the PO's own payment is removed; the older phase payment stays");
+  assert.equal(archived.length, 1);
+  assert.equal(archived[0].reason, 'Created twice');
+  assert.equal(archived[0].data.payments[0].amount, 10000, 'the copy keeps the payment as it was');
+  assert.equal(archived[0].data.medicineRequest.status, 'requested', 'and the request before it was cancelled');
+  assert.ok(patient.activityLog.some((e) => /deleted/.test(e.action)));
+});
+
 test('In Transit can make the PO phase the current phase', async () => {
   const patient = makePatient({ approvalStatus: 'approved' });
   memoryPos();
@@ -203,9 +230,41 @@ test('the pipeline follows the medicine request and courier records', () => {
   const stage = patient.stages[0];
   stage.medicineRequests = [{ requestId: 'r1', status: 'sent_to_courier', requestedAt: new Date(), inProcessAt: new Date(), madeAt: new Date(), sentToCourierAt: new Date(), courier: { status: 'delivered', deliveryMode: 'courier', dispatchedAt: new Date(), deliveredAt: new Date() } }];
   const view = buildPoView({ _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1234', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() }, patient);
-  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'fullpay', 'released', 'handover', 'received']);
+  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'fullpay', 'handover', 'received']);
   assert.equal(view.stageKey, 'treatment');
   assert.equal(view.suggestedAgeBand, '4-12');
+});
+
+test('after the medicine is accepted the timeline runs in two tracks, each with its own "now" step', () => {
+  const patient = new Patient({ patientName: 'B', guardianName: 'P', category: 'autism_adhd', number: '1', age: '5' }).toObject();
+  const stage = patient.stages[0];
+  stage.purchaseOrder = 'PO-1';
+  stage.totalAmount = 10000;
+  stage.medicineRequests = [{ requestId: 'r1', status: 'in_process', requestedAt: new Date(), inProcessAt: new Date(), courier: { status: 'pending' } }];
+  const po = { _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() };
+  let view = buildPoView(po, patient);
+  const now = () => view.steps.filter((s) => s.state === 'current').map((s) => s.key);
+  assert.deepEqual(now(), ['ready', 'scheduled'], 'Medicine Dept prepares while In Transit schedules');
+  assert.deepEqual(view.steps.filter((s) => s.branch).map((s) => `${s.branch}:${s.key}`), ['medicine:ready', 'medicine:released', 'transit:scheduled', 'transit:pcc', 'transit:fullpay', 'transit:handover', 'transit:received', 'transit:explained', 'transit:started']);
+  assert.ok(view.actionBy.includes('medicine_department') && view.actionBy.includes('in_transit'), 'both teams have work');
+  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).key, 'scheduled');
+  // In Transit's handover waits for the release; nobody is asked to act on it yet.
+  stage.transit = { fulfilmentMode: 'courier', dispatchScheduledAt: new Date(), assignedAt: new Date() };
+  stage.medicineExplainDate = new Date();
+  stage.payments = [{ amount: 10000, approvalStatus: 'approved' }];
+  view = buildPoView(po, patient);
+  assert.deepEqual(now(), ['ready', 'handover']);
+  assert.match(view.steps.find((s) => s.key === 'handover').waitText, /release/);
+  assert.ok(!view.actionBy.includes('in_transit'));
+  // Packing done: the final check (fulfilment step 12, on the Medicine Dept track) is for In Transit to confirm.
+  view = buildPoView(po, patient, { job: { status: 'open', currentStage: 11 } });
+  assert.deepEqual(now(), ['ready', 'handover']);
+  assert.ok(view.actionBy.includes('in_transit') && !view.actionBy.includes('medicine_department'));
+  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).label, 'Final check - medicine ready');
+  // Before the medicine is accepted there is one "now" step.
+  stage.medicineRequests[0].status = 'requested';
+  view = buildPoView(po, patient);
+  assert.deepEqual(now(), ['accepted']);
 });
 
 test('migration imports old phase POs once, without touching the patient', async () => {
@@ -235,7 +294,8 @@ test('actionBy names the role whose turn it is, and empties once the step is don
   const { jobActionBy } = require('./medicineJobController');
   assert.deepEqual(actionByOf({ status: 'pending' }, 'details', false), ['admin', 'doctor', 'in_transit']);
   assert.ok(actionByOf({ status: 'verified' }, 'requested', false).includes('in_transit'), 'a blocked request is still for In Transit to clear');
-  assert.ok(actionByOf({ status: 'verified' }, 'ready', false).includes('medicine_department'));
+  assert.ok(actionByOf({ status: 'verified' }, 'ready', false).includes('medicine_department'), 'preparing and packing');
+  assert.deepEqual(actionByOf({ status: 'verified' }, 'ready', false, { finalDue: true }), ['admin', 'in_transit'], 'the final check is confirmed by In Transit');
   assert.ok(actionByOf({ status: 'verified' }, 'scheduled', false).includes('in_transit'));
   assert.deepEqual(actionByOf({ status: 'verified' }, 'explained', false), ['admin', 'assistant_doctor']);
   assert.deepEqual(actionByOf({ status: 'verified' }, undefined, false), [], 'treatment started: nobody');

@@ -11,7 +11,7 @@ import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/Creat
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, ROLE_LABELS } from '../../constants/roles.js';
 import { AGE_BANDS, SUPPLY_OPTIONS, supplyKeyOf } from '../../constants/supplyPlans.js';
-import { DelayChips, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
+import { DelayChips, DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePaperUpload, DosePapersView } from '../../components/medicine/DosePapers.jsx';
 
@@ -342,7 +342,7 @@ export default function MedicineJobPage() {
   const shown = useMemo(() => (job && !showRequest ? job.stages[typeof view === 'number' ? view : Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view, showRequest]);
   if (!job) return <div className="space-y-3"><button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-medium text-sage"><ArrowLeft size={15} /> Back</button>{error ? <ErrorText>{error}</ErrorText> : <p className="p-6 text-center text-sm text-charcoal/55">Loading job...</p>}</div>;
   const isCurrent = shown && shown.state === 'current';
-  const stageCanAct = canAct && isCurrent && !job.hold && job.status !== 'released' && shown.roles.includes(user?.role);
+  const stageCanAct = (canAct || user?.role === ROLES.IN_TRANSIT) && isCurrent && !job.hold && job.status !== 'released' && shown.roles.includes(user?.role);
   const [urgLabel, urgTone] = URGENCY[job.urgency?.level] || URGENCY.normal;
   // Supply / age group belong to the formulation check, so only that stage's owner changes them.
   // The supply (6 months / 1+5 / 2+4) was chosen in post counselling; only the admin can change it here.
@@ -364,12 +364,18 @@ export default function MedicineJobPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           {job.readyByDate && <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${urgTone}`}>{urgLabel} · ready by {day(job.readyByDate)}</span>}
-          {job.delay && <DelayChips delay={job.delay} />}
+          {job.delay && <DelayChips delay={job.delay} show={['medicine', 'transit', 'dispatch']} />}
           <div className="w-40" title={`${job.progress}% done`}><p className="text-right text-[11px] text-charcoal/60">Stage {Math.min(job.currentStage + 1, job.totalStages)} of {job.totalStages} · <b className="text-charcoal">{job.progress}%</b></p><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#EFE3CF]"><div className="h-full rounded-full bg-sage transition-all" style={{ width: `${job.progress}%` }} /></div></div>
           {job.purchaseOrderId && <Link to={`/admin/purchase-orders/${job.purchaseOrderId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />PO</Button></Link>}
           {canAct && job.status !== 'released' && !job.hold && <Button size="sm" variant="outline" onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={14} />Hold</Button>}
         </div>
       </header>
+      {job.delay && (job.delay.medicine?.daysLate > 0 || job.delay.transit?.daysLate > 0 || job.delay.dispatch?.daysLate > 0 || job.status === 'released') && (
+        <details className="rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-2.5" open={[job.delay.medicine, job.delay.transit, job.delay.dispatch].some((s) => s?.daysLate > 0)}>
+          <summary className="cursor-pointer text-sm font-bold text-charcoal">Delays · expected vs actual</summary>
+          <DelayTable delay={job.delay} className="mt-2" />
+        </details>
+      )}
       <ErrorText>{error}</ErrorText>
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
       {holdOpen && <div className="flex flex-wrap gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><input className={`${poInput} flex-1`} placeholder="Reason for the hold (e.g. dose unclear, leak)" value={holdText} onChange={(e) => setHoldText(e.target.value)} /><Button size="sm" disabled={!holdText.trim()} onClick={() => act('hold', { reason: holdText })}>Put on hold</Button></div>}
@@ -393,6 +399,12 @@ export default function MedicineJobPage() {
           })}
         </nav>
         <main className="relative min-w-0 space-y-3.5">
+          {job.currentKey === 'final' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT && (
+            <div className="flex items-center gap-2 rounded-xl border-2 border-[#FDBA74] bg-[#FFF7ED] px-4 py-3 text-sm font-bold text-[#C2410C]">
+              <Clock3 size={17} />Final check is confirmed by In Transit
+              <span className="font-normal text-charcoal/70">· The parcel is packed; In Transit checks it and marks the medicine ready, then you release it.</span>
+            </div>
+          )}
           {waitingForDoctor && (
             <div className="sticky top-3 z-10 flex items-center gap-2 rounded-xl border-2 border-[#FDBA74] bg-[#FFF7ED] px-4 py-3 text-sm font-bold text-[#C2410C] shadow-sm">
               <Clock3 size={17} />Please verify formulation from doctor

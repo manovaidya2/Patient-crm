@@ -176,15 +176,21 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   assert.equal(v.photos.overview.length, 1);
   v = (await complete(id, 'doctor', { result: 'PASS' }, {}, doctor)).job;
   v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 })).job;
-  await assert.rejects(complete(id, 'final', {}), /someone other than the Packing-2 operator/);
-  v = (await complete(id, 'final', {}, {}, med2)).job;
+  // In Transit does the final check (from the PO timeline); the Medicine Department cannot.
+  await assert.rejects(complete(id, 'final', {}, {}, med2), /done by in transit/);
+  // "No" at the final check: In Transit sends it back (a hold); Medicine Department fixes it and resumes.
+  v = (await call(controller.holdJob, { params: { id }, body: { reason: 'Final check not OK: seal broken' }, user: transit })).job;
+  assert.equal(v.hold.reason, 'Final check not OK: seal broken');
+  await assert.rejects(complete(id, 'final', {}, {}, transit), /on hold/);
+  v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Resealed' } })).job;
+  v = (await complete(id, 'final', {}, {}, transit)).job;
   assert.equal(v.status, 'ready');
   assert.equal(stage.medicineRequests[0].status, 'made', 'In Transit sees the medicine as made');
   assert.equal(stage.medicineRequests[0].medicineImages.length, 1, 'Photo A becomes the medicine photo');
   // Release is blocked until In Transit verifies the full payment.
-  await assert.rejects(complete(id, 'release', { handedTo: 'Rohit' }), /Full verified payment/);
+  await assert.rejects(complete(id, 'release', {}), /Full verified payment/);
   stage.payments.push({ amount: 32000, approvalStatus: 'approved' });
-  v = (await complete(id, 'release', { handedTo: 'Rohit' })).job;
+  v = (await complete(id, 'release', {})).job;
   assert.equal(v.status, 'released');
   assert.equal(stage.medicineRequests[0].status, 'sent_to_courier');
   assert.ok(stage.transit.financialReleasedAt);

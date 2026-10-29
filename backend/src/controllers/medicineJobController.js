@@ -11,8 +11,9 @@ const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../con
 const { STAGES, STAGE_INDEX, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
 const { phaseAge } = require('../utils/phaseAge');
-const { canOverrideFixed, fixedSupplyPlan, fixedReadyDate } = require('../utils/medicineDelay');
+const { canOverrideFixed, fixedSupplyPlan, fixedReadyDate, dispatchDelayInput } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
+const { paymentForRequest } = require('../utils/poPayment');
 const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
 const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
@@ -40,8 +41,9 @@ const loadPatientAndRequest = async (job) => {
   return { patient, stage, request };
 };
 
-const paymentOf = (patient, stage) => {
-  const pay = paymentSummary(stage);
+// The payment status of the job's PO (other POs of the phase are paid on their own).
+const paymentOf = async (patient, stage, request) => {
+  const pay = await paymentForRequest(patient, stage, request);
   return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && pay.remaining <= 0 && pay.pendingCount === 0 && !(stage.transit?.holdActive || stage.transit?.removedAt) };
 };
 
@@ -89,7 +91,7 @@ const respond = async (res, job, status = 200) => {
   const fixedPlan = { supply: Boolean(sent.plan), ageBand: Boolean(sent.ageBand) };
   // The patient's whole file from the Records Room, read instead of a separate prescription.
   const documents = await patientDocuments(patient);
-  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: paymentOf(patient, stage), master, includeEvents: true }), fixedPlan, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
+  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: await paymentOf(patient, stage, request), master, includeEvents: true, dispatch: dispatchDelayInput({ stage, request: request?.toObject ? request.toObject() : request }) }), fixedPlan, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
 };
 
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
@@ -413,16 +415,16 @@ const completeStage = asyncHandler(async (req, res) => {
     detail = 'Medicine READY - awaiting payment clearance and release';
   }
   if (stage.key === 'release') {
-    const pay = paymentOf(patient, phaseEntry);
+    const pay = await paymentOf(patient, phaseEntry, request);
     if (!pay.patientApproved) fail('In Transit must approve the patient before release');
     if (pay.hold) fail('This phase is on hold or removed in In Transit', 409);
     if (pay.remaining > 0 || pay.pendingCount) fail(`Full verified payment is required before release (balance Rs ${pay.remaining}${pay.pendingCount ? `, ${pay.pendingCount} payment(s) pending verification` : ''})`);
     Object.assign(request, { status: 'sent_to_courier', sentToCourierAt: now, sentToCourierByName: req.user.name });
     if (!phaseEntry.transit) phaseEntry.transit = {};
-    Object.assign(phaseEntry.transit, { financialReleasedAt: now, financialReleasedByName: req.user.name, financialReleaseNote: `Released by Medicine Department to ${clean(fields.handedTo, 120)}` });
+    Object.assign(phaseEntry.transit, { financialReleasedAt: now, financialReleasedByName: req.user.name, financialReleaseNote: `Released to In Transit by ${req.user.name}` });
     job.status = 'released';
-    logActivity(patient, req.user, `Medicine released for Phase ${job.phase}`, `Handed to ${clean(fields.handedTo, 120)}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
-    detail = `Handed to ${clean(fields.handedTo, 120)}`;
+    logActivity(patient, req.user, `Medicine released for Phase ${job.phase}`, `Released to In Transit by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
+    detail = 'Released to In Transit';
   }
 
   job.stages = job.stages.filter((s) => s.key !== stage.key);
@@ -470,6 +472,8 @@ const holdJob = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   if (job.status === 'released') fail('This medicine is already released');
+  // In Transit holds a job only to send it back from the final check.
+  if (req.user.role === ROLES.IN_TRANSIT && STAGES[job.currentStage]?.key !== 'final') fail('In Transit can send a job back only at the final check', 403);
   const reason = clean(req.body?.reason, 500);
   if (!reason) fail('Write the reason for the hold');
   Object.assign(job.hold, { active: true, reason, at: new Date(), byName: req.user.name, stageKey: STAGES[job.currentStage]?.key || '' });

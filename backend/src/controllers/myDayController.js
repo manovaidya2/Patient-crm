@@ -39,7 +39,7 @@ const requestItems = async (page, statuses, detailOf, extra = () => true) => {
 const COLLECTORS = {
   async '/admin/purchase-orders'(user) {
     return (await loadPoViews()).filter((po) => po.actionBy.includes(user.role))
-      .map((po) => item('/admin/purchase-orders', po.id, po.patientName, `${po.poNumber} · ${po.step.label}${po.supplyLabel ? ` · ${po.supplyLabel}` : ''}`, po.createdAt, `/admin/purchase-orders/${po.id}`, { waitingSince: true }));
+      .map((po) => item('/admin/purchase-orders', po.id, po.patientName, `${po.poNumber} · ${(po.openSteps.find((s) => s.actionBy.includes(user.role)) || po.step).label}${po.supplyLabel ? ` · ${po.supplyLabel}` : ''}`, po.createdAt, `/admin/purchase-orders/${po.id}`, { waitingSince: true }));
   },
   async '/admin/patient-approvals'() {
     const ps = await Patient.find({ $or: [{ approvalStatus: 'pending' }, { 'stages.payments.approvalStatus': 'pending' }] }).select('patientName patientCode approvalStatus createdAt stages.payments').limit(LIMIT).lean();

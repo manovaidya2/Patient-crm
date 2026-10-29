@@ -20,7 +20,35 @@ export function DelayChips({ delay, show = ['medicine', 'transit'], className = 
     <span className={`inline-flex flex-wrap items-center gap-1.5 ${className}`}>
       {show.includes('medicine') && <Step label="Medicine Dept" step={delay.medicine} />}
       {show.includes('transit') && <Step label="Reached In Transit" step={delay.transit} />}
+      {show.includes('dispatch') && <Step label={delay.dispatchLabel || 'Dispatch'} step={delay.dispatch} />}
     </span>
+  );
+}
+
+// The same delays in full: who, expected date, actual date and days late - also once done (the record stays).
+export function DelayTable({ delay, className = '' }) {
+  const rows = delay ? [
+    ['Medicine made', 'Medicine Dept', delay.medicine],
+    ['Released to In Transit', 'Medicine Dept', delay.transit],
+    [delay.dispatchLabel || 'Dispatch', 'In Transit', delay.dispatch],
+  ].filter(([, , step]) => step) : [];
+  if (!rows.length) return null;
+  return (
+    <div className={`overflow-x-auto rounded-lg border border-cardline ${className}`}>
+      <table className="w-full min-w-[460px] text-left text-[12.5px]">
+        <thead className="bg-[#FBF7ED] text-[11px] uppercase tracking-wide text-charcoal/55"><tr><th className="px-3 py-1.5">Step</th><th className="px-3 py-1.5">Expected</th><th className="px-3 py-1.5">Actual</th><th className="px-3 py-1.5">Delay</th></tr></thead>
+        <tbody className="divide-y divide-cardline">
+          {rows.map(([label, team, step]) => (
+            <tr key={label}>
+              <td className="px-3 py-1.5"><span className="font-semibold text-charcoal">{label}</span><span className="block text-[11px] text-charcoal/50">{team}</span></td>
+              <td className="px-3 py-1.5 text-charcoal/75">{day(step.expected)}</td>
+              <td className="px-3 py-1.5 text-charcoal/75">{step.done ? day(step.at) : 'not yet'}</td>
+              <td className="px-3 py-1.5"><Step label={step.done ? 'Done' : 'Now'} step={step} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

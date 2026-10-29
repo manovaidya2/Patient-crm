@@ -3,6 +3,8 @@
 // Delays are counted against that same date:
 //   Medicine Department: the day the medicine was made (final check)      vs the expected date
 //   In Transit:          the day the medicine was released to In Transit  vs the expected date
+// and against the date In Transit fixed with the patient:
+//   Dispatch / pickup:   the day it was dispatched (or collected)          vs the planned dispatch (or pickup) date
 const { ROLES } = require('../constants/roles');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -32,19 +34,32 @@ const fixedReadyDate = ({ po = null, stage = null } = {}) => {
 const canOverrideFixed = (user) => user?.role === ROLES.ADMIN;
 
 // One step's delay: done (with the days it was late) or still running (days late so far).
+// Kept once done, so a finished step still shows how late it was.
 const stepDelay = (expected, doneAt, now) => {
   if (!validDate(expected)) return null;
-  if (validDate(doneAt)) return { done: true, at: new Date(doneAt).toISOString(), daysLate: daysLate(expected, doneAt) };
-  return { done: false, at: null, daysLate: daysLate(expected, now) };
+  const base = { expected: new Date(expected).toISOString() };
+  if (validDate(doneAt)) return { ...base, done: true, at: new Date(doneAt).toISOString(), daysLate: daysLate(expected, doneAt) };
+  return { ...base, done: false, at: null, daysLate: daysLate(expected, now) };
 };
 
-// Delays for a medicine request: when it was made, and when it reached In Transit.
-const medicineDelays = ({ expected, madeAt = null, releasedAt = null, now = new Date() } = {}) => {
-  if (!validDate(expected)) return null;
+// The dispatch date In Transit planned with the patient and when it actually left (self pickup: the pickup date and
+// when it was collected), for `medicineDelays`.
+const dispatchDelayInput = ({ stage = null, request = null } = {}) => {
+  const t = stage?.transit || {};
+  const courier = request?.courier || {};
+  if (t.fulfilmentMode === 'pickup') return { dispatchExpected: t.pickupScheduledAt, dispatchedAt: courier.status === 'delivered' ? courier.deliveredAt : null, dispatchLabel: 'Self pickup' };
+  return { dispatchExpected: t.dispatchScheduledAt, dispatchedAt: ['dispatched', 'delivered'].includes(courier.status) ? courier.dispatchedAt : null, dispatchLabel: t.fulfilmentMode === 'porter' ? 'Porter dispatch' : 'Courier dispatch' };
+};
+
+// Delays for a medicine request: when it was made, when it reached In Transit, and when it was dispatched.
+const medicineDelays = ({ expected, madeAt = null, releasedAt = null, dispatchExpected = null, dispatchedAt = null, dispatchLabel = 'Courier dispatch', now = new Date() } = {}) => {
+  if (!validDate(expected) && !validDate(dispatchExpected)) return null;
   return {
-    expectedDate: new Date(expected).toISOString(),
+    expectedDate: validDate(expected) ? new Date(expected).toISOString() : null,
     medicine: stepDelay(expected, madeAt, now),
     transit: stepDelay(expected, releasedAt, now),
+    dispatch: stepDelay(dispatchExpected, dispatchedAt, now),
+    dispatchLabel,
   };
 };
 
@@ -57,4 +72,4 @@ const fixedSupplyPlan = ({ po = null, stage = null } = {}) => {
   return { plan: supply?.plan || '', part: supply?.part || '', ageBand: po?.ageBand || ageBandByLabel(paper.ageGroup) || '' };
 };
 
-module.exports = { daysLate, paperDate, readyDateFromPostCounselling, fixedReadyDate, fixedSupplyPlan, canOverrideFixed, medicineDelays };
+module.exports = { daysLate, paperDate, readyDateFromPostCounselling, fixedReadyDate, fixedSupplyPlan, canOverrideFixed, medicineDelays, dispatchDelayInput };

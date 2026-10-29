@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
+import PhasePoPayments from '../../components/purchaseOrders/PhasePoPayments.jsx';
 import SessionOutcomeModal, { OUTCOME_LABELS } from '../../components/patients/SessionOutcomeModal.jsx';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload, utrRowsFrom } from '../../components/payments/UtrRows.jsx';
 import api from '../../api/axios.js';
@@ -221,7 +222,7 @@ const emptyPaymentForm = {
 };
 
 // Small box matching EditableField's look; clicking "+ Add" opens a Modal with the full payment form.
-const AddPaymentField = ({ onAdd }) => {
+const AddPaymentField = ({ onAdd, extra = null, trigger = null }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyPaymentForm);
   const [files, setFiles] = useState([]);
@@ -260,7 +261,7 @@ const AddPaymentField = ({ onAdd }) => {
     setError('');
     try {
       const first = form.utrRows[0] || {};
-      await onAdd({ ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', files });
+      await onAdd({ ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', files, ...(extra || {}) });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not add payment');
@@ -271,6 +272,7 @@ const AddPaymentField = ({ onAdd }) => {
 
   return (
     <>
+      {trigger ? trigger(openModal) : (
       <div className="bg-offwhite-100 p-4">
         <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Add Payment</p>
         <button
@@ -280,8 +282,9 @@ const AddPaymentField = ({ onAdd }) => {
           <Plus size={14} /> Add
         </button>
       </div>
+      )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Add Payment">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={extra?.poNumber ? `Add Payment · ${extra.poNumber}` : 'Add Payment'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
 
@@ -1070,6 +1073,7 @@ const MedicineRequestRow = ({ request, label, canRequest, onRequest, deleteUrl, 
           <div className="min-w-0">
             <p className="text-sm font-bold text-charcoal">
               {label}
+              {request?.poNumber && <span className="ml-2 rounded-full bg-[#E9EFE9] px-2 py-0.5 font-mono text-[11px] font-bold text-sage">{request.poNumber}</span>}
               <span className="block sm:inline sm:ml-2 text-sm font-semibold text-sage">{request?.statusLabel || 'Not Requested'}</span>
             </p>
             <p className="mt-0.5 truncate text-xs text-charcoal/55">
@@ -2563,6 +2567,13 @@ const PatientDetails = () => {
     loadPatientData();
   }, [loadPatientData]);
 
+  // A phase can have several POs: their payments are shown apart (GET /patients/:id/purchase-orders).
+  const [poSplit, setPoSplit] = useState({});
+  useEffect(() => {
+    if (!patient) return;
+    api.get(`/patients/${id}/purchase-orders`, { skipCache: true }).then(({ data }) => setPoSplit(data.phases || {})).catch(() => setPoSplit({}));
+  }, [id, patient]);
+
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState === 'visible') {
@@ -2705,6 +2716,7 @@ const PatientDetails = () => {
     } else {
       formData.append('receivedBy', payload.receivedBy || '');
     }
+    if (payload.purchaseOrderId) formData.append('purchaseOrderId', payload.purchaseOrderId);
     (payload.files || []).forEach((file) => formData.append('screenshot', file));
     const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/payments`, formData);
     setPatient(data.patient);
@@ -3580,6 +3592,11 @@ const PatientDetails = () => {
                     canDelete={canEditPatientRecords}
                   />
                 </div>
+                <PhasePoPayments
+                  stage={activeStage}
+                  split={poSplit[activeStage.number]}
+                  addFor={canAddPayment ? (po) => <AddPaymentField onAdd={handleAddPayment} extra={{ purchaseOrderId: po.id, poNumber: po.poNumber }} trigger={(open) => <Button size="sm" variant="outline" onClick={open}><Plus size={14} />Add payment</Button>} /> : null}
+                />
                 {canMakeBills && <PatientBillPanel patient={patient} stage={activeStage} />}
                 <PoPaperCard
                   poPaper={activeStage.poPaper}
@@ -3786,12 +3803,14 @@ const PatientDetails = () => {
         ) : (
           <ul className="space-y-3">
             {activeStage.payments.map((pay) => (
-              <li key={pay.id || `${pay.amount}-${pay.date}`} className="rounded-lg border border-cardline bg-offwhite-200 p-3.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-bold text-charcoal flex items-center gap-1">
+              <li key={pay.id || `${pay.amount}-${pay.date}`} className="min-w-0 break-words rounded-lg border border-cardline bg-offwhite-200 p-3.5">
+                {/* Wraps instead of running out of the drawer on a narrow screen. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                  <span className="flex flex-wrap items-center gap-1.5 text-sm font-bold text-charcoal">
                     <IndianRupee size={12} /> {Number(pay.amount).toLocaleString('en-IN')}
+                    {(() => { const po = (poSplit[activeStage.number]?.purchaseOrders || []).find((o) => o.paymentIds.includes(String(pay.id))); return po ? <span className="whitespace-nowrap rounded-full bg-[#E9EFE9] px-2 py-0.5 font-mono text-[11px] font-bold text-sage">{po.poNumber}</span> : (poSplit[activeStage.number]?.purchaseOrders || []).length > 1 ? <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-900">Not on a PO</span> : null; })()}
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
                      {canEditPayments && pay.approvalStatus === 'pending' && <EditPaymentButton payment={pay} onSave={handleUpdatePayment} />}
                      {isAdmin && pay.approvalStatus === 'pending' && (
                        <button
@@ -3810,7 +3829,7 @@ const PatientDetails = () => {
                     {pay.approvalStatus === 'cancelled' && <Badge tone="danger">Cancelled</Badge>}
                   </div>
                 </div>
-                <div className="mt-2 flex items-center justify-between text-[11px] text-charcoal/55">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[11px] text-charcoal/55">
                   <span>Paid: {formatDate(pay.date)}</span>
                   <span>Recorded: {formatDateTime(pay.createdAt)}</span>
                 </div>

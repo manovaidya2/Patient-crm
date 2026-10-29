@@ -1,4 +1,4 @@
-import { Check, CircleDot, ClipboardList, Pill, Stethoscope, Truck, X } from 'lucide-react';
+import { Check, CircleDot, ClipboardList, GitFork, Pill, RotateCcw, Stethoscope, Truck, X } from 'lucide-react';
 
 const GROUP_ICON = { verification: ClipboardList, medicine: Pill, handover: Truck, treatment: Stethoscope };
 export const poDateTime = (value) => (value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
@@ -65,35 +65,108 @@ export function PoProgressBar({ steps = [] }) {
   );
 }
 
+// The Medicine Dept track: the fulfilment stages of the medicine job (live), or - for a request without a job - the
+// PO's own "ready" and "released" steps. A job stage that is a PO step ("Final check" = Medicine ready, "Release" =
+// Released) selects that PO step; the others select "job:<stage key>".
+const JOB_TO_PO_STEP = { final: 'ready', release: 'released' };
+export function medicineTrack(steps = [], job = null) {
+  if (!job?.stages?.length) return steps.filter((step) => step.branch === 'medicine');
+  return job.stages.filter((stage) => stage.key !== 'accept').map((stage) => {
+    const poStep = steps.find((step) => step.key === JOB_TO_PO_STEP[stage.key]);
+    return poStep
+      ? { ...poStep, n: stage.n, label: stage.label, jobStage: stage }
+      : { key: `job:${stage.key}`, n: stage.n, label: stage.label, state: stage.state, by: stage.doneByName, at: stage.doneAt, waitText: 'Medicine Department is on this step', jobStage: stage };
+  });
+}
+
+// One step of a track: smaller than a main step so two tracks fit side by side.
+function TrackStep({ step, last, selected, onSelect, onRevert }) {
+  const isSelected = selected === step.key;
+  const Body = onSelect ? 'button' : 'div';
+  return (
+    <li className="relative flex gap-2 pb-2.5 last:pb-0">
+      {!last && <span className={`absolute left-[10px] top-[22px] bottom-0 w-0.5 ${step.state === 'done' ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />}
+      <span className={`relative z-10 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold ${dotTone[step.state] || dotTone.todo}`}>
+        {step.state === 'done' ? <Check size={11} /> : step.state === 'failed' ? <X size={11} /> : step.n}
+      </span>
+      <div className={`relative min-w-0 flex-1 rounded-md border ${isSelected ? 'border-sage bg-sage/10 ring-2 ring-sage/15' : step.state === 'current' ? 'border-transparent bg-[#FFF1E6]' : 'border-transparent'} ${onSelect && !isSelected ? 'hover:border-cardline hover:bg-offwhite-200/70' : ''}`}>
+        <Body {...(onSelect ? { type: 'button', onClick: () => onSelect(step.key), 'aria-pressed': isSelected } : {})} className={`block w-full px-2 py-1 text-left ${onRevert ? 'pr-6' : ''}`}>
+          <span className={`block text-[12px] leading-snug ${step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold text-[#C2410C]' : 'font-semibold text-charcoal'}`}>{step.label}</span>
+          {step.state === 'done' && (step.by || step.at) && <span className="block text-[11px] leading-snug text-charcoal/55">{[step.by, poDateTime(step.at)].filter(Boolean).join(' · ')}</span>}
+          {step.state === 'current' && step.waitText && <span className="line-clamp-2 block text-[11px] font-semibold leading-snug text-[#C2410C]/85">{step.waitText}</span>}
+        </Body>
+        {onRevert && step.state === 'done' && <button type="button" onClick={() => onRevert(step)} aria-label={`Revert ${step.label}`} className="absolute right-0.5 top-0.5 rounded p-1 text-[#8C3B2E] opacity-50 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it"><RotateCcw size={11} /></button>}
+      </div>
+    </li>
+  );
+}
+
 // Vertical timeline with who / when / details for every step.
 // `onRevert(step)` (admin only) offers "Revert" on done steps; the PO itself cannot be reverted.
 // With `onSelect` every step is also a filter: clicking it shows that step's work and details next to the timeline.
-export function PoTimeline({ steps = [], onRevert, selected, onSelect }) {
+// Steps with a `branch` are drawn after the main line as two tracks side by side (Medicine Dept | In Transit);
+// `job` (the medicine job summary) fills the Medicine Dept track with its fulfilment stages.
+export function PoTimeline({ steps = [], job = null, onRevert, selected, onSelect }) {
+  const trunk = steps.filter((step) => !step.branch);
+  const tracks = [
+    { key: 'medicine', label: 'Medicine Dept', note: job ? 'Fulfilment, live' : 'Prepares & releases', icon: Pill, steps: medicineTrack(steps, job) },
+    { key: 'transit', label: 'In Transit', note: 'Delivery, payment, handover', icon: Truck, steps: steps.filter((step) => step.branch === 'transit') },
+  ].filter((track) => track.steps.length);
+  const split = trunk.every((step) => step.state === 'done' || step.state === 'failed');
   return (
-    <ol className="relative">
-      {steps.map((step, index) => {
-        const isSelected = selected === step.key;
-        const Body = onSelect ? 'button' : 'div';
-        return (
-          <li key={step.key} className="group relative flex gap-3 pb-4 last:pb-0">
-            {index < steps.length - 1 && <span className={`absolute left-[13px] top-7 bottom-0 w-0.5 ${step.state === 'done' ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />}
-            <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${dotTone[step.state]}`}>
-              {step.state === 'done' ? <Check size={13} /> : step.state === 'failed' ? <X size={13} /> : step.n}
-            </span>
-            <div className={`relative min-w-0 flex-1 rounded-lg border ${isSelected ? 'border-sage bg-sage/10 ring-2 ring-sage/15' : step.state === 'current' ? 'border-transparent bg-[#FFF1E6]' : step.state === 'failed' ? 'border-transparent bg-[#FDE2E1]' : 'border-transparent'} ${onSelect && !isSelected ? 'hover:border-cardline hover:bg-offwhite-200/70' : ''}`}>
-              <Body {...(onSelect ? { type: 'button', onClick: () => onSelect(step.key), 'aria-pressed': isSelected } : {})} className="block w-full px-3 py-1.5 pr-14 text-left">
-                <span className={`block text-[13px] ${step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold text-[#C2410C]' : 'font-semibold text-charcoal'}`}>{step.label}</span>
-                {step.state !== 'todo' && (step.text || step.by || step.at) && (
-                  <span className="block text-xs text-charcoal/60">{[step.text, step.by && `by ${step.by}`, poDateTime(step.at)].filter(Boolean).join(' · ')}</span>
-                )}
-                {step.state === 'current' && step.waitText && <span className="block text-xs font-semibold text-[#C2410C]/85">{step.waitText}</span>}
-              </Body>
-              {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+    <div>
+      <ol className="relative">
+        {trunk.map((step, index) => {
+          const isSelected = selected === step.key;
+          const Body = onSelect ? 'button' : 'div';
+          const line = index < trunk.length - 1 || tracks.length > 0;
+          return (
+            <li key={step.key} className="group relative flex gap-3 pb-4">
+              {line && <span className={`absolute left-[13px] top-7 bottom-0 w-0.5 ${step.state === 'done' ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />}
+              <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${dotTone[step.state]}`}>
+                {step.state === 'done' ? <Check size={13} /> : step.state === 'failed' ? <X size={13} /> : step.n}
+              </span>
+              <div className={`relative min-w-0 flex-1 rounded-lg border ${isSelected ? 'border-sage bg-sage/10 ring-2 ring-sage/15' : step.state === 'current' ? 'border-transparent bg-[#FFF1E6]' : step.state === 'failed' ? 'border-transparent bg-[#FDE2E1]' : 'border-transparent'} ${onSelect && !isSelected ? 'hover:border-cardline hover:bg-offwhite-200/70' : ''}`}>
+                <Body {...(onSelect ? { type: 'button', onClick: () => onSelect(step.key), 'aria-pressed': isSelected } : {})} className="block w-full px-3 py-1.5 pr-14 text-left">
+                  <span className={`block text-[13px] ${step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold text-[#C2410C]' : 'font-semibold text-charcoal'}`}>{step.label}</span>
+                  {step.state !== 'todo' && (step.text || step.by || step.at) && (
+                    <span className="block text-xs text-charcoal/60">{[step.text, step.by && `by ${step.by}`, poDateTime(step.at)].filter(Boolean).join(' · ')}</span>
+                  )}
+                  {step.state === 'current' && step.waitText && <span className="block text-xs font-semibold text-[#C2410C]/85">{step.waitText}</span>}
+                </Body>
+                {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {tracks.length > 0 && (
+        <div className="relative">
+          {/* The fork: the main line splits into one line per track. */}
+          <span className={`absolute left-[13px] top-0 h-0.5 w-[calc(50%+2px)] ${split ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />
+          <p className="flex items-center gap-1.5 pl-9 pt-1.5 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/45"><GitFork size={12} />{split ? 'Two tracks, side by side' : 'Splits in two tracks after acceptance'}</p>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {tracks.map((track) => {
+              const Icon = track.icon;
+              const done = track.steps.filter((step) => step.state === 'done').length;
+              return (
+                <section key={track.key} aria-label={`${track.label} track`} className="min-w-0 rounded-lg border border-[#E8DFCB] bg-[#FDFBF6] p-1.5">
+                  <header className="mb-2 flex items-start justify-between gap-1 border-b border-[#E8DFCB] px-1 pb-1.5">
+                    <span className="min-w-0"><span className="flex items-center gap-1 text-[12px] font-extrabold text-charcoal"><Icon size={13} className="shrink-0 text-sage" />{track.label}</span><span className="block text-[10.5px] text-charcoal/50">{track.note}</span></span>
+                    <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[10.5px] font-bold text-charcoal/60">{done}/{track.steps.length}</span>
+                  </header>
+                  <ol>
+                    {track.steps.map((step, index) => (
+                      <TrackStep key={step.key} step={step} last={index === track.steps.length - 1} selected={selected} onSelect={onSelect} onRevert={onRevert && !step.key.startsWith('job:') ? onRevert : undefined} />
+                    ))}
+                  </ol>
+                </section>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
