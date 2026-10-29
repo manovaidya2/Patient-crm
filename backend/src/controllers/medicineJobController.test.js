@@ -130,13 +130,13 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   // The doctor verifies the formulation next; the Medicine Department waits.
   assert.equal(v.currentKey, 'formula');
   await assert.rejects(complete(id, 'formula', {}, {}, med), /done by/);
-  await assert.rejects(complete(id, 'stock', { batchRefs: 'MG-2610' }), /Complete "Doctor formulation verification" first/);
+  await assert.rejects(complete(id, 'stock', {}), /Complete "Doctor formulation verification" first/);
   v = (await complete(id, 'formula', { remarks: 'Sheet is right' }, {}, doctor)).job;
-  v = (await complete(id, 'stock', { batchRefs: 'MG-2610' })).job;
+  v = (await complete(id, 'stock', {})).job;
   // Preparation: SHIVA-LEH needs an actual (spoon -> gram not set); everything else follows the sheet.
-  await assert.rejects(complete(id, 'prepare', { batchNo: 'B1', preparerName: 'Meena' }), /SHIVA-LEH/);
+  await assert.rejects(complete(id, 'prepare', {}), /SHIVA-LEH/);
   const before = stocks.find((s) => s.code === 'MEDHYA-GHRIT').currentStock;
-  v = (await complete(id, 'prepare', { batchNo: 'B1', preparerName: 'Meena' }, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }, { code: 'BUDDHI-GHRIT', actual: 3 }]) })).job;
+  v = (await complete(id, 'prepare', {}, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }, { code: 'BUDDHI-GHRIT', actual: 3 }]) })).job;
   assert.equal(stocks.find((s) => s.code === 'MEDHYA-GHRIT').currentStock, before - 75, 'Medhya ghrit reduced by the sheet quantity');
   assert.equal(stocks.find((s) => s.code === 'SHIVA-LEH').currentStock, 3000 - 60);
   assert.equal(stocks.find((s) => s.code === 'BUDDHI-GHRIT').currentStock, 500 - 3, 'nasya drawn by the ml the preparer entered');
@@ -188,10 +188,12 @@ test('stock stage refuses a shortage unless a shortage request is raised', async
   await complete(job.id, 'accept', { readyByDate: '2026-11-02' });
   await complete(job.id, 'review');
   await complete(job.id, 'formula', {}, {}, doctor);
-  await assert.rejects(complete(job.id, 'stock', { batchRefs: 'x' }), /Short in stock: RY-33/);
-  const v = (await complete(job.id, 'stock', { batchRefs: 'x', shortageAccepted: true })).job;
+  await assert.rejects(complete(job.id, 'stock', {}), /Short in stock: RY-33/);
+  const v = (await complete(job.id, 'stock', { shortageAccepted: true })).job;
+  const matched = v.stages.find((s) => s.key === 'stock').snapshot.stockTable;
+  assert.equal(matched.find((r) => r.code === 'RY-33').status, 'short', 'the done stage keeps the stock table as it was matched');
   assert.equal(v.currentKey, 'prepare');
-  await assert.rejects(complete(job.id, 'prepare', { batchNo: 'B', preparerName: 'M' }, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 10 }, { code: 'BUDDHI-GHRIT', actual: 1 }]) }), /only 2 tablet in stock/);
+  await assert.rejects(complete(job.id, 'prepare', {}, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 10 }, { code: 'BUDDHI-GHRIT', actual: 1 }]) }), /only 2 tablet in stock/);
   assert.equal(stocks.find((s) => s.code === 'MEDHYA-GHRIT').currentStock, 5000, 'nothing is drawn when one line is short');
 });
 
@@ -237,8 +239,8 @@ test('the formulation sheet can be corrected until preparation; master values st
   await complete(job.id, 'accept', { readyByDate: '2026-11-02' });
   await complete(job.id, 'review');
   await complete(job.id, 'formula', {}, {}, doctor);
-  await complete(job.id, 'stock', { batchRefs: 'x' });
-  await complete(job.id, 'prepare', { batchNo: 'B', preparerName: 'Meena' }, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }]) });
+  await complete(job.id, 'stock', {});
+  await complete(job.id, 'prepare', {}, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }]) });
   assert.equal(stocks.find((s) => s.code === 'MEDHYA-GHRIT').currentStock, 5000 - 120, 'the corrected quantity is what gets drawn');
   await assert.rejects(edit([{ key: 'ghrit', qty: 10 }]), /after preparation/);
 });

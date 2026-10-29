@@ -301,6 +301,8 @@ const completeStage = asyncHandler(async (req, res) => {
     const short = table.filter((r) => r.status === 'short');
     if (short.length && !fields.shortageAccepted) fail(`Short in stock: ${short.map((r) => `${r.code} (${r.available} ${r.stockUnit} of ${r.needInStock})`).join(', ')}. Receive stock first or tick "shortage request raised" to continue`);
     record.fields.shortageAccepted = Boolean(fields.shortageAccepted);
+    // The stock as it was matched (stock moves later, at preparation), so the done stage shows the same table.
+    record.snapshot = { stockTable: table };
   }
   if (stage.key === 'prepare') {
     // Draw the actual quantities from Stocks. Planned comes from the formulation; the preparer confirms or corrects each.

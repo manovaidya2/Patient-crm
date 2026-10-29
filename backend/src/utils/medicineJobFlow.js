@@ -29,11 +29,13 @@ const STAGES = [
   { key: 'stock', n: 3, label: 'Stock match', hi: 'स्टॉक मिलान', roles: MED, sop: 'SOP 6 · D-19',
     purpose: 'Every ingredient and bottle is in stock with a valid batch; shortages are requested now, not when the shelf is empty.',
     checks: ['Required quantities compared with Stocks (table below)', 'Batch / expiry valid beyond the treatment end date', 'Bottles, droppers, pouches, chits and labels available', 'Shortage request raised where needed'],
-    fields: [{ key: 'batchRefs', label: 'Batch / lot references used', type: 'text', required: true }] },
+    // The batch of each item is already shown in the stock table (from Stocks), so nothing is typed here.
+    fields: [] },
   { key: 'prepare', n: 4, label: 'Medicine preparation', hi: 'दवा बनाना', roles: MED, sop: 'SOP S1 · D-11-14',
     purpose: 'Prepare in prescription order for one patient at a time. Completing this stage draws the actual quantities from Stocks.',
     checks: ['Morning checklist (1-10) complete; hands, table and tools clean; cap, mask, gloves', 'One patient at a time; other patient material kept apart', 'Medicines prepared in prescription order 1 → 2 → 3 … and ticked', 'Every component weighed / measured, not estimated', 'Tools cleaned and dried between medicines'],
-    fields: [{ key: 'batchNo', label: 'Preparation batch / job reference', type: 'text', required: true }, { key: 'preparerName', label: 'Prepared by (operator)', type: 'text', required: true }] },
+    // The person completing the stage is recorded as the preparer; nothing else is typed.
+    fields: [] },
   { key: 'fill', n: 5, label: 'Primary packing & chits', hi: 'पैकिंग व चिट', roles: MED, sop: 'SOP S2 · SOP 7',
     purpose: 'Fill each bottle, dropper and pouch, record actual fill, and confirm every chit below on its pack.',
     checks: ['Each unit filled and actual ml / g recorded; caps and inner seals secure, no leak', 'Powder pouch folded three times with safe outer closure; no exposed staple', 'Every pack carries name, code, patient ID, pack x/n and dose chit', 'Like medicines grouped 2-4 per band; no mixing of codes', 'Morning-evening and noon-night chits not swapped'],
@@ -92,7 +94,7 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
       ...s,
       state: rec?.doneAt ? 'done' : i === current && job.status !== 'cancelled' ? 'current' : 'todo',
       doneAt: iso(rec?.doneAt), doneByName: rec?.doneByName || '', doneByRole: rec?.doneByRole || '',
-      values: rec?.fields || {}, notes: rec?.notes || '',
+      values: rec?.fields || {}, notes: rec?.notes || '', snapshot: rec?.snapshot || null,
       // Which checklist lines were ticked when the stage was completed.
       checksDone: rec ? s.checks.map((_, n) => rec.checks?.[n] !== false) : [],
     };

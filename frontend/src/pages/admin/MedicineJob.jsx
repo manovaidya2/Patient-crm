@@ -62,7 +62,7 @@ const InfoRow = ({ label, value, sub }) => (value === '' || value == null ? null
 ));
 // What was done in a completed stage: every ticked checklist line, every value filled and the notes, each with a green tick.
 // Older jobs may still carry the removed formulation-check fields.
-const FIELD_LABEL = { shortageAccepted: 'Shortage request raised', readyByDate: 'Medicine will be ready by', formulaRef: 'Doctor approval / formula reference', exceptions: 'Patient-specific changes' };
+const FIELD_LABEL = { shortageAccepted: 'Shortage request raised (stock was short)', readyByDate: 'Medicine will be ready by', formulaRef: 'Doctor approval / formula reference', exceptions: 'Patient-specific changes', batchRefs: 'Batch / lot references used', batchNo: 'Preparation batch / job reference', preparerName: 'Prepared by (operator)' };
 const fieldText = (field, value) => {
   if (value === true) return 'Yes';
   if (field?.type === 'date' || /^\d{4}-\d{2}-\d{2}/.test(String(value))) return day(value) || String(value);
@@ -186,7 +186,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     setChecks({}); setNotes(''); setConsumption({}); setChits({}); setFiles({});
-    setFields(stage.key === 'accept' ? { readyByDate: inputDay(job.readyByDate) } : stage.key === 'prepare' ? { preparerName: '' } : {});
+    setFields(stage.key === 'accept' ? { readyByDate: inputDay(job.readyByDate) } : {});
   }, [stage.key, job.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const allChecked = stage.checks.every((_, i) => checks[i]);
   const submit = async () => {
@@ -382,6 +382,12 @@ export default function MedicineJobPage() {
                   </div>
                   <DoneList stage={shown} job={job} />
                   {['review', 'formula'].includes(shown.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
+                  {shown.key === 'stock' && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">{shown.snapshot?.stockTable ? 'Stock as matched at completion' : 'Stock now (the table at completion was not saved for this older job)'}</p>
+                      <StockTable rows={shown.snapshot?.stockTable || job.stockTable} />
+                    </div>
+                  )}
                   {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.code}>{c.code}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)})</li>)}</ul>}
                   {shown.key === 'fill' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked disabled onToggle={() => {}} />)}</div>}
                   {shown.key === 'photos' && <><CompactAttachments files={job.photos.overview} label="Photo A" /><CompactAttachments files={job.photos.papers} label="Photo B" /></>}

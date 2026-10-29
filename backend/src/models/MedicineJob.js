@@ -25,6 +25,8 @@ const stageRecordSchema = new mongoose.Schema(
     doneByRole: { type: String, trim: true, default: '' },
     checks: { type: [Boolean], default: [] },
     fields: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // What the stage saw when it was completed (e.g. the stock table at Stock match), shown later on the done stage.
+    snapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     notes: { type: String, trim: true, default: '', maxlength: 2000 },
   },
   { _id: false }
