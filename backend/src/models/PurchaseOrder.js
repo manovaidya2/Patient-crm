@@ -60,6 +60,9 @@ const purchaseOrderSchema = new mongoose.Schema(
     detailsVerifiedByName: { type: String, trim: true, default: '' },
     paymentVerifiedAt: { type: Date, default: null },
     paymentVerifiedByName: { type: String, trim: true, default: '' },
+    // The checklist lines In Transit ticked when verifying (shown in green on the done step).
+    detailsChecks: { type: [String], default: [] },
+    paymentChecks: { type: [String], default: [] },
     verifiedAt: { type: Date, default: null },
     verifiedByName: { type: String, trim: true, default: '' },
     rejectedAt: { type: Date, default: null },

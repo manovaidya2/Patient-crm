@@ -262,11 +262,31 @@ async function main() {
           await page.waitForFunction(() => document.body.innerText.includes('Close record'), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `pnb-detail-close-${width}.png`), fullPage: true });
         }
+        if (name === 'po-verify') {
+          // The timeline is a filter: "PO created" shows the patient and the PO, "Payment verified" the payments.
+          const pick = (label) => page.evaluate((l) => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.innerText.trim().startsWith(l)).click(), label);
+          await pick('PO created');
+          await page.waitForFunction(() => /step 1 of 14/i.test(document.body.innerText), { timeout: 15000 });
+          let text = await page.evaluate(() => document.body.innerText);
+          assert.ok(text.includes('Patient approval') && /PO paper as filled/i.test(text), 'PO created step lacks the patient / PO details');
+          assert.ok(!text.includes('Payments on this PO') && !text.includes('Verify the PO details'), 'PO created step shows other steps');
+          await pick('Payment verified');
+          await page.waitForFunction(() => document.body.innerText.includes('Payments on this PO'), { timeout: 15000 });
+          text = await page.evaluate(() => document.body.innerText);
+          assert.ok(!text.includes('Patient approval'), 'Payment step still shows the patient card');
+          await page.screenshot({ path: path.join(output, `po-step-payment-${width}.png`), fullPage: true });
+        }
+        if (name === 'po-detail') {
+          // A done step lists what was done in it, in green.
+          await page.evaluate(() => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.innerText.trim().startsWith('PO details verified')).click());
+          await page.waitForFunction(() => /done in this step/i.test(document.body.innerText), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `po-step-done-${width}.png`), fullPage: false });
+        }
         if (name === 'admin-po-revert') {
           // Admin only: "Revert" sits on done timeline steps; the confirmation lists every step that goes back.
           const reverts = await page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => b.innerText.trim() === 'Revert').length);
           assert.equal(reverts, 4, `Revert on the four done steps after "PO created", found ${reverts}`);
-          await page.evaluate(() => { const li = [...document.querySelectorAll('li')].find((l) => l.innerText.startsWith('Medicine requested') && l.querySelector('button')); li.querySelector('button').click(); });
+          await page.evaluate(() => { const li = [...document.querySelectorAll('li')].find((l) => l.innerText.startsWith('Medicine requested') && [...l.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Revert')); [...li.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Revert').click(); });
           await page.waitForFunction(() => document.body.innerText.includes('Why is this reverted?') && document.body.innerText.includes('Revert 2 steps'), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `admin-po-revert-modal-${width}.png`), fullPage: true });
         }

@@ -127,6 +127,8 @@ const medicineRequestSchema = new mongoose.Schema(
     supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
     ageBand: { type: String, enum: ['', '3-4', '4-12', '12-70', '70+'], default: '' },
+    // Autism / ADHD / Autism + ADHD / Mental Health (from the patient's Sales case category).
+    caseCategory: { type: String, trim: true, default: '' },
     status: {
       type: String,
       enum: ['not_requested', 'requested', 'in_process', 'made', 'sent_to_courier', 'cancelled'],

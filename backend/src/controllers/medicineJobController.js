@@ -109,7 +109,7 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
     patient: patient._id, patientCode: patient.patientCode || '', patientName: patient.patientName, phase: stage.number, requestId,
     purchaseOrder: poDoc?._id || null, poNumber: request.poNumber || poDoc?.poNumber || '',
     supplyPlan: sent.plan || request.supplyPlan || poDoc?.supplyPlan || '', supplyPart: sent.part || request.supplyPart || poDoc?.supplyPart || '', ageBand: sent.ageBand || request.ageBand || poDoc?.ageBand || ageBandFor(phaseAge(patient, stage.number)) || '',
-    medicines: request.medicines || '', requestNotes: request.notes || '', requestedAt: request.requestedAt || new Date(), requestedByName: request.requestedByName || '', readyByDate: request.readyByDate || null,
+    medicines: request.medicines || '', caseCategory: request.caseCategory || '', requestNotes: request.notes || '', requestedAt: request.requestedAt || new Date(), requestedByName: request.requestedByName || '', readyByDate: request.readyByDate || null,
     status: request.status === 'sent_to_courier' ? 'released' : request.status === 'made' ? 'ready' : 'open',
     currentStage: request.status === 'sent_to_courier' ? STAGES.length : request.status === 'made' ? STAGE_INDEX.release : request.status === 'in_process' ? STAGE_INDEX.review : 0,
     events: [{ at: new Date(), action: 'Job opened', details: `Medicine request ${requestId}${request.poNumber ? ` | PO ${request.poNumber}` : ''}`, byName: user.name, byRole: user.role }],

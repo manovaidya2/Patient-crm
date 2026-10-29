@@ -168,16 +168,16 @@ const PO_REVERTS = {
   async payment({ po, stage }) {
     if (!po.paymentVerifiedAt && po.status !== 'verified') return null;
     const keys = ['status', 'paymentVerifiedAt', 'paymentVerifiedByName', 'verifiedAt', 'verifiedByName'];
-    const snapshot = { po: take(po, keys), payments: [] };
+    const snapshot = { po: { ...take(po, keys), paymentChecks: [...(po.paymentChecks || [])] }, payments: [] };
     const linked = new Set((po.paymentIds || []).map(String));
     (stage.payments || []).filter((p) => linked.has(String(p._id)) && (p.approvalStatus || 'approved') === 'approved').forEach((p) => toPending(p, snapshot.payments));
-    po.status = 'pending'; clear(po, ['paymentVerifiedAt', 'paymentVerifiedByName', 'verifiedAt', 'verifiedByName']);
+    po.status = 'pending'; clear(po, ['paymentVerifiedAt', 'paymentVerifiedByName', 'verifiedAt', 'verifiedByName']); po.paymentChecks = [];
     return snapshot;
   },
   async details({ po }) {
     if (!po.detailsVerifiedAt) return null;
-    const snapshot = { po: take(po, ['detailsVerifiedAt', 'detailsVerifiedByName']) };
-    clear(po, ['detailsVerifiedAt', 'detailsVerifiedByName']);
+    const snapshot = { po: { ...take(po, ['detailsVerifiedAt', 'detailsVerifiedByName']), detailsChecks: [...(po.detailsChecks || [])] } };
+    clear(po, ['detailsVerifiedAt', 'detailsVerifiedByName']); po.detailsChecks = [];
     return snapshot;
   },
 };

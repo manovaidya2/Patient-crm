@@ -21,7 +21,12 @@ const daysLate = (expected, actual) => {
 const paperDate = (value) => (/^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? new Date(`${value}T00:00:00.000+05:30`) : null);
 
 // The expected date fixed by post counselling for this phase / purchase order (null for older phases without one).
-const fixedReadyDate = ({ po = null, stage = null } = {}) => po?.medicineReadyDate || paperDate(stage?.poPaper?.values?.medicineReadyDate) || null;
+// A PO added by hand by anyone but the Post Counselor (In Transit, usually) has none: In Transit fills its ready date.
+const readyDateFromPostCounselling = (po) => !po || po.source !== 'manual' || po.createdByRole === ROLES.POST_COUNSELOR;
+const fixedReadyDate = ({ po = null, stage = null } = {}) => {
+  if (!readyDateFromPostCounselling(po)) return null;
+  return po?.medicineReadyDate || paperDate(stage?.poPaper?.values?.medicineReadyDate) || null;
+};
 
 // Only the admin may change what post counselling fixed.
 const canOverrideFixed = (user) => user?.role === ROLES.ADMIN;
@@ -52,4 +57,4 @@ const fixedSupplyPlan = ({ po = null, stage = null } = {}) => {
   return { plan: supply?.plan || '', part: supply?.part || '', ageBand: po?.ageBand || ageBandByLabel(paper.ageGroup) || '' };
 };
 
-module.exports = { daysLate, paperDate, fixedReadyDate, fixedSupplyPlan, canOverrideFixed, medicineDelays };
+module.exports = { daysLate, paperDate, readyDateFromPostCounselling, fixedReadyDate, fixedSupplyPlan, canOverrideFixed, medicineDelays };

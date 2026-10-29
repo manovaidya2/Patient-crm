@@ -111,7 +111,7 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     patientId: String(job.patient), patientCode: job.patientCode, patientName: job.patientName, phase: job.phase, requestId: job.requestId,
     purchaseOrderId: job.purchaseOrder ? String(job.purchaseOrder) : '', poNumber: job.poNumber,
     supplyPlan: job.supplyPlan, supplyPart: job.supplyPart, supplyLabel: supplyLabel(job.supplyPlan, job.supplyPart), ageBand: job.ageBand, ageBandLabel: AGE_BANDS[job.ageBand] || '',
-    medicines: job.medicines, requestNotes: job.requestNotes, requestedAt: iso(job.requestedAt), requestedByName: job.requestedByName, readyByDate: iso(job.readyByDate),
+    medicines: job.medicines, caseCategory: job.caseCategory || '', requestNotes: job.requestNotes, requestedAt: iso(job.requestedAt), requestedByName: job.requestedByName, readyByDate: iso(job.readyByDate),
     status: job.status, currentStage: current, currentKey: STAGES[current]?.key || '', totalStages: STAGES.length,
     progress: Math.round((stages.filter((s) => s.state === 'done').length / STAGES.length) * 100),
     hold: job.hold?.active ? { ...job.hold, at: iso(job.hold.at) } : null,

@@ -21,7 +21,7 @@ const localInput = (value = new Date(), withTime = true) => {
 // ---------- action forms ----------
 // field: [key, label, type, required, options, showIf]
 export const FORMS = {
-  raise_request: { title: 'Raise medicine request', note: 'No prescription upload: the Medicine Department reads the patient\'s whole file from the Records Room.', button: 'Raise request', fields: [['medicines', 'Medicines', 'textarea', true], ['readyByDate', 'Expected medicine ready date', 'date', true], ['notes', 'Notes', 'textarea']] },
+  raise_request: { title: 'Raise medicine request', note: 'No prescription upload: the Medicine Department reads the patient\'s whole file from the Records Room.', button: 'Raise request', fields: [['readyByDate', 'Expected medicine ready date', 'date', true], ['notes', 'Notes', 'textarea']] },
   accept_request: { title: 'Accept request and set ready-by date', note: 'An automatic reminder goes to the In Transit and Medicine Department one day before this date.', button: 'Accept request', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   set_ready_by: { title: 'Change ready-by date', note: 'The automatic reminder moves with the date.', button: 'Save date', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   log_call: {

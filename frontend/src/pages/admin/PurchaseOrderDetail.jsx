@@ -10,13 +10,14 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
-import { PoPipelineBoxes, PoTimeline, poDateTime } from '../../components/purchaseOrders/PoPipeline.jsx';
+import { PoPipelineBoxes, PoStepStrip, PoTimeline, poDateTime } from '../../components/purchaseOrders/PoPipeline.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import { ActionForm, AssignPccForm, CALL, FORMS, MODE, formKeyFor, sendAction } from '../../components/transit/TransitActions.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { DelayChips, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { ROLES } from '../../constants/roles.js';
+import { CASE_CATEGORIES } from '../../constants/patientCategories.js';
 import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
 
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
@@ -40,6 +41,117 @@ const Row = ({ label, value }) => (value === '' || value == null ? null : <div c
 const ErrorText = ({ children }) => (children ? <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{children}</p> : null);
 const smallLink = 'inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline';
 
+// What each timeline step shows on the right: what is filled at that step, or where its status is seen.
+const STEP_SECTIONS = {
+  created: ['patient', 'po'],
+  details: ['patient', 'po'],
+  payment: ['payments'],
+  requested: ['medicine'],
+  accepted: ['medicine', 'job'],
+  ready: ['medicine', 'job'],
+  scheduled: ['handover'],
+  fullpay: ['payments', 'handover'],
+  released: ['job', 'handover'],
+  handover: ['handover'],
+  received: ['handover'],
+  pcc: ['handover'],
+  explained: ['handover'],
+  started: ['handover'],
+};
+const STEP_STATE = {
+  done: ['Done', 'bg-emerald-100 text-emerald-800'],
+  current: ['Now', 'bg-[#FFF1E6] text-[#C2410C]'],
+  failed: ['Stopped', 'bg-[#FDE2E1] text-[#9F1D1D]'],
+  todo: ['Not reached yet', 'bg-[#F3EEE2] text-charcoal/60'],
+};
+
+// In Transit's checklist for a verification step ('details' or 'payment'), as [key, label] lines.
+const verifyChecklist = (po, step) => (step === 'details'
+  ? [['paper', `PO paper checked (${po.paperImages.length ? `${po.paperImages.length} image(s)` : 'no image attached'}) and matches the form below`], ['patient', 'Patient name, ID and contact numbers are correct'], ['order', `Phase ${po.phase}, medicine supply (${po.supplyLabel || 'not selected'}) and PO value ${money(po.amount)} are correct`]]
+  : [['proof', po.linkedPayment.count ? `Payment proof matched: ${money(po.linkedPayment.pendingAmount || po.linkedPayment.verifiedAmount)} ${po.linkedPayment.pendingAmount ? 'pending ' : ''}on this PO (UTR / screenshot / cash receiver)` : 'There is no payment on this PO - confirmed']]);
+
+// What was done in a finished step: the lines ticked and the actions taken, each shown in green.
+function doneItems(step, po) {
+  const med = po.medicine;
+  const line = (...bits) => bits.filter(Boolean).join(' · ');
+  const events = (actions) => (po.events || []).filter((e) => actions.includes(e.action)).map((e) => ({ text: e.action, sub: line(e.details, e.byName && `by ${e.byName}`, poDateTime(e.at)) }));
+  // The lines as they were ticked. A PO verified before they were saved shows its checklist: verifying needs every line ticked.
+  const ticked = (checks, key) => (checks?.length ? checks : verifyChecklist(po, key).map(([, label]) => label)).map((text) => ({ text }));
+  let items = [];
+  if (step.key === 'created') {
+    items = [
+      ...events(['PO created']),
+      { text: `PO value ${money(po.amount)}`, sub: line(`Phase ${po.phase}`, po.supplyLabel, ageBandLabel(po.ageBand)) },
+      po.paperImages?.length ? { text: `PO paper attached (${po.paperImages.length} image${po.paperImages.length === 1 ? '' : 's'})` } : null,
+      po.medicineReadyDate ? { text: `Medicine expected by ${day(po.medicineReadyDate)}`, sub: 'Fixed by post counselling' } : null,
+    ];
+  } else if (step.key === 'details') {
+    items = po.status === 'rejected' ? events(['PO rejected']) : [...ticked(po.detailsChecks, 'details'), po.approvalStatus === 'approved' ? { text: 'Patient approved' } : null, ...events(['PO details verified'])];
+  } else if (step.key === 'payment') {
+    items = [
+      ...ticked(po.paymentChecks, 'payment'),
+      ...po.payments.filter((p) => p.status === 'approved').map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.approvedByName && `verified by ${p.approvedByName}`) })),
+      ...events(['Payment verified']),
+    ];
+  } else if (step.key === 'requested' && med) {
+    // Each value with where it came from: post counselling, the PO, or the person who sent the request.
+    const sentBy = med.requestedByName ? `Chosen by ${med.requestedByName} when sending the request` : 'Chosen when sending the request';
+    const onPo = `Set on the PO${po.createdByName ? ` by ${po.createdByName}` : ''}`;
+    items = [
+      { text: 'Medicine request sent to Medicine Department', sub: line(med.requestedByName && `by ${med.requestedByName}`, poDateTime(med.requestedAt)) },
+      med.caseCategory ? { text: `Category: ${med.caseCategory}`, sub: med.caseCategory === po.patientCaseCategory ? `The patient's category from the Sales sheet · sent by ${med.requestedByName || 'In Transit'}` : sentBy } : null,
+      { text: `Supply: ${po.supplyLabel || '-'}`, sub: po.fixedPlan?.supplyLocked ? onPo : sentBy },
+      ageBandLabel(po.ageBand) ? { text: `Age group: ${ageBandLabel(po.ageBand)}`, sub: line(po.fixedPlan?.ageBandLocked ? onPo : sentBy, po.patientAge && `patient age ${po.patientAge}`) } : null,
+      med.readyByDate ? {
+        text: `Ready by: ${day(med.readyByDate)}`,
+        sub: po.fixedPlan?.readyDate
+          ? `Fixed by post counselling on the PO paper${po.createdByName ? ` (PO by ${po.createdByName})` : ''} · Medicine Department cannot change it`
+          : line(`Filled by ${med.readyBySetByName || med.requestedByName || 'In Transit'}`, poDateTime(med.readyBySetAt || med.requestedAt), 'Medicine Department cannot change it'),
+      } : null,
+      med.medicines ? { text: `Medicines: ${med.medicines}` } : null,
+      med.notes ? { text: `Notes: ${med.notes}`, sub: med.requestedByName && `by ${med.requestedByName}` } : null,
+    ];
+  } else if (step.key === 'ready' && med?.medicineImages?.length) {
+    items = [{ text: 'Medicine ready', sub: line(step.by && `by ${step.by}`, poDateTime(step.at)) }, { text: `${med.medicineImages.length} medicine photo${med.medicineImages.length === 1 ? '' : 's'} added` }];
+  }
+  items = items.filter(Boolean);
+  return items.length ? items : [{ text: step.text || step.label, sub: line(step.by && `by ${step.by}`, poDateTime(step.at)) }];
+}
+
+// The chosen timeline step: where it stands, who did it and when, or what it is waiting for.
+function StepHeader({ step, total, onAll, onRevert, po }) {
+  const [label, tone] = STEP_STATE[step.state] || STEP_STATE.todo;
+  const doneLine = [step.text, step.by && `by ${step.by}`, poDateTime(step.at)].filter(Boolean).join(' · ');
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-2 rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-charcoal/50">Step {step.n} of {total}</p>
+        <h2 className="flex flex-wrap items-center gap-2 text-base font-bold text-charcoal">{step.label}<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${tone}`}>{label}</span></h2>
+        {step.state !== 'todo' && doneLine && <p className="text-sm text-charcoal/65">{doneLine}</p>}
+        {step.state !== 'done' && step.waitText && <p className="text-sm text-charcoal/65">{step.waitText}</p>}
+      </div>
+      <div className="flex items-center gap-3">
+        {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Admin: undo this step and every step after it"><RotateCcw size={13} />Revert</button>}
+        <button type="button" onClick={onAll} className={smallLink}><Layers size={13} />All details</button>
+      </div>
+      {step.state === 'done' && (
+        <div className="w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800">Done in this step</p>
+          <ul className="space-y-1.5">
+            {doneItems(step, po).map((item, i) => (
+              <li key={i} className="flex gap-2 text-sm">
+                {/* Every line done in the step gets the same green tick. */}
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-emerald-600 text-white" role="img" aria-label="Done"><Check size={12} strokeWidth={3} /></span>
+                <span className="min-w-0"><span className="font-semibold text-emerald-900">{item.text}</span>{item.sub && <span className="block text-xs text-emerald-800/75">{item.sub}</span>}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function RejectBox({ po, onDone, onBack }) {
   const [reason, setReason] = useState('');
@@ -62,9 +174,7 @@ function RejectBox({ po, onDone, onBack }) {
 // Step 1: PO paper and patient details. Step 2: payment proof. Each is its own button.
 function VerifyPanel({ po, onDone }) {
   const step = po.detailsVerified ? 'payment' : 'details';
-  const checksFor = step === 'details'
-    ? [['paper', `PO paper checked (${po.paperImages.length ? `${po.paperImages.length} image(s)` : 'no image attached'}) and matches the form below`], ['patient', 'Patient name, ID and contact numbers are correct'], ['order', `Phase ${po.phase}, medicine supply (${po.supplyLabel || 'not selected'}) and PO value ${money(po.amount)} are correct`]]
-    : [['proof', po.linkedPayment.count ? `Payment proof matched: ${money(po.linkedPayment.pendingAmount)} pending on this PO (UTR / screenshot / cash receiver)` : 'There is no payment on this PO - confirmed']];
+  const checksFor = verifyChecklist(po, step);
   const [checks, setChecks] = useState({});
   const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,7 +183,7 @@ function VerifyPanel({ po, onDone }) {
   const run = async () => {
     setBusy(true); setError('');
     try {
-      const { data } = await api.post(`/purchase-orders/${po.id}/verify-${step}`, {});
+      const { data } = await api.post(`/purchase-orders/${po.id}/verify-${step}`, { checks: checksFor.map(([, label]) => label) });
       onDone(data.purchaseOrder, step === 'details' ? 'PO details verified. Now verify the payment.' : `Payment verified and added to Phase ${po.phase} payments. You can request the medicine now.`);
     } catch (err) { setError(err.response?.data?.message || 'Could not verify'); } finally { setBusy(false); }
   };
@@ -108,7 +218,7 @@ function MedicineRequestForm({ po, onDone }) {
   const ageLocked = Boolean(po.fixedPlan?.ageBandLocked) && !admin;
   const [values, setValues] = useState({
     supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), ageBand: po.ageBand || po.suggestedAgeBand || '',
-    medicines: '', readyByDate: inputDay(po.medicineReadyDate), notes: '',
+    caseCategory: po.patientCaseCategory || '', readyByDate: inputDay(po.medicineReadyDate), notes: '',
   });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -118,6 +228,7 @@ function MedicineRequestForm({ po, onDone }) {
     event.preventDefault();
     if (!values.supplyKey) { setError('Select the medicine supply'); return; }
     if (!values.ageBand) { setError('Select the age group'); return; }
+    if (!values.caseCategory) { setError('Select the category: Autism, ADHD, Autism + ADHD or Mental Health'); return; }
     setBusy(true); setError('');
     try {
       const body = new FormData();
@@ -131,10 +242,10 @@ function MedicineRequestForm({ po, onDone }) {
     <form onSubmit={submit} className="space-y-3">
       <div className="flex gap-3"><Pill size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">Request medicine from Medicine Department</h3><p className="text-sm text-charcoal/65">Confirm the supply and the age group; Medicine Department prepares by this category.</p></div></div>
       <ErrorText>{error}</ErrorText>
+      <div><p className="mb-1 text-sm font-medium text-charcoal">Category<span className="text-red-700"> *</span> {po.patientCaseCategory && <span className="font-normal text-charcoal/50">(patient's category: {po.patientCaseCategory})</span>}</p><div className="flex flex-wrap gap-1.5">{CASE_CATEGORIES.map((c) => <Chip key={c} active={values.caseCategory === c} onClick={() => set('caseCategory', c)}>{c}</Chip>)}</div></div>
       <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} title={o.hint} active={values.supplyKey === o.key} disabled={supplyLocked && values.supplyKey !== o.key} onClick={() => !supplyLocked && set('supplyKey', o.key)}>{o.label}</Chip>)}</div>{supplyLocked && <FixedNote />}</div>
       <div><p className="mb-1 text-sm font-medium text-charcoal">Age group<span className="text-red-700"> *</span> {po.patientAge && <span className="font-normal text-charcoal/50">(patient age {po.patientAge})</span>}</p><div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={values.ageBand === b.value} disabled={ageLocked && values.ageBand !== b.value} onClick={() => !ageLocked && set('ageBand', b.value)}>{b.label}{b.value === po.suggestedAgeBand ? ' (by age)' : ''}</Chip>)}</div>{ageLocked && <FixedNote />}</div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <FieldLabel label="Medicines" required className="sm:col-span-2"><textarea className={poInput} rows={2} required value={values.medicines} onChange={(e) => set('medicines', e.target.value)} placeholder="Medicines as per the prescription" /></FieldLabel>
         <FieldLabel label="Medicine ready-by date" required><input className={poInput} type="date" required readOnly={dateLocked} disabled={dateLocked} value={values.readyByDate} onChange={(e) => set('readyByDate', e.target.value)} />{dateLocked && <FixedNote />}</FieldLabel>
         <div className="sm:col-span-2"><p className="mb-1 text-sm text-charcoal/65">No prescription upload: the Medicine Department reads the patient's whole file from the Records Room.</p><PatientFile documents={po.patientDocuments || []} /></div>
         <FieldLabel label="Notes for Medicine Department" className="sm:col-span-2"><input className={poInput} value={values.notes} onChange={(e) => set('notes', e.target.value)} /></FieldLabel>
@@ -255,7 +366,12 @@ function PaperDetails({ po }) {
         <div key={section.letter}>
           <p className="mb-1.5 border-l-4 border-sage bg-sage/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-charcoal">{section.letter}. {section.title}</p>
           <div className="grid gap-x-6 sm:grid-cols-2">{section.rows.map((row) => <Row key={row.label} label={row.label} value={row.value} />)}</div>
-          {section.files.map((f) => <CompactAttachments key={f.label} files={f.files} label={f.label} className="mt-1.5" />)}
+          {/* The PO paper image is already shown above as "PO paper"; list only files not shown there. */}
+          {section.files.map((f) => {
+            const shown = new Set((po.paperImages || []).map((file) => file.url));
+            const files = (f.files || []).filter((file) => !shown.has(file.url));
+            return files.length ? <CompactAttachments key={f.label} files={files} label={f.label} className="mt-1.5" /> : null;
+          })}
         </div>
       ))}
     </div>
@@ -362,24 +478,28 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     catch (err) { setError(err.response?.data?.message || 'Could not revert this step'); } finally { setReverting(false); }
   };
   const [busyPayment, setBusyPayment] = useState('');
+  // The timeline step shown on the right (null: follow the step the PO is on now).
+  const [picked, setPicked] = useState(null);
 
   const load = useCallback(async () => {
     try { const { data } = await api.get(`/purchase-orders/${poId}`, { skipCache: true }); setPo(data.purchaseOrder); setError(''); }
     catch (err) { setError(err.response?.data?.message || 'Could not load the purchase order'); }
   }, [poId]);
-  useEffect(() => { setPo(null); load(); }, [load]);
+  useEffect(() => { setPo(null); setPicked(null); load(); }, [load]);
   useEffect(() => { const timer = setInterval(load, 30000); window.addEventListener('focus', load); return () => { clearInterval(timer); window.removeEventListener('focus', load); }; }, [load]);
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(t); }, [notice]);
 
-  const done = (next, message) => { setPo(next); setNotice(message); setPayOpen(false); };
+  // After an action the right side moves on to the step the PO is on now.
+  const done = (next, message) => { setPo(next); setNotice(message); setPayOpen(false); setPicked(null); };
   // A PO still waiting for verification: In Transit checks the details and the payment right here, in one go.
   const verifyPoHere = async (payment) => {
     if (!window.confirm(`Verify ${po.poNumber}: the PO details and its payment(s) (${money(po.linkedPayment.pendingAmount || payment.amount)}) together?`)) return;
     setBusyPayment(payment.id); setError('');
     try {
-      if (!po.detailsVerifiedAt) await api.post(`/purchase-orders/${po.id}/verify-details`);
-      const { data } = await api.post(`/purchase-orders/${po.id}/verify-payment`);
-      setPo(data.purchaseOrder);
+      const together = 'Checked from the payment card (PO details and payment together)';
+      if (!po.detailsVerifiedAt) await api.post(`/purchase-orders/${po.id}/verify-details`, { checks: [together] });
+      const { data } = await api.post(`/purchase-orders/${po.id}/verify-payment`, { checks: [`${together}: payment proof of ${money(po.linkedPayment.pendingAmount || payment.amount)} matched`] });
+      setPo(data.purchaseOrder); setPicked(null);
       setNotice(`${po.poNumber} verified with its payment.`);
     } catch (err) { setError(err.response?.data?.message || 'Could not verify'); await load(); } finally { setBusyPayment(''); }
   };
@@ -414,9 +534,17 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     <div className="flex gap-3"><Clock3 size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">{po.step.label}</h3><p className="text-sm text-charcoal/65">{po.step.waitText || po.requestBlockedReason || 'Waiting for the next team.'}</p></div></div>
   );
   const showHandover = TRANSIT_ROLES.includes(role) && med && med.status !== 'cancelled' && po.isPhaseCurrentRequest;
-  const show = () => true;
-  const showAll = true;
   const myTurn = (po.actionBy || []).includes(role);
+  // Timeline as a filter: the chosen step (default: the step the PO is on now) decides what the right side shows.
+  const currentKey = po.steps.find((s) => s.state === 'current' || s.state === 'failed')?.key || 'all';
+  const selected = picked && (picked === 'all' || po.steps.some((s) => s.key === picked)) ? picked : currentKey;
+  const selectedStep = po.steps.find((s) => s.key === selected);
+  const show = (part) => selected === 'all' || (STEP_SECTIONS[selected] || []).includes(part);
+  // The step the action box (verify / edit / request form, or "waiting for") belongs to.
+  const actionKey = next ? (po.status === 'pending' ? (po.detailsVerified ? 'payment' : 'details') : po.status === 'rejected' ? 'details' : 'requested') : po.step.key;
+  // "Waiting for ..." is already said by the step header, so it shows on its own only under "All details".
+  const showAction = next ? selected === 'all' || selected === actionKey : waiting && selected === 'all';
+  const canRevert = role === ROLES.ADMIN && !['rejected', 'cancelled'].includes(po.status);
 
   return (
     <div className="po-compact space-y-3">
@@ -427,7 +555,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           <p className="mt-0.5 text-[12.5px] text-charcoal/65"><b className="text-charcoal">{po.patientName}</b> · {po.patientCode} · Phase {po.phase}{po.currentStage === po.phase ? ' (current)' : ` · current is Phase ${po.currentStage}`} · <b className="text-charcoal">{money(po.amount)}</b>{po.guardianName ? ` · ${po.guardianName}` : ''}</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {myTurn && <span className="inline-flex items-center gap-1.5 rounded-full border border-[#FDBA74] bg-[#FFF1E6] px-3 py-1.5 text-[11.5px] font-bold text-[#C2410C]"><span className="h-2 w-2 rounded-full bg-[#F97316]" aria-hidden="true" />Your action · {po.step.label}</span>}
+          {myTurn && <button type="button" onClick={() => setPicked(null)} title="Show this step" className="inline-flex items-center gap-1.5 rounded-full border border-[#FDBA74] bg-[#FFF1E6] px-3 py-1.5 text-[11.5px] font-bold text-[#C2410C] hover:border-[#F97316]"><span className="h-2 w-2 rounded-full bg-[#F97316]" aria-hidden="true" />Your action · {po.step.label}</button>}
           {po.patientPhone && <a href={`tel:${po.patientPhone}`}><Button size="sm" variant="outline"><Phone size={14} />{po.patientPhone}</Button></a>}
           {showPatientLink && <Link to={`/admin/patients/${po.patientId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />Patient</Button></Link>}
           {canVerify && po.status === 'verified' && po.currentStage !== po.phase && <Button size="sm" variant="outline" onClick={activatePhase}><Layers size={14} />Make Phase {po.phase} current</Button>}
@@ -443,12 +571,21 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
       <ErrorText>{error}</ErrorText>
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
 
-      <PoPipelineBoxes groups={po.groups} steps={po.steps} />
+      <PoPipelineBoxes groups={po.groups} steps={po.steps} selected={selected} onSelect={setPicked} />
 
       <div className="grid items-start gap-3.5 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-        <div className="space-y-3.5 xl:order-1 order-2">
-          {showAll && <Section title="Timeline" icon={Clock3} action={<span className="text-[11.5px] font-medium text-charcoal/60">{po.steps.filter((s) => s.state === 'done').length} of {po.steps.length} done</span>}><PoTimeline steps={po.steps} onRevert={role === ROLES.ADMIN && !['rejected', 'cancelled'].includes(po.status) ? setRevert : undefined} /></Section>}
-          {showAll && <Section title="Patient" icon={UserRound}>
+        <div className="hidden xl:sticky xl:top-3 xl:block xl:max-h-[calc(100vh-1.5rem)] xl:overflow-y-auto">
+          <Section title="Timeline" icon={Clock3} action={<span className="text-[11.5px] font-medium text-charcoal/60">{po.steps.filter((s) => s.state === 'done').length} of {po.steps.length} done</span>}>
+            <button type="button" aria-pressed={selected === 'all'} onClick={() => setPicked('all')} className={`mb-3 flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${selected === 'all' ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-sage hover:border-sage/60'}`}><Layers size={13} />All details</button>
+            <PoTimeline steps={po.steps} selected={selected} onSelect={setPicked} onRevert={canRevert ? setRevert : undefined} />
+          </Section>
+        </div>
+        <div className="min-w-0 space-y-3.5">
+          <div className="xl:hidden"><PoStepStrip steps={po.steps} selected={selected} onSelect={setPicked} /></div>
+          {selectedStep ? <StepHeader step={selectedStep} total={po.steps.length} onAll={() => setPicked('all')} onRevert={canRevert ? setRevert : undefined} po={po} /> : <p className="rounded-lg bg-[#FBF7ED] px-3 py-2 text-xs text-charcoal/70">Showing every detail of this PO. Click a step in the timeline to see only that step.</p>}
+          {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
+          {show('handover') && showHandover && <HandoverPanel po={po} onChanged={load} />}
+          {show('patient') && <Section title="Patient" icon={UserRound}>
             <Row label="Name" value={po.patientName} />
             <Row label="Patient ID" value={po.patientCode} />
             <Row label="Age" value={po.patientAge} />
@@ -458,7 +595,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             <Row label="Address" value={po.address} />
             <Row label="Patient approval" value={po.approvalStatus === 'approved' ? 'Approved' : 'Pending'} />
           </Section>}
-          <Section title="Purchase order" icon={FileText} action={[ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(role) && po.status !== 'cancelled' && (!po.medicine || ['requested', 'cancelled'].includes(po.medicine.status)) && <button type="button" className={smallLink} onClick={() => setPlanOpen(true)}><Pencil size={13} />Change plan</button>}>
+          {show('po') && <Section title="Purchase order" icon={FileText} action={[ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(role) && po.status !== 'cancelled' && (!po.medicine || ['requested', 'cancelled'].includes(po.medicine.status)) && <button type="button" className={smallLink} onClick={() => setPlanOpen(true)}><Pencil size={13} />Change plan</button>}>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Row label="PO number" value={po.poNumber} />
               <Row label="Phase" value={`Phase ${po.phase}`} />
@@ -472,12 +609,8 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
               <Row label="Payment verified" value={po.paymentVerifiedAt ? `${poDateTime(po.paymentVerifiedAt)} by ${po.paymentVerifiedByName}` : ''} />
             </div>
             <CompactAttachments files={po.paperImages} label="PO paper" className="mt-2" />
-            {show('paper') && <div className="mt-4 border-t border-cardline pt-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">PO paper as filled</p><PaperDetails po={po} /></div>}
-          </Section>
-        </div>
-        <div className="order-1 min-w-0 space-y-3.5 xl:order-2">
-          {(next || waiting) && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
-          {show('handover') && showHandover && <HandoverPanel po={po} onChanged={load} />}
+            <div className="mt-4 border-t border-cardline pt-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">PO paper as filled</p><PaperDetails po={po} /></div>
+          </Section>}
           {show('payments') && <Section title="Payments on this PO" icon={IndianRupee} action={canCreate && !['rejected', 'cancelled'].includes(po.status) && <button type="button" className={smallLink} onClick={() => setPayOpen(true)}><Plus size={13} />Add payment</button>}>
             <div className="mb-3 grid grid-cols-3 gap-2">
               <div className="rounded-[10px] bg-[#F6F0E3] px-3 py-2.5"><p className="text-[11px] text-charcoal/60">Phase {po.phase} total</p><p className="font-display text-[14px] font-extrabold sm:text-[16px] text-charcoal">{money(po.phasePayment.totalAmount)}</p></div>
@@ -512,8 +645,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {show('medicine') && <Section title="Medicine request" icon={Pill}>
             {med ? <>
               <span className={`mb-2 inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${['made', 'sent_to_courier'].includes(med.status) ? 'bg-emerald-100 text-emerald-800' : med.status === 'cancelled' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : 'bg-amber-100 text-amber-900'}`}>{MED_STATUS[med.status] || med.status}</span>
+              <Row label="Category" value={med.caseCategory} />
               <Row label="Medicines" value={med.medicines} />
-              <Row label="Ready by" value={day(med.readyByDate)} />
+              <Row label="Ready by" value={med.readyByDate ? `${day(med.readyByDate)} · ${po.fixedPlan?.readyDate ? 'fixed by post counselling' : `filled by ${med.readyBySetByName || med.requestedByName || 'In Transit'}`}` : ''} />
               <Row label="Requested" value={[poDateTime(med.requestedAt), med.requestedByName && `by ${med.requestedByName}`].filter(Boolean).join(' ')} />
               <Row label="Notes" value={med.notes} />
               <Row label="Cancelled" value={med.cancelReason} />
@@ -539,7 +673,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
               {TRANSIT_ROLES.includes(role) || [ROLES.DOCTOR].includes(role) ? <Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><ExternalLink size={13} />Open the job</Link> : null}
             </Section>
           )}
-          {po.events?.length > 0 && (
+          {selected === 'all' && po.events?.length > 0 && (
             <Section title="Activity" icon={Clock3}>
               <ol className="space-y-2">{po.events.map((e, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-xs text-charcoal/45">{poDateTime(e.at)}</span><span className="min-w-0"><b className="font-semibold text-charcoal">{e.action}</b>{e.details ? <span className="text-charcoal/70"> - {e.details}</span> : ''} <span className="text-xs text-charcoal/45">· {e.byName}</span></span></li>)}</ol>
             </Section>

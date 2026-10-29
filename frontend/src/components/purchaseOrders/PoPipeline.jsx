@@ -18,7 +18,9 @@ const dotTone = {
 };
 
 // Four stage boxes (PO & payment -> Medicine Dept -> Handover -> Treatment), each listing its steps.
-export function PoPipelineBoxes({ groups = [], steps = [] }) {
+// With `onSelect` a step can be clicked here too, like on the timeline.
+export function PoPipelineBoxes({ groups = [], steps = [], selected, onSelect }) {
+  const StepRow = onSelect ? 'button' : 'div';
   return (
     <ol className="grid gap-2.5 rounded-[14px] border border-[#E8DFCB] bg-white p-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Pipeline">
       {groups.map((group, index) => {
@@ -37,11 +39,13 @@ export function PoPipelineBoxes({ groups = [], steps = [] }) {
             <div className={`mt-2 h-1 overflow-hidden rounded-full ${track}`}><div className={`h-full rounded-full ${fill}`} style={{ width: `${pct}%` }} /></div>
             <ul className="mt-2.5 space-y-1.5">
               {steps.filter((step) => step.group === group.key).map((step) => (
-                <li key={step.key} className="flex items-start gap-2 text-xs">
-                  <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${dotTone[step.state]}`}>
-                    {step.state === 'done' ? <Check size={10} /> : step.state === 'failed' ? <X size={10} /> : step.state === 'current' ? <CircleDot size={10} /> : null}
-                  </span>
-                  <span className={step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold' : 'font-semibold'}>{step.label}</span>
+                <li key={step.key}>
+                  <StepRow {...(onSelect ? { type: 'button', onClick: () => onSelect(step.key), 'aria-pressed': selected === step.key } : {})} className={`flex w-full items-start gap-2 rounded-md px-1 py-0.5 text-left text-xs ${selected === step.key ? 'bg-white/80 ring-1 ring-sage' : onSelect ? 'hover:bg-white/60' : ''}`}>
+                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${dotTone[step.state]}`}>
+                      {step.state === 'done' ? <Check size={10} /> : step.state === 'failed' ? <X size={10} /> : step.state === 'current' ? <CircleDot size={10} /> : null}
+                    </span>
+                    <span className={step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold' : 'font-semibold'}>{step.label}</span>
+                  </StepRow>
                 </li>
               ))}
             </ul>
@@ -63,27 +67,49 @@ export function PoProgressBar({ steps = [] }) {
 
 // Vertical timeline with who / when / details for every step.
 // `onRevert(step)` (admin only) offers "Revert" on done steps; the PO itself cannot be reverted.
-export function PoTimeline({ steps = [], onRevert }) {
+// With `onSelect` every step is also a filter: clicking it shows that step's work and details next to the timeline.
+export function PoTimeline({ steps = [], onRevert, selected, onSelect }) {
   return (
     <ol className="relative">
-      {steps.map((step, index) => (
-        <li key={step.key} className="group relative flex gap-3 pb-4 last:pb-0">
-          {index < steps.length - 1 && <span className={`absolute left-[13px] top-7 bottom-0 w-0.5 ${step.state === 'done' ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />}
-          <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${dotTone[step.state]}`}>
-            {step.state === 'done' ? <Check size={13} /> : step.state === 'failed' ? <X size={13} /> : step.n}
-          </span>
-          <div className={`min-w-0 flex-1 rounded-lg px-3 py-1.5 ${step.state === 'current' ? 'bg-[#FFF1E6]' : step.state === 'failed' ? 'bg-[#FDE2E1]' : ''}`}>
-            <p className={`flex items-center justify-between gap-2 text-[13px] ${step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold text-[#C2410C]' : 'font-semibold text-charcoal'}`}>
-              <span>{step.label}</span>
-              {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
-            </p>
-            {step.state !== 'todo' && (step.text || step.by || step.at) && (
-              <p className="text-xs text-charcoal/60">{[step.text, step.by && `by ${step.by}`, poDateTime(step.at)].filter(Boolean).join(' · ')}</p>
-            )}
-            {step.state === 'current' && step.waitText && <p className="text-xs font-semibold text-[#C2410C]/85">{step.waitText}</p>}
-          </div>
-        </li>
-      ))}
+      {steps.map((step, index) => {
+        const isSelected = selected === step.key;
+        const Body = onSelect ? 'button' : 'div';
+        return (
+          <li key={step.key} className="group relative flex gap-3 pb-4 last:pb-0">
+            {index < steps.length - 1 && <span className={`absolute left-[13px] top-7 bottom-0 w-0.5 ${step.state === 'done' ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />}
+            <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${dotTone[step.state]}`}>
+              {step.state === 'done' ? <Check size={13} /> : step.state === 'failed' ? <X size={13} /> : step.n}
+            </span>
+            <div className={`relative min-w-0 flex-1 rounded-lg border ${isSelected ? 'border-sage bg-sage/10 ring-2 ring-sage/15' : step.state === 'current' ? 'border-transparent bg-[#FFF1E6]' : step.state === 'failed' ? 'border-transparent bg-[#FDE2E1]' : 'border-transparent'} ${onSelect && !isSelected ? 'hover:border-cardline hover:bg-offwhite-200/70' : ''}`}>
+              <Body {...(onSelect ? { type: 'button', onClick: () => onSelect(step.key), 'aria-pressed': isSelected } : {})} className="block w-full px-3 py-1.5 pr-14 text-left">
+                <span className={`block text-[13px] ${step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold text-[#C2410C]' : 'font-semibold text-charcoal'}`}>{step.label}</span>
+                {step.state !== 'todo' && (step.text || step.by || step.at) && (
+                  <span className="block text-xs text-charcoal/60">{[step.text, step.by && `by ${step.by}`, poDateTime(step.at)].filter(Boolean).join(' · ')}</span>
+                )}
+                {step.state === 'current' && step.waitText && <span className="block text-xs font-semibold text-[#C2410C]/85">{step.waitText}</span>}
+              </Body>
+              {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
+            </div>
+          </li>
+        );
+      })}
     </ol>
+  );
+}
+
+// Small screens: the same steps as a scrolling strip of filters.
+export function PoStepStrip({ steps = [], selected, onSelect }) {
+  return (
+    <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="group" aria-label="Show a step">
+      {[{ key: 'all', label: 'All details', state: 'all' }, ...steps].map((step) => {
+        const isSelected = selected === step.key;
+        return (
+          <button key={step.key} type="button" aria-pressed={isSelected} onClick={() => onSelect(step.key)}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${isSelected ? 'border-sage bg-sage text-white' : step.state === 'current' ? 'border-[#FDBA74] bg-[#FFF1E6] text-[#C2410C]' : step.state === 'done' ? 'border-[#A7D3B8] bg-[#E6F2EA] text-[#1F6B41]' : step.state === 'failed' ? 'border-[#F5B5B0] bg-[#FDE2E1] text-[#9F1D1D]' : 'border-cardline bg-white text-charcoal/60'}`}>
+            {step.state === 'done' ? <Check size={12} /> : step.state === 'failed' ? <X size={12} /> : step.n ? <span>{step.n}</span> : null}{step.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }

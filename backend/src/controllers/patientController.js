@@ -2839,10 +2839,8 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'You do not have permission to request medicine' });
   }
 
+  // Medicine details are optional: the Medicine Department works from the master sheet and the patient file.
   const { medicines, notes } = req.body;
-  if (!medicines) {
-    return res.status(400).json({ success: false, message: 'Medicine details are required' });
-  }
   // No prescription upload any more: the Medicine Department reads the patient's Records Room PDF.
   const uploadedFiles = filesFromRequest(req);
 

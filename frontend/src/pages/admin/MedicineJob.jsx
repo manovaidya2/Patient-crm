@@ -199,7 +199,7 @@ export default function MedicineJobPage() {
       <header className="flex flex-wrap items-center gap-3.5 rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-3.5 sm:px-[18px]">
         <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9EFE9] text-sage sm:flex"><Pill size={19} /></span>
         <div className="min-w-[240px] flex-1">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="font-display text-[17px] font-extrabold text-charcoal">{job.patientName}</h1>{job.poNumber && <span className="rounded-full bg-[#E9EFE9] px-2.5 py-0.5 font-mono text-[11px] font-bold text-sage">PO {job.poNumber}</span>}{(job.supplyLabel || job.ageBandLabel) && <span className="rounded-full bg-[#FBF0DC] px-2.5 py-0.5 text-[11px] font-bold text-[#7C5B2E]">{[job.supplyLabel, job.ageBandLabel].filter(Boolean).join(' · ')}</span>}<Badge tone={job.status === 'released' ? 'inactive' : job.status === 'ready' ? 'teal' : 'amber'}>{job.status === 'released' ? 'Released' : job.status === 'ready' ? 'Medicine ready' : 'In fulfilment'}</Badge>{job.hold && <Badge tone="danger">On hold</Badge>}</div>
+          <div className="flex flex-wrap items-center gap-2"><h1 className="font-display text-[17px] font-extrabold text-charcoal">{job.patientName}</h1>{job.poNumber && <span className="rounded-full bg-[#E9EFE9] px-2.5 py-0.5 font-mono text-[11px] font-bold text-sage">PO {job.poNumber}</span>}{(job.caseCategory || job.supplyLabel || job.ageBandLabel) && <span className="rounded-full bg-[#FBF0DC] px-2.5 py-0.5 text-[11px] font-bold text-[#7C5B2E]">{[job.caseCategory, job.supplyLabel, job.ageBandLabel].filter(Boolean).join(' · ')}</span>}<Badge tone={job.status === 'released' ? 'inactive' : job.status === 'ready' ? 'teal' : 'amber'}>{job.status === 'released' ? 'Released' : job.status === 'ready' ? 'Medicine ready' : 'In fulfilment'}</Badge>{job.hold && <Badge tone="danger">On hold</Badge>}</div>
           <p className="mt-0.5 text-[12.5px] text-charcoal/65">{job.patientCode} · Phase {job.phase} · {job.supplyLabel || 'supply not set'} · {job.ageBandLabel || 'age group not set'} · requested {dateTime(job.requestedAt)}{job.requestedByName ? ` by ${job.requestedByName}` : ''}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -272,7 +272,8 @@ export default function MedicineJobPage() {
         <aside className="min-w-0 space-y-3.5 lg:col-start-2 2xl:col-start-auto">
           <Section title="Request" icon={FileText}>
             <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 text-[12.5px]">
-              <dt className="text-charcoal/60">Medicines</dt><dd className="min-w-0 break-words font-medium text-charcoal">{job.medicines || '-'}</dd>
+              <dt className="text-charcoal/60">Category</dt><dd className="min-w-0 break-words font-medium text-charcoal">{job.caseCategory || '-'}</dd>
+              {job.medicines && <><dt className="text-charcoal/60">Medicines</dt><dd className="min-w-0 break-words font-medium text-charcoal">{job.medicines}</dd></>}
               <dt className="text-charcoal/60">Notes</dt><dd className="min-w-0 break-words font-medium text-charcoal">{job.requestNotes || '-'}</dd>
               <dt className="text-charcoal/60">Requested</dt><dd className="min-w-0 break-words font-medium text-charcoal">{dateTime(job.requestedAt)} {job.requestedByName && `by ${job.requestedByName}`}</dd>
               <dt className="text-charcoal/60">Ready by</dt><dd className="min-w-0 break-words font-medium text-charcoal">{day(job.readyByDate) || 'not set'}</dd>

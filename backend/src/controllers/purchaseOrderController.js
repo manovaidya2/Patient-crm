@@ -20,6 +20,8 @@ const PO_VERIFY_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT];
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const clean = (value, max = 300) => String(value ?? '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
+// The checklist lines ticked on a verification step.
+const checksOf = (body) => (Array.isArray(body?.checks) ? body.checks.map((c) => clean(c, 250)).filter(Boolean).slice(0, 10) : []);
 const longText = (value, max = 2000) => String(value ?? '').trim().slice(0, max);
 const fileItems = (files = [], folder = 'purchase-orders') => files.map((file) => ({ url: `/uploads/${folder}/${file.filename}`, fileName: file.originalname }));
 // Single-field uploads give an array, multi-field uploads give { field: [...] }.
@@ -45,8 +47,9 @@ const parseSupply = (body, { required = false } = {}) => {
   if (!option) fail('Select a valid supply category');
   return option;
 };
-const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
+const { fixedReadyDate, readyDateFromPostCounselling, canOverrideFixed } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
+const { cleanCaseCategory, patientCaseCategory } = require('../utils/caseCategory');
 const event = (po, user, action, details = '') => po.events.push({ at: new Date(), action, details, byName: user.name, byRole: user.role });
 const logActivity = (patient, user, action, details = '') => patient.activityLog.push({ action, details, actorName: user.name, actorRole: user.role });
 
@@ -77,8 +80,8 @@ const respond = async (res, po, patient, status = 200) => {
   if (po.medicineRequestId) {
     try { const MedicineJob = require('../models/MedicineJob'); job = await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: po.medicineRequestId }).lean(); } catch { job = null; }
   }
-  const documents = await patientDocuments(patient);
-  res.status(status).json({ success: true, purchaseOrder: { ...buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job }), patientDocuments: documents } });
+  const [documents, caseCategory] = await Promise.all([patientDocuments(patient), patientCaseCategory(patient)]);
+  res.status(status).json({ success: true, purchaseOrder: { ...buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job }), patientDocuments: documents, patientCaseCategory: caseCategory } });
 };
 
 // Validates the payment typed on a PO form. Returns null when no payment was entered.
@@ -262,7 +265,7 @@ const updatePurchaseOrder = asyncHandler(async (req, res) => {
   if (body.medicineReadyDate !== undefined) {
     const next = parseDay(body.medicineReadyDate, 'medicine ready date');
     const changed = String(next?.getTime() || '') !== String(po.medicineReadyDate ? new Date(po.medicineReadyDate).getTime() : '');
-    if (changed && po.medicineReadyDate && !admin) fail('The medicine ready date is set by post counselling on the PO paper; only the admin can change it', 403);
+    if (changed && po.medicineReadyDate && readyDateFromPostCounselling(po) && !admin) fail('The medicine ready date is set by post counselling on the PO paper; only the admin can change it', 403);
     if (changed) { po.medicineReadyDate = next; changes.push(`ready by ${next ? next.toISOString().slice(0, 10) : '-'}`); }
   }
   if (body.notes !== undefined) po.notes = longText(body.notes);
@@ -270,7 +273,7 @@ const updatePurchaseOrder = asyncHandler(async (req, res) => {
   if (paper.length) { po.paperImages.push(...paper); changes.push(`${paper.length} PO image(s)`); }
   const resubmitted = po.status === 'rejected';
   // A corrected PO is checked from the start again.
-  if (resubmitted) Object.assign(po, { status: 'pending', detailsVerifiedAt: null, detailsVerifiedByName: '' });
+  if (resubmitted) Object.assign(po, { status: 'pending', detailsVerifiedAt: null, detailsVerifiedByName: '', detailsChecks: [] });
   event(po, req.user, resubmitted ? 'Corrected and sent for verification again' : 'PO updated', changes.join(' | '));
   await po.save();
   const patient = await Patient.findById(po.patient).populate('assignedDoctor', 'name').lean();
@@ -306,7 +309,7 @@ const verifyDetails = asyncHandler(async (req, res) => {
     Object.assign(patient, { approvalStatus: 'approved', approvedByName: req.user.name, approvedAt: now });
     logActivity(patient, req.user, 'Patient approved', `Cleared with purchase order ${po.poNumber}`);
   }
-  Object.assign(po, { detailsVerifiedAt: now, detailsVerifiedByName: req.user.name });
+  Object.assign(po, { detailsVerifiedAt: now, detailsVerifiedByName: req.user.name, detailsChecks: checksOf(req.body) });
   event(po, req.user, 'PO details verified', clean(req.body?.note, 300));
   logActivity(patient, req.user, `Purchase order details verified for Phase ${po.phase}`, po.poNumber);
   await patient.save();
@@ -335,7 +338,7 @@ const verifyPayment = asyncHandler(async (req, res) => {
       amount += Number(payment.amount || 0);
     }
   }
-  Object.assign(po, { status: 'verified', paymentVerifiedAt: now, paymentVerifiedByName: req.user.name, verifiedAt: now, verifiedByName: req.user.name, rejectedAt: null, rejectedByName: '', rejectReason: '' });
+  Object.assign(po, { status: 'verified', paymentVerifiedAt: now, paymentVerifiedByName: req.user.name, paymentChecks: checksOf(req.body), verifiedAt: now, verifiedByName: req.user.name, rejectedAt: null, rejectedByName: '', rejectReason: '' });
   event(po, req.user, 'Payment verified', [approved ? `${approved} payment(s), Rs ${amount} added to Phase ${po.phase} payments` : 'No payment on this PO', clean(req.body?.note, 300)].filter(Boolean).join(' | '));
   logActivity(patient, req.user, `Purchase order verified for Phase ${po.phase}`, `${po.poNumber}${approved ? ` | Rs ${amount} verified` : ''}`);
   await patient.save();
@@ -433,8 +436,11 @@ const requestMedicine = asyncHandler(async (req, res) => {
   const supply = fixedSupply && !canOverrideFixed(req.user) ? fixedSupply : parseSupply(body, { required: !fixedSupply }) || fixedSupply;
   const ageBand = po.ageBand && AGE_BANDS[po.ageBand] && !canOverrideFixed(req.user) ? po.ageBand : clean(body.ageBand, 10);
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
+  // No medicine list typed here any more: the Medicine Department works from the master sheet and the patient file.
   const medicines = longText(body.medicines);
-  if (!medicines) fail('Medicine details are required');
+  // The case category, picked on the form (it comes pre-selected from the patient's Sales case category).
+  if (body.caseCategory && !cleanCaseCategory(body.caseCategory)) fail('Select Autism, ADHD, Autism + ADHD or Mental Health');
+  const caseCategory = cleanCaseCategory(body.caseCategory) || await patientCaseCategory(patient);
   const fixedDate = fixedReadyDate({ po });
   const readyBy = fixedDate && !canOverrideFixed(req.user) ? new Date(fixedDate) : (parseDay(body.readyByDate, 'medicine ready-by date', { required: !fixedDate }) || new Date(fixedDate));
   // No prescription upload any more: the Medicine Department reads the patient's Records Room PDF.
@@ -443,18 +449,18 @@ const requestMedicine = asyncHandler(async (req, res) => {
   const requestId = crypto.randomUUID();
   stage.medicineRequests.push({
     requestId, status: 'requested', medicines, notes: longText(body.notes),
-    purchaseOrderId: po._id, poNumber: po.poNumber, supplyPlan: supply.plan, supplyPart: supply.part, ageBand,
+    purchaseOrderId: po._id, poNumber: po.poNumber, supplyPlan: supply.plan, supplyPart: supply.part, ageBand, caseCategory,
     prescriptionUrl: files[0]?.url || null, prescriptionFileName: files[0]?.fileName || '', prescriptionFiles: files,
     requestedAt: now, requestedByName: req.user.name, readyByDate: readyBy, readyBySetAt: now, readyBySetByName: req.user.name,
   });
   stage.transit.expectedReadyDate = readyBy;
   if (!stage.transit.enteredAt) stage.transit.enteredAt = now;
   if (!String(stage.purchaseOrder || '').trim()) stage.purchaseOrder = po.poNumber;
-  const detail = `PO ${po.poNumber} | ${supply.label} | ${AGE_BANDS[ageBand]} | ${medicines}`;
+  const detail = [`PO ${po.poNumber}`, caseCategory, supply.label, AGE_BANDS[ageBand], medicines].filter(Boolean).join(' | ');
   logActivity(patient, req.user, `Medicine requested for Phase ${po.phase}`, `${detail} | Request: ${requestId}`);
   Object.assign(po, { supplyPlan: supply.plan, supplyPart: supply.part, ageBand, medicineRequestId: requestId, medicineRequestedAt: now, medicineRequestedByName: req.user.name });
-  if (!po.medicineReadyDate) po.medicineReadyDate = readyBy;
-  event(po, req.user, existing ? 'Medicine requested again' : 'Medicine requested', `${supply.label} | ${AGE_BANDS[ageBand]} | ready by ${readyBy.toISOString().slice(0, 10)}`);
+  if (!po.medicineReadyDate || !readyDateFromPostCounselling(po)) po.medicineReadyDate = readyBy;
+  event(po, req.user, existing ? 'Medicine requested again' : 'Medicine requested', [caseCategory, supply.label, AGE_BANDS[ageBand], `ready by ${readyBy.toISOString().slice(0, 10)}`].filter(Boolean).join(' | '));
   await patient.save();
   await po.save();
   // The Medicine Department job (12 fulfilment stages) opens with the request; never let it block the request itself.

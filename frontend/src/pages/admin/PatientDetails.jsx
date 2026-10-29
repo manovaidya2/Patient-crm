@@ -987,10 +987,6 @@ const MedicineRequestModal = ({ open, onClose, request, onRequest }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!medicines.trim()) {
-      setError('Medicine details are required');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
@@ -1008,7 +1004,7 @@ const MedicineRequestModal = ({ open, onClose, request, onRequest }) => {
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{error}</div>}
         <div>
-          <label className="block text-sm font-medium text-charcoal mb-1.5">Medicine Details</label>
+          <label className="block text-sm font-medium text-charcoal mb-1.5">Medicine Details (optional)</label>
           <textarea
             rows={4}
             value={medicines}

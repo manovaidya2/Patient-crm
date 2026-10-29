@@ -110,7 +110,8 @@ const ACTIONS = {
     if ((patient.approvalStatus || 'approved') !== 'approved') fail('Approve the patient first');
     if (paymentSummary(stage).pendingCount) fail('Verify submitted payments first');
     if (request) fail('A medicine request is already running for this phase');
-    const medicines = required(body.medicines, 'Medicine details', 2000);
+    // Optional: the Medicine Department works from the master sheet and the patient file.
+    const medicines = clean(body.medicines, 2000);
     // No prescription upload any more: the Medicine Department reads the patient's Records Room PDF.
     const files = fileItems(req);
     // The ready date fixed in post counselling goes to the Medicine Department as it is.
@@ -123,7 +124,7 @@ const ACTIONS = {
       requestedAt: now, requestedByName: req.user.name,
       readyByDate, readyBySetAt: now, readyBySetByName: req.user.name,
     });
-    return `Medicine request raised: ${medicines}`;
+    return `Medicine request raised${medicines ? `: ${medicines}` : ''}`;
   },
   accept_request({ request, body, req, now }) {
     needRequest(request);

@@ -52,6 +52,7 @@ const medicineJobSchema = new mongoose.Schema(
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
     ageBand: { type: String, enum: ['', '3-4', '4-12', '12-70', '70+'], default: '' },
     medicines: { type: String, trim: true, default: '' },
+    caseCategory: { type: String, trim: true, default: '' },
     requestNotes: { type: String, trim: true, default: '' },
     requestedAt: { type: Date, default: null },
     requestedByName: { type: String, trim: true, default: '' },
