@@ -180,13 +180,16 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const endDate = job.readyByDate && job.formulation ? new Date(new Date(job.readyByDate).getTime() + job.formulation.days * 86400000) : null;
   return (
     <div className="space-y-4">
-      {stage.key === 'review' && job.formulation && (
+      {stage.key === 'formula' && (
+        <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">Changes made here (dose, quantity, a medicine added or removed) are for <b>{job.patientName}</b>'s request only. The Formulation Master is not changed.</p>
+      )}
+      {['review', 'formula'].includes(stage.key) && job.formulation && (
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${job.masterOutdated ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-cardline bg-offwhite-200/60 text-charcoal/70'}`}>
           <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
-      {stage.key === 'review' && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)} jobId={job.id} onSaved={onDone} onError={report} />}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)} jobId={job.id} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
@@ -272,7 +275,9 @@ export default function MedicineJobPage() {
   // Locked only when post counselling sent them (older requests without a PO paper are still chosen here).
   const supplyLocked = Boolean(job.fixedPlan?.supply) && user?.role !== ROLES.ADMIN;
   const ageLocked = Boolean(job.fixedPlan?.ageBand) && user?.role !== ROLES.ADMIN;
-  const canChangeSupply = canAct && job.currentStage <= 2 && job.status === 'open' && (job.stages.find((s) => s.key === 'review')?.roles || []).includes(user?.role);
+  // While the doctor verifies the formulation, the Medicine Department's work area waits (blurred).
+  const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
+  const canChangeSupply = canAct && ['accept', 'review'].includes(job.currentKey) && job.status === 'open' && (job.stages.find((s) => s.key === 'review')?.roles || []).includes(user?.role);
 
   return (
     <div className="space-y-4">
@@ -313,7 +318,14 @@ export default function MedicineJobPage() {
             );
           })}
         </nav>
-        <main className="min-w-0 space-y-3.5">
+        <main className="relative min-w-0 space-y-3.5">
+          {waitingForDoctor && (
+            <div className="sticky top-3 z-10 flex items-center gap-2 rounded-xl border-2 border-[#FDBA74] bg-[#FFF7ED] px-4 py-3 text-sm font-bold text-[#C2410C] shadow-sm">
+              <Clock3 size={17} />Please verify formulation from doctor
+              <span className="font-normal text-charcoal/70">· The doctor is checking {job.patientName}'s formulation; stock match opens after that.</span>
+            </div>
+          )}
+          <div className={waitingForDoctor && shown?.key === 'formula' ? 'pointer-events-none select-none space-y-3.5 opacity-80 blur-[2px]' : 'space-y-3.5'} aria-hidden={(waitingForDoctor && shown?.key === 'formula') || undefined}>
           {showRequest && <RequestStep job={job} onNext={() => setView(0)} />}
           {shown && (
             <Section tone={stageCanAct ? 'action' : undefined} title={`${shown.n} · ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
@@ -353,6 +365,7 @@ export default function MedicineJobPage() {
               )}
             </Section>
           )}
+          </div>
         </main>
         <aside className="min-w-0 space-y-3.5 lg:col-start-2 2xl:col-start-auto">
           <Section title="Request" icon={FileText}>

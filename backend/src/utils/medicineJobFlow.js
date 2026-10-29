@@ -1,4 +1,4 @@
-// The Medicine Department's twelve fulfilment stages (Packing SOP V3 + Fulfilment Desk), with the checklist, fields and
+// The Medicine Department's thirteen fulfilment stages (Packing SOP V3 + Fulfilment Desk), with the checklist, fields and
 // owner of each. Everything the page shows per stage is defined here, so the backend validates exactly what the UI asks.
 const { ROLES } = require('../constants/roles');
 const { AGE_BANDS, supplyLabel } = require('../constants/supplyPlans');
@@ -20,6 +20,12 @@ const STAGES = [
     purpose: 'Match the prescription with the Formulation Master sheet below. Doses, totals, packs and days must agree before anything is weighed.',
     checks: ['Age group and supply part confirmed against the patient age and PO', 'Every medicine, dose and total quantity matched with the prescription', 'What was supplied earlier and what remains checked (for a second part)', 'Unclear dose or instruction clarified with the doctor - nothing assumed'],
     fields: [] },
+  // The doctor verifies the sheet the Medicine Department checked. Changes here (dose, quantity, a medicine added or
+  // removed) are for this patient's request only; the Formulation Master is not touched.
+  { key: 'formula', n: 3, label: 'Doctor formulation verification', hi: 'डॉक्टर फ़ॉर्मूला सत्यापन', roles: DOC, sop: 'Doctor sign-off',
+    purpose: 'The doctor verifies the formulation sheet for this patient. Any change made here (dose, quantity, a medicine added or removed) applies to this patient\'s request only; the Formulation Master stays as it is.',
+    checks: ['Every medicine, dose and total quantity on the sheet is right for this patient', 'Medicines to add or remove for this patient are done on the sheet', 'Changes apply to this request only (the Formulation Master is not changed)'],
+    fields: [{ key: 'remarks', label: 'Doctor remarks', type: 'textarea' }] },
   { key: 'stock', n: 3, label: 'Stock match', hi: 'स्टॉक मिलान', roles: MED, sop: 'SOP 6 · D-19',
     purpose: 'Every ingredient and bottle is in stock with a valid batch; shortages are requested now, not when the shelf is empty.',
     checks: ['Required quantities compared with Stocks (table below)', 'Batch / expiry valid beyond the treatment end date', 'Bottles, droppers, pouches, chits and labels available', 'Shortage request raised where needed'],
@@ -61,6 +67,8 @@ const STAGES = [
     checks: ['Full payment verified by In Transit (checked automatically)', 'Parcel and package ID match this job', 'Receiving In Transit staff recorded'],
     fields: [{ key: 'handedTo', label: 'Handed to (In Transit staff)', type: 'text', required: true }] },
 ];
+// Numbered in order (1 ... 13).
+STAGES.forEach((s, i) => { s.n = i + 1; });
 const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
 
 const iso = (v) => (v ? new Date(v).toISOString() : null);

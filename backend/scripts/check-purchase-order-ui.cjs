@@ -18,8 +18,9 @@ const { MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, defaultMasterFor }
 const { SUPPLY_OPTIONS } = require('../src/constants/supplyPlans');
 const JOB_ID = '6500000000000000000000b1';
 const JOB2_ID = '6500000000000000000000b2';
+const JOB3_ID = '6500000000000000000000b3';
 const stockDocs = () => SAMPLE_STOCKS.map((x) => ({ _id: '65000000000000000000' + String(1000 + SAMPLE_STOCKS.indexOf(x)).slice(-4), ...x, currentStock: x.opening, updatedAt: new Date() }));
-const jobDoc = (patient) => { const f = formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }); return new MedicineJob({ _id: JOB_ID, patient: patient._id, patientCode: patient.patientCode, patientName: patient.patientName, phase: 1, requestId: 'req-1', poNumber: 'PO-4821', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', requestedAt: new Date(), requestedByName: 'Transit', readyByDate: new Date(Date.now() + 2 * 86400000), currentStage: 4, stages: [['accept', { readyByDate: '2026-10-25' }], ['review', { formulaRef: 'Dr Garg 22 Oct' }], ['stock', { batchRefs: 'MG-2610' }], ['prepare', { batchNo: 'B-1', preparerName: 'Meena' }]].map(([key, fields], i) => ({ key, doneAt: new Date(), doneByName: 'Meena', doneByRole: 'medicine_department', checks: STAGES[i].checks.map(() => true), fields })), formulation: f, chits: chitsFor(f, patient.patientName), consumption: stockNeeds(f).map((n) => ({ code: n.code, name: n.name, unit: n.unit, planned: n.qty, actual: n.qty, txId: '6500000000000000000000c1' })), events: [{ at: new Date(), action: 'Job opened', byName: 'Meena' }] }).toObject(); };
+const jobDoc = (patient) => { const f = formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }); return new MedicineJob({ _id: JOB_ID, patient: patient._id, patientCode: patient.patientCode, patientName: patient.patientName, phase: 1, requestId: 'req-1', poNumber: 'PO-4821', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', requestedAt: new Date(), requestedByName: 'Transit', readyByDate: new Date(Date.now() + 2 * 86400000), currentStage: 5, stages: [['accept', { readyByDate: '2026-10-25' }], ['review', {}], ['formula', { remarks: 'Sheet is right' }], ['stock', { batchRefs: 'MG-2610' }], ['prepare', { batchNo: 'B-1', preparerName: 'Meena' }]].map(([key, fields], i) => ({ key, doneAt: new Date(), doneByName: key === 'formula' ? 'Dr Garg' : 'Meena', doneByRole: key === 'formula' ? 'doctor' : 'medicine_department', checks: STAGES[i].checks.map(() => true), fields })), formulation: f, chits: chitsFor(f, patient.patientName), consumption: stockNeeds(f).map((n) => ({ code: n.code, name: n.name, unit: n.unit, planned: n.qty, actual: n.qty, txId: '6500000000000000000000c1' })), events: [{ at: new Date(), action: 'Job opened', byName: 'Meena' }] }).toObject(); };
 
 const PATIENT_ID = '507f1f77bcf86cd799439011';
 // A second job still at the formulation review stage, with one line already corrected by the department.
@@ -74,6 +75,10 @@ async function main() {
   const stocks = stockDocs();
   items[0].medicineJob = jobSummary(job);
   const job2View = buildJobView(reviewJobDoc(raw), { stocks, includeEvents: true });
+  // A job waiting for the doctor's formulation step (the Medicine Department sees it blurred).
+  const job3Doc = { ...reviewJobDoc(raw), _id: JOB3_ID, requestId: 'req-3', currentStage: 2 };
+  job3Doc.stages = [...job3Doc.stages, { key: 'review', doneAt: new Date(), doneByName: 'Meena', doneByRole: 'medicine_department', checks: STAGES[1].checks.map(() => true), fields: {} }];
+  const job3View = buildJobView(job3Doc, { stocks, includeEvents: true });
   const jobView = buildJobView(job, { stocks, payment: { totalAmount: 42000, amountPaid: 10000, remaining: 32000, pendingCount: 0, patientApproved: true, releasable: false }, includeEvents: true });
   // Formulation Master: document values, with one band edited by the doctor.
   const masters = ['3-4', '4-12', '12-70', '70+'].map((b) => {
@@ -123,7 +128,8 @@ async function main() {
         else if (url.pathname === `/api/transit/${PATIENT_ID}/1`) data = { success: true, item: buildTransitCase(raw, raw.stages[0]), events: [] };
         else if (url.pathname === '/api/medicine-jobs/' + JOB_ID) data = { success: true, job: jobView };
         else if (url.pathname === '/api/medicine-jobs/' + JOB2_ID) data = { success: true, job: job2View };
-        else if (url.pathname === '/api/medicine-jobs') data = { success: true, items: [{ id: JOB_ID, patientId: PATIENT_ID, patientName: raw.patientName, patientCode: raw.patientCode, phase: 1, poNumber: 'PO-4821', supplyLabel: '1+5: First 1 month', ageBandLabel: 'Above 4 - 12 years', readyByDate: jobView.readyByDate, status: 'open', currentStage: 4, currentLabel: STAGES[4].label, progress: jobView.progress, hold: null, urgency: jobView.urgency, totalStages: 12 }] };
+        else if (url.pathname === '/api/medicine-jobs/' + JOB3_ID) data = { success: true, job: job3View };
+        else if (url.pathname === '/api/medicine-jobs') data = { success: true, items: [{ id: JOB_ID, patientId: PATIENT_ID, patientName: raw.patientName, patientCode: raw.patientCode, phase: 1, poNumber: 'PO-4821', supplyLabel: '1+5: First 1 month', ageBandLabel: 'Above 4 - 12 years', readyByDate: jobView.readyByDate, status: 'open', currentStage: 5, currentLabel: STAGES[5].label, progress: jobView.progress, hold: null, urgency: jobView.urgency, totalStages: STAGES.length }] };
         else if (url.pathname === '/api/patients') data = { success: true, total: 2, page: 1, pages: 1, patients: [
           { id: PATIENT_ID, patientCode: 'A-3445', patientName: 'Amayra Gupta', category: 'autism_adhd', categoryLabel: 'Autism/ADHD', age: '4 years', number: '9590055856', guardianName: 'Ravi Kant Gupta', alternateNumber: '9598860070', consultationDate: new Date().toISOString(), createdAt: new Date().toISOString(), approvalStatus: 'pending', currentStage: 1, totalAmount: 42000 },
           { id: '6500000000000000000000e2', patientCode: 'R-3440', patientName: 'Riddhima Pandey', category: 'autism_adhd', categoryLabel: 'Autism/ADHD', age: '4 years', number: '9000000001', relativeName: 'Amit Pandey', consultationDate: null, createdAt: new Date().toISOString(), currentStage: 1 },
@@ -170,6 +176,7 @@ async function main() {
       ['patient-medicine', `/admin/patients/${PATIENT_ID}?tab=medicine`, 'Medicine supply & requests'],
       ['job-review', `/admin/medicine-jobs/${JOB_ID}`, 'Chit on pack'],
       ['job-edit', `/admin/medicine-jobs/${JOB2_ID}`, 'corrected by Meena'],
+      ['job-doctor-wait', `/admin/medicine-jobs/${JOB3_ID}`, 'Please verify formulation from doctor'],
       ['job-queue', '/admin/medicine-jobs', 'Primary packing & chits'],
       ['stocks', '/admin/stocks', 'MEDHYA-GHRIT'],
       ['patients-list', '/admin/patients', 'Amayra Gupta'],
@@ -199,7 +206,7 @@ async function main() {
         if (name === 'job-review') {
           // Stage 4 (preparation) and stage 5 (chits) are reachable by clicking the rail; they must render too.
           // Step 0 shows the request as it came in and the patient's Records Room file.
-          for (const [label, text] of [['0. Request received', 'Patient file (Records Room)'], ['1. Order accepted', 'Ready-by date is achievable'], ['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC', 'Opens after']]) {
+          for (const [label, text] of [['0. Request received', 'Patient file (Records Room)'], ['1. Order accepted', 'Ready-by date is achievable'], ['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['3. Doctor formulation verification', 'Sheet is right'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC', 'Opens after']]) {
             await page.evaluate((l) => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes(l)).click(), label.slice(3));
             try { await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 15000 }, text); }
             catch { await page.screenshot({ path: path.join(output, `FAILED-job-${label.slice(0, 1)}-${width}.png`), fullPage: true }); throw new Error(`job stage "${label}" at ${width}: "${text}" not shown. Page says: ${(await page.evaluate(() => document.body.innerText)).slice(0, 500)} | errors: ${errors.join(' / ')}`); }

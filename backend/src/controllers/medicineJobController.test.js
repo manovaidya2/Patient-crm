@@ -113,7 +113,7 @@ test('opening a request creates the job with the formulation, stock needs and ch
   assert.equal(again.job.id, job.id, 'opening again returns the same job');
 });
 
-test('the twelve stages run in order with their gates; preparation draws from stock; release needs full payment', async () => {
+test('the thirteen stages run in order with their gates; preparation draws from stock; release needs full payment', async () => {
   const { patient, stage, stocks, txs } = setup({ paid: 10000 });
   const { job } = await open(patient);
   const id = job.id;
@@ -126,7 +126,12 @@ test('the twelve stages run in order with their gates; preparation draws from st
   assert.equal(v.currentKey, 'review');
   assert.equal(stage.medicineRequests[0].status, 'in_process', 'the request shows "in process" to In Transit');
   assert.equal(stage.medicineRequests[0].readyByDate.toISOString(), fixedDate, 'the date fixed in post counselling stays; the department cannot change it');
-  v = (await complete(id, 'review', { formulaRef: 'Dr Garg 22 Oct' })).job;
+  v = (await complete(id, 'review')).job;
+  // The doctor verifies the formulation next; the Medicine Department waits.
+  assert.equal(v.currentKey, 'formula');
+  await assert.rejects(complete(id, 'formula', {}, {}, med), /done by/);
+  await assert.rejects(complete(id, 'stock', { batchRefs: 'MG-2610' }), /Complete "Doctor formulation verification" first/);
+  v = (await complete(id, 'formula', { remarks: 'Sheet is right' }, {}, doctor)).job;
   v = (await complete(id, 'stock', { batchRefs: 'MG-2610' })).job;
   // Preparation: SHIVA-LEH needs an actual (spoon -> gram not set); everything else follows the sheet.
   await assert.rejects(complete(id, 'prepare', { batchNo: 'B1', preparerName: 'Meena' }), /SHIVA-LEH/);
@@ -173,7 +178,7 @@ test('the twelve stages run in order with their gates; preparation draws from st
   assert.ok(stage.transit.financialReleasedAt);
   assert.equal(v.progress, 100);
   const summary = jobSummary(v);
-  assert.equal(summary.stages.filter((s) => s.state === 'done').length, 12, 'In Transit sees all twelve steps done');
+  assert.equal(summary.stages.filter((s) => s.state === 'done').length, 13, 'In Transit sees all thirteen steps done');
 });
 
 test('stock stage refuses a shortage unless a shortage request is raised', async () => {
@@ -181,7 +186,8 @@ test('stock stage refuses a shortage unless a shortage request is raised', async
   stocks.find((s) => s.code === 'RY-33').currentStock = 2;
   const { job } = await open(patient);
   await complete(job.id, 'accept', { readyByDate: '2026-11-02' });
-  await complete(job.id, 'review', { formulaRef: 'ok' });
+  await complete(job.id, 'review');
+  await complete(job.id, 'formula', {}, {}, doctor);
   await assert.rejects(complete(job.id, 'stock', { batchRefs: 'x' }), /Short in stock: RY-33/);
   const v = (await complete(job.id, 'stock', { batchRefs: 'x', shortageAccepted: true })).job;
   assert.equal(v.currentKey, 'prepare');
@@ -202,7 +208,6 @@ test('the formulation sheet can be corrected until preparation; master values st
   const { job } = await open(patient);
   const edit = (lines, note = 'Doctor changed it', user = doctor) => call(controller.editFormulation, { params: { id: job.id }, body: { lines, note }, user });
   await assert.rejects(edit([{ key: 'ghrit', qty: 90 }], 'Changed', med), /Only the doctor or the admin/, 'the Medicine Department does not edit the sheet');
-  await assert.rejects(edit([{ key: 'ghrit', qty: 90 }], ''), /why/);
   await assert.rejects(edit([{ key: 'ghrit', qty: -1 }]), /valid/);
   await assert.rejects(edit([{ key: 'ghrit', qty: 75 }]), /Nothing was changed/);
   let v = (await edit([{ key: 'ghrit', qty: 120, dose: 'सुबह: 1 चम्मच' }, { key: 'shivaLeh', containers: '15, 15' }, { key: 'mix', components: [{ code: 'RY-33', qty: 20 }] }, { key: 'nasya', packed: false }])).job;
@@ -230,9 +235,33 @@ test('the formulation sheet can be corrected until preparation; master values st
   v = (await edit([{ key: 'ghrit', qty: 120 }, { key: 'nasya', packed: false }])).job;
   // After preparation the sheet is locked.
   await complete(job.id, 'accept', { readyByDate: '2026-11-02' });
-  await complete(job.id, 'review', { formulaRef: 'ok' });
+  await complete(job.id, 'review');
+  await complete(job.id, 'formula', {}, {}, doctor);
   await complete(job.id, 'stock', { batchRefs: 'x' });
   await complete(job.id, 'prepare', { batchNo: 'B', preparerName: 'Meena' }, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }]) });
   assert.equal(stocks.find((s) => s.code === 'MEDHYA-GHRIT').currentStock, 5000 - 120, 'the corrected quantity is what gets drawn');
   await assert.rejects(edit([{ key: 'ghrit', qty: 10 }]), /after preparation/);
+});
+
+test('the doctor adds or removes a medicine for this patient only; the master stays as it is', async () => {
+  const { patient } = setup();
+  const { job } = await open(patient);
+  const edit = (lines, user = doctor) => call(controller.editFormulation, { params: { id: job.id }, body: { lines, note: 'Dr Garg for this child' }, user });
+  const masterLines = job.formulation.lines.length;
+  await assert.rejects(edit([{ add: true, name: '', unit: 'g', qty: 10 }]), /name of the medicine/);
+  await assert.rejects(edit([{ add: true, name: 'Brahmi churna', unit: 'cup', qty: 10 }]), /unit/);
+  let v = (await edit([{ add: true, name: 'Brahmi churna', when: 'सुबह', unit: 'g', qty: 30, dose: '1 चुटकी शहद के साथ' }, { key: 'oil', removed: true }])).job;
+  const added = v.formulation.lines.find((l) => l.name === 'Brahmi churna');
+  assert.ok(added?.added, 'the new medicine is on this sheet');
+  assert.equal(v.formulation.lines.length, masterLines + 1);
+  assert.equal(v.formulation.lines.find((l) => l.key === 'oil').removed, true, 'a removed master medicine stays visible, struck through');
+  assert.equal(v.consumption.some((c) => c.code === 'MEDHYA-OIL'), false, 'a removed medicine is not drawn');
+  assert.ok(v.chits.some((c) => c.name === 'Brahmi churna'), 'the added medicine gets its chit');
+  // Restoring and dropping the added one again.
+  v = (await edit([{ key: added.key, removed: true }, { key: 'oil', removed: false }])).job;
+  assert.equal(v.formulation.lines.length, masterLines);
+  assert.equal(v.formulation.lines.find((l) => l.key === 'oil').packed, true);
+  // The master itself was not touched: a fresh sheet has the original medicines.
+  const { formulationFor } = require('../constants/formulationMaster');
+  assert.equal(formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }).lines.some((l) => l.name === 'Brahmi churna'), false);
 });

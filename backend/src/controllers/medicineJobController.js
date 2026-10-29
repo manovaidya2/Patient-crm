@@ -115,13 +115,16 @@ const editFormulation = asyncHandler(async (req, res) => {
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
   if (job.hold?.active) fail('Resume the job first', 409);
+  // Optional: the event already records who changed what.
   const note = clean(req.body?.note, 500);
-  if (!note) fail('Write why the sheet is being corrected (e.g. doctor\'s instruction)');
+  // For this patient's request only: the Formulation Master is not changed.
   const sheet = applyOverrides(job.formulation, req.body?.lines, { byName: req.user.name });
-  const changed = sheet.lines.filter((l, i) => l !== job.formulation.lines[i]);
-  if (!changed.length) fail('Nothing was changed');
+  const before = job.formulation.lines;
+  const changed = sheet.lines.filter((l) => !before.includes(l));
+  const dropped = before.filter((l) => !sheet.lines.some((x) => x.key === l.key));
+  if (!changed.length && !dropped.length) fail('Nothing was changed');
   await applyFormulation(job, sheet);
-  event(job, req.user, 'Formulation sheet corrected', `${changed.map((l) => `${l.name}: ${l.edited.changes.join(', ')}`).join(' | ')} - ${note}`);
+  event(job, req.user, 'Formulation sheet corrected', `${[...changed.map((l) => `${l.name}: ${l.edited.changes.join(', ')}`), ...dropped.map((l) => `${l.name}: removed`)].join(' | ')}${note ? ` - ${note}` : ''}`);
   await job.save();
   await respond(res, job);
 });
@@ -154,11 +157,13 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
 // Builds the sheet again from the current Formulation Master (after the doctor changed it). Allowed until preparation.
 // Patient-specific corrections made on the old sheet are dropped, so the event says so.
 const rebuildSheet = asyncHandler(async (req, res) => {
-  needSheetOwner(req.user);
+  if (!SHEET_EDIT_ROLES.includes(req.user.role)) needSheetOwner(req.user);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
+  // Once the doctor has the sheet, a rebuild would drop the doctor's changes: only the doctor / admin does it then.
+  if ((job.currentStage || 0) > STAGE_INDEX.review && !SHEET_EDIT_ROLES.includes(req.user.role)) fail('The doctor has the formulation sheet now; only the doctor or the admin rebuilds it', 403);
   if (job.hold?.active) fail('Resume the job first', 409);
   if (!job.ageBand || !job.supplyPlan || !job.supplyPart) fail('Set the age group and supply first');
   const hadEdits = Boolean(job.formulation?.edited);
@@ -219,7 +224,7 @@ const setSupply = asyncHandler(async (req, res) => {
   needSheetOwner(req.user);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
-  if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The supply cannot change after preparation has started');
+  if ((job.currentStage || 0) > STAGE_INDEX.review) fail('The supply cannot change after the formulation check');
   const ageBand = clean(req.body?.ageBand, 10);
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
   const [plan, part] = String(req.body?.supplyKey || '').split(':');

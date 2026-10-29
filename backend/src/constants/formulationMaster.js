@@ -230,12 +230,50 @@ function chitsFor(formulation, patientName = '') {
 // A corrected sheet: the doctor / department changes quantities, dose text, pack split or mix components for this
 // patient. The master value is kept beside every change (`original`) so the correction stays visible.
 const TABLET_GRAMS_BY_CODE = { [STOCK.RA]: TABLET_GRAMS.ra, [STOCK.RY33]: TABLET_GRAMS.ry33, [STOCK.RY19]: TABLET_GRAMS.ry19 };
+const ADD_UNITS = ['g', 'ml', 'tablet', 'spoon', 'drop', 'piece'];
+// A medicine added for this patient only (not in the master): name, timing, quantity, dose and packs.
+function addedLine(o, formulation, n, byName) {
+  const name = String(o.name || '').trim().slice(0, 120);
+  if (!name) fail('Enter the name of the medicine to add');
+  const unit = String(o.unit || '').trim();
+  if (!ADD_UNITS.includes(unit)) fail(`Select the unit of ${name}`);
+  const qty = numberOf(o.qty, `${name} quantity`);
+  if (!(qty > 0)) fail(`Enter the total quantity of ${name}`);
+  const days = formulation.days;
+  const containers = o.containers === undefined || o.containers === '' ? [days] : (Array.isArray(o.containers) ? o.containers : String(o.containers).split(/[,+]/)).map((d) => String(d).trim()).filter(Boolean).map((d) => { const v = Number(d); if (!Number.isInteger(v) || v <= 0) fail(`Pack days for ${name} must be whole days`); return v; });
+  const chitNo = Math.max(0, ...formulation.lines.map((l) => Number(l.chitNo) || 0)) + 1;
+  const at = new Date().toISOString();
+  return {
+    n, key: `added-${Date.now().toString(36)}-${n}`, name, when: String(o.when || '').trim().slice(0, 80), qty, unit, packed: true, days,
+    containers: containers.length ? containers : [days], dose: String(o.dose || '').trim().slice(0, 500), chitNo,
+    stockCode: String(o.stockCode || '').trim().toUpperCase().slice(0, 40) || undefined,
+    added: { byName, at }, edited: { byName, at, changes: ['added for this patient'] },
+  };
+}
+
 function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   if (!formulation) fail('There is no formulation sheet to edit');
-  const byKey = new Map((Array.isArray(overrides) ? overrides : []).map((o) => [o.key, o]));
-  const lines = formulation.lines.map((line) => {
+  const list = Array.isArray(overrides) ? overrides : [];
+  const byKey = new Map(list.filter((o) => !o.add).map((o) => [o.key, o]));
+  const kept = formulation.lines.filter((line) => {
+    // A medicine added for this patient and removed again simply goes.
+    const o = byKey.get(line.key);
+    return !(line.added && o && (o.removed === true || o.removed === 'true'));
+  });
+  const lines = kept.map((line) => {
     const o = byKey.get(line.key);
     if (!o) return line;
+    // Removed / restored for this patient (a master medicine stays on the sheet, struck through).
+    if (o.removed !== undefined && !line.added) {
+      const removed = o.removed === true || o.removed === 'true';
+      if (removed !== Boolean(line.removed)) {
+        const original = line.original || { qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined, packed: line.packed };
+        if (removed) return { ...line, original: { ...original, packed: original.packed ?? line.packed }, removed: true, packed: false, edited: { byName, at: new Date().toISOString(), changes: ['removed for this patient'] } };
+        const { removed: _gone, ...rest } = line;
+        return { ...rest, packed: line.original?.packed ?? true, edited: { byName, at: new Date().toISOString(), changes: ['restored'] } };
+      }
+      if (removed) return line;
+    }
     const next = { ...line, original: line.original || { qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined } };
     const changes = [];
     if (o.packed !== undefined && !line.fromHome) { const packed = o.packed === true || o.packed === 'true'; if (packed !== line.packed) { next.packed = packed; changes.push(packed ? 'packed' : 'not packed'); } }
@@ -267,6 +305,7 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
     next.edited = { byName, at: new Date().toISOString(), changes };
     return next;
   });
+  list.filter((o) => o.add).forEach((o) => lines.push(addedLine(o, { ...formulation, lines }, lines.length + 1, byName)));
   return { ...formulation, lines, edited: lines.some((l) => l.edited), pending: lines.map((l) => l.pending).filter(Boolean) };
 }
 
