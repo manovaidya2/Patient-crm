@@ -49,6 +49,7 @@ const parseSupply = (body, { required = false } = {}) => {
 };
 const { fixedReadyDate, readyDateFromPostCounselling, canOverrideFixed } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
+const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
 const { cleanCaseCategory, patientCaseCategory } = require('../utils/caseCategory');
 const event = (po, user, action, details = '') => po.events.push({ at: new Date(), action, details, byName: user.name, byRole: user.role });
 const logActivity = (patient, user, action, details = '') => patient.activityLog.push({ action, details, actorName: user.name, actorRole: user.role });
@@ -411,6 +412,7 @@ const updatePlan = asyncHandler(async (req, res) => {
   if (job && supply) {
     const { applyPlanToJob } = require('./medicineJobController');
     await applyPlanToJob(job, { readyBy, plan: supply.plan, part: supply.part, ageBand }, req.user, details);
+    emitMedicineJobChanged(req.app, job._id);
   }
   await respond(res, po, patient);
 });
@@ -466,7 +468,8 @@ const requestMedicine = asyncHandler(async (req, res) => {
   // The Medicine Department job (12 fulfilment stages) opens with the request; never let it block the request itself.
   try {
     const { findOrCreateJob } = require('./medicineJobController');
-    await findOrCreateJob({ patient, stage, request: stage.medicineRequests[stage.medicineRequests.length - 1], po, user: req.user });
+    const job = await findOrCreateJob({ patient, stage, request: stage.medicineRequests[stage.medicineRequests.length - 1], po, user: req.user });
+    emitMedicineJobChanged(req.app, job._id);
   } catch (error) { console.error(`Medicine job could not be opened for ${po.poNumber}: ${error.message}`); }
   await respond(res, po, patient);
 });

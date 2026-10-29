@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import useLiveEvent from '../../api/useLiveEvent.js';
 import { useNavigate } from 'react-router-dom';
 import { Pill } from 'lucide-react';
 import { DelayChips } from '../../components/medicine/MedicineDelay.jsx';
@@ -33,6 +34,8 @@ export default function MedicineJobs() {
   }, [status]);
   useEffect(() => { setItems(null); load(); }, [load]);
   useEffect(() => { const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
+  // Live: any job change updates the queue at once.
+  useLiveEvent('medicine-job:changed', () => load());
   return (
     <div className="space-y-4">
       <PageHeader icon={Pill} title="Fulfilment queue"

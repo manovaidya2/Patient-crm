@@ -9,6 +9,10 @@ const dateRoom = (date) => `sales-sheet:date:${date}`;
 const postCounselingUserRoom = (userId) => `post-counseling:user:${userId}`;
 const POST_COUNSELING_ALL_ROOM = 'post-counseling:all';
 const postCounselingViewers = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER];
+// Medicine fulfilment: everyone who works on or follows a job hears when one changes (e.g. the doctor's sheet edit).
+const MEDICINE_JOBS_ROOM = 'medicine-jobs';
+const medicineJobViewers = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT];
+const emitMedicineJobChanged = (app, jobId) => app?.get?.('io')?.to(MEDICINE_JOBS_ROOM).emit('medicine-job:changed', { id: String(jobId) });
 
 const registerSalesSheetSocket = (io) => {
   io.use(async (socket, next) => {
@@ -34,6 +38,7 @@ const registerSalesSheetSocket = (io) => {
     if (socket.user.role === ROLES.ADMIN) socket.join('enquiry:admins');
     if (socket.user.role === ROLES.POST_COUNSELOR) socket.join(postCounselingUserRoom(socket.user._id));
     if (postCounselingViewers.includes(socket.user.role)) socket.join(POST_COUNSELING_ALL_ROOM);
+    if (medicineJobViewers.includes(socket.user.role)) socket.join(MEDICINE_JOBS_ROOM);
     if (!allowedRoles.includes(socket.user.role)) return;
     socket.join('sales-sheet');
     socket.on('sales-sheet:watch-date', (date) => {
@@ -46,4 +51,4 @@ const registerSalesSheetSocket = (io) => {
   });
 };
 
-module.exports = { registerSalesSheetSocket, dateRoom, postCounselingUserRoom, POST_COUNSELING_ALL_ROOM };
+module.exports = { registerSalesSheetSocket, dateRoom, postCounselingUserRoom, POST_COUNSELING_ALL_ROOM, MEDICINE_JOBS_ROOM, emitMedicineJobChanged };

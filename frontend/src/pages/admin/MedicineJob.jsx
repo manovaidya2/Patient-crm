@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock3, ExternalLink, FileText, Lock, PauseCircle, Pill, PlayCircle, Printer, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import api from '../../api/axios.js';
+import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
@@ -67,6 +68,27 @@ const fieldText = (field, value) => {
   if (field?.type === 'date' || /^\d{4}-\d{2}-\d{2}/.test(String(value))) return day(value) || String(value);
   return String(value);
 };
+// What changed on the sheet for this patient, line by line (master value -> new value).
+function sheetChanges(f) {
+  if (!f) return [];
+  const unit = (l) => l.unit || '';
+  return f.lines.filter((l) => l.edited || l.added || l.removed).map((l) => {
+    const by = l.added?.byName || l.edited?.byName || '';
+    if (l.added) return { kind: 'added', title: `Added: ${l.name}`, detail: [`${num(l.qty)} ${unit(l)}`, l.when, l.dose].filter(Boolean).join(' · '), by };
+    if (l.removed) return { kind: 'removed', title: `Removed: ${l.name}`, detail: l.original?.qty ? `was ${num(l.original.qty)} ${l.original.unit || unit(l)}` : '', by };
+    const o = l.original || {};
+    const parts = [];
+    if (o.qty !== undefined && o.qty !== l.qty) parts.push(`quantity ${num(o.qty)} → ${num(l.qty)} ${unit(l)}`);
+    if (o.dose !== undefined && (o.dose || '') !== (l.dose || '')) parts.push(`dose: "${o.dose || '-'}" → "${l.dose || '-'}"`);
+    if (o.containers && (o.containers || []).join('+') !== (l.containers || []).join('+')) parts.push(`packs ${o.containers.join(' + ')} → ${(l.containers || []).join(' + ')} दिन`);
+    (l.components || []).forEach((c) => { const oc = (o.components || []).find((x) => x.code === c.code); if (oc && oc.qty !== c.qty) parts.push(`${c.name} ${num(oc.qty)} → ${num(c.qty)} ${c.unit}`); });
+    if (o.packed !== undefined && o.packed !== l.packed) parts.push(l.packed ? 'packed' : 'not packed');
+    if (!parts.length && l.edited?.changes?.length) parts.push(l.edited.changes.join(', '));
+    return { kind: 'changed', title: `Changed: ${l.name}`, detail: parts.join(' · '), by };
+  });
+}
+const CHANGE_TONE = { added: 'border-emerald-300 bg-emerald-100/70 text-emerald-900', removed: 'border-[#8C3B2E]/30 bg-[#8C3B2E]/10 text-[#8C3B2E]', changed: 'border-amber-300 bg-amber-100/70 text-amber-900' };
+
 function DoneList({ stage, job }) {
   const items = [
     ...stage.checks.filter((_, i) => stage.checksDone?.[i] !== false).map((text) => ({ text })),
@@ -77,9 +99,27 @@ function DoneList({ stage, job }) {
     }),
     stage.notes ? { text: `Notes: ${stage.notes}`, sub: `by ${stage.doneByName}` } : null,
   ].filter(Boolean);
-  if (!items.length) return null;
+  // The doctor's step also lists every change made on the sheet for this patient, highlighted.
+  const changes = stage.key === 'formula' ? sheetChanges(job.formulation) : [];
+  if (!items.length && !changes.length) return null;
   return (
     <div>
+      {stage.key === 'formula' && (
+        <div className="mb-3">
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-900">Changes on the sheet for this patient{changes.length ? ` (${changes.length})` : ''}</p>
+          {changes.length ? (
+            <ul className="space-y-1.5">
+              {changes.map((c, i) => (
+                <li key={i} className={`rounded-lg border px-3 py-2 ${CHANGE_TONE[c.kind]}`}>
+                  <span className="block font-bold">{c.title}</span>
+                  {c.detail && <span className="block text-xs">{c.detail}</span>}
+                  {c.by && <span className="block text-[11px] opacity-75">by {c.by}</span>}
+                </li>
+              ))}
+            </ul>
+          ) : <p className="rounded-lg border border-emerald-200 bg-white/60 px-3 py-2 text-sm">No change: the sheet was verified as built from the Formulation Master.</p>}
+        </div>
+      )}
       <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800">Done in this stage</p>
       <ul className="space-y-1.5">
         {items.map((item, i) => (
@@ -249,6 +289,8 @@ export default function MedicineJobPage() {
     catch (err) { setError(err.response?.data?.message || 'Could not load the job'); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
+  // Live: when anyone changes this job (the doctor's sheet edit or sign-off, a stage done), this page reloads at once.
+  useLiveEvent('medicine-job:changed', (payload) => { if (!payload || payload.id === id) load(); });
   useEffect(() => { if (job) setSupply({ ageBand: job.ageBand, supplyKey: supplyKeyOf(job.supplyPlan, job.supplyPart) }); }, [job?.id, job?.ageBand, job?.supplyPlan, job?.supplyPart]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
   const done = (next, message) => { setJob(next); setNotice(message); setView(null); setHoldOpen(false); setHoldText(''); };
@@ -339,7 +381,7 @@ export default function MedicineJobPage() {
                       : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Admin: undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
                   </div>
                   <DoneList stage={shown} job={job} />
-                  {shown.key === 'review' && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
+                  {['review', 'formula'].includes(shown.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
                   {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.code}>{c.code}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)})</li>)}</ul>}
                   {shown.key === 'fill' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked disabled onToggle={() => {}} />)}</div>}
                   {shown.key === 'photos' && <><CompactAttachments files={job.photos.overview} label="Photo A" /><CompactAttachments files={job.photos.papers} label="Photo B" /></>}

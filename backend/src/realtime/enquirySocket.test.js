@@ -14,3 +14,19 @@ test('each person joins only their private enquiry room; sales rooms remain rest
     assert.equal(listeners.includes('sales-sheet:watch-date'), sales);
   }
 });
+
+test('medicine job changes reach the people who work on or follow the jobs, and only them', () => {
+  const { emitMedicineJobChanged, MEDICINE_JOBS_ROOM } = require('./salesSheetSocket');
+  let connect;
+  registerSalesSheetSocket({ use() {}, on(event, handler) { if (event === 'connection') connect = handler; } });
+  for (const role of ALL_ROLES) {
+    const rooms = [];
+    connect({ user: { _id: 'person1', role }, join(room) { rooms.push(room); }, on() {} });
+    assert.equal(rooms.includes(MEDICINE_JOBS_ROOM), [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT].includes(role), role);
+  }
+  const sent = [];
+  const io = { to(room) { sent.push(room); return this; }, emit(event, payload) { sent.push(event, payload.id); } };
+  emitMedicineJobChanged({ get: () => io }, 'job1');
+  assert.deepEqual(sent, [MEDICINE_JOBS_ROOM, 'medicine-job:changed', 'job1']);
+  emitMedicineJobChanged(null, 'job1');
+});

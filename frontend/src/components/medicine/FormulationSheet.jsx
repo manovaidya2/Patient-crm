@@ -93,7 +93,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               {l.containers?.length > 1 && <p className="text-xs text-charcoal/55">{l.containers.length} पैक: {l.containers.map((d) => `${d} दिन`).join(' + ')}</p>}
               {l.pending && <p className="text-[11px] font-semibold text-amber-800">पुष्टि बाकी: {l.pending}</p>}
             </div>
-            <div className="text-right text-xs text-charcoal/55">टोटल मात्रा<br />{l.edited && l.original && l.original.qty !== l.qty && <span className="block font-mono text-xs text-charcoal/45 line-through">{num(l.original.qty)} {l.original.unit}</span>}<b className="font-mono text-sm text-charcoal">{l.removed ? 'हटाई गई' : l.packed ? `${num(l.qty)} ${l.unit}` : l.fromHome ? 'घर से' : 'पैक नहीं'}</b>{l.bottles ? <><br />{l.bottles} × BT-100</> : null}</div>
+            <div className="text-right text-xs text-charcoal/55">टोटल मात्रा<br />{l.edited && l.original && l.original.qty !== l.qty && <span className="block font-mono text-xs text-charcoal/45 line-through">{num(l.original.qty)} {l.original.unit}</span>}<b className="font-mono text-sm text-charcoal">{l.removed ? 'हटाई गई' : l.packed ? `${num(l.qty)} ${l.unit}` : l.fromHome ? 'घर से' : 'पैक नहीं'}</b>{l.bottles && !l.removed ? <><br />{l.bottles} × BT-100</> : null}</div>
           </li>
         ))}
       </ol>

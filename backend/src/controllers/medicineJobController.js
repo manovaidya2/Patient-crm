@@ -15,6 +15,7 @@ const { canOverrideFixed, fixedSupplyPlan, fixedReadyDate } = require('../utils/
 const { patientDocuments } = require('../utils/patientDocuments');
 const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
+const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
 const { moveStock } = require('./stockController');
 
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
@@ -71,6 +72,8 @@ const requestDetailsOf = ({ job, patient, stage, request, po }) => ({
 });
 
 const respond = async (res, job, status = 200) => {
+  // A change (not a plain read) reaches every open job page and the queue at once.
+  if (res.req && res.req.method !== 'GET') emitMedicineJobChanged(res.req.app, job._id);
   const { patient, stage, request } = await loadPatientAndRequest(job);
   const poDoc = job.purchaseOrder ? await PurchaseOrder.findById(job.purchaseOrder).lean() : null;
   const sent = fixedSupplyPlan({ po: poDoc, stage });
