@@ -45,7 +45,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     phase: { type: Number, enum: STAGES, required: true },
     supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
-    ageBand: { type: String, enum: ['', '3-4', '4-12', '12-70', '70+'], default: '' },
+    ageBand: { type: String, enum: ['', '0-3', '3-4', '4-12', '12-70', '70+'], default: '' },
     packageName: { type: String, trim: true, default: '', maxlength: 200 },
     amount: { type: Number, default: 0, min: 0 },
     medicineReadyDate: { type: Date, default: null },

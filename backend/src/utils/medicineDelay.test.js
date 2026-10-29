@@ -37,5 +37,5 @@ test('the PO paper works the age group out from the age; it is never picked by h
   const { cleanPurchase } = require('./purchaseOrderRecord');
   assert.equal(cleanPurchase({ patientAge: '6', ageGroup: 'Above 70 years' }, 1000).values.ageGroup, 'Above 4 - 12 years');
   assert.equal(cleanPurchase({ patientAge: '13 years' }, 1000).values.ageGroup, 'Above 12 - 70 years');
-  assert.equal(cleanPurchase({ patientAge: '2' }, 1000).values.ageGroup, '', 'below 3 years has no dose group');
+  assert.equal(cleanPurchase({ patientAge: '2' }, 1000).values.ageGroup, '0 - 3 years', 'below 3 years: 0-3 (its formulation is made for the child)');
 });

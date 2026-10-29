@@ -75,9 +75,9 @@ const COLLECTORS = {
   async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status]); },
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
-    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber phase status currentStage hold readyByDate requestId').lean();
+    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `Verify formulation of ${j.patientName}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
+    return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (0 - 3 years)' : ''}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
   },
   async '/admin/stocks'() {
     const items = await StockItem.find({ isActive: { $ne: false } }).lean();

@@ -256,11 +256,21 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {['review', 'formula'].includes(stage.key) && job.formulation && (
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${job.masterOutdated ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-cardline bg-offwhite-200/60 text-charcoal/70'}`}>
-          <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>
+          {job.formulation.custom ? <span>{job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this child.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)} jobId={job.id} onSaved={onDone} onError={report} />}
+      {stage.key === 'review' && job.formulation?.custom && (
+        <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+          <p className="font-bold">{job.formulation.ageBandLabel}: no Formulation Master - make this child's formulation</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px]">
+            <li><b>Create it here</b> after asking the doctor: "Create formulation" below, add each medicine, save. The doctor still verifies it in step 3.</li>
+            <li><b>Or send it to the doctor</b>: complete this step without medicines; the doctor creates the formulation in step 3 ("Create formulation of {job.patientName}" reaches the doctor).</li>
+          </ul>
+          {!job.formulation.lines.length && <p className="mt-1.5 text-xs font-semibold">No medicines yet - completing this step sends it to the doctor to create.</p>}
+        </div>
+      )}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) || (Boolean(job.formulation?.custom) && stage.key === 'review' && user?.role === ROLES.MEDICINE_DEPARTMENT)} jobId={job.id} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.

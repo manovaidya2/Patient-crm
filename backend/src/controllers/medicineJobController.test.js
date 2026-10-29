@@ -285,3 +285,27 @@ test('the doctor adds or removes a medicine for this patient only; the master st
   const { formulationFor } = require('../constants/formulationMaster');
   assert.equal(formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }).lines.some((l) => l.name === 'Brahmi churna'), false);
 });
+
+test('0 - 3 years has no master: the sheet starts empty, Medicine Department or the doctor creates it for the child', async () => {
+  const { patient, stage } = setup();
+  stage.medicineRequests[0].ageBand = '0-3';
+  const { job } = await open(patient);
+  const id = job.id;
+  assert.equal(job.formulation.custom, true);
+  assert.equal(job.formulation.lines.length, 0);
+  await complete(id, 'accept', { readyByDate: '2026-11-02' });
+  // Medicine Department may write it here (after asking the doctor) - only for a custom sheet, only up to this step.
+  const edit = (lines, user = med) => call(controller.editFormulation, { params: { id }, body: { lines }, user });
+  let v = (await edit([{ add: true, name: 'Brahmi ghrit', when: 'सुबह', unit: 'ml', qty: 30, dose: '2 बूँद' }])).job;
+  assert.equal(v.formulation.lines.length, 1);
+  assert.ok(v.chits.some((c) => c.name === 'Brahmi ghrit'));
+  v = (await edit([{ key: v.formulation.lines[0].key, removed: true }])).job;
+  // Or it goes to the doctor empty: the doctor's step cannot finish without medicines.
+  v = (await complete(id, 'review')).job;
+  assert.equal(v.currentKey, 'formula');
+  await assert.rejects(edit([{ add: true, name: 'X', unit: 'g', qty: 1 }]), /doctor or the admin/, 'after the check only the doctor / admin edits');
+  await assert.rejects(complete(id, 'formula', {}, {}, doctor), /Add the medicines/);
+  v = (await edit([{ add: true, name: 'Shankhpushpi syrup', when: 'रात', unit: 'ml', qty: 60, dose: '1 ml' }], doctor)).job;
+  v = (await complete(id, 'formula', {}, {}, doctor)).job;
+  assert.equal(v.currentKey, 'stock', 'then the same process as every sheet');
+});

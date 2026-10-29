@@ -52,7 +52,7 @@ const medicineJobSchema = new mongoose.Schema(
     poNumber: { type: String, trim: true, default: '' },
     supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
-    ageBand: { type: String, enum: ['', '3-4', '4-12', '12-70', '70+'], default: '' },
+    ageBand: { type: String, enum: ['', '0-3', '3-4', '4-12', '12-70', '70+'], default: '' },
     medicines: { type: String, trim: true, default: '' },
     caseCategory: { type: String, trim: true, default: '' },
     // 2: the stage list with the doctor's formulation step (older jobs are moved on startup, see utils/jobStageMigration).

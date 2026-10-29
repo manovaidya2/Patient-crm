@@ -4,7 +4,9 @@
 // Items marked `pending` carry a note the doctor still has to confirm (the documents disagree or leave it open).
 const { AGE_BANDS } = require('./supplyPlans');
 
-const BANDS = Object.keys(AGE_BANDS); // '3-4', '4-12', '12-70', '70+'
+// Age groups without a master: their sheet starts empty and is filled for the child (Medicine Department / doctor).
+const CUSTOM_BANDS = ['0-3'];
+const BANDS = Object.keys(AGE_BANDS).filter((b) => !CUSTOM_BANDS.includes(b)); // '3-4', '4-12', '12-70', '70+'
 const PART_FRACTION = { '6M:full': 1, '1+5:first': 1 / 6, '1+5:rest': 5 / 6, '2+4:first': 2 / 6, '2+4:rest': 4 / 6 };
 const PART_MONTHS = { '6M:full': 6, '1+5:first': 1, '1+5:rest': 5, '2+4:first': 2, '2+4:rest': 4 };
 
@@ -148,6 +150,7 @@ function normalizeMaster(input = {}, ageBand) {
 function formulationFor({ ageBand, plan, part }, master = null) {
   const key = `${plan}:${part}`;
   const fraction = PART_FRACTION[key];
+  if (CUSTOM_BANDS.includes(ageBand) && fraction) return customSheet({ ageBand, plan, part });
   if (!BANDS.includes(ageBand) || !fraction) return null;
   const m = master && master.ageBand === ageBand ? master : defaultMasterFor(ageBand);
   const pairOf = (v) => (v == null ? null : Array.isArray(v) ? v : [Number(v.qty), v.unit]);
@@ -193,6 +196,22 @@ function formulationFor({ ageBand, plan, part }, master = null) {
     edited: false,
     // Which master built this sheet (version 0 = the document values).
     master: { version: m.version || 0, source: m.source || 'document', updatedAt: m.updatedAt || null, updatedByName: m.updatedByName || '' },
+  };
+}
+
+// 0-3 years: the same sheet with no medicines yet; they are added for this child (applyOverrides "add" lines).
+function customSheet({ ageBand, plan, part }) {
+  const key = `${plan}:${part}`;
+  const months = PART_MONTHS[key];
+  const first = part !== 'rest';
+  return {
+    ageBand, ageBandLabel: AGE_BANDS[ageBand], plan, part, months, days: months * 30, first,
+    title: `${plan === '6M' ? 'SIX MONTH' : `${months} MONTH`} FORMULATION${plan === '6M' ? '' : part === 'first' ? ' | PART 1' : ' | PART 2'} | CUSTOM`,
+    lines: [], honey: null,
+    papers: first ? TREATMENT_PAPERS : [],
+    papersNote: first ? 'Treatment Papers केवल पहली आपूर्ति में।' : 'Treatment Papers पहली आपूर्ति में दिए जा चुके हैं; दोबारा नहीं देने हैं।',
+    pending: [], edited: false, custom: true,
+    master: { version: 0, source: 'custom', updatedAt: null, updatedByName: '' },
   };
 }
 
@@ -309,4 +328,4 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   return { ...formulation, lines, edited: lines.some((l) => l.edited), pending: lines.map((l) => l.pending).filter(Boolean) };
 }
 
-module.exports = { applyOverrides, formulationFor, stockNeeds, chitsFor, defaultMasterFor, normalizeMaster, BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };
+module.exports = { applyOverrides, formulationFor, stockNeeds, chitsFor, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

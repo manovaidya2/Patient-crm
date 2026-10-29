@@ -113,10 +113,14 @@ const applyFormulation = async (job, sheet) => {
 // @route PATCH /api/medicine-jobs/:id/formulation   body: { lines: [{ key, qty, dose, containers, packed, components:[{code, qty}] }], note }
 // Corrects the sheet for this patient (wrong master value, doctor's change). Allowed until preparation starts; the
 // master value stays beside each change. Stock needs and chits are rebuilt from the corrected sheet.
+// A custom sheet (0-3 years, no master) can also be created by the Medicine Department at the formulation check, after
+// asking the doctor; the doctor verifies it in the next step as usual.
+const canEditSheet = (user, job) => SHEET_EDIT_ROLES.includes(user.role)
+  || (Boolean(job.formulation?.custom) && (job.currentStage || 0) <= STAGE_INDEX.review && STAGES[STAGE_INDEX.review].roles.includes(user.role));
 const editFormulation = asyncHandler(async (req, res) => {
-  if (!SHEET_EDIT_ROLES.includes(req.user.role)) fail('Only the doctor or the admin corrects the formulation sheet', 403);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  if (!canEditSheet(req.user, job)) fail('Only the doctor or the admin corrects the formulation sheet', 403);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
   if (job.hold?.active) fail('Resume the job first', 409);
@@ -295,6 +299,8 @@ const completeStage = asyncHandler(async (req, res) => {
     detail = `Ready by ${readyBy.toISOString().slice(0, 10)}`;
   }
   if (stage.key === 'review' && !job.formulation) fail('Set the age group and medicine supply first (the formulation sheet is built from them)');
+  // A custom sheet (0-3 years) needs its medicines before the doctor signs it off and before anything is drawn.
+  if (['formula', 'stock'].includes(stage.key) && job.formulation?.custom && !job.formulation.lines.some((l) => l.packed)) fail('Add the medicines of this child\'s formulation first (0 - 3 years has no Formulation Master)');
   if (stage.key === 'stock') {
     const stocks = await StockItem.find({ isActive: { $ne: false } }).lean();
     const table = buildJobView(job, { stocks }).stockTable;

@@ -7,7 +7,9 @@ export const SUPPLY_OPTIONS = [
   { key: '2+4:rest', plan: '2+4', part: 'rest', months: 4, label: '2+4: Next 4 months', hint: 'Second supply of a 2 + 4 plan' },
 ];
 
+// 0-3 years has no Formulation Master: its formulation is made for each child when the request comes.
 export const AGE_BANDS = [
+  { value: '0-3', label: '0 - 3 years' },
   { value: '3-4', label: '3-4 years' },
   { value: '4-12', label: 'Above 4 - 12 years' },
   { value: '12-70', label: 'Above 12 - 70 years' },
@@ -18,10 +20,12 @@ export const supplyKeyOf = (plan, part) => (plan && part ? `${plan}:${part}` : '
 export const ageBandLabel = (value) => AGE_BANDS.find((band) => band.value === value)?.label || '';
 // Same rule as the backend: the dose age group from an age like "6", "4.5" or "13 years".
 export const ageBandFor = (age) => {
-  const match = String(age ?? '').match(/\d+(\.\d+)?/);
+  const text = String(age ?? '');
+  const match = text.match(/\d+(\.\d+)?/);
   if (!match) return '';
-  const years = Number(match[0]);
-  if (years < 3) return '';
+  const onlyMonths = /month|mahin|महीन/i.test(text) && !/year|yr|saal|साल|\dy\b|\d\s*y\b/i.test(text);
+  const years = onlyMonths ? Number(match[0]) / 12 : Number(match[0]);
+  if (years < 3) return '0-3';
   if (years <= 4) return '3-4';
   if (years <= 12) return '4-12';
   if (years <= 70) return '12-70';

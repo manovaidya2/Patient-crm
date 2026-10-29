@@ -69,7 +69,7 @@ test('PO numbers are PO- plus 4 digits, never repeat, and move to 5 digits only 
 test('supply categories and age bands follow the Formulation Master', () => {
   assert.deepEqual(SUPPLY_OPTIONS.map((o) => `${o.key}=${o.months}`), ['6M:full=6', '1+5:first=1', '1+5:rest=5', '2+4:first=2', '2+4:rest=4']);
   assert.equal(supplyOption('1+5', 'full'), null, 'a part must belong to its plan');
-  assert.deepEqual(['3', '4', '4.5', '12', '13 years', '70', '71', '2', ''].map(ageBandFor), ['3-4', '3-4', '4-12', '4-12', '12-70', '12-70', '70+', '', '']);
+  assert.deepEqual(['3', '4', '4.5', '12', '13 years', '70', '71', '2', '8 months', '2 y 4 m', ''].map(ageBandFor), ['3-4', '3-4', '4-12', '4-12', '12-70', '12-70', '70+', '0-3', '0-3', '0-3', '']);
 });
 
 const shot = { url: '/uploads/payments/1-2.png', fileName: 'proof.png' };

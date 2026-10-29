@@ -16,6 +16,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   // Medicines added for this patient in this edit (not in the Formulation Master).
   const [adds, setAdds] = useState([]);
   if (!f) return <p className="text-sm text-charcoal/55">Set the age group and medicine supply to build the sheet.</p>;
+  const startEditing = () => { setEditing(true); if (f.custom && !f.lines.length) setAdds([emptyAdd()]); };
   const d = (key) => draft[key] || {};
   const setLine = (key, patch) => setDraft((o) => ({ ...o, [key]: { ...(o[key] || {}), ...patch } }));
   const save = async () => {
@@ -31,7 +32,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   };
   if (editing) return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">Correct the sheet for this patient</p><p className="text-xs text-charcoal/60">For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change.</p></div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? 'There is no Formulation Master for this age group: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.' : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
       <ol className="divide-y divide-dashed divide-cardline">
         {f.lines.map((l) => (
           <li key={l.key} className="grid gap-2 py-3 sm:grid-cols-2">
@@ -51,7 +52,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         ))}
       </ol>
       <div className="mt-2 space-y-2 border-t border-dashed border-cardline pt-3">
-        <p className="text-sm font-bold text-charcoal">Add a medicine for this patient</p>
+        <p className="text-sm font-bold text-charcoal">{f.custom ? 'Medicines of this formulation' : 'Add a medicine for this patient'}</p>
         {adds.map((a, i) => {
           const setAdd = (patch) => setAdds((list) => list.map((x, n) => (n === i ? { ...x, ...patch } : x)));
           return (
@@ -71,15 +72,17 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         })}
         <Button size="sm" variant="outline" onClick={() => setAdds((list) => [...list, emptyAdd()])}><Plus size={13} />Add medicine</Button>
       </div>
-      <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || (!Object.keys(draft).length && !adds.some((a) => a.name.trim()))} onClick={save}>{busy ? 'Saving...' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
+      <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || (!Object.keys(draft).length && !adds.some((a) => a.name.trim()))} onClick={save}>{busy ? 'Saving...' : f.custom ? 'Save formulation' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
     </div>
   );
   return (
     <div className="rounded-lg border border-cardline bg-offwhite-100 p-4 sm:p-6">
-      {canEdit && <div className="mb-2 flex justify-end"><Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil size={13} />Edit sheet</Button></div>}
+      {canEdit && <div className="mb-2 flex justify-end"><Button size="sm" variant={f.custom && !f.lines.length ? 'primary' : 'outline'} onClick={startEditing}>{f.custom && !f.lines.length ? <><Plus size={13} />Create formulation</> : f.custom ? <><Pencil size={13} />Edit formulation</> : <><Pencil size={13} />Edit sheet</>}</Button></div>}
+      {f.custom && <p className="mb-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">{f.ageBandLabel}: no Formulation Master for this age group. {f.lines.length ? 'This formulation was made for this child.' : 'No medicines yet - the formulation is made for this child.'}</p>}
       {f.edited && <p className="mb-2 rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900">This sheet was corrected for this patient only (the Formulation Master is unchanged); master values are shown struck through.</p>}
       <div className="border-b border-charcoal pb-2 text-center"><p className="text-xs font-bold tracking-wide">AUTISM, ADHD &amp; CHILD DEVELOPMENT</p><p className="text-base font-bold">{f.title}</p><p className="text-xs text-charcoal/60">आयु: {f.ageBandLabel} · आपूर्ति: {f.months} महीने ({f.days} दिन) · गणना: 1 महीना = 30 दिन, माप-चम्मच = 5 ml</p></div>
       <p className="mt-2 text-xs text-charcoal/60">मरीज: <b className="text-charcoal">{patientName}</b> · ID {patientCode}</p>
+      {!f.lines.length && <p className="mt-3 rounded-lg border border-dashed border-cardline px-3 py-4 text-center text-sm text-charcoal/55">No medicines on this sheet yet.</p>}
       <ol className="mt-3 divide-y divide-dashed divide-cardline">
         {f.lines.map((l) => (
           <li key={l.key} className={`grid gap-x-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${l.removed ? 'bg-[#8C3B2E]/5 opacity-70' : l.added ? 'bg-emerald-50/70' : l.edited ? 'bg-amber-50/60' : ''}`}>
