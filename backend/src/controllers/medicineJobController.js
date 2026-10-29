@@ -8,7 +8,7 @@ const { ROLES } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
 const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlans');
 const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../constants/formulationMaster');
-const { STAGES, STAGE_INDEX, buildJobView } = require('../utils/medicineJobFlow');
+const { STAGES, STAGE_INDEX, stageRoles, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
 const { phaseAge } = require('../utils/phaseAge');
 const { canOverrideFixed, fixedSupplyPlan, fixedReadyDate, dispatchDelayInput } = require('../utils/medicineDelay');
@@ -97,7 +97,7 @@ const respond = async (res, job, status = 200) => {
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
 // Correcting the sheet for one patient is the doctor's call (or the admin's); the Medicine Department prepares from it.
 const SHEET_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
-const needSheetOwner = (user) => { if (!STAGES[STAGE_INDEX.review].roles.includes(user.role)) fail(`The formulation sheet is handled by ${STAGES[STAGE_INDEX.review].roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
+const needSheetOwner = (user, job = null) => { const roles = stageRoles(STAGES[STAGE_INDEX.review], job); if (!roles.includes(user.role)) fail(`The formulation sheet is handled by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
 
 // Builds (or rebuilds) the formulation sheet, stock needs and chits of a job from its age band and supply using the
 // current (doctor-edited) Formulation Master, or from an already corrected sheet when one is given.
@@ -166,9 +166,9 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
 // Builds the sheet again from the current Formulation Master (after the doctor changed it). Allowed until preparation.
 // Patient-specific corrections made on the old sheet are dropped, so the event says so.
 const rebuildSheet = asyncHandler(async (req, res) => {
-  if (!SHEET_EDIT_ROLES.includes(req.user.role)) needSheetOwner(req.user);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  if (!SHEET_EDIT_ROLES.includes(req.user.role)) needSheetOwner(req.user, job);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
   // Once the doctor has the sheet, a rebuild would drop the doctor's changes: only the doctor / admin does it then.
@@ -204,7 +204,7 @@ const listJobs = asyncHandler(async (req, res) => {
   const jobs = await MedicineJob.find(filter).select('-events -formulation -chits -consumption').sort({ readyByDate: 1, createdAt: -1 }).limit(500).lean();
   const items = jobs.map((j) => buildJobView(j));
   // Chip counts (and how many wait for this role) across the open / ready / released lists.
-  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId').lean();
+  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
   all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(req.user.role)) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
@@ -217,7 +217,7 @@ const jobActionBy = (job, handedOver) => {
   if (job.status === 'released' || job.status === 'cancelled') return [];
   if (handedOver?.has(String(job.requestId))) return [];
   if (job.hold?.active) return JOB_ROLES;
-  return STAGES[job.currentStage || 0]?.roles || [];
+  return stageRoles(STAGES[job.currentStage || 0], job);
 };
 
 // @route GET /api/medicine-jobs/:id
@@ -230,9 +230,9 @@ const getJob = asyncHandler(async (req, res) => {
 
 // @route PATCH /api/medicine-jobs/:id/supply   body: { ageBand, supplyKey }  (before preparation only)
 const setSupply = asyncHandler(async (req, res) => {
-  needSheetOwner(req.user);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  needSheetOwner(req.user, job);
   if ((job.currentStage || 0) > STAGE_INDEX.review) fail('The supply cannot change after the formulation check');
   const ageBand = clean(req.body?.ageBand, 10);
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
@@ -267,7 +267,8 @@ const completeStage = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   const stage = requireOrder(job, req.params.key);
-  if (!stage.roles.includes(req.user.role)) fail(`${stage.label} is done by ${stage.roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403);
+  const roles = stageRoles(stage, job);
+  if (!roles.includes(req.user.role)) fail(`${stage.label} is done by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403);
   const body = req.body || {};
   const checks = parseJson(body.checks, []);
   if (!Array.isArray(checks) || stage.checks.some((_, i) => checks[i] !== true)) fail('Tick every point of the checklist');

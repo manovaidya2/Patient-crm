@@ -94,7 +94,7 @@ const COUNTERS = {
   // Old-flow medicine (made without a fulfilment job, or already handed over) is complete, not pending.
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return countRequests(['made'], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
-    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('status currentStage hold requestId').lean();
+    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
     return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).length;
   },

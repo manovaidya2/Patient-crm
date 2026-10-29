@@ -9,6 +9,7 @@ import Badge from './ui/Badge.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES } from '../constants/roles.js';
 import { PatientFileButton } from './medicine/PatientFile.jsx';
+import { DelayTable } from './medicine/MedicineDelay.jsx';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from './ui/Attachments.jsx';
 import { PackageCheck as PageTitleIcon } from 'lucide-react';
 
@@ -377,6 +378,15 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                         Sent to courier: {formatDateTime(request.sentToCourierAt)} by {request.sentToCourierByName || '-'}
                       </p>
                     )}
+                    {/* Done medicine: how long it took from the request, and every delay against its dates. */}
+                    {request.madeAt && request.requestedAt && (
+                      <p className="mt-1 text-xs font-semibold text-charcoal/75">
+                        Request to medicine made: {Math.max(0, Math.round((new Date(request.madeAt) - new Date(request.requestedAt)) / 86400000))} day(s)
+                        {request.sentToCourierAt ? ` · to release: ${Math.max(0, Math.round((new Date(request.sentToCourierAt) - new Date(request.requestedAt)) / 86400000))} day(s)` : ''}
+                        {request.courier?.deliveredAt ? ` · to patient: ${Math.max(0, Math.round((new Date(request.courier.deliveredAt) - new Date(request.requestedAt)) / 86400000))} day(s)` : ''}
+                      </p>
+                    )}
+                    {row.delay && ['made', 'sent_to_courier'].includes(request.status) && <DelayTable delay={row.delay} className="mt-2 bg-white" />}
                     {(request.packagedByName || request.chitsWrittenByName || request.lastMedicineCheckedByName) && (
                       <div className="mt-2 rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-xs text-charcoal/65">
                         <p>Packaging by: <span className="font-semibold text-charcoal">{request.packagedByName || '-'}</span></p>

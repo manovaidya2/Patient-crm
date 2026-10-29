@@ -309,3 +309,25 @@ test('0 - 3 years has no master: the sheet starts empty, Medicine Department or 
   v = (await complete(id, 'formula', {}, {}, doctor)).job;
   assert.equal(v.currentKey, 'stock', 'then the same process as every sheet');
 });
+
+test('an old request (before the fulfilment timeline, no PO): the admin and the doctor can fill every stage', async () => {
+  const { patient, stage } = setup();
+  Object.assign(stage.medicineRequests[0], { poNumber: '', ageBand: '', supplyPlan: '', supplyPart: '' });
+  const { job } = await open(patient);
+  assert.equal(job.oldFlow, true);
+  assert.ok(job.stages.every((s) => s.roles.includes('doctor') && s.roles.includes('admin')), 'every stage is open to the doctor and the admin');
+  const id = job.id;
+  let v = (await complete(id, 'accept', { readyByDate: '2026-11-02' }, {}, doctor)).job;
+  assert.equal(v.currentKey, 'review');
+  // The age group and supply missing on the old request are set here, by the doctor too.
+  await assert.rejects(complete(id, 'review', {}, {}, doctor), /age group and medicine supply/);
+  v = (await call(controller.setSupply, { params: { id }, body: { ageBand: '4-12', supplyKey: '1+5:first' }, user: doctor })).job;
+  assert.ok(v.formulation.lines.length > 0);
+  v = (await complete(id, 'review', {}, {}, doctor)).job;
+  assert.equal(v.currentKey, 'formula');
+  // A request on a PO keeps its owners: the doctor cannot do the Medicine Department's stage there.
+  const { patient: p2 } = setup();
+  const { job: onPo } = await call(controller.openForRequest, { body: { patientId: String(p2._id), phase: 1, requestId: 'r1' } });
+  assert.equal(onPo.oldFlow, false);
+  await assert.rejects(complete(onPo.id, 'accept', { readyByDate: '2026-11-02' }, {}, doctor), /done by/);
+});

@@ -43,6 +43,10 @@ connectDB()
   .then(() => require('./src/utils/jobStageMigration').migrateJobStages())
   .then((count) => { if (count) console.log(`Medicine jobs moved to the current stage list: ${count}`); })
   .catch((error) => console.error(`Medicine job stages could not be updated: ${error.message}`))
+  // Old medicine requests (before the fulfilment timeline) still waiting get their job, so they can be moved on.
+  .then(() => require('./src/utils/oldRequestJobs').openJobsForOldRequests({ log: console.log }))
+  .then(() => require('./src/utils/oldRequestJobs').settleOldJobs({ log: console.log }))
+  .catch((error) => console.error(`Old medicine requests could not get their jobs: ${error.message}`))
   .then(() => require('./src/utils/phaseAge').backfillPhaseAges())
   .then((count) => { if (count) console.log(`Phase ages filled for ${count} patient(s)`); })
   .catch((error) => console.error(`Phase ages could not be filled: ${error.message}`));

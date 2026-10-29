@@ -91,6 +91,7 @@ function sheetChanges(f) {
 const CHANGE_TONE = { added: 'border-emerald-300 bg-emerald-100/70 text-emerald-900', removed: 'border-[#8C3B2E]/30 bg-[#8C3B2E]/10 text-[#8C3B2E]', changed: 'border-amber-300 bg-amber-100/70 text-amber-900' };
 
 function DoneList({ stage, job }) {
+  if (stage.snapshot?.oldFlow) return <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">Done before the fulfilment timeline (old request). Nothing was recorded for this step.</p>;
   const items = [
     ...stage.checks.filter((_, i) => stage.checksDone?.[i] !== false).map((text) => ({ text })),
     ...Object.entries(stage.values || {}).filter(([, v]) => v !== '' && v != null && v !== false).map(([k, v]) => {
@@ -386,6 +387,7 @@ export default function MedicineJobPage() {
           <DelayTable delay={job.delay} className="mt-2" />
         </details>
       )}
+      {job.oldFlow && job.status !== 'released' && <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900"><b>Old request</b> (made before the fulfilment timeline, no PO): the Admin and the Doctor can fill every step to move it on, with the Medicine Department.{!job.ageBand || !job.supplyPlan ? ' Set its age group and supply at step 2 first.' : ''}</p>}
       <ErrorText>{error}</ErrorText>
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
       {holdOpen && <div className="flex flex-wrap gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><input className={`${poInput} flex-1`} placeholder="Reason for the hold (e.g. dose unclear, leak)" value={holdText} onChange={(e) => setHoldText(e.target.value)} /><Button size="sm" disabled={!holdText.trim()} onClick={() => act('hold', { reason: holdText })}>Put on hold</Button></div>}

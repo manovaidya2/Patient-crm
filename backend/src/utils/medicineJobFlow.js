@@ -77,6 +77,11 @@ const STAGES = [
 STAGES.forEach((s, i) => { s.n = i + 1; });
 const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
 
+// A request from before the fulfilment timeline (no purchase order) is moved through its stages by the admin and the
+// doctor too, so the old requests still waiting can be completed.
+const isOldFlow = (job) => !job?.purchaseOrder && !job?.poNumber;
+const stageRoles = (stage, job) => (stage && isOldFlow(job) ? [...new Set([...stage.roles, ROLES.ADMIN, ROLES.DOCTOR])] : stage?.roles || []);
+
 const iso = (v) => (v ? new Date(v).toISOString() : null);
 const plain = (v) => (v?.toObject ? v.toObject() : v) || {};
 
@@ -93,9 +98,10 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
   const current = job.status === 'released' ? STAGES.length : job.currentStage || 0;
   const stages = STAGES.map((s, i) => {
     const rec = done.get(s.key);
+    const roles = stageRoles(s, job);
     // Definition (checks, fields, files) plus what was recorded (values, notes, who, when).
     return {
-      ...s,
+      ...s, roles,
       state: rec?.doneAt ? 'done' : i === current && job.status !== 'cancelled' ? 'current' : 'todo',
       doneAt: iso(rec?.doneAt), doneByName: rec?.doneByName || '', doneByRole: rec?.doneByRole || '',
       values: rec?.fields || {}, notes: rec?.notes || '', snapshot: rec?.snapshot || null,
@@ -123,6 +129,8 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
   });
   const u = urgency(job.readyByDate, now);
   return {
+    // Before the fulfilment timeline (no PO): the admin and the doctor can fill every stage.
+    oldFlow: isOldFlow(job),
     id: String(job._id),
     patientId: String(job.patient), patientCode: job.patientCode, patientName: job.patientName, phase: job.phase, requestId: job.requestId,
     purchaseOrderId: job.purchaseOrder ? String(job.purchaseOrder) : '', poNumber: job.poNumber,
@@ -170,4 +178,4 @@ function jobSummary(jobDoc) {
   };
 }
 
-module.exports = { STAGES, STAGE_INDEX, buildJobView, jobSummary, urgency };
+module.exports = { STAGES, STAGE_INDEX, isOldFlow, stageRoles, buildJobView, jobSummary, urgency };

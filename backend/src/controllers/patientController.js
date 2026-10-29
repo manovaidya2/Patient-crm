@@ -205,7 +205,7 @@ const resolvePayToBank = async (paymentMode, bankId) => {
 };
 
 const { cleanAge, phaseAge, setPhaseAge, freezePhaseAges } = require('../utils/phaseAge');
-const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
+const { fixedReadyDate, canOverrideFixed, medicineDelays, dispatchDelayInput } = require('../utils/medicineDelay');
 const { OUTCOMES: SCHEDULE_OUTCOMES, OUTCOME_LABELS: SCHEDULE_OUTCOME_LABELS, monthKeyOf } = require('../utils/patientImprovement');
 const { syncImprovementToMarketing } = require('./digitalMarketingController');
 
@@ -2960,6 +2960,8 @@ const formatMedicineListItem = (patient, stage, request) => ({
   stageLabel: STAGE_LABELS[stage.number],
   requestId: request?.requestId || 'legacy',
   medicineRequest: formatMedicineRequest(request),
+  // Days late against the ready-by date (made, released) and the planned dispatch date - kept once done.
+  delay: request ? medicineDelays({ expected: request.readyByDate, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, ...dispatchDelayInput({ stage, request: request.toObject ? request.toObject() : request }) }) : null,
   payment: transitPaymentSummary(stage),
   canRelease: !stage.transit?.holdActive && !stage.transit?.removedAt && (patient.approvalStatus || 'approved') === 'approved' && request?.status === 'made' && transitPaymentSummary(stage).remaining <= 0 && transitPaymentSummary(stage).pendingCount === 0,
 });
