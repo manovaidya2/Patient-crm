@@ -150,22 +150,34 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   // The Medicine Department does its own pack QC, the preparer's login included.
   v = (await complete(id, 'qc', { result: 'PASS' }, {}, med)).job;
   v = (await complete(id, 'pack1', {})).job;
-  // Doctor only; a HOLD sends the kit back to QC.
-  await assert.rejects(complete(id, 'doctor', { result: 'PASS', remarks: 'ok' }, {}, med), /done by/);
-  v = (await complete(id, 'doctor', { result: 'HOLD', remarks: 'Pouch 2 leaking' }, {}, doctor)).job;
+  // Step 9: every page of each paper of this kit, and all medicines together.
+  assert.equal(v.currentKey, 'photos');
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }), /all medicines together/);
+  // Papers are named on the page; each needs its pages.
+  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: '', slot: 0 }]), files: { photoA: [file] } }), /name of each paper/);
+  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]), files: { photoA: [file] } }), /Upload the pages of "Diet Plan"/);
+  v = (await complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { photoA: [file], paper_0: [file, file, file], paper_1: [file] } })).job;
+  assert.deepEqual(v.photos.paperSets.map((p) => p.name), ['Medicine Paper', 'Diet Plan']);
+  assert.equal(v.photos.paperSets[0].files.length, 3, 'every page of a paper is kept');
+  // Step 10, doctor only, verifies 7, 8 and 9; a HOLD sends the kit back to QC and those steps are done again.
+  assert.equal(v.currentKey, 'doctor');
+  await assert.rejects(complete(id, 'doctor', { result: 'PASS' }, {}, med), /done by/);
+  await assert.rejects(complete(id, 'doctor', { result: 'HOLD' }, {}, doctor), /what has to be corrected/);
+  v = (await complete(id, 'doctor', { result: 'HOLD' }, { notes: 'Pouch 2 leaking' }, doctor)).job;
   assert.equal(v.hold.reason, 'Doctor HOLD: Pouch 2 leaking');
   assert.equal(v.currentKey, 'qc');
   await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med2), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Pouch repacked' } })).job;
   v = (await complete(id, 'qc', { result: 'PASS' }, {}, med2)).job;
   v = (await complete(id, 'pack1', {})).job;
-  v = (await complete(id, 'doctor', { result: 'PASS', remarks: 'All matched' }, {}, doctor)).job;
-  await assert.rejects(complete(id, 'photos', {}, { files: {} }), /Photo A/);
-  v = (await complete(id, 'photos', {}, { files: { photoA: [file], photoB: [file] } })).job;
+  // Redone after the HOLD: the papers uploaded before stay unless new pages come.
+  v = (await complete(id, 'photos', {}, { files: {} })).job;
+  assert.equal(v.photos.paperSets[0].files.length, 3);
   assert.equal(v.photos.overview.length, 1);
-  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 850 })).job;
-  await assert.rejects(complete(id, 'final', { checkerName: 'Meena' }), /different from the Packing-2 operator/);
-  v = (await complete(id, 'final', { checkerName: 'Prachi' }, {}, med2)).job;
+  v = (await complete(id, 'doctor', { result: 'PASS' }, {}, doctor)).job;
+  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 })).job;
+  await assert.rejects(complete(id, 'final', {}), /someone other than the Packing-2 operator/);
+  v = (await complete(id, 'final', {}, {}, med2)).job;
   assert.equal(v.status, 'ready');
   assert.equal(stage.medicineRequests[0].status, 'made', 'In Transit sees the medicine as made');
   assert.equal(stage.medicineRequests[0].medicineImages.length, 1, 'Photo A becomes the medicine photo');

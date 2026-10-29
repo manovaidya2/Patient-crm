@@ -358,37 +358,58 @@ const completeStage = asyncHandler(async (req, res) => {
     Object.assign(request, { lastMedicineCheckedByName: req.user.name });
   }
   if (stage.key === 'doctor' && fields.result === 'HOLD') {
-    // Back to QC after correction.
+    // Back to QC after correction; the notes say what has to be corrected (older jobs sent it as remarks).
+    const why = notes || clean(fields.remarks, 500);
+    if (!why) fail('Write in the notes what has to be corrected');
     job.currentStage = STAGE_INDEX.qc;
-    job.stages = job.stages.filter((s) => !['qc', 'pack1'].includes(s.key));
-    Object.assign(job.hold, { active: true, reason: `Doctor HOLD: ${clean(fields.remarks, 500)}`, at: now, byName: req.user.name, stageKey: 'doctor' });
-    event(job, req.user, 'Doctor hold', clean(fields.remarks, 500));
+    // Steps 7, 8 and 9 are done again (the uploaded papers stay unless new pages are uploaded).
+    job.stages = job.stages.filter((s) => !['qc', 'pack1', 'photos'].includes(s.key));
+    Object.assign(job.hold, { active: true, reason: `Doctor HOLD: ${why}`, at: now, byName: req.user.name, stageKey: 'doctor' });
+    event(job, req.user, 'Doctor hold', why);
     await job.save();
     return respond(res, job);
   }
   if (stage.key === 'photos') {
+    // The photo of all medicines together (required), plus the papers the department adds itself: a name typed for each
+    // and its pages (body.papers = [{ name, slot }] with the pages under paper_<slot>). Papers uploaded before stay
+    // (e.g. redone after a doctor HOLD) unless named in body.removePapers; a paper added again with the same name replaces them.
     const a = fileItems(req.files?.photoA || []);
+    if (!a.length && !job.photos.overview.length) fail('Upload the photo of all medicines together');
+    if (a.length) job.photos.overview = a;
+    const removed = new Set((parseJson(body.removePapers, []) || []).map((n) => clean(n, 120).toLowerCase()));
+    let sets = (job.photos.paperSets || []).filter((p) => !removed.has(String(p.name || '').toLowerCase()));
+    const added = parseJson(body.papers, []);
+    for (const paper of Array.isArray(added) ? added : []) {
+      const name = clean(paper?.name, 120);
+      const slot = Number(paper?.slot);
+      if (!name) fail('Enter the name of each paper');
+      if (!Number.isInteger(slot) || slot < 0 || slot > 9) fail('Too many papers at once: save these first');
+      const pages = fileItems(req.files?.[`paper_${slot}`] || []);
+      if (!pages.length) fail(`Upload the pages of "${name}"`);
+      sets = sets.filter((p) => String(p.name || '').toLowerCase() !== name.toLowerCase());
+      sets.push({ name, files: pages });
+    }
+    job.photos.paperSets = sets;
     const b = fileItems(req.files?.photoB || []);
-    if (!a.length && !job.photos.overview.length) fail('Upload Photo A (circular medicine overview)');
-    job.photos.overview.push(...a);
-    job.photos.papers.push(...b);
-    detail = `${a.length} overview, ${b.length} paper photo(s)`;
+    if (b.length) job.photos.papers.push(...b);
+    job.markModified('photos');
+    detail = [`${job.photos.overview.length} medicine photo(s)`, ...job.photos.paperSets.map((p) => `${p.name}: ${p.files.length} page(s)`)].join(' | ');
   }
   if (stage.key === 'final') {
     const packer = job.stages.find((s) => s.key === 'pack2');
-    const checker = clean(fields.checkerName, 120).toLowerCase();
-    if (packer && [packer.doneByName].filter(Boolean).map((n) => n.trim().toLowerCase()).includes(checker)) fail('The final checker must be different from the Packing-2 operator');
+    // The final checker is whoever completes this step.
+    if (packer?.doneByName && packer.doneByName.trim().toLowerCase() === String(req.user.name || '').trim().toLowerCase()) fail('The final check must be done by someone other than the Packing-2 operator');
     const prep = job.stages.find((s) => s.key === 'prepare');
     const photos = job.photos.overview || [];
     Object.assign(request, {
       status: 'made', madeAt: now, madeByName: prep?.fields?.preparerName || prep?.doneByName || req.user.name,
       packagedByName: job.stages.find((s) => s.key === 'pack2')?.doneByName || req.user.name,
-      lastMedicineCheckedByName: clean(fields.checkerName, 120), packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: now,
+      lastMedicineCheckedByName: req.user.name, packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: now,
       medicineImageUrl: photos[0]?.url || request.medicineImageUrl || null, medicineImageFileName: photos[0]?.fileName || request.medicineImageFileName || '',
       medicineImages: [...(request.medicineImages || []), ...photos.filter((p) => !(request.medicineImages || []).some((m) => m.url === p.url))],
     });
     job.status = 'ready';
-    logActivity(patient, req.user, `Medicine made for Phase ${job.phase}`, `Final check by ${clean(fields.checkerName, 120)}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
+    logActivity(patient, req.user, `Medicine made for Phase ${job.phase}`, `Final check by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
     detail = 'Medicine READY - awaiting payment clearance and release';
   }
   if (stage.key === 'release') {

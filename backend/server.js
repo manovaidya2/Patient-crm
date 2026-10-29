@@ -41,7 +41,7 @@ connectDB()
   .catch((error) => console.error(`Fixed appointment fields could not be synced: ${error.message}`))
   // Phases bought before each phase kept its own age get the patient's age once (only empty ones are filled).
   .then(() => require('./src/utils/jobStageMigration').migrateJobStages())
-  .then((count) => { if (count) console.log(`Medicine jobs moved past the new doctor formulation step: ${count}`); })
+  .then((count) => { if (count) console.log(`Medicine jobs moved to the current stage list: ${count}`); })
   .catch((error) => console.error(`Medicine job stages could not be updated: ${error.message}`))
   .then(() => require('./src/utils/phaseAge').backfillPhaseAges())
   .then((count) => { if (count) console.log(`Phase ages filled for ${count} patient(s)`); })

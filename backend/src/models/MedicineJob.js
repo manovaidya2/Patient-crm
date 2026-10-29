@@ -56,7 +56,7 @@ const medicineJobSchema = new mongoose.Schema(
     medicines: { type: String, trim: true, default: '' },
     caseCategory: { type: String, trim: true, default: '' },
     // 2: the stage list with the doctor's formulation step (older jobs are moved on startup, see utils/jobStageMigration).
-    stagesVersion: { type: Number, default: 2 },
+    stagesVersion: { type: Number, default: 4 },
     requestNotes: { type: String, trim: true, default: '' },
     requestedAt: { type: Date, default: null },
     requestedByName: { type: String, trim: true, default: '' },
@@ -80,7 +80,12 @@ const medicineJobSchema = new mongoose.Schema(
       type: [{ key: String, itemKey: String, chitNo: Number, n: Number, of: Number, name: String, when: String, dose: String, days: Number, note: String, confirmed: { type: Boolean, default: false }, confirmedByName: String, confirmedAt: Date, _id: false }],
       default: [],
     },
-    photos: { overview: { type: [fileSchema], default: [] }, papers: { type: [fileSchema], default: [] } },
+    // overview: all medicines together; paperSets: every page of each dose / treatment paper (papers = older Photo B).
+    photos: {
+      overview: { type: [fileSchema], default: [] },
+      papers: { type: [fileSchema], default: [] },
+      paperSets: { type: [new mongoose.Schema({ name: { type: String, trim: true, default: '' }, files: { type: [fileSchema], default: [] } }, { _id: false })], default: [] },
+    },
     events: { type: [eventSchema], default: [] },
     reverts: { type: [revertSchema], default: [] },
   },

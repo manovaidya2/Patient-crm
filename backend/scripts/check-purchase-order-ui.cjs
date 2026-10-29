@@ -19,6 +19,7 @@ const { SUPPLY_OPTIONS } = require('../src/constants/supplyPlans');
 const JOB_ID = '6500000000000000000000b1';
 const JOB2_ID = '6500000000000000000000b2';
 const JOB3_ID = '6500000000000000000000b3';
+const JOB4_ID = '6500000000000000000000b4';
 const stockDocs = () => SAMPLE_STOCKS.map((x) => ({ _id: '65000000000000000000' + String(1000 + SAMPLE_STOCKS.indexOf(x)).slice(-4), ...x, currentStock: x.opening, updatedAt: new Date() }));
 const jobDoc = (patient) => { const f = applyOverrides(formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }), [{ key: 'ghrit', qty: 90 }, { key: 'oil', removed: true }, { add: true, name: 'Brahmi churna', unit: 'g', qty: 30, when: 'सुबह', dose: '1 चुटकी शहद के साथ' }], { byName: 'Dr Garg' }); return new MedicineJob({ _id: JOB_ID, patient: patient._id, patientCode: patient.patientCode, patientName: patient.patientName, phase: 1, requestId: 'req-1', poNumber: 'PO-4821', supplyPlan: '1+5', supplyPart: 'first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', requestedAt: new Date(), requestedByName: 'Transit', readyByDate: new Date(Date.now() + 2 * 86400000), currentStage: 5, stages: [['accept', { readyByDate: '2026-10-25' }], ['review', {}], ['formula', { remarks: 'Sheet is right' }], ['stock', {}], ['prepare', { batchNo: 'B-1', preparerName: 'Meena' }]].map(([key, fields], i) => ({ key, doneAt: new Date(), doneByName: key === 'formula' ? 'Dr Garg' : 'Meena', doneByRole: key === 'formula' ? 'doctor' : 'medicine_department', checks: STAGES[i].checks.map(() => true), fields })), formulation: f, chits: chitsFor(f, patient.patientName), consumption: stockNeeds(f).map((n) => ({ code: n.code, name: n.name, unit: n.unit, planned: n.qty, actual: n.qty, txId: '6500000000000000000000c1' })), events: [{ at: new Date(), action: 'Job opened', byName: 'Meena' }] }).toObject(); };
 
@@ -79,6 +80,10 @@ async function main() {
   const job3Doc = { ...reviewJobDoc(raw), _id: JOB3_ID, requestId: 'req-3', currentStage: 2 };
   job3Doc.stages = [...job3Doc.stages, { key: 'review', doneAt: new Date(), doneByName: 'Meena', doneByRole: 'medicine_department', checks: STAGES[1].checks.map(() => true), fields: {} }];
   const job3View = buildJobView(job3Doc, { stocks, includeEvents: true });
+  // A job at step 9 (medicine dose papers): steps 1-8 done.
+  const job4Doc = { ...jobDoc(raw), _id: JOB4_ID, requestId: 'req-4', currentStage: 8 };
+  job4Doc.stages = ['accept', 'review', 'formula', 'stock', 'prepare', 'fill', 'qc', 'pack1'].map((key) => ({ key, doneAt: new Date(), doneByName: key === 'formula' ? 'Dr Garg' : 'Meena', doneByRole: 'medicine_department', checks: STAGES.find((st) => st.key === key).checks.map(() => true), fields: key === 'qc' ? { result: 'PASS', findings: 'All packs fine' } : {} }));
+  const job4View = buildJobView(job4Doc, { stocks, includeEvents: true });
   const jobView = buildJobView(job, { stocks, payment: { totalAmount: 42000, amountPaid: 10000, remaining: 32000, pendingCount: 0, patientApproved: true, releasable: false }, includeEvents: true });
   // Formulation Master: document values, with one band edited by the doctor.
   const masters = ['3-4', '4-12', '12-70', '70+'].map((b) => {
@@ -129,6 +134,7 @@ async function main() {
         else if (url.pathname === '/api/medicine-jobs/' + JOB_ID) data = { success: true, job: jobView };
         else if (url.pathname === '/api/medicine-jobs/' + JOB2_ID) data = { success: true, job: job2View };
         else if (url.pathname === '/api/medicine-jobs/' + JOB3_ID) data = { success: true, job: job3View };
+        else if (url.pathname === '/api/medicine-jobs/' + JOB4_ID) data = { success: true, job: job4View };
         else if (url.pathname === '/api/medicine-jobs') data = { success: true, items: [{ id: JOB_ID, patientId: PATIENT_ID, patientName: raw.patientName, patientCode: raw.patientCode, phase: 1, poNumber: 'PO-4821', supplyLabel: '1+5: First 1 month', ageBandLabel: 'Above 4 - 12 years', readyByDate: jobView.readyByDate, status: 'open', currentStage: 5, currentLabel: STAGES[5].label, progress: jobView.progress, hold: null, urgency: jobView.urgency, totalStages: STAGES.length }] };
         else if (url.pathname === '/api/patients') data = { success: true, total: 2, page: 1, pages: 1, patients: [
           { id: PATIENT_ID, patientCode: 'A-3445', patientName: 'Amayra Gupta', category: 'autism_adhd', categoryLabel: 'Autism/ADHD', age: '4 years', number: '9590055856', guardianName: 'Ravi Kant Gupta', alternateNumber: '9598860070', consultationDate: new Date().toISOString(), createdAt: new Date().toISOString(), approvalStatus: 'pending', currentStage: 1, totalAmount: 42000 },
@@ -177,6 +183,7 @@ async function main() {
       ['job-review', `/admin/medicine-jobs/${JOB_ID}`, 'Chit on pack'],
       ['job-edit', `/admin/medicine-jobs/${JOB2_ID}`, 'corrected by Meena'],
       ['job-doctor-wait', `/admin/medicine-jobs/${JOB3_ID}`, 'Please verify formulation from doctor'],
+      ['job-papers', `/admin/medicine-jobs/${JOB4_ID}`, 'Upload images'],
       ['job-queue', '/admin/medicine-jobs', 'Primary packing & chits'],
       ['stocks', '/admin/stocks', 'MEDHYA-GHRIT'],
       ['patients-list', '/admin/patients', 'Amayra Gupta'],
@@ -289,6 +296,13 @@ async function main() {
           await page.evaluate(() => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.innerText.trim().startsWith('PO details verified')).click());
           await page.waitForFunction(() => /done in this step/i.test(document.body.innerText), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `po-step-done-${width}.png`), fullPage: false });
+        }
+        if (name === 'job-papers') {
+          // Only the medicine photo is asked; papers are added by name.
+          assert.equal(await page.evaluate(() => document.body.innerText.includes('Diet Plan')), false, 'papers are not listed by themselves');
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('Add paper')).click());
+          await page.waitForFunction(() => document.body.innerText.includes('Paper name'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, `job-papers-added-${width}.png`), fullPage: true });
         }
         if (name === 'admin-po-revert') {
           // Admin only: "Revert" sits on done timeline steps; the confirmation lists every step that goes back.

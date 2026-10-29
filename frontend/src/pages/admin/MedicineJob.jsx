@@ -13,6 +13,7 @@ import { ROLES, ROLE_LABELS } from '../../constants/roles.js';
 import { AGE_BANDS, SUPPLY_OPTIONS, supplyKeyOf } from '../../constants/supplyPlans.js';
 import { DelayChips, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
+import { DosePaperUpload, DosePapersView } from '../../components/medicine/DosePapers.jsx';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const dateTime = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -133,6 +134,27 @@ function DoneList({ stage, job }) {
   );
 }
 
+// Step 10: the doctor verifies steps 7, 8 and 9 together - what each recorded and the dose-paper pages.
+const VERIFIED_BY_DOCTOR = ['qc', 'pack1', 'photos'];
+function VerifySteps({ job }) {
+  return (
+    <div className="space-y-3 rounded-lg border border-sage/30 bg-[#F3F6F2] p-3">
+      <p className="text-sm font-bold text-charcoal">Verify steps 7, 8 and 9</p>
+      {VERIFIED_BY_DOCTOR.map((key) => {
+        const st = job.stages.find((x) => x.key === key);
+        if (!st) return null;
+        return (
+          <div key={key} className={`rounded-lg border p-3 text-sm ${st.state === 'done' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-cardline bg-white text-charcoal/60'}`}>
+            <p className="mb-1.5 font-bold">{st.n} · {st.label} <span className="font-normal opacity-75">{st.state === 'done' ? `· ${st.doneByName} · ${dateTime(st.doneAt)}` : '· not done'}</span></p>
+            {st.state === 'done' && <DoneList stage={st} job={job} />}
+            {key === 'photos' && st.state === 'done' && <div className="mt-2"><DosePapersView job={job} /></div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const SOURCE = { conversion:'post-counselling conversion', manual: 'added manually', legacy: 'older PO' };
 
 // Step 0: everything the request brought from In Transit, and the patient's whole file from the Records Room.
@@ -183,13 +205,20 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const [consumption, setConsumption] = useState({});
   const [chits, setChits] = useState({});
   const [files, setFiles] = useState({});
+  // Step 9: papers added on the page (name per paper_<i>) and earlier papers to drop.
+  const [paperRows, setPaperRows] = useState([]);
+  const [removedPapers, setRemovedPapers] = useState([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setChecks({}); setNotes(''); setConsumption({}); setChits({}); setFiles({});
+    setChecks({}); setNotes(''); setConsumption({}); setChits({}); setFiles({}); setPaperRows([]); setRemovedPapers([]);
     setFields(stage.key === 'accept' ? { readyByDate: inputDay(job.readyByDate) } : {});
   }, [stage.key, job.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const allChecked = stage.checks.every((_, i) => checks[i]);
   const submit = async () => {
+    if (stage.key === 'photos') {
+      const missing = paperRows.findIndex((r, i) => !r.name.trim() || !(files[`paper_${i}`] || []).length);
+      if (missing >= 0) { report(paperRows[missing].name.trim() ? `Upload the pages of "${paperRows[missing].name.trim()}"` : 'Enter the name of each paper you added'); return; }
+    }
     setBusy(true); report('');
     try {
       const body = new FormData();
@@ -197,8 +226,10 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       body.append('fields', JSON.stringify(fields));
       body.append('notes', notes);
       if (stage.key === 'prepare') body.append('consumption', JSON.stringify(job.consumption.map((c) => ({ code: c.code, actual: consumption[c.code] === undefined || consumption[c.code] === '' ? null : Number(consumption[c.code]) }))));
+      if (stage.key === 'photos') { body.append('papers', JSON.stringify(paperRows.map((r, slot) => ({ name: r.name.trim(), slot })))); body.append('removePapers', JSON.stringify(removedPapers)); }
       if (stage.key === 'fill') body.append('chits', JSON.stringify(job.chits.map((c) => ({ key: c.key, confirmed: c.confirmed || Boolean(chits[c.key]) }))));
-      (stage.files || []).forEach((f) => (files[f.key] || []).forEach((file) => body.append(f.key, file)));
+      // Every chosen image goes under its slot (photoA, paper_0, paper_1, ...).
+      Object.entries(files).forEach(([key, list]) => (list || []).forEach((file) => body.append(key, file)));
       const { data } = await api.post(`/medicine-jobs/${job.id}/stages/${stage.key}`, body);
       onDone(data.job, `${stage.n}. ${stage.label} saved.`);
     } catch (e) { report(e.response?.data?.message || 'Could not save this stage'); } finally { setBusy(false); }
@@ -215,7 +246,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     if (f.type === 'select') return <FieldLabel key={f.key} label={f.label} required={f.required}><select className={poInput} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct}><option value="">Select</option>{f.options.map((o) => <option key={o} value={o}>{o}</option>)}</select></FieldLabel>;
     if (f.type === 'textarea') return <FieldLabel key={f.key} label={f.label} required={f.required} className="sm:col-span-2"><textarea className={poInput} rows={2} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct} /></FieldLabel>;
     const fixed = f.key === 'readyByDate' && Boolean(job.readyByDate) && user?.role !== ROLES.ADMIN;
-    return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct || fixed} />{fixed && <FixedNote />}</FieldLabel>;
+    return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} {...(f.type === 'number' ? { min: 0, step: f.step || 'any', inputMode: 'decimal' } : {})} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct || fixed} />{fixed && <FixedNote />}</FieldLabel>;
   };
   const endDate = job.readyByDate && job.formulation ? new Date(new Date(job.readyByDate).getTime() + job.formulation.days * 86400000) : null;
   return (
@@ -252,7 +283,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked={c.confirmed || Boolean(chits[c.key])} disabled={!canAct || c.confirmed} onToggle={() => setChits((o) => ({ ...o, [c.key]: !o[c.key] }))} />)}</div>
         </div>
       )}
-      {stage.key === 'photos' && <div className="grid gap-3 sm:grid-cols-2">{stage.files.map((f) => <FieldLabel key={f.key} label={f.label} required={f.required}><input className={`${poInput} text-xs`} type="file" accept="image/*" multiple disabled={!canAct} onChange={(e) => setFiles((o) => ({ ...o, [f.key]: [...e.target.files] }))} /></FieldLabel>)}</div>}
+      {stage.key === 'photos' && <DosePaperUpload job={job} files={files} setFiles={setFiles} rows={paperRows} setRows={setPaperRows} removed={removedPapers} setRemoved={setRemovedPapers} disabled={!canAct} />}
+      {stage.key === 'doctor' && <VerifySteps job={job} />}
       {stage.key === 'release' && job.payment && (
         <div className={`rounded-lg px-3 py-2 text-sm ${job.payment.releasable ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
           <b>{job.payment.releasable ? 'Payment cleared by In Transit.' : 'Release blocked.'}</b> Phase {job.phase}: {money(job.payment.amountPaid)} verified of {money(job.payment.totalAmount)}{job.payment.remaining > 0 ? `, balance ${money(job.payment.remaining)}` : ''}{job.payment.pendingCount ? `, ${job.payment.pendingCount} payment(s) pending verification` : ''}{!job.payment.patientApproved ? ', patient not approved' : ''}{job.payment.hold ? ', phase on hold' : ''}.
@@ -390,7 +422,8 @@ export default function MedicineJobPage() {
                   )}
                   {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.code}>{c.code}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)})</li>)}</ul>}
                   {shown.key === 'fill' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked disabled onToggle={() => {}} />)}</div>}
-                  {shown.key === 'photos' && <><CompactAttachments files={job.photos.overview} label="Photo A" /><CompactAttachments files={job.photos.papers} label="Photo B" /></>}
+                  {shown.key === 'photos' && <DosePapersView job={job} />}
+                  {shown.key === 'doctor' && <VerifySteps job={job} />}
                 </div>
               ) : shown.state === 'todo' ? (
                 <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />Opens after "{job.stages[job.currentStage]?.label}". Done by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>

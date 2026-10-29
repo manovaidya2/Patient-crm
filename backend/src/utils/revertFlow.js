@@ -36,9 +36,9 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
     job.chits.forEach((c) => { c.confirmed = false; c.confirmedByName = ''; c.confirmedAt = null; });
     job.markModified('chits');
   }
-  if (gone.has('photos') && ((job.photos?.overview || []).length || (job.photos?.papers || []).length)) {
+  if (gone.has('photos') && ((job.photos?.overview || []).length || (job.photos?.papers || []).length || (job.photos?.paperSets || []).length)) {
     snapshot.photos = plain(job.photos);
-    job.photos = { overview: [], papers: [] };
+    job.photos = { overview: [], papers: [], paperSets: [] };
   }
   if (job.hold?.active) { snapshot.hold = plain(job.hold); Object.assign(job.hold, { active: false, reason: '', at: null, byName: '', stageKey: '' }); }
   if (request) {
