@@ -200,7 +200,8 @@ test('job view marks urgency from the ready date', () => {
 test('the formulation sheet can be corrected until preparation; master values stay beside the change', async () => {
   const { patient, stocks } = setup();
   const { job } = await open(patient);
-  const edit = (lines, note = 'Doctor changed it', user = med) => call(controller.editFormulation, { params: { id: job.id }, body: { lines, note }, user });
+  const edit = (lines, note = 'Doctor changed it', user = doctor) => call(controller.editFormulation, { params: { id: job.id }, body: { lines, note }, user });
+  await assert.rejects(edit([{ key: 'ghrit', qty: 90 }], 'Changed', med), /Only the doctor or the admin/, 'the Medicine Department does not edit the sheet');
   await assert.rejects(edit([{ key: 'ghrit', qty: 90 }], ''), /why/);
   await assert.rejects(edit([{ key: 'ghrit', qty: -1 }]), /valid/);
   await assert.rejects(edit([{ key: 'ghrit', qty: 75 }]), /Nothing was changed/);

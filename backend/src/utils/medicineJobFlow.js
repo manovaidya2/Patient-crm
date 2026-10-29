@@ -14,12 +14,12 @@ const MED_DOC = MED;
 const STAGES = [
   { key: 'accept', n: 1, label: 'Order accepted', hi: 'ऑर्डर स्वीकार', roles: MED, sop: 'SOP S0',
     purpose: 'Accept the request from In Transit and commit to a ready date. Acceptance starts the department timeline.',
-    checks: ['Patient ID, name and phase match the purchase order', 'Supply (6 months / 1+5 / 2+4 part) and age group identified', 'Prescription attached and readable', 'Ready-by date is achievable'],
+    checks: ['Patient ID, name and phase match the purchase order', 'Supply (6 months / 1+5 / 2+4 part) and age group identified', 'Patient file (Records Room) read, or Reception asked to scan it', 'Ready-by date is achievable'],
     fields: [{ key: 'readyByDate', label: 'Medicine will be ready by', type: 'date', required: true }] },
   { key: 'review', n: 2, label: 'Prescription & formulation check', hi: 'पर्चा व मात्रा मिलान', roles: MED_DOC, sop: 'SOP 5 · HR-17',
     purpose: 'Match the prescription with the Formulation Master sheet below. Doses, totals, packs and days must agree before anything is weighed.',
     checks: ['Age group and supply part confirmed against the patient age and PO', 'Every medicine, dose and total quantity matched with the prescription', 'What was supplied earlier and what remains checked (for a second part)', 'Unclear dose or instruction clarified with the doctor - nothing assumed'],
-    fields: [{ key: 'formulaRef', label: 'Doctor approval / formula reference', type: 'text', required: true }, { key: 'exceptions', label: 'Patient-specific changes to the master (if any)', type: 'textarea' }] },
+    fields: [] },
   { key: 'stock', n: 3, label: 'Stock match', hi: 'स्टॉक मिलान', roles: MED, sop: 'SOP 6 · D-19',
     purpose: 'Every ingredient and bottle is in stock with a valid batch; shortages are requested now, not when the shelf is empty.',
     checks: ['Required quantities compared with Stocks (table below)', 'Batch / expiry valid beyond the treatment end date', 'Bottles, droppers, pouches, chits and labels available', 'Shortage request raised where needed'],
@@ -85,6 +85,8 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
       state: rec?.doneAt ? 'done' : i === current && job.status !== 'cancelled' ? 'current' : 'todo',
       doneAt: iso(rec?.doneAt), doneByName: rec?.doneByName || '', doneByRole: rec?.doneByRole || '',
       values: rec?.fields || {}, notes: rec?.notes || '',
+      // Which checklist lines were ticked when the stage was completed.
+      checksDone: rec ? s.checks.map((_, n) => rec.checks?.[n] !== false) : [],
     };
   });
   const stockByCode = new Map(stocks.map((s) => [s.code, s]));

@@ -53,6 +53,85 @@ function StockTable({ rows, endDate }) {
   );
 }
 
+const InfoRow = ({ label, value, sub }) => (value === '' || value == null ? null : (
+  <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2 py-1 text-sm">
+    <span className="text-charcoal/55">{label}</span>
+    <span className="min-w-0 break-words font-medium text-charcoal">{value}{sub && <span className="block text-xs font-normal text-charcoal/55">{sub}</span>}</span>
+  </div>
+));
+// What was done in a completed stage: every ticked checklist line, every value filled and the notes, each with a green tick.
+// Older jobs may still carry the removed formulation-check fields.
+const FIELD_LABEL = { shortageAccepted: 'Shortage request raised', readyByDate: 'Medicine will be ready by', formulaRef: 'Doctor approval / formula reference', exceptions: 'Patient-specific changes' };
+const fieldText = (field, value) => {
+  if (value === true) return 'Yes';
+  if (field?.type === 'date' || /^\d{4}-\d{2}-\d{2}/.test(String(value))) return day(value) || String(value);
+  return String(value);
+};
+function DoneList({ stage, job }) {
+  const items = [
+    ...stage.checks.filter((_, i) => stage.checksDone?.[i] !== false).map((text) => ({ text })),
+    ...Object.entries(stage.values || {}).filter(([, v]) => v !== '' && v != null && v !== false).map(([k, v]) => {
+      const field = stage.fields.find((f) => f.key === k);
+      const fixed = k === 'readyByDate' && job.request?.readyByDate ? (job.request.readyByFixed ? 'Fixed by post counselling on the PO paper' : `Filled by ${job.request.readyBySetByName || job.request.requestedByName || 'In Transit'}`) : '';
+      return { text: `${field?.label || FIELD_LABEL[k] || k}: ${fieldText(field, v)}`, sub: fixed };
+    }),
+    stage.notes ? { text: `Notes: ${stage.notes}`, sub: `by ${stage.doneByName}` } : null,
+  ].filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800">Done in this stage</p>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => (
+          <li key={i} className="flex gap-2">
+            <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-emerald-600 text-white" role="img" aria-label="Done"><Check size={12} strokeWidth={3} /></span>
+            <span className="min-w-0"><span className="font-semibold text-emerald-900">{item.text}</span>{item.sub && <span className="block text-xs text-emerald-800/75">{item.sub}</span>}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const SOURCE = { conversion:'post-counselling conversion', manual: 'added manually', legacy: 'older PO' };
+
+// Step 0: everything the request brought from In Transit, and the patient's whole file from the Records Room.
+function RequestStep({ job, onNext }) {
+  const r = job.request || {};
+  const sentBy = r.requestedByName ? `chosen by ${r.requestedByName}` : 'chosen by In Transit';
+  return (
+    <Section title="0 · Medicine request received" icon={FileText} action={<span className="text-xs text-charcoal/50">दवा अनुरोध · In Transit → Medicine Department</span>}>
+      <p className="mb-3 text-sm text-charcoal/70">Read the request and the patient's file first. Then accept the order in stage 1.</p>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <div className="rounded-lg border border-cardline bg-white/70 px-3 py-2">
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-charcoal/50">Request</p>
+          <InfoRow label="Requested" value={dateTime(r.requestedAt || job.requestedAt)} sub={r.requestedByName ? `by ${r.requestedByName}` : ''} />
+          <InfoRow label="Purchase order" value={job.poNumber ? <span>{job.purchaseOrderId ? <Link to={`/admin/purchase-orders/${job.purchaseOrderId}`} className="font-mono text-sage hover:underline">{job.poNumber}</Link> : job.poNumber}</span> : ''} sub={r.po ? [r.po.createdByName && `created by ${r.po.createdByName}`, SOURCE[r.po.source], dateTime(r.po.createdAt)].filter(Boolean).join(' · ') : ''} />
+          <InfoRow label="Phase" value={`Phase ${job.phase}`} />
+          <InfoRow label="Category" value={r.caseCategory || job.caseCategory || 'Not given'} sub={r.caseCategory ? sentBy : ''} />
+          <InfoRow label="Supply" value={job.supplyLabel || 'Not set'} sub={job.fixedPlan?.supply ? 'Sent by post counselling (PO) · read-only' : job.supplyLabel ? sentBy : ''} />
+          <InfoRow label="Age group" value={job.ageBandLabel || 'Not set'} sub={[job.fixedPlan?.ageBand ? 'Sent by post counselling (PO) · read-only' : job.ageBandLabel ? sentBy : '', r.patient?.age && `patient age ${r.patient.age}`].filter(Boolean).join(' · ')} />
+          <InfoRow label="Ready by" value={day(r.readyByDate || job.readyByDate) || 'Not set'} sub={r.readyByDate ? `${r.readyByFixed ? 'Fixed by post counselling on the PO paper' : `Filled by ${r.readyBySetByName || r.requestedByName || 'In Transit'}${r.readyBySetAt ? ` · ${dateTime(r.readyBySetAt)}` : ''}`} · cannot be changed here` : ''} />
+          <InfoRow label="Notes" value={r.notes || job.requestNotes || '-'} />
+          <InfoRow label="Medicines" value={r.medicines || job.medicines} sub="Typed with an older request" />
+        </div>
+        <div className="rounded-lg border border-cardline bg-white/70 px-3 py-2">
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-charcoal/50">Patient</p>
+          <InfoRow label="Name" value={job.patientName} />
+          <InfoRow label="Patient ID" value={job.patientCode} />
+          <InfoRow label="Age (this phase)" value={r.patient?.age} />
+          <InfoRow label="Gender" value={r.patient?.gender} />
+          <InfoRow label="Parent / relative" value={r.patient?.guardianName} />
+          <InfoRow label="City" value={r.patient?.city} />
+        </div>
+      </div>
+      <PatientFile documents={job.patientDocuments || []} className="mt-3" />
+      {r.prescriptionFiles?.length > 0 && <CompactAttachments files={r.prescriptionFiles} label="Prescription (older request)" className="mt-2" />}
+      {onNext && <Button className="mt-3" onClick={onNext}>Next: 1 · {job.stages[0]?.label}</Button>}
+    </Section>
+  );
+}
+
 function StageWork({ job, stage, canAct, onDone, onError }) {
   const { user } = useAuth();
   const [err, setErr] = useState('');
@@ -107,7 +186,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
-      {stage.key === 'review' && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={canAct} jobId={job.id} onSaved={onDone} onError={report} />}
+      {stage.key === 'review' && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)} jobId={job.id} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
@@ -181,7 +260,9 @@ export default function MedicineJobPage() {
   };
   const saveSupply = async () => { setError(''); try { const { data } = await api.patch(`/medicine-jobs/${id}/supply`, supply); done(data.job, 'Formulation sheet rebuilt for the new supply.'); } catch (err) { setError(err.response?.data?.message || 'Could not change the supply'); } };
 
-  const shown = useMemo(() => (job ? job.stages[view ?? Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view]);
+  // `view`: a stage index, or 'request' for step 0. A job not accepted yet opens on step 0 (the request).
+  const showRequest = Boolean(job) && (view === 'request' || (view == null && job.currentStage === 0 && job.status === 'open'));
+  const shown = useMemo(() => (job && !showRequest ? job.stages[typeof view === 'number' ? view : Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view, showRequest]);
   if (!job) return <div className="space-y-3"><button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-medium text-sage"><ArrowLeft size={15} /> Back</button>{error ? <ErrorText>{error}</ErrorText> : <p className="p-6 text-center text-sm text-charcoal/55">Loading job...</p>}</div>;
   const isCurrent = shown && shown.state === 'current';
   const stageCanAct = canAct && isCurrent && !job.hold && job.status !== 'released' && shown.roles.includes(user?.role);
@@ -218,6 +299,10 @@ export default function MedicineJobPage() {
 
       <div className="grid items-start gap-3.5 lg:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[270px_minmax(0,1fr)_300px]">
         <nav className="flex gap-1 overflow-x-auto rounded-[14px] border border-[#E8DFCB] bg-white p-2 lg:sticky lg:top-4 lg:flex-col lg:self-start" aria-label="Stages">
+          <button type="button" onClick={() => setView('request')} aria-current={showRequest ? 'step' : undefined} className={`grid shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[12.5px] transition lg:w-full ${showRequest ? 'bg-[#F3F6F2] ring-1 ring-sage/40' : 'hover:bg-[#FBF7ED]'}`}>
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#2F8F5B] text-[10px] font-extrabold text-white"><Check size={12} /></span>
+            <span className="min-w-0"><span className="block truncate font-semibold text-charcoal">Request received</span><span className="block truncate text-[11px] text-charcoal/60">{[job.request?.requestedByName || job.requestedByName, dateTime(job.request?.requestedAt || job.requestedAt)].filter(Boolean).join(' · ')}</span></span>
+          </button>
           {job.stages.map((s, i) => {
             const mine = s.state === 'current' && s.roles.includes(user?.role);
             return (
@@ -229,19 +314,19 @@ export default function MedicineJobPage() {
           })}
         </nav>
         <main className="min-w-0 space-y-3.5">
+          {showRequest && <RequestStep job={job} onNext={() => setView(0)} />}
           {shown && (
             <Section tone={stageCanAct ? 'action' : undefined} title={`${shown.n} · ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
               <p className="mb-3 text-sm text-charcoal/70">{shown.purpose}</p>
               {shown.state === 'done' ? (
-                <div className="space-y-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
+                <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-semibold">Completed by {shown.doneByName} ({ROLE_LABELS[shown.doneByRole] || shown.doneByRole}) · {dateTime(shown.doneAt)}</p>
                     {user?.role === ROLES.ADMIN && job.status !== 'cancelled' && (revertKey === shown.key
                       ? <span className="flex flex-wrap items-center gap-2"><input className={`${poInput} w-64`} placeholder="Why is this reverted?" value={revertReason} onChange={(e) => setRevertReason(e.target.value)} /><Button size="sm" disabled={!revertReason.trim()} onClick={runRevert}><RotateCcw size={13} />Revert to this stage</Button><Button size="sm" variant="outline" onClick={() => setRevertKey('')}>Cancel</Button></span>
                       : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Admin: undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
                   </div>
-                  {Object.entries(shown.values || {}).filter(([, v]) => v !== '' && v != null && v !== false).map(([k, v]) => <p key={k}><span className="text-emerald-900/60">{shown.fields.find((f) => f.key === k)?.label || k}:</span> {String(v)}</p>)}
-                  {shown.notes && <p>Notes: {shown.notes}</p>}
+                  <DoneList stage={shown} job={job} />
                   {shown.key === 'review' && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
                   {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.code}>{c.code}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)})</li>)}</ul>}
                   {shown.key === 'fill' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked disabled onToggle={() => {}} />)}</div>}
@@ -251,8 +336,8 @@ export default function MedicineJobPage() {
                 <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />Opens after "{job.stages[job.currentStage]?.label}". Done by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>
               ) : (
                 <>
-                  {/* The patient's whole file (Records Room) is read in place of an uploaded prescription. */}
-                  <PatientFile documents={job.patientDocuments || []} className="mb-4" />
+                  {/* The patient's whole file (Records Room): in step 0, and again next to the formulation check. */}
+                  {shown.key === 'review' ? <PatientFile documents={job.patientDocuments || []} className="mb-4" /> : <button type="button" onClick={() => setView('request')} className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><FileText size={13} />Request details & patient file (step 0)</button>}
                   {shown.key === 'review' && canChangeSupply && (
                     <div className="mb-4 rounded-lg border border-cardline bg-offwhite-200/60 p-3">
                       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">{supplyLocked || ageLocked ? 'Age group & supply (sent by post counselling)' : 'Age group & supply (choose as per the prescription)'}</p>

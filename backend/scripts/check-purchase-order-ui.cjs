@@ -198,7 +198,8 @@ async function main() {
         await page.screenshot({ path: path.join(output, `${name}-${width}.png`), fullPage: true });
         if (name === 'job-review') {
           // Stage 4 (preparation) and stage 5 (chits) are reachable by clicking the rail; they must render too.
-          for (const [label, text] of [['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC', 'Opens after']]) {
+          // Step 0 shows the request as it came in and the patient's Records Room file.
+          for (const [label, text] of [['0. Request received', 'Patient file (Records Room)'], ['1. Order accepted', 'Ready-by date is achievable'], ['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['4. Medicine preparation', 'drawn (sheet'], ['6. Pack QC', 'Opens after']]) {
             await page.evaluate((l) => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes(l)).click(), label.slice(3));
             try { await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 15000 }, text); }
             catch { await page.screenshot({ path: path.join(output, `FAILED-job-${label.slice(0, 1)}-${width}.png`), fullPage: true }); throw new Error(`job stage "${label}" at ${width}: "${text}" not shown. Page says: ${(await page.evaluate(() => document.body.innerText)).slice(0, 500)} | errors: ${errors.join(' / ')}`); }
@@ -298,11 +299,9 @@ async function main() {
           await page.screenshot({ path: path.join(output, `admin-job-revert-${width}.png`), fullPage: true });
         }
         if (name === 'job-edit') {
-          // The review stage offers "Edit sheet"; the form lists every line with a reason box.
-          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('Edit sheet')).click());
-          await page.waitForFunction(() => document.body.innerText.includes('Correct the sheet for this patient') && document.body.innerText.includes('Why is the sheet corrected?'), { timeout: 15000 });
-          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `job-edit form overflows at ${width}`);
-          await page.screenshot({ path: path.join(output, `job-edit-form-${width}.png`), fullPage: true });
+          // The Medicine Department reads the corrected sheet but cannot edit it (doctor / admin only).
+          assert.equal(await page.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.innerText.includes('Edit sheet'))), false, 'Medicine Department sees "Edit sheet"');
+          assert.equal(await page.evaluate(() => document.body.innerText.includes('Doctor approval / formula reference')), false, 'the formula reference field is still asked');
         }
         if (name === 'patient-orders') {
           // "New PO" opens the same PO paper the post counselor fills (sections F, G, H).

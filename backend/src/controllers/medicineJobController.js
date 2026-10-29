@@ -11,7 +11,7 @@ const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../con
 const { STAGES, STAGE_INDEX, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
 const { phaseAge } = require('../utils/phaseAge');
-const { canOverrideFixed, fixedSupplyPlan } = require('../utils/medicineDelay');
+const { canOverrideFixed, fixedSupplyPlan, fixedReadyDate } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
 const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
@@ -45,9 +45,35 @@ const paymentOf = (patient, stage) => {
 };
 
 const planSentFor = async (job, stage) => fixedSupplyPlan({ po: job.purchaseOrder ? await PurchaseOrder.findById(job.purchaseOrder).lean() : null, stage });
+const isoOf = (value) => (value ? new Date(value).toISOString() : null);
+
+// Step 0 of the job: the request as it came in from In Transit, with where each value came from.
+const requestDetailsOf = ({ job, patient, stage, request, po }) => ({
+  status: request.status || '',
+  caseCategory: request.caseCategory || job.caseCategory || '',
+  medicines: request.medicines || '',
+  notes: request.notes || '',
+  requestedAt: isoOf(request.requestedAt || job.requestedAt),
+  requestedByName: request.requestedByName || job.requestedByName || '',
+  readyByDate: isoOf(request.readyByDate || job.readyByDate),
+  // Fixed by post counselling on the PO paper, or filled by In Transit when sending the request.
+  readyByFixed: Boolean(fixedReadyDate({ po, stage })),
+  readyBySetByName: request.readyBySetByName || '',
+  readyBySetAt: isoOf(request.readyBySetAt),
+  prescriptionFiles: [...(request.prescriptionFiles || []), ...(request.prescriptionUrl && !(request.prescriptionFiles || []).some((f) => f.url === request.prescriptionUrl) ? [{ url: request.prescriptionUrl, fileName: request.prescriptionFileName || 'Prescription' }] : [])],
+  po: po ? { number: po.poNumber || '', source: po.source || '', createdByName: po.createdByName || '', createdAt: isoOf(po.createdAt), amount: po.amount || 0 } : null,
+  patient: {
+    age: phaseAge(patient, stage.number) || patient.age || '',
+    gender: patient.gender || '',
+    guardianName: patient.guardianName || patient.relativeName || '',
+    city: patient.city || '',
+  },
+});
+
 const respond = async (res, job, status = 200) => {
-  const { patient, stage } = await loadPatientAndRequest(job);
-  const sent = await planSentFor(job, stage);
+  const { patient, stage, request } = await loadPatientAndRequest(job);
+  const poDoc = job.purchaseOrder ? await PurchaseOrder.findById(job.purchaseOrder).lean() : null;
+  const sent = fixedSupplyPlan({ po: poDoc, stage });
   const missing = (sent.plan && !job.supplyPlan) || (sent.ageBand && !job.ageBand);
   if (missing && (job.currentStage || 0) <= STAGE_INDEX.review && job.status === 'open') {
     Object.assign(job, { supplyPlan: job.supplyPlan || sent.plan, supplyPart: job.supplyPart || sent.part, ageBand: job.ageBand || sent.ageBand });
@@ -60,10 +86,12 @@ const respond = async (res, job, status = 200) => {
   const fixedPlan = { supply: Boolean(sent.plan), ageBand: Boolean(sent.ageBand) };
   // The patient's whole file from the Records Room, read instead of a separate prescription.
   const documents = await patientDocuments(patient);
-  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: paymentOf(patient, stage), master, includeEvents: true }), fixedPlan, patientDocuments: documents } });
+  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: paymentOf(patient, stage), master, includeEvents: true }), fixedPlan, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
 };
 
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
+// Correcting the sheet for one patient is the doctor's call (or the admin's); the Medicine Department prepares from it.
+const SHEET_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 const needSheetOwner = (user) => { if (!STAGES[STAGE_INDEX.review].roles.includes(user.role)) fail(`The formulation sheet is handled by ${STAGES[STAGE_INDEX.review].roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
 
 // Builds (or rebuilds) the formulation sheet, stock needs and chits of a job from its age band and supply using the
@@ -81,7 +109,7 @@ const applyFormulation = async (job, sheet) => {
 // Corrects the sheet for this patient (wrong master value, doctor's change). Allowed until preparation starts; the
 // master value stays beside each change. Stock needs and chits are rebuilt from the corrected sheet.
 const editFormulation = asyncHandler(async (req, res) => {
-  needSheetOwner(req.user);
+  if (!SHEET_EDIT_ROLES.includes(req.user.role)) fail('Only the doctor or the admin corrects the formulation sheet', 403);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
@@ -248,7 +276,10 @@ const completeStage = asyncHandler(async (req, res) => {
     const readyBy = job.readyByDate && !canOverrideFixed(req.user) ? new Date(job.readyByDate) : parseDay(fields.readyByDate, 'ready-by date');
     record.fields.readyByDate = readyBy.toISOString().slice(0, 10);
     job.readyByDate = readyBy;
-    Object.assign(request, { status: request.status === 'requested' ? 'in_process' : request.status, inProcessAt: request.inProcessAt || now, inProcessByName: request.inProcessByName || req.user.name, readyByDate: readyBy, readyBySetByName: req.user.name, readyBySetAt: now });
+    // Accepting keeps who filled the date (In Transit / post counselling); only a changed date (admin) records a new setter.
+    const dateChanged = !request.readyBySetByName || new Date(request.readyByDate || 0).getTime() !== readyBy.getTime();
+    Object.assign(request, { status: request.status === 'requested' ? 'in_process' : request.status, inProcessAt: request.inProcessAt || now, inProcessByName: request.inProcessByName || req.user.name, readyByDate: readyBy });
+    if (dateChanged) Object.assign(request, { readyBySetByName: req.user.name, readyBySetAt: now });
     if (phaseEntry.transit) phaseEntry.transit.expectedReadyDate = readyBy;
     logActivity(patient, req.user, `Medicine request accepted for Phase ${job.phase}`, `Ready by ${readyBy.toISOString().slice(0, 10)}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
     detail = `Ready by ${readyBy.toISOString().slice(0, 10)}`;
