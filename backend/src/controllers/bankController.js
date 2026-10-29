@@ -3,6 +3,8 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 
 const BANK_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR];
+// In Transit records PO payments too, so it reads the bank list (only Admin adds or edits banks).
+const BANK_READ_ROLES = [...BANK_ACCESS_ROLES, ROLES.IN_TRANSIT];
 
 const formatBank = (bank) => ({
   id: bank._id,
@@ -106,6 +108,7 @@ const lookupIfsc = asyncHandler(async (req, res) => {
 
 module.exports = {
   BANK_ACCESS_ROLES,
+  BANK_READ_ROLES,
   listBanks,
   createBank,
   updateBank,

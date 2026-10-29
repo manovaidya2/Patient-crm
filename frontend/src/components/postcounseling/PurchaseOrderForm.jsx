@@ -72,7 +72,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
         <div key={field.key} className={wrap}>
           <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}</p>
           <select disabled={!editable} value={values[field.key] || ''} onChange={(event) => onChange(field.key, event.target.value)} className={inputClass}>
-            <option value="">Select bank</option>
+            <option value="">{banks.length ? 'Select bank' : 'No active bank added'}</option>
             {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
           </select>
         </div>
