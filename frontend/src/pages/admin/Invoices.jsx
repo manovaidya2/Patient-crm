@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { ArrowLeft, ChevronLeft, ChevronRight, Check, Download, Eye, FileText, Plus, Printer, Save, Search, UserRound, X, CalendarDays, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
@@ -46,15 +47,16 @@ export default function Invoices({ type }) {
   // Admin and Post Counselor can correct a saved bill; only Admin can delete one.
   const canEdit = isAdminLike(user) || user?.role === 'post_counselor';
   const title = `${BILL_NAMES[type]}s`;
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState(0);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const listKey = `invoices:${type}:${query}:${from}:${to}:${page}`;
+  const [rows, setRows] = useStaleState(listKey, []);
+  const [total, setTotal] = useStaleState(`${listKey}:total`, 0);
+  const [pages, setPages] = useState(0);
   const [reload, setReload] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!rows.length);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editing, setEditing] = useState(false);
@@ -81,7 +83,7 @@ export default function Invoices({ type }) {
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
-      setLoading(true);
+      if (!rows.length) setLoading(true);
       try {
         const { data } = await api.get('/invoices', { params: { q: query, from, to, page, type }, signal: controller.signal });
         setRows(data.invoices); setTotal(data.total); setPages(data.pages);

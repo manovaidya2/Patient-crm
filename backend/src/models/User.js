@@ -68,4 +68,7 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 
+// Staff pickers: the active people of one role.
+userSchema.index({ role: 1, isActive: 1 });
+
 module.exports = mongoose.model('User', userSchema);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import EnquiryPatientPicker from '../../components/enquiries/EnquiryPatientPicker.jsx';
@@ -24,10 +25,10 @@ export default function Enquiries() {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState({ rows: [], total: 0 });
+  const [data, setData] = useStaleState(`enquiries:${view}:${status}:${search}:${page}`, { rows: [], total: 0 });
   const [staff, setStaff] = useState([]);
   const [entry, setEntry] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!data.rows.length);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
   const [detailError, setDetailError] = useState('');
@@ -47,7 +48,7 @@ export default function Enquiries() {
   }, [revision]);
   useEffect(() => { const refresh = () => setRevision((value) => value + 1); window.addEventListener('enquiries:refresh', refresh); return () => window.removeEventListener('enquiries:refresh', refresh); }, []);
   useEffect(() => {
-    const controller = new AbortController(); setLoading(true);
+    const controller = new AbortController(); if (!data.rows.length) setLoading(true);
     const timer = setTimeout(async () => {
       try { const result = await api.get('/enquiries', { params: { view, status, search, page }, skipCache: true, signal: controller.signal }); setData(result.data); setError(''); }
       catch (err) { if (!controller.signal.aborted) setError(err.response?.data?.message || 'Could not load enquiries'); }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { AlertTriangle, CalendarDays, Check, CheckCircle2, ClipboardCheck, MessageSquareText, Pencil, Plus, Save, ThumbsDown, ThumbsUp, Trash2, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
@@ -96,9 +97,9 @@ const ReceptionistChecklist = ({ compact = false }) => {
   const [date, setDate] = useState(todayLocal());
   const [receptionists, setReceptionists] = useState([]);
   const [receptionistId, setReceptionistId] = useState('');
-  const [items, setItems] = useState([]);
-  const [dayReview, setDayReview] = useState(null);
-  const [days, setDays] = useState([]);
+  const [items, setItems] = useStaleState(`receptionist-checklist:${date}:${receptionistId}`, []);
+  const [dayReview, setDayReview] = useStaleState(`receptionist-checklist:${date}:${receptionistId}:review`, null);
+  const [days, setDays] = useStaleState(`receptionist-checklist:${receptionistId}:days`, []);
   const [noteDrafts, setNoteDrafts] = useState({});
   const [dayRemark, setDayRemark] = useState('');
   const [newLabel, setNewLabel] = useState('');
@@ -106,7 +107,7 @@ const ReceptionistChecklist = ({ compact = false }) => {
   const [noteEditId, setNoteEditId] = useState(null); // task whose note box is open
   const [editingLabel, setEditingLabel] = useState('');
   const [manage, setManage] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!items.length);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -139,7 +140,7 @@ const ReceptionistChecklist = ({ compact = false }) => {
     finally { setLoading(false); }
   }, [date, receptionistId, canReview, compact]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  useEffect(() => { if (!items.length) setLoading(true); load(); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 3500); return () => clearTimeout(t); }, [notice]);
   // Past midnight the page must roll over to the new day by itself.
   useEffect(() => { const t = setInterval(() => { const now = todayLocal(); setToday((old) => { if (old !== now) { setDate((d) => (d === old ? now : d)); return now; } return old; }); }, 60000); return () => clearInterval(t); }, []);

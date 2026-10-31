@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Plus, Search } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -18,8 +19,8 @@ export default function PurchaseOrders() {
   // Opens on everything still pending; finished POs move to "Treatment started".
   const [stage, setStage] = useState('pending');
   const [query, setQuery] = useState('');
-  const [data, setData] = useState({ items: [], counts: {} });
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useStaleState(`purchase-orders:${stage}`, { items: [], counts: {} });
+  const [loading, setLoading] = useState(!data.items.length);
   const [error, setError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const requestId = useRef(0);
@@ -32,7 +33,7 @@ export default function PurchaseOrders() {
     } catch (err) { if (id === requestId.current) setError(err.response?.data?.message || 'Could not load purchase orders'); }
     finally { if (id === requestId.current) setLoading(false); }
   }, [stage, query]);
-  useEffect(() => { setLoading(true); const timer = setTimeout(load, query ? 300 : 0); return () => clearTimeout(timer); }, [load, query]);
+  useEffect(() => { if (!data.items.length) setLoading(true); const timer = setTimeout(load, query ? 300 : 0); return () => clearTimeout(timer); }, [load, query]);
   useEffect(() => { const timer = setInterval(load, 60000); return () => clearInterval(timer); }, [load]);
 
   const open = (po) => navigate(`/admin/purchase-orders/${po.id}`);

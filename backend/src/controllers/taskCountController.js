@@ -6,6 +6,7 @@ const ConsultationReceipt = require('../models/ConsultationReceipt');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
+const { cached } = require('../utils/readCache');
 const { loadPoViews } = require('./purchaseOrderController');
 const { jobActionBy } = require('./medicineJobController');
 const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
@@ -49,7 +50,7 @@ const callHandler = (handler, user, query = {}) => new Promise((resolve, reject)
 // Medicine requests of every phase whose status is one of `statuses`.
 const countRequests = async (statuses, extra = () => true) => {
   const patients = await Patient.find({ $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
-    .select('stages.medicineRequest stages.medicineRequests').lean();
+    .select('stages.medicineRequest.status stages.medicineRequest.requestId stages.medicineRequest.courier.status stages.medicineRequests.status stages.medicineRequests.requestId stages.medicineRequests.courier.status').lean();
   return patients.reduce((sum, p) => sum + (p.stages || []).reduce((s, st) => s + allRequests(st).filter((r) => statuses.includes(r.status) && extra(r)).length, 0), 0);
 };
 
@@ -155,8 +156,18 @@ const COUNTERS = {
 const getTaskCounts = asyncHandler(async (req, res) => {
   const pages = Object.keys(PAGES).filter((page) => PAGES[page].includes(req.user.role));
   // One failing counter must not hide the others.
-  const values = await Promise.all(pages.map((page) => COUNTERS[page](req.user).catch((error) => { console.error(`Task count ${page}: ${error.message}`); return 0; })));
+  const values = await Promise.all(pages.map((page) => countOf(page, req.user).catch((error) => { console.error(`Task count ${page}: ${error.message}`); return 0; })));
   res.json({ success: true, counts: Object.fromEntries(pages.map((page, i) => [page, values[i]])) });
 });
 
-module.exports = { getTaskCounts, PAGES, COUNTERS, stepRole };
+// Badges, My day, the reminder bell and Team pending all ask for the same lists; each is worked out once and shared
+// (see utils/readCache: emptied by any save). A list is the same for everyone, for one role, or for one person.
+// Team Chat and Enquiries are cheap and change when read, so they are always worked out fresh.
+const PER_PERSON = new Set(['/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
+const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs']);
+const UNCACHED = new Set(['/admin/team-chat', '/admin/enquiries']);
+const scopeOf = (page, user) => (PER_PERSON.has(page) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');
+const shared = (kind, page, user, fn) => (UNCACHED.has(page) ? fn() : cached(`${kind}|${page}|${scopeOf(page, user)}`, fn));
+const countOf = (page, user) => shared('count', page, user, () => COUNTERS[page](user));
+
+module.exports = { getTaskCounts, PAGES, COUNTERS, stepRole, shared, countOf };

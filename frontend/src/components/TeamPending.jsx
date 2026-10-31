@@ -4,22 +4,58 @@ import { ExternalLink, RefreshCw, Users, X } from 'lucide-react';
 import api from '../api/axios.js';
 import { bucketOf } from '../utils/taskTiming.js';
 
-// Every role's open work for the Admin / Manager (GET /tasks/team), refreshed every minute.
-export function useTeamPending() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const load = useCallback(async (fresh = false) => {
-    setLoading(true);
-    try { const { data: d } = await api.get('/tasks/team', { skipCache: true, params: fresh ? { fresh: 1 } : {} }); setData(d); setError(''); }
-    catch (err) { setError(err.response?.data?.message || 'Could not load the team work'); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { load(); const t = setInterval(() => load(), 60000); return () => clearInterval(t); }, [load]);
-  return { data, loading, error, load };
+// Every role's open work for the Admin / Manager (GET /tasks/team). The server builds it in the background and
+// answers from its last copy, so this never slows a page: one shared request for all users of the hook on the page,
+// started only after the page has loaded, repeated every 2 minutes while the tab is visible.
+// `full`: with the item lists (Team pending page); otherwise just the totals (top button, My day).
+const POLL_MS = 2 * 60 * 1000;
+const START_DELAY_MS = 3000;
+const stores = {};
+const storeOf = (full) => {
+  const key = full ? 'full' : 'summary';
+  if (!stores[key]) {
+    const st = { data: null, loading: false, error: '', subs: new Set(), timer: null, inFlight: null, at: 0 };
+    const emit = () => st.subs.forEach((fn) => fn({ data: st.data, loading: st.loading, error: st.error }));
+    st.load = (fresh = false) => {
+      if (st.inFlight && !fresh) return st.inFlight;
+      st.loading = true; emit();
+      st.inFlight = api.get('/tasks/team', { skipCache: true, params: { ...(full ? {} : { summary: 1 }), ...(fresh ? { fresh: 1 } : {}) } })
+        .then(({ data: d }) => {
+          st.data = d.roles?.length || !st.data ? d : { ...st.data, building: d.building };
+          st.error = ''; st.at = Date.now();
+          // The first copy is still being made on the server: ask again shortly.
+          if (d.building && !d.roles?.length) setTimeout(() => st.load(), 15000);
+        })
+        .catch((err) => { st.error = err.response?.data?.message || 'Could not load the team work'; })
+        .finally(() => { st.loading = false; st.inFlight = null; emit(); });
+      return st.inFlight;
+    };
+    st.start = () => {
+      if (st.timer) return;
+      const tick = () => { if (document.visibilityState === 'visible' && Date.now() - st.at >= POLL_MS - 1000) st.load(); };
+      const first = () => (window.requestIdleCallback ? window.requestIdleCallback(() => st.load(), { timeout: 5000 }) : st.load());
+      st.timer = setInterval(tick, POLL_MS);
+      if (!st.data) setTimeout(first, START_DELAY_MS);
+      document.addEventListener('visibilitychange', tick);
+      st.stop = () => { clearInterval(st.timer); st.timer = null; document.removeEventListener('visibilitychange', tick); };
+    };
+    stores[key] = st;
+  }
+  return stores[key];
+};
+
+export function useTeamPending({ full = false } = {}) {
+  const st = storeOf(full);
+  const [state, setState] = useState({ data: st.data, loading: st.loading, error: st.error });
+  useEffect(() => {
+    st.subs.add(setState); st.start();
+    return () => { st.subs.delete(setState); if (!st.subs.size) st.stop?.(); };
+  }, [st]);
+  const load = useCallback((fresh = false) => st.load(fresh), [st]);
+  return { ...state, load };
 }
 
-export const overdueOf = (role) => role.sections.reduce((n, s) => n + s.items.filter((i) => bucketOf(i) === 'overdue').length, 0);
+export const overdueOf = (role) => role.overdue ?? role.sections.reduce((n, s) => n + (s.items || []).filter((i) => bucketOf(i) === 'overdue').length, 0);
 
 // One card per role: how much is pending, how much is overdue, and the people with personal work.
 export function TeamRoleCards({ roles, selected, onSelect }) {

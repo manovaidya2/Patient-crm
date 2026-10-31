@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import { useNavigate } from 'react-router-dom';
 import { Pill } from 'lucide-react';
@@ -24,16 +25,21 @@ export default function MedicineJobs() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('all');
   const { user } = useAuth();
-  const [items, setItems] = useState(null);
-  const [counts, setCounts] = useState(null);
+  const [items, setItems] = useStaleState(`medicine-jobs:${status}`, null);
+  const [counts, setCounts] = useStaleState('medicine-jobs:counts', null);
   const [view, setView] = useState('board');
   const [onlyMine, setOnlyMine] = useState(false);
   const [error, setError] = useState('');
+  const hasItems = useRef(false);
+  hasItems.current = Boolean(items?.length);
   const load = useCallback(async () => {
-    try { const { data } = await api.get('/medicine-jobs', { params: { status }, skipCache: true }); setItems(data.items); setCounts(data.counts || null); setError(''); }
-    catch (err) { setError(err.response?.data?.message || 'Could not load jobs'); }
-  }, [status]);
-  useEffect(() => { setItems(null); load(); }, [load]);
+    try {
+      // An empty screen gets the first cards at once; the whole queue follows right after.
+      if (!hasItems.current) { const { data } = await api.get('/medicine-jobs', { params: { status, limit: 12 }, skipCache: true }); setItems(data.items); setCounts(data.counts || null); }
+      const { data } = await api.get('/medicine-jobs', { params: { status }, skipCache: true }); setItems(data.items); setCounts(data.counts || null); setError('');
+    } catch (err) { setError(err.response?.data?.message || 'Could not load jobs'); }
+  }, [status, setItems, setCounts]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
   // Live: any job change updates the queue at once.
   useLiveEvent('medicine-job:changed', () => load());

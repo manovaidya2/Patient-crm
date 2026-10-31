@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronRight, Download, Eye, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -101,8 +102,9 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
   const [to, setTo] = useState(url.get('to') || localDay());
   const [mode, setMode] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState({ rows: [], summary: {}, pages: 1 });
-  const [loading, setLoading] = useState(true);
+  const paramsKey = JSON.stringify({ kind: type, status: fixedStatus || status, search: debouncedSearch, from: period === 'all' ? '' : from, to: period === 'all' ? '' : to, mode, patientId, patientApproval, page });
+  const [data, setData] = useStaleState(`financial-ledger:${paramsKey}`, { rows: [], summary: {}, pages: 1 });
+  const [loading, setLoading] = useState(!data.rows.length);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const [adding, setAdding] = useState(false);
@@ -112,10 +114,9 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState('');
   const [exporting, setExporting] = useState(false);
-  const paramsKey = JSON.stringify({ kind: type, status: fixedStatus || status, search: debouncedSearch, from: period === 'all' ? '' : from, to: period === 'all' ? '' : to, mode, patientId, patientApproval, page });
   useEffect(() => { const timer = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300); return () => clearTimeout(timer); }, [search]);
   useEffect(() => {
-    let active = true; setLoading(true); setError('');
+    let active = true; if (!data.rows.length) setLoading(true); setError('');
     api.get('/accounts/ledger', { params: JSON.parse(paramsKey), skipCache: true }).then(({ data: result }) => { if (active) setData(result); }).catch((err) => { if (active) setError(err.response?.data?.message || 'Ledger could not be loaded'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [paramsKey, reload]);

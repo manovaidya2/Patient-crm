@@ -95,4 +95,7 @@ medicineJobSchema.index({ patient: 1, phase: 1, requestId: 1 }, { unique: true }
 medicineJobSchema.index({ readyByDate: 1 });
 medicineJobSchema.set('optimisticConcurrency', true);
 
+// The fulfilment queue: one status, soonest ready date first.
+medicineJobSchema.index({ status: 1, readyByDate: 1, createdAt: -1 });
+
 module.exports = mongoose.model('MedicineJob', medicineJobSchema);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, MessageCircle, Volume2, VolumeX, X } from 'lucide-react';
-import { io } from 'socket.io-client';
+import { getSocket } from '../api/socket.js';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -57,16 +57,17 @@ export default function EnquiryNotifications() {
       finally { busy = false; }
     }
     setItems([]); setTotal(0); setOpen(false);
-    const socket = io((import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, ''), { auth: { token: localStorage.getItem('crm_token') } });
+    const socket = getSocket();
+    const onEnquiry = () => { refresh(); window.dispatchEvent(new Event('enquiries:refresh')); };
     socket.on('connect', refresh);
-    socket.on('enquiry:changed', () => { refresh(); window.dispatchEvent(new Event('enquiries:refresh')); });
+    socket.on('enquiry:changed', onEnquiry);
     socket.on('team-chat:changed', refresh);
     window.addEventListener('team-chat:read', refresh);
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
     window.addEventListener('enquiries:read', refresh);
     refresh(); const interval = setInterval(refresh, 30000);
-    return () => { stopped = true; socket.disconnect(); clearInterval(interval); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); window.removeEventListener('enquiries:read', refresh); window.removeEventListener('team-chat:read', refresh); audio.current?.close().catch(() => {}); audio.current = null; };
+    return () => { stopped = true; socket.off('connect', refresh); socket.off('enquiry:changed', onEnquiry); socket.off('team-chat:changed', refresh); clearInterval(interval); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); window.removeEventListener('enquiries:read', refresh); window.removeEventListener('team-chat:read', refresh); audio.current?.close().catch(() => {}); audio.current = null; };
   }, [user?.id, user?._id]);
   if (!user) return null;
   return <div className={`enquiry-bell fixed bottom-1.5 right-2 z-40 flex flex-col items-end max-md:bottom-[92px] ${onChatPage ? 'max-md:hidden' : ''}`}>

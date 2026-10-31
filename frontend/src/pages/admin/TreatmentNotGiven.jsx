@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { io } from 'socket.io-client';
 import { Ban, History, Inbox, Phone, RotateCcw, Search } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -24,9 +25,9 @@ export default function TreatmentNotGiven() {
   const { user } = useAuth();
   const canAct = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR].includes(user?.role);
   const isCounselor = user?.role === ROLES.POST_COUNSELOR;
-  const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useStaleState(`treatment-not-given:${query.trim()}`, []);
+  const [loading, setLoading] = useState(!patients.length);
   const [error, setError] = useState('');
   const [restoring, setRestoring] = useState(null);
   const [note, setNote] = useState('');
@@ -34,7 +35,7 @@ export default function TreatmentNotGiven() {
   const [recordPatient, setRecordPatient] = useState(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading((was) => was || !patients.length); setError('');
     try {
       const { data } = await api.get('/post-counseling/not-given', { params: query.trim() ? { q: query.trim() } : {}, skipCache: true });
       setPatients(data.patients || []);

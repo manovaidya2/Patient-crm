@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
+const { cached } = require('../utils/readCache');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -123,7 +124,9 @@ const paymentFromBody = async (body, files, user, poNumber) => {
 };
 
 // Every PO with its patient, as list views (used by the list and by the sidebar task counts).
-const loadPoViews = async (filter = { patient: { $ne: null } }, { includeHandover = false } = {}) => {
+// Shared for a minute by every screen asking for the same views, refreshed behind them after a save (utils/readCache).
+const loadPoViews = (filter = { patient: { $ne: null } }, options = {}) => cached(`po-views|${JSON.stringify(filter)}|${Boolean(options.includeHandover)}`, () => buildPoViews(filter, options));
+const buildPoViews = async (filter, { includeHandover = false } = {}) => {
   const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
   const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
   const patients = await Patient.find({ _id: { $in: patientIds } })
@@ -134,8 +137,11 @@ const loadPoViews = async (filter = { patient: { $ne: null } }, { includeHandove
   const MedicineJob = require('../models/MedicineJob');
   const jobs = await MedicineJob.find({ patient: { $in: patientIds } }).select('patient phase requestId currentStage status hold').lean();
   const jobOf = new Map(jobs.map((j) => [`${j.patient}-${j.phase}-${j.requestId}`, j]));
+  // The POs of each patient's phase, grouped once (a filter per PO was slow with many POs).
+  const phasePosOf = new Map();
+  pos.forEach((o) => { const key = `${o.patient}-${o.phase}`; if (!phasePosOf.has(key)) phasePosOf.set(key, []); phasePosOf.get(key).push(o); });
   return pos.filter((po) => byId.has(String(po.patient)))
-    .map((po) => buildPoView(po, byId.get(String(po.patient)), { includeHandover, job: po.medicineRequestId ? jobOf.get(`${po.patient}-${po.phase}-${po.medicineRequestId}`) || null : null, phasePos: pos.filter((o) => String(o.patient) === String(po.patient) && o.phase === po.phase) }));
+    .map((po) => buildPoView(po, byId.get(String(po.patient)), { includeHandover, job: po.medicineRequestId ? jobOf.get(`${po.patient}-${po.phase}-${po.medicineRequestId}`) || null : null, phasePos: phasePosOf.get(`${po.patient}-${po.phase}`) || [] }));
 };
 
 // Courier Requests / Delivered Couriers: every PO whose medicine In Transit has scheduled (courier, porter or self

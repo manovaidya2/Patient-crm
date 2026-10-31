@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useStaleState from '../hooks/useStaleState.js';
 import SalesCallHistory from '../components/SalesCallHistory.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import { Search, List, Table2 } from 'lucide-react';
@@ -55,13 +56,13 @@ const SalesWorkspace = () => {
   const [selectedDate, setSelectedDate] = useState(isoDate(new Date()));
   const [allDates, setAllDates] = useState(false);
   const [columns, setColumns] = useState([]);
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useStaleState(`sales-workspace:${allDates ? 'all' : selectedDate}`, []);
   const [formRow, setFormRow] = useState(null);
   const [view, setView] = useState('appointments');
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!rows.length);
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [columnToEdit, setColumnToEdit] = useState(null);
@@ -83,7 +84,7 @@ const SalesWorkspace = () => {
   const [layout, setLayoutState] = useState(() => { try { return localStorage.getItem('sales-layout') || 'board'; } catch { return 'board'; } });
   const setLayout = (next) => { setLayoutState(next); try { localStorage.setItem('sales-layout', next); } catch { /* optional */ } };
   const weekDates = useMemo(() => weekOf(selectedDate), [selectedDate]);
-  const [weekRows, setWeekRows] = useState({});
+  const [weekRows, setWeekRows] = useStaleState(`sales-workspace:week:${weekDates[0]}`, {});
   const [weekLoading, setWeekLoading] = useState(false);
   const loadColumns = useCallback(async () => {
     const { data } = await api.get('/sales-sheet/columns', { skipCache: true });
@@ -109,7 +110,7 @@ const SalesWorkspace = () => {
 
   useEffect(() => { loadColumns().catch((err) => setError(err.response?.data?.message || 'Could not load columns')); }, [loadColumns]);
   useEffect(() => {
-    setLoading(true); setDraft(null); setEditingId(null);
+    if (!rows.length) setLoading(true); setDraft(null); setEditingId(null);
     loadRows().catch((err) => setError(err.response?.data?.message || 'Could not load appointments')).finally(() => setLoading(false));
   }, [loadRows]);
   useEffect(() => {

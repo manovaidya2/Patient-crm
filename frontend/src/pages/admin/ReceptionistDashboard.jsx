@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { ArrowDown, ArrowUp, CalendarClock, CalendarDays, Columns3, History, Pencil, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { io } from 'socket.io-client';
 import api from '../../api/axios.js';
@@ -46,13 +47,13 @@ const ReceptionistDashboard = () => {
   const [filters, setFilters] = useState([{ id: 1, field: '', operator: 'contains', value: '' }]);
   const [salesColumns, setSalesColumns] = useState([]);
   const [columns, setColumns] = useState([]);
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useStaleState(`reception-dashboard:${allDates ? 'all' : selectedDate}`, []);
   const [formRow, setFormRow] = useState(null);
   const [view, setView] = useState('appointments');
   const [draft, setDraft] = useState(null);
   const [salesDraft, setSalesDraft] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!rows.length);
   const [live, setLive] = useState(false);
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -79,7 +80,7 @@ const ReceptionistDashboard = () => {
 
   useEffect(() => { loadColumns().catch(() => setError('Columns could not be loaded')); }, [loadColumns]);
   useEffect(() => { loadLayout().catch(() => {}); }, [loadLayout]);
-  useEffect(() => { setLoading(true); setDraft(null); setEditingId(null); loadRows().catch(() => setError('Appointments could not be loaded')).finally(() => setLoading(false)); }, [loadRows]);
+  useEffect(() => { if (!rows.length) setLoading(true); setDraft(null); setEditingId(null); loadRows().catch(() => setError('Appointments could not be loaded')).finally(() => setLoading(false)); }, [loadRows]);
   useEffect(() => {
     const timer = window.setInterval(() => loadRows().catch(() => {}), 120000);
     return () => window.clearInterval(timer);

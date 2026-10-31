@@ -10,7 +10,7 @@ const { loadPoViews } = require('./purchaseOrderController');
 const { jobActionBy } = require('./medicineJobController');
 const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
 const { explanationOwner } = require('./transitController');
-const { PAGES, COUNTERS, stepRole } = require('./taskCountController');
+const { PAGES, stepRole, shared, countOf } = require('./taskCountController');
 const { STAGES } = require('../utils/medicineJobFlow');
 
 // "My day": the same open work the orange counts show, as a list of items - who, what, when due, and where to act.
@@ -133,13 +133,16 @@ async function reminderItems(user, type, page) {
     .map((r) => item(page, `${r.patientId}-${r.stageNumber}-${r.id || r._id || r.dateTime}`, r.patientName, `${r.patientCode || ''} · ${r.typeLabel || ''} · ${r.reminderKind === 'late' ? 'late' : 'next 24 h'}${r.assignee ? ` · ${r.assignee}` : ''}`, r.dateTime, `/admin/patients/${r.patientId}?tab=sessions`));
 }
 
+// One page's items for this person, shared with the other screens asking for the same list.
+const itemsOf = (page, user) => shared('items', page, user, () => COLLECTORS[page](user));
+
 // @route GET /api/tasks/my-day  -> { sections: [{ page, count, items: [...] }] }
 const getMyDay = asyncHandler(async (req, res) => {
   const pages = Object.keys(PAGES).filter((page) => PAGES[page].includes(req.user.role) && COLLECTORS[page]);
   const sections = await Promise.all(pages.map(async (page) => {
     try {
-      const [items, count] = await Promise.all([COLLECTORS[page](req.user), COUNTERS[page](req.user)]);
-      const sorted = items.sort((a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity));
+      const [items, count] = await Promise.all([itemsOf(page, req.user), countOf(page, req.user)]);
+      const sorted = [...items].sort((a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity));
       return { page, count: Math.max(count, items.length), items: sorted.slice(0, LIMIT) };
     } catch (error) {
       console.error(`My day ${page}: ${error.message}`);
@@ -149,4 +152,4 @@ const getMyDay = asyncHandler(async (req, res) => {
   res.json({ success: true, now: new Date().toISOString(), sections: sections.filter((s) => s.count > 0 || s.items.length) });
 });
 
-module.exports = { getMyDay, COLLECTORS };
+module.exports = { getMyDay, COLLECTORS, itemsOf };

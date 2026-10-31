@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
@@ -2497,10 +2498,10 @@ const PatientDetails = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const canAssignDoctor = ASSIGN_DOCTOR_ROLES.includes(user?.role);
   const isLimitedViewer = user?.role === ROLES.SALES_TEAM;
-  const [patient, setPatient] = useState(null);
+  const [patient, setPatient] = useStaleState(`patient:${id}`, null);
   // Optional "facing problem / improvement found" popup after a follow-up or family session is done.
   const [outcomeTarget, setOutcomeTarget] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!patient);
   const [loadError, setLoadError] = useState('');
   const [callLogs, setCallLogs] = useState([]);
   const [adviceRows, setAdviceRows] = useState([]);
@@ -3039,7 +3040,7 @@ const PatientDetails = () => {
       </button>
       <PaymentCancelAlerts patientId={id} className="mb-4" />
 
-      {loading ? (
+      {loading && !patient ? (
         <Card className="text-center text-sm text-charcoal/55 py-10">Loading patient…</Card>
       ) : loadError ? (
         <Card className="flex flex-col items-center text-center gap-2 py-10">

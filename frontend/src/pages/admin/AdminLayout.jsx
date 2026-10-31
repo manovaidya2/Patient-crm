@@ -10,6 +10,7 @@ import { TeamPendingButton } from '../../components/TeamPending.jsx';
 import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { prefetchGet } from '../../api/axios.js';
+import { markNavigation } from '../../api/scheduler.js';
 import { ROLES, getDefaultRoute, isAdminLike } from '../../constants/roles.js';
 
 const todayRange = () => {
@@ -99,6 +100,7 @@ const BackgroundPrefetch = ({ role }) => {
 const AdminLayout = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
+  useEffect(() => { markNavigation(); }, [location.pathname]);
   // The role's home page (dashboard, or the page it lands on) starts with its pending work.
   const onHome = user?.role && location.pathname.replace(/\/$/, '') === getDefaultRoute(user.role) && location.pathname !== '/admin/my-day';
   const [mobileNavOpen, setMobileNavOpen] = useState(false);

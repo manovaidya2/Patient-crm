@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { AlertTriangle, Boxes, ClipboardCheck, PackageOpen, Plus, Siren, Timer } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
@@ -17,8 +18,8 @@ const VIEWS = [['stock', 'Stock list'], ['entry', 'Entry: In / Use / Adjust / Pa
 const DEFAULT_FILTERS = { q: '', category: 'all', status: 'attention', size: '' };
 
 const MedicineInventory = () => {
-  const [items, setItems] = useState([]);
-  const [meta, setMeta] = useState({ categories: [], categoryConfig: [], packSizeMaster: { ml: [], gram: [] }, itemTypes: [], containerKinds: [], unitOptions: [], totals: {}, canApprove: false });
+  const [items, setItems] = useStaleState('medicine-inventory:items', []);
+  const [meta, setMeta] = useStaleState('medicine-inventory:meta', { categories: [], categoryConfig: [], packSizeMaster: { ml: [], gram: [] }, itemTypes: [], containerKinds: [], unitOptions: [], totals: {}, canApprove: false });
   const [view, setView] = useState('stock');
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [ledgerType, setLedgerType] = useState('all');
@@ -29,7 +30,7 @@ const MedicineInventory = () => {
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryError, setCategoryError] = useState('');
   const [detailId, setDetailId] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!items.length);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [reloadKey, setReloadKey] = useState(0);

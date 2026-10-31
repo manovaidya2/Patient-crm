@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { AlertTriangle, Boxes, History, Plus, Search } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
@@ -95,7 +96,7 @@ function BottleCell({ b }) {
 }
 
 export default function Stocks() {
-  const [items, setItems] = useState(null);
+  const [items, setItems] = useStaleState('stocks', null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('');

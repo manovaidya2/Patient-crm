@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { io } from 'socket.io-client';
 import { Inbox, Phone, Search } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -24,10 +25,10 @@ const Item = ({ label, value }) => (
 const PostCounselingPatients = () => {
   const { user } = useAuth();
   const isCounselor = user?.role === ROLES.POST_COUNSELOR;
-  const [patients, setPatients] = useState([]);
-  const [defs, setDefs] = useState({ fieldDefs: [], groups: [] });
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useStaleState(`post-counseling-patients:${query.trim()}`, []);
+  const [defs, setDefs] = useStaleState('post-counseling-patients:defs', { fieldDefs: [], groups: [] });
+  const [loading, setLoading] = useState(!patients.length);
   const [error, setError] = useState('');
   const [recordPatient, setRecordPatient] = useState(null);
   // Post counselling not done / treatment not given: moves the patient to the Treatment Not Given page.
@@ -35,7 +36,7 @@ const PostCounselingPatients = () => {
   const canMoveNotGiven = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR].includes(user?.role);
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading((was) => was || !patients.length); setError('');
     try {
       const { data } = await api.get('/post-counseling/patients', { params: query.trim() ? { q: query.trim() } : {}, skipCache: true });
       setPatients(data.patients || []);

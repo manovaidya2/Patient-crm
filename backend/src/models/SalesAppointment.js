@@ -47,4 +47,7 @@ const salesAppointmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Reception's accepted appointments of a day.
+salesAppointmentSchema.index({ appointmentDate: 1, acceptedAt: 1, status: 1 });
+
 module.exports = mongoose.model('SalesAppointment', salesAppointmentSchema);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { io } from 'socket.io-client';
 import { CalendarDays, CheckCircle2, Search } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -20,16 +21,16 @@ const inputClass = 'rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 
 const PostCounselingDone = () => {
   const { user } = useAuth();
   const isCounselor = user?.role === ROLES.POST_COUNSELOR;
-  const [patients, setPatients] = useState([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useStaleState(`post-counseling-done:${from}:${to}:${query.trim()}`, []);
+  const [loading, setLoading] = useState(!patients.length);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading((was) => was || !patients.length); setError('');
     try {
       const params = {};
       if (from) params.from = from;

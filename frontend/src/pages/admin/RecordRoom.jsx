@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, FileText, FolderOpen, Pencil, Plus, Search, Trash2, Upload, AlertTriangle, X } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -68,12 +69,14 @@ export default function RecordRoom() {
   const status = params.get('status') || 'all';
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [records, setRecords] = useState([]);
-  const [entries, setEntries] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [summary, setSummary] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const listKey = `record-room:${register}:${treatment}:${status}:${search}:${page}`;
+  const [records, setRecords] = useStaleState(listKey, []);
+  const [entries, setEntries] = useStaleState(`${listKey}:entries`, []);
+  const [total, setTotal] = useStaleState(`${listKey}:total`, 0);
+  const [summary, setSummary] = useStaleState(`record-room:summary:${treatment}`, null);
+  const [selected, setSelected] = useStaleState(`record-room:record:${recordId || ''}`, null);
+  const hasSnapshot = recordId ? Boolean(selected) : Boolean(records.length || entries.length);
+  const [loading, setLoading] = useState(!hasSnapshot);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const [modal, setModal] = useState(null);
@@ -99,7 +102,7 @@ export default function RecordRoom() {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    if (!hasSnapshot) setLoading(true);
     setError('');
     const timer = setTimeout(async () => {
       try {

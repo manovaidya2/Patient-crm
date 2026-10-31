@@ -46,7 +46,7 @@ const ReminderDropdown = ({ className = '' }) => {
     };
 
     fetchReminders();
-    const intervalId = window.setInterval(fetchReminders, 15000);
+    const intervalId = window.setInterval(fetchReminders, 60000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ReadCache, queryKey } from './readCache.js';
+import { schedule } from './scheduler.js';
 
 export const readCache = new ReadCache();
 const noCachePaths = ['/auth/', '/advice/unread-count', '/schedule/reminders', '/patients/check-code'];
@@ -31,12 +32,14 @@ api.interceptors.response.use((response) => {
   return Promise.reject(error);
 });
 
-const originalGet = api.get.bind(api);
+const rawGet = api.get.bind(api);
+// Every GET is scheduled: the open page's own data first, alerts and badges after it, prefetch last.
+const originalGet = (url, config = {}) => schedule(url, config, () => rawGet(url, config));
 api.get = (url, config = {}) => {
   if (config.skipCache || config.signal || noCachePaths.some((path) => String(url).startsWith(path))) {
     return originalGet(url, config);
   }
   return readCache.read(cacheKey(url, config), () => originalGet(url, config), config.forceRefresh);
 };
-export const prefetchGet = (url, config = {}) => api.get(url, config).catch(() => null);
+export const prefetchGet = (url, config = {}) => api.get(url, { priority: 'background', ...config }).catch(() => null);
 export default api;

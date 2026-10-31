@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { CalendarClock, ChevronLeft, ChevronRight, Phone, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios.js';
@@ -39,9 +40,9 @@ const LANES = [
 // and the reception checklist.
 const ReceptionistHomeDashboard = () => {
   const [date, setDate] = useState(today);
-  const [rows, setRows] = useState([]);
-  const [desk, setDesk] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useStaleState(`reception-home:rows:${date}`, []);
+  const [desk, setDesk] = useStaleState(`reception-home:desk:${date}`, null);
+  const [loading, setLoading] = useState(!desk);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -60,7 +61,7 @@ const ReceptionistHomeDashboard = () => {
     }
   }, [date]);
 
-  useEffect(() => { setLoading(true); load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { if (!desk) setLoading(true); load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = useMemo(() => ({
     total: rows.filter((row) => row.status !== 'rescheduled').length,

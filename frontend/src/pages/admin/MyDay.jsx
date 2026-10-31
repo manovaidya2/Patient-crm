@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link } from 'react-router-dom';
 import { ArrowRight, CalendarClock, CheckCircle2, RefreshCw, Sun } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -26,7 +27,7 @@ const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good 
 // My day: every open task of this role, from the same rules as the orange counts, grouped by urgency.
 export default function MyDay() {
   const { user } = useAuth();
-  const [data, setData] = useState(null);
+  const [data, setData] = useStaleState('my-day', null);
   const [error, setError] = useState('');
   const [page, setPage] = useState('');
   const load = useCallback(async () => {

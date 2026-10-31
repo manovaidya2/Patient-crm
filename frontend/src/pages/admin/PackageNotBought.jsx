@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, ClipboardList, Inbox, Pencil, Plus, RotateCcw, Search, Trash2, X, XCircle } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -36,8 +37,6 @@ const PackageNotBought = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -45,6 +44,11 @@ const PackageNotBought = () => {
   const [statusFilter, setStatusFilter] = useState('open');
   // Narrow the open list by follow-up state from the summary strip ('' = all open).
   const [followUpFilter, setFollowUpFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const listKey = `package-not-bought:${page}:${debouncedSearch}:${statusFilter}:${followUpFilter}`;
+  const [rows, setRows] = useStaleState(listKey, []);
+  const [summary, setSummary] = useStaleState(`${listKey}:summary`, null);
+  const [loading, setLoading] = useState(!rows.length);
   const [closingId, setClosingId] = useState('');
   // Not interested: close with a reason (kept for reference, reopen any time).
   const closeRow = async (row) => {
@@ -60,10 +64,8 @@ const PackageNotBought = () => {
     try { await api.patch(`/package-not-bought/${row.id}/reopen`); setReloadKey((value) => value + 1); }
     catch (err) { setLoadError(err.response?.data?.message || 'Could not reopen this record'); } finally { setClosingId(''); }
   };
-  const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [summary, setSummary] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -82,7 +84,7 @@ const PackageNotBought = () => {
 
   useEffect(() => {
     const fetchRows = async () => {
-      setLoading(true);
+      if (!rows.length) setLoading(true);
       setLoadError('');
       try {
         const { data } = await api.get('/package-not-bought', {

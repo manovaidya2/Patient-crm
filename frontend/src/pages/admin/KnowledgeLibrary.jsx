@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { ArrowLeft, BookOpen, ChevronDown, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../api/axios.js';
@@ -29,13 +30,13 @@ const DepartmentLibrary = ({ department }) => {
   const isAdmin = user?.role === ROLES.ADMIN; // deleting stays Admin-only
   const canManage = isAdminLike(user);
   const isCategoryPage = Boolean(categoryId);
-  const [categories, setCategories] = useState([]);
-  const [articles, setArticles] = useState([]);
+  const [search, setSearch] = useState('');
+  const [categories, setCategories] = useStaleState(`knowledge-categories:${department}`, []);
+  const [articles, setArticles] = useStaleState(`knowledge-articles:${department}:${categoryId || ''}:${search.trim()}`, []);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [openQuestions, setOpenQuestions] = useState({});
-  const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!articles.length);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [categoryName, setCategoryName] = useState('');
@@ -50,7 +51,7 @@ const DepartmentLibrary = ({ department }) => {
   };
   const loadArticles = async () => {
     if (!isCategoryPage) { setArticles([]); setLoading(false); return; }
-    setLoading(true); setError('');
+    setLoading((was) => was || !articles.length); setError('');
     try {
       const params = { categoryId, department };
       if (search.trim()) params.search = search.trim();

@@ -12,19 +12,22 @@ export const AuthProvider = ({ children }) => {
       const token = localStorage.getItem('crm_token');
       const savedUser = localStorage.getItem('crm_user');
 
-      if (token && savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-          const { data } = await api.get('/auth/me');
-          setUser(data.user);
-          localStorage.setItem('crm_user', JSON.stringify(data.user));
-        } catch (err) {
+      if (!token || !savedUser) { setLoading(false); return; }
+      // Show the app at once with the saved login; check it with the server in the background.
+      try { setUser(JSON.parse(savedUser)); } catch { setUser(null); }
+      setLoading(false);
+      try {
+        const { data } = await api.get('/auth/me');
+        setUser(data.user);
+        localStorage.setItem('crm_user', JSON.stringify(data.user));
+      } catch (err) {
+        // Only a refused login logs out; a slow or offline server keeps the saved session.
+        if (err.response?.status === 401) {
           localStorage.removeItem('crm_token');
           localStorage.removeItem('crm_user');
           setUser(null);
         }
       }
-      setLoading(false);
     };
 
     restoreSession();

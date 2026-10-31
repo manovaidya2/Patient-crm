@@ -28,4 +28,7 @@ schema.index({ participants: 1, updatedAt: -1 });
 schema.index({ assignedTo: 1, status: 1 });
 schema.index({ createdBy: 1, updatedAt: -1 });
 schema.index({ 'alerts.recipient': 1, 'alerts.readAt': 1 });
+// The Admin / Manager list and badge: open tickets, not deleted, newest activity first.
+schema.index({ deletedAt: 1, status: 1, updatedAt: -1 });
+
 module.exports = mongoose.model('Enquiry', schema);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { AlertTriangle, History, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
@@ -22,10 +23,10 @@ const IconAction = ({ label, children, onClick, primary = false }) => <button ty
 const ClinicInventory = () => {
   const { user } = useAuth();
   const [deleteItem, setDeleteItem] = useState(null);
-  const [items, setItems] = useState([]);
-  const [totals, setTotals] = useState({ items: 0, lowStock: 0 });
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useStaleState(`clinic-inventory:${search}`, []);
+  const [totals, setTotals] = useStaleState(`clinic-inventory:${search}:totals`, { items: 0, lowStock: 0 });
+  const [loading, setLoading] = useState(!items.length);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [itemModal, setItemModal] = useState(null);
@@ -46,7 +47,7 @@ const ClinicInventory = () => {
   };
 
   const load = async () => {
-    setLoading(true); setError('');
+    if (!items.length) setLoading(true); setError('');
     try { const { data } = await api.get('/clinic-inventory', { params: { search }, skipCache: true }); setItems(data.items || []); setTotals(data.totals || { items: 0, lowStock: 0 }); }
     catch (err) { setError(err.response?.data?.message || 'Could not load clinic inventory.'); }
     finally { setLoading(false); }

@@ -86,5 +86,8 @@ purchaseOrderSchema.index({ patient: 1, phase: 1 });
 purchaseOrderSchema.index({ createdAt: -1 });
 purchaseOrderSchema.set('optimisticConcurrency', true);
 
+// Courier / handover lists: verified POs with a medicine request, newest first.
+purchaseOrderSchema.index({ status: 1, medicineRequestId: 1, createdAt: -1 });
+
 module.exports = mongoose.model('PurchaseOrder', purchaseOrderSchema);
 module.exports.PO_STATUSES = PO_STATUSES;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeft, Check, CheckCircle2, ClipboardList, Clock3, ExternalLink, FileText, IndianRupee, Layers,
@@ -628,7 +629,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const role = user?.role;
   const canVerify = VERIFY_ROLES.includes(role);
   const canCreate = CREATE_ROLES.includes(role);
-  const [po, setPo] = useState(null);
+  const [po, setPo] = useStaleState(`purchase-order:${poId}`, null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [payOpen, setPayOpen] = useState(false);
@@ -661,7 +662,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     try { const { data } = await api.get(`/purchase-orders/${poId}`, { skipCache: true }); setPo(data.purchaseOrder); setError(''); }
     catch (err) { setError(err.response?.data?.message || 'Could not load the purchase order'); }
   }, [poId]);
-  useEffect(() => { setPo(null); setPicked(null); load(); }, [load]);
+  useEffect(() => { setPicked(null); load(); }, [load]);
   useEffect(() => { const timer = setInterval(load, 30000); window.addEventListener('focus', load); return () => { clearInterval(timer); window.removeEventListener('focus', load); }; }, [load]);
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(t); }, [notice]);
   useLiveEvent('medicine-job:changed', (payload) => { if (!payload || !po?.medicineJob || payload.id === po.medicineJob.id) load(); });

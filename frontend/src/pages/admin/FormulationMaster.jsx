@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, BookOpen, CheckCircle2, Clock3, FlaskConical, Pencil, RotateCcw } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -81,7 +82,7 @@ function MasterForm({ band, meta, onSaved, onCancel }) {
 }
 
 export default function FormulationMasterPage() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useStaleState('formulation-master', null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [band, setBand] = useState('');

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Plus, Search, Pencil, Trash2, UserX2, Inbox, AlertTriangle, ShieldCheck } from 'lucide-react';
 import api from '../../api/axios.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -20,8 +21,8 @@ const TeamMembers = () => {
   const { user, refreshUser } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN;
 
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useStaleState('team-members', []);
+  const [loading, setLoading] = useState(!users.length);
   const [loadError, setLoadError] = useState('');
 
   const [search, setSearch] = useState('');
@@ -46,7 +47,7 @@ const TeamMembers = () => {
   const [deleting, setDeleting] = useState(false);
 
   const fetchUsers = async () => {
-    setLoading(true);
+    if (!users.length) setLoading(true);
     setLoadError('');
     try {
       const { data } = await api.get('/users');

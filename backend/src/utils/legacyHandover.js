@@ -3,6 +3,7 @@
 // these helpers only keep such requests and jobs out of the pending counts and orange highlights.
 const Patient = require('../models/Patient');
 const MedicineJob = require('../models/MedicineJob');
+const { cached } = require('./readCache');
 
 const HANDED_OVER = ['dispatched', 'delivered'];
 
@@ -15,17 +16,22 @@ const requestsOf = (stage) => {
   return list;
 };
 
-// Of these request ids, the ones whose medicine has already been handed over.
+// Of these request ids, the ones whose medicine has already been handed over. Worked out inside the database
+// (only the matching ids travel back, not every patient's requests) and shared for a minute between the screens.
 const handedOverRequestIds = async (requestIds) => {
-  const ids = [...new Set((requestIds || []).filter(Boolean).map(String))];
+  const ids = [...new Set((requestIds || []).filter(Boolean).map(String))].sort();
   if (!ids.length) return new Set();
-  const patients = await Patient.find({ $or: [{ 'stages.medicineRequests.requestId': { $in: ids } }, { 'stages.medicineRequest.requestId': { $in: ids } }] })
-    .select('stages.medicineRequest stages.medicineRequests').lean();
-  const out = new Set();
-  patients.forEach((p) => (p.stages || []).forEach((st) => requestsOf(st).forEach((r) => {
-    if (ids.includes(String(r.requestId)) && isHandedOver(r)) out.add(String(r.requestId));
-  })));
-  return out;
+  return cached(`handed-over|${ids.join(',')}`, async () => {
+    const rows = await Patient.aggregate([
+      { $match: { $or: [{ 'stages.medicineRequests.requestId': { $in: ids } }, { 'stages.medicineRequest.requestId': { $in: ids } }] } },
+      { $unwind: '$stages' },
+      { $project: { requests: { $concatArrays: [{ $ifNull: ['$stages.medicineRequests', []] }, { $cond: [{ $ifNull: ['$stages.medicineRequest.requestId', false] }, ['$stages.medicineRequest'], []] }] } } },
+      { $unwind: '$requests' },
+      { $match: { 'requests.requestId': { $in: ids }, 'requests.courier.status': { $in: HANDED_OVER } } },
+      { $project: { _id: 0, requestId: '$requests.requestId' } },
+    ]);
+    return new Set(rows.map((r) => String(r.requestId)));
+  });
 };
 
 // Request ids that have a fulfilment job still open or ready (new flow, not yet released).

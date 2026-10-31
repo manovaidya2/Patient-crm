@@ -516,4 +516,8 @@ patientSchema.index({ 'stages.familySessions.dateTime': 1 });
 patientSchema.index({ 'stages.followUps.completedAt': 1 });
 patientSchema.index({ 'stages.familySessions.completedAt': 1 });
 
+// Which patient a medicine request / fulfilment job belongs to (handover checks, job views).
+patientSchema.index({ 'stages.medicineRequests.requestId': 1 });
+patientSchema.index({ 'stages.medicineRequest.requestId': 1 });
+
 module.exports = mongoose.model('Patient', patientSchema);

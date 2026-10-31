@@ -31,4 +31,7 @@ const schema = new mongoose.Schema({
   submissionKey: { type: String, required: true, unique: true },
 }, { timestamps: true });
 
+// The ledger's pending list, oldest first.
+schema.index({ status: 1, createdAt: 1 });
+
 module.exports = mongoose.model('ConsultationReceipt', schema);

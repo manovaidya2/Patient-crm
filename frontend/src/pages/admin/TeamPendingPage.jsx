@@ -9,7 +9,7 @@ import { BUCKETS, TONE, bucketOf, when } from '../../utils/taskTiming.js';
 
 // Team pending (Admin / Manager): what every role still has to do, page by page, and whose it is.
 export default function TeamPendingPage() {
-  const { data, loading, error, load } = useTeamPending();
+  const { data, loading, error, load } = useTeamPending({ full: true });
   const [params, setParams] = useSearchParams();
   const roles = data?.roles || [];
   const roleKey = params.get('role') || roles.find((r) => r.total)?.role || '';
@@ -27,7 +27,7 @@ export default function TeamPendingPage() {
         icon={Users}
         eyebrow="Admin · Manager"
         title="Team pending work"
-        subtitle={data ? `${data.total} open items across the team · updated ${new Date(data.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Loading the team work...'}
+        subtitle={data?.roles?.length ? `${data.total} open items across the team · updated ${new Date(data.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}${data.building ? ' · refreshing...' : ''}` : 'Gathering the work of every role in the background. This page fills in by itself in a moment.'}
         actions={<Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} />Refresh</Button>}
       />
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronRight, Clock3, Package, Phone, Pill, RefreshCw, Stethoscope, UserRound } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -22,11 +23,11 @@ const Row = ({ label, value }) => (value ? <p className="text-[12.5px]"><span cl
 // how it reached them. Completing the explanation starts the treatment for that phase.
 export default function MedicineExplanations() {
   const { user } = useAuth();
-  const [items, setItems] = useState([]);
   const [date, setDate] = useState('');
   const [status, setStatus] = useState('pending');
+  const [items, setItems] = useStaleState(`medicine-explanations:${date}:${status}`, []);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!items.length);
   const [selected, setSelected] = useState(null);
   const [completedAt, setCompletedAt] = useState(localNow);
   const [notes, setNotes] = useState('');
@@ -88,7 +89,7 @@ export default function MedicineExplanations() {
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <section className="min-w-0 space-y-3" aria-label="Schedule">
-          {loading ? <p className="text-sm text-charcoal/60">Loading...</p> : !items.length ? <p className="rounded-[14px] border border-dashed border-[#DED2BD] bg-white p-8 text-center text-sm text-charcoal/60">No explanations for this selection.</p> : Object.entries(groups).map(([k, list]) => (
+          {loading && !items.length ? <p className="text-sm text-charcoal/60">Loading...</p> : !items.length ? <p className="rounded-[14px] border border-dashed border-[#DED2BD] bg-white p-8 text-center text-sm text-charcoal/60">No explanations for this selection.</p> : Object.entries(groups).map(([k, list]) => (
             <div key={k} className="space-y-3">
               <p className={`text-[10.5px] font-bold uppercase tracking-wide ${k === todayKey ? 'text-[#C2410C]' : 'text-charcoal/60'}`}>{dayTitle(k)} <span className="normal-case tracking-normal text-charcoal/55">· {list.length}</span></p>
               {list.map((item) => {

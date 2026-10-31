@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
+const { cached } = require('../utils/readCache');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const User = require('../models/User');
 const CallLog = require('../models/CallLog');
@@ -3989,7 +3990,9 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
   // This runs on every 15s poll from the reminder bell/toasts, and for Manager/Post
   // Counselor it scans the whole collection — keep the projection to just the schedule/
   // medicine-connect fields collectScheduleReminders reads, not the full "stages" tree.
-  const patients = await Patient.find(filter)
+  // The scan is the slow part on our database link; it is shared by every screen asking for the same role / person
+  // and refreshed in the background (utils/readCache), so the bell and toasts answer at once.
+  const patients = await cached(`schedule-patients|${JSON.stringify(filter)}`, () => Patient.find(filter)
     .select(
       'patientName patientCode category stages.number stages.followUps stages.familySessions '
       + 'stages.medicineNextConnectDate stages.medicineConnectDone stages.medicineNextConnectNote stages.postCounselor '
@@ -4000,7 +4003,7 @@ const getScheduleReminders = asyncHandler(async (req, res) => {
     .populate('assignedDoctor', 'name')
     .populate('assignedPsychologist', 'name')
     .populate('stages.postCounselor', 'name')
-    .lean();
+    .lean());
 
   const reminders = collectScheduleReminders(patients, req.user, { includeUpcoming24 });
   res.status(200).json({ success: true, count: reminders.length, reminders });

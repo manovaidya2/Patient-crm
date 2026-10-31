@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, HeartHandshake, Inbox, Megaphone, Search, Send, TrendingUp } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -61,8 +62,8 @@ export default function PatientImprovement() {
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useStaleState(`patient-improvement:${month}:${kind}:${show}:${search}:${page}`, null);
+  const [loading, setLoading] = useState(!data);
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState('');

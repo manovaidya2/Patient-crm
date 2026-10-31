@@ -73,6 +73,8 @@ app.use(
   })
 );
 app.use(express.json({ limit: '2mb' }));
+// Any successful save empties the shared read cache of pending lists, so no screen shows old counts.
+app.use(require('./src/utils/readCache').clearOnWrite);
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.text({ type: 'text/*', limit: '2mb' }));
 if (process.env.NODE_ENV !== 'production') {

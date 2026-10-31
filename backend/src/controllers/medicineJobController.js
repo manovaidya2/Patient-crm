@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const MedicineJob = require('../models/MedicineJob');
+const { cached } = require('../utils/readCache');
 const StockItem = require('../models/StockItem');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
@@ -202,6 +203,11 @@ const openForRequest = asyncHandler(async (req, res) => {
 // @route GET /api/medicine-jobs?status=open|ready|released|all
 const listJobs = asyncHandler(async (req, res) => {
   const status = ['open', 'ready', 'released', 'cancelled', 'all'].includes(req.query.status) ? req.query.status : 'open';
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 0, 0), 500);
+  const full = await cached(`medicine-jobs-list|${status}|${stepRole(req.user)}`, () => buildJobList(status, req.user));
+  res.json({ ...full, items: limit ? full.items.slice(0, limit) : full.items, total: full.items.length });
+});
+const buildJobList = async (status, user) => {
   const filter = status === 'all' ? {} : { status };
   const jobs = await MedicineJob.find(filter).select('-events -formulation -chits -consumption').sort({ readyByDate: 1, createdAt: -1 }).limit(500).lean();
   const items = jobs.map((j) => buildJobView(j));
@@ -209,9 +215,9 @@ const listJobs = asyncHandler(async (req, res) => {
   const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
-  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(stepRole(req.user))) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
-  res.json({ success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) });
-});
+  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(stepRole(user))) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
+  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
+};
 
 // Who has to act on a job now: the roles of its current stage (whoever resumes it while on hold; nobody once released).
 // `handedOver` (optional): request ids whose medicine already reached the patient in the old flow; those jobs are done.

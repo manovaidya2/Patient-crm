@@ -84,4 +84,11 @@ const schema = new mongoose.Schema({
   callStatus: { type: String, enum: ['pending', 'connected', 'no_answer', 'follow_up'], default: 'pending' },
 }, { timestamps: true });
 
+// The lists read most: patients sent to post counselling (outcome pending), Post Counseling Done, a Post Counselor's
+// own rows, and a lookup by the Patient ID typed at reception (the 'values' entry of that fixed column).
+schema.index({ 'registration.status': 1, 'postCounseling.outcome.kind': 1, 'registration.sentAt': -1 });
+schema.index({ 'registration.postCounselor': 1, 'registration.status': 1 });
+schema.index({ 'postCounseling.outcome.kind': 1, 'registration.consultationDate': -1 });
+schema.index({ 'values.6abb6329297d3a5387593670': 1 }, { sparse: true });
+
 module.exports = mongoose.model('AppointmentManagementEntry', schema);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock3, ExternalLink, FileText, Lock, PauseCircle, Pill, PlayCircle, Printer, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -319,7 +320,7 @@ export default function MedicineJobPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [job, setJob] = useState(null);
+  const [job, setJob] = useStaleState(`medicine-job:${id}`, null);
   const [view, setView] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');

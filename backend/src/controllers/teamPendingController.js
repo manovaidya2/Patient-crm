@@ -1,8 +1,8 @@
 const User = require('../models/User');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, ROLE_LABELS } = require('../constants/roles');
-const { PAGES, COUNTERS } = require('./taskCountController');
-const { COLLECTORS } = require('./myDayController');
+const { PAGES, countOf } = require('./taskCountController');
+const { COLLECTORS, itemsOf } = require('./myDayController');
 
 // Team pending work for the Admin / Manager: every role's open work (the same lists each person sees in their own
 // "My day"), with who it is waiting on. Pages whose work belongs to one person (their patients, their enquiries)
@@ -33,13 +33,28 @@ const doctorJobs = async () => {
   return { items, count: items.length };
 };
 const LIMIT = 25;
-const CACHE_MS = 60 * 1000;
-let cache = null;
+// Built in the background, never inside a page request: requests get the last snapshot at once. It is rebuilt every
+// 2 minutes while someone (Admin / Manager) is looking, and stops when nobody has asked for 10 minutes.
+const REFRESH_MS = 2 * 60 * 1000;
+const IDLE_MS = 10 * 60 * 1000;
+let snapshot = null;
+let building = null;
+let lastAsked = 0;
+let timer = null;
+// Lets other requests run between the steps of a build, so pages stay fast while it works.
+const breathe = () => new Promise((resolve) => setImmediate(resolve));
+const DAY = 86400000;
+// Same "overdue" rule as My day: waiting 2+ days, or due before today.
+const isOverdue = (i) => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (i.waitingSince) return i.due ? Math.floor((today - new Date(i.due)) / DAY) >= 2 : false;
+  return Boolean(i.due) && new Date(i.due) < today;
+};
 
 const run = async (page, user) => {
   try {
-    const [items, count] = await Promise.all([COLLECTORS[page](user), COUNTERS[page](user)]);
-    return { items, count: Math.max(count, items.length) };
+    const [items, count] = await Promise.all([itemsOf(page, user), countOf(page, user)]);
+    return { items: [...items], count: Math.max(count, items.length) };
   } catch (error) {
     console.error(`Team pending ${page} (${user.name}): ${error.message}`);
     return { items: [], count: 0, error: true };
@@ -59,7 +74,8 @@ const buildTeam = async () => {
     for (const page of pages) {
       if (PERSONAL_PAGES.has(page)) {
         // One list per person; each item says whose it is.
-        const results = await Promise.all(people.map(async (u) => ({ u, ...(await run(page, u)) })));
+        const results = [];
+        for (const u of people) { results.push({ u, ...(await run(page, u)) }); await breathe(); }
         const items = results.flatMap(({ u, items: list }) => list.map((i) => ({ ...i, key: `${i.key}|${u._id}`, people: [u.name] })));
         results.forEach(({ u, count }) => personTotals.set(String(u._id), personTotals.get(String(u._id)) + count));
         const count = results.reduce((s, r) => s + r.count, 0);
@@ -68,21 +84,56 @@ const buildTeam = async () => {
         // Shared by the role: anyone in it can do it.
         const { items, count } = role === ROLES.DOCTOR && page === '/admin/medicine-jobs' ? await doctorJobs() : await run(page, people[0]);
         if (count || items.length) sections.push({ page, shared: true, count, items: items.sort(byDue).slice(0, LIMIT).map((i) => ({ ...i, people: [] })) });
+        await breathe();
       }
     }
     const total = sections.reduce((s, x) => s + x.count, 0);
     roles.push({
-      role, label: ROLE_LABELS[role] || role, total, sections,
+      role, label: ROLE_LABELS[role] || role, total, sections, overdue: sections.reduce((n, x) => n + x.items.filter(isOverdue).length, 0),
       people: people.map((u) => ({ id: String(u._id), name: u.name, personal: personTotals.get(String(u._id)) })),
     });
   }
   return { at: new Date().toISOString(), total: roles.reduce((s, r) => s + r.total, 0), roles };
 };
 
-// @route GET /api/tasks/team   (Admin, Manager)  ?fresh=1 skips the one-minute cache
-const getTeamPending = asyncHandler(async (req, res) => {
-  if (!cache || req.query.fresh || Date.now() - cache.time > CACHE_MS) cache = { time: Date.now(), data: await buildTeam() };
-  res.json({ success: true, ...cache.data });
+// One build at a time; callers share it.
+const rebuild = () => {
+  if (!building) {
+    building = buildTeam()
+      .then((data) => { snapshot = { time: Date.now(), data }; })
+      .catch((error) => console.error(`Team pending could not be built: ${error.message}`))
+      .finally(() => { building = null; });
+  }
+  return building;
+};
+const keepFresh = () => {
+  if (timer) return;
+  timer = setInterval(() => {
+    if (Date.now() - lastAsked > IDLE_MS) { clearInterval(timer); timer = null; return; }
+    rebuild();
+  }, REFRESH_MS);
+  timer.unref?.();
+};
+
+// The small version for the top button and My day: totals per role and page, no item lists.
+const summaryOf = (data) => ({
+  ...data,
+  roles: data.roles.map((r) => ({ ...r, sections: r.sections.map(({ page, shared, count }) => ({ page, shared, count })) })),
 });
 
-module.exports = { getTeamPending, buildTeam };
+// @route GET /api/tasks/team   (Admin, Manager)   ?summary=1 small version · ?fresh=1 rebuild now
+// Answers at once from the last snapshot ("building": true while the first one is being made).
+const getTeamPending = asyncHandler(async (req, res) => {
+  lastAsked = Date.now();
+  keepFresh();
+  if (req.query.fresh) await rebuild();
+  else if (!snapshot || Date.now() - snapshot.time > REFRESH_MS) rebuild();
+  if (!snapshot) return res.json({ success: true, building: true, total: 0, roles: [] });
+  const data = req.query.summary ? summaryOf(snapshot.data) : snapshot.data;
+  res.json({ success: true, building: Boolean(building), ...data });
+});
+
+// On server start: make the first copy in the background, so the first look does not wait.
+const warmTeamPending = () => rebuild();
+
+module.exports = { getTeamPending, buildTeam, warmTeamPending };
