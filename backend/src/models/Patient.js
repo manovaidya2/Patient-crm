@@ -96,6 +96,8 @@ const paymentEntrySchema = new mongoose.Schema(
       default: [],
     },
     recordedByName: { type: String, trim: true, default: '' },
+    // Who added it (older payments have the name only): told when the payment is cancelled.
+    recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     editedByName: { type: String, trim: true, default: '' },
     editedAt: { type: Date, default: null },
     // Every new payment (on a brand-new patient or one already approved) needs an
@@ -113,6 +115,9 @@ const paymentEntrySchema = new mongoose.Schema(
     cancelledByName: { type: String, trim: true, default: '' },
     cancelledAt: { type: Date, default: null },
     cancellationReason: { type: String, trim: true, default: '' },
+    // The person who added a cancelled payment sees a red alert until they mark it checked.
+    cancelAlertCheckedAt: { type: Date, default: null },
+    cancelAlertCheckedByName: { type: String, trim: true, default: '' },
     refunds: { type: [refundEntrySchema], default: [] },
   },
   { timestamps: true }

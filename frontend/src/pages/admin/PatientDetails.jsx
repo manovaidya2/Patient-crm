@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
 import PhasePoPayments from '../../components/purchaseOrders/PhasePoPayments.jsx';
+import PaymentCancelAlerts from '../../components/payments/PaymentCancelAlerts.jsx';
 import SessionOutcomeModal, { OUTCOME_LABELS } from '../../components/patients/SessionOutcomeModal.jsx';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload, utrRowsFrom } from '../../components/payments/UtrRows.jsx';
 import api from '../../api/axios.js';
@@ -3034,6 +3035,7 @@ const PatientDetails = () => {
       >
         <ArrowLeft size={15} /> Back
       </button>
+      <PaymentCancelAlerts patientId={id} className="mb-4" />
 
       {loading ? (
         <Card className="text-center text-sm text-charcoal/55 py-10">Loading patient…</Card>

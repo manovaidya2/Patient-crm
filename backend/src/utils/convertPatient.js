@@ -70,7 +70,7 @@ const paymentFromPaper = (values, { cardCharge = 0, user }) => {
     utr: cash ? '' : text(values.utrReference, 1000), transactionId: cash ? '' : text(values.transactionId, 1000), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : '',
     utrEntries: cash ? [] : (Array.isArray(values.utrEntries) ? values.utrEntries : []),
     screenshotUrl: screenshots[0]?.url || null, screenshotFiles: screenshots,
-    notes, recordedByName: user.name, approvalStatus: 'pending',
+    notes, recordedByName: user.name, recordedBy: user._id || null, approvalStatus: 'pending',
   };
 };
 

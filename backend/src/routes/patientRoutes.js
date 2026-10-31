@@ -22,7 +22,7 @@ const {
   updateStagePayment,
   deleteStagePayment,
   approveStagePayment,
-  cancelStagePayment,
+  cancelStagePayment, getPaymentCancelAlerts, checkPaymentCancelAlert,
   initiatePaymentRefund,
   updatePaymentRefund,
   uploadStageRecord,
@@ -75,6 +75,7 @@ router.get('/refunds-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRAN
 router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), getPendingApprovals);
 router.get('/:id/calls', getPatientCallLogs);
 router.get('/:id/record-room', getPatientRecordRoom);
+router.get('/payment-cancel-alerts', getPaymentCancelAlerts);
 router.get('/:id/purchase-orders', getPatientPurchaseOrders);
 router.get('/:id', getPatientById);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
@@ -88,6 +89,7 @@ router.post('/:id/stages/:number/payments', authorize(...PAYMENT_ADD_ROLES), upl
 router.patch('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPaymentScreenshot.array('screenshot', 10), updateStagePayment);
 router.delete('/:id/stages/:number/payments/:paymentId', authorize(ROLES.ADMIN), deleteStagePayment);
 router.patch('/:id/stages/:number/payments/:paymentId/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), approveStagePayment);
+router.patch('/:id/stages/:number/payments/:paymentId/cancel-alert', checkPaymentCancelAlert);
 router.patch('/:id/stages/:number/payments/:paymentId/cancel', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), cancelStagePayment);
 router.post('/:id/stages/:number/payments/:paymentId/refunds', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), uploadPaymentScreenshot.array('screenshot', 10), initiatePaymentRefund);
 router.post('/:id/refunds', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), uploadPaymentScreenshot.array('screenshot', 10), initiatePaymentRefund);

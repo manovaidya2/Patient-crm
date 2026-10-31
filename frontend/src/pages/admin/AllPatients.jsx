@@ -11,6 +11,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { PageHeader } from '../../components/ui/Layout.jsx';
+import PaymentCancelAlerts from '../../components/payments/PaymentCancelAlerts.jsx';
 
 const PAGE_SIZE = 10;
 const OPTIONAL_PATIENT_COLUMNS = [
@@ -248,6 +249,8 @@ const AllPatients = () => {
             <Plus size={16} /> Add Patient
           </Button>}
         </div>} />
+      {/* Payments this user added that were cancelled: shown until marked checked. */}
+      <PaymentCancelAlerts className="mb-4" />
 
       <Modal open={columnsOpen} onClose={() => setColumnsOpen(false)} title="Patient list columns">
         <div className="space-y-3">

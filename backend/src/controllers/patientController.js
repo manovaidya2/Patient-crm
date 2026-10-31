@@ -2284,6 +2284,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
     screenshotUrl: screenshotFiles[0]?.url || null,
     screenshotFiles,
     recordedByName: req.user.name,
+    recordedBy: req.user._id,
     approvalStatus: 'pending',
   });
   addActivity(
@@ -2490,6 +2491,47 @@ const saveFinancialPatient = async (patient, res) => {
     return false;
   }
 };
+
+// Cancelled payments the signed-in user added (by id; older payments by name) and has not marked checked yet, from the
+// last 30 days - shown as red alerts on the Patients page and on that patient's page. Not when they cancelled it themselves.
+const CANCEL_ALERT_DAYS = 30;
+const cancelAlertRecipient = (pay, user) => (pay.recordedBy ? String(pay.recordedBy) === String(user._id) : Boolean(pay.recordedByName) && pay.recordedByName === user.name);
+const getPaymentCancelAlerts = asyncHandler(async (req, res) => {
+  const since = new Date(Date.now() - CANCEL_ALERT_DAYS * 86400000);
+  const mine = { $or: [{ recordedBy: req.user._id }, { recordedBy: null, recordedByName: req.user.name }] };
+  const filter = { 'stages.payments': { $elemMatch: { approvalStatus: 'cancelled', cancelledAt: { $gte: since }, cancelAlertCheckedAt: null, ...mine } } };
+  if (req.query.patientId && mongoose.Types.ObjectId.isValid(String(req.query.patientId))) filter._id = req.query.patientId;
+  const patients = await Patient.find(filter).select('patientName patientCode stages.number stages.payments').lean();
+  const alerts = [];
+  for (const patient of patients) for (const stage of patient.stages || []) for (const pay of stage.payments || []) {
+    if (pay.approvalStatus !== 'cancelled' || pay.cancelAlertCheckedAt || !pay.cancelledAt || new Date(pay.cancelledAt) < since) continue;
+    if (!cancelAlertRecipient(pay, req.user) || pay.cancelledByName === req.user.name) continue;
+    alerts.push({
+      patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode || '', phase: stage.number, paymentId: String(pay._id),
+      amount: pay.amount, paymentMode: pay.paymentMode || 'online', utr: pay.utr || '', receivedBy: pay.receivedBy || '', date: pay.date,
+      cancelledByName: pay.cancelledByName || '', cancelledAt: pay.cancelledAt, reason: pay.cancellationReason || '',
+    });
+  }
+  alerts.sort((a, b) => new Date(b.cancelledAt) - new Date(a.cancelledAt));
+  res.json({ success: true, alerts });
+});
+
+// @route PATCH /api/patients/:id/stages/:number/payments/:paymentId/cancel-alert   The person who added it (or the admin) marks it checked.
+const checkPaymentCancelAlert = asyncHandler(async (req, res) => {
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  const stage = (patient.stages || []).find((s) => s.number === parseInt(req.params.number, 10));
+  const pay = stage?.payments.id(req.params.paymentId);
+  if (!pay || pay.approvalStatus !== 'cancelled') return res.status(404).json({ success: false, message: 'Cancelled payment not found' });
+  if (req.user.role !== ROLES.ADMIN && !cancelAlertRecipient(pay, req.user)) return res.status(403).json({ success: false, message: 'Only the person who added this payment marks it checked' });
+  if (!pay.cancelAlertCheckedAt) {
+    pay.cancelAlertCheckedAt = new Date();
+    pay.cancelAlertCheckedByName = req.user.name;
+    addActivity(patient, req.user, `Cancelled payment checked for Phase ${stage.number}`, `${pay.amount} | cancelled by ${pay.cancelledByName}`);
+    await patient.save();
+  }
+  res.json({ success: true });
+});
 
 const cancelStagePayment = asyncHandler(async (req, res) => {
   const found = await findPaymentForFinancialAction(req, res);
@@ -4068,7 +4110,7 @@ module.exports = {
   updateStagePayment,
   deleteStagePayment,
   approveStagePayment,
-  cancelStagePayment,
+  cancelStagePayment, getPaymentCancelAlerts, checkPaymentCancelAlert,
   initiatePaymentRefund,
   updatePaymentRefund,
   uploadStageRecord,

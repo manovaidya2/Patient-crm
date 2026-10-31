@@ -191,7 +191,7 @@ const ACTIONS = {
       amount, date: body.date ? parseDate(body.date, 'payment date') : new Date(), paymentMode, utr, receivedBy,
       transactionId: paymentMode === 'online' ? clean(utrs.transactionId, 1000) : '', utrEntries: paymentMode === 'online' ? utrs.utrEntries : [],
       notes: clean(body.notes, 2000), screenshotUrl: files[0]?.url || null, screenshotFiles: files,
-      recordedByName: req.user.name, approvalStatus: 'pending',
+      recordedByName: req.user.name, recordedBy: req.user._id, approvalStatus: 'pending',
     });
     // It pays for the medicine In Transit is handling: goes on that request's PO.
     const po = poOfRequest(await phasePurchaseOrders(patient._id, stage.number), request);

@@ -118,7 +118,7 @@ const paymentFromBody = async (body, files, user, poNumber) => {
     receivedBy: mode === 'cash' ? clean(body.receivedBy, 120) : '',
     notes: [`PO ${poNumber}`, longText(body.paymentNotes, 1500)].filter(Boolean).join(' | '),
     screenshotUrl: items[0]?.url || null, screenshotFiles: items,
-    recordedByName: user.name, approvalStatus: 'pending',
+    recordedByName: user.name, recordedBy: user._id || null, approvalStatus: 'pending',
   };
 };
 
