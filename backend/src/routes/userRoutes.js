@@ -1,5 +1,5 @@
 const express = require('express');
-const { createUser, getUsers, updateUser, deleteUser, getAssistantDoctors, getPsychologists, getPostCounselors } = require('../controllers/userController');
+const { createUser, getUsers, updateUser, deleteUser, getUserLinks, getAssistantDoctors, getPsychologists, getPostCounselors } = require('../controllers/userController');
 const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
@@ -14,6 +14,7 @@ router.get('/post-counselors', authorize('admin', 'manager', 'post_counselor'), 
 // Everything else stays admin-only
 router.use(authorize('admin'));
 router.route('/').post(createUser).get(getUsers);
+router.get('/:id/links', getUserLinks);
 router.route('/:id').patch(updateUser).delete(deleteUser);
 
 module.exports = router;

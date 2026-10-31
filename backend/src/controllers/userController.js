@@ -85,7 +85,11 @@ const updateUser = asyncHandler(async (req, res) => {
 
   if (name !== undefined) user.name = name;
   if (phone !== undefined) user.phone = phone;
-  if (isActive !== undefined) user.isActive = isActive;
+  const deactivating = isActive !== undefined && user.isActive && !isActive;
+  if (isActive !== undefined) {
+    user.isActive = isActive;
+    Object.assign(user, isActive ? { deactivatedAt: null, deactivatedByName: '' } : deactivating ? { deactivatedAt: new Date(), deactivatedByName: req.user.name } : {});
+  }
   if (password !== undefined && password !== '') {
     if (password.length < 6) {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
@@ -96,13 +100,40 @@ const updateUser = asyncHandler(async (req, res) => {
   const passwordChanged = password !== undefined && password !== '';
   await user.save();
   // The member is logged out on every device they were signed in on.
-  if (passwordChanged) dropOtherSockets(req.app?.get?.('io'), user._id);
+  if (passwordChanged || deactivating) dropOtherSockets(req.app?.get?.('io'), user._id);
   res.status(200).json({ success: true, user: formatUser(user), ...(passwordChanged ? { loggedOutEverywhere: true } : {}) });
 });
 
 // @desc    Delete a team member
 // @route   DELETE /api/users/:id
 // @access  Private/Admin
+// What still points at a team member: patients and open work. Shown before deactivating (to hand the open work
+// over) and used to refuse a delete that would leave those records pointing at nobody.
+const linksOf = async (userId) => {
+  const Patient = require('../models/Patient');
+  const Management = require('../models/AppointmentManagementEntry');
+  const Enquiry = require('../models/Enquiry');
+  const TeamChat = require('../models/TeamChat');
+  const PackageNotBought = require('../models/PackageNotBoughtPatient');
+  const [phasePatients, pccPatients, psyPatients, pendingSent, openEnquiries, openQueries, pnb] = await Promise.all([
+    Patient.countDocuments({ 'stages.postCounselor': userId }),
+    Patient.countDocuments({ assignedDoctor: userId }),
+    Patient.countDocuments({ assignedPsychologist: userId }),
+    Management.countDocuments({ 'registration.postCounselor': userId, 'registration.status': 'sent', 'postCounseling.outcome.kind': { $exists: false } }),
+    Enquiry.countDocuments({ assignedTo: userId, status: { $in: ['open', 'in_progress'] }, deletedAt: null }),
+    TeamChat.countDocuments({ assignedTo: userId, kind: { $ne: 'direct' }, status: { $ne: 'closed' } }),
+    PackageNotBought.countDocuments({ createdBy: userId }),
+  ]);
+  return { phasePatients, pccPatients, psyPatients, pendingSent, openEnquiries, openQueries, pnb, total: phasePatients + pccPatients + psyPatients + pendingSent + openEnquiries + openQueries + pnb };
+};
+
+// @route GET /api/users/:id/links
+const getUserLinks = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id).select('_id');
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  res.json({ success: true, links: await linksOf(user._id) });
+});
+
 const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
   if (!user) {
@@ -113,6 +144,11 @@ const deleteUser = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Admin account cannot be deleted' });
   }
 
+  // Linked to patients or open work: deleting would leave those records pointing at nobody - deactivate instead.
+  const links = await linksOf(user._id);
+  if (links.total > 0) {
+    return res.status(409).json({ success: false, message: `${user.name} is linked to patients / open work. Deactivate them instead: they are hidden everywhere and their name stays on the old records.`, links });
+  }
   await user.deleteOne();
   res.status(200).json({ success: true, message: 'User removed' });
 });
@@ -150,4 +186,4 @@ const getPostCounselors = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createUser, getUsers, updateUser, deleteUser, getAssistantDoctors, getPsychologists, getPostCounselors };
+module.exports = { createUser, getUsers, updateUser, deleteUser, getUserLinks, getAssistantDoctors, getPsychologists, getPostCounselors };

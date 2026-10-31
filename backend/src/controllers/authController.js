@@ -15,6 +15,8 @@ const formatUser = (user) => ({
   roleLabel: ROLE_LABELS[user.role],
   phone: user.phone,
   isActive: user.isActive,
+  deactivatedAt: user.deactivatedAt || null,
+  deactivatedByName: user.deactivatedByName || '',
 });
 
 // @desc    Login user & get token

@@ -37,6 +37,9 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // When and by whom the login was turned off (the person is then hidden from every list but stays on old records).
+    deactivatedAt: { type: Date, default: null },
+    deactivatedByName: { type: String, trim: true, default: '' },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

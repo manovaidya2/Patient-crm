@@ -37,6 +37,11 @@ const TeamMembers = () => {
   const [changingAdminPassword, setChangingAdminPassword] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
+  // Deactivate: a confirm box saying what happens and what is still linked to the person (to hand it over).
+  const [deactivateTarget, setDeactivateTarget] = useState(null);
+  const [links, setLinks] = useState(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const loadLinks = async (u) => { setLinks(null); try { const { data } = await api.get(`/users/${u.id}/links`); setLinks(data.links); } catch { setLinks({ total: 0, error: true }); } };
   const [deleting, setDeleting] = useState(false);
 
   const fetchUsers = async () => {
@@ -126,14 +131,28 @@ const TeamMembers = () => {
   };
 
   const toggleActive = async (user) => {
+    // Turning a login off asks first; turning it back on is immediate.
+    if (user.isActive) { setDeactivateTarget(user); loadLinks(user); return; }
     try {
-      await api.patch(`/users/${user.id}`, { isActive: !user.isActive });
-      showToast(user.isActive ? 'Login deactivated' : 'Login activated');
+      await api.patch(`/users/${user.id}`, { isActive: true });
+      showToast(`${user.name} is active again`);
       fetchUsers();
     } catch (err) {
       showToast(err.response?.data?.message || 'Could not update status', 'error');
     }
   };
+  const confirmDeactivate = async () => {
+    setStatusSaving(true);
+    try {
+      await api.patch(`/users/${deactivateTarget.id}`, { isActive: false });
+      showToast(`${deactivateTarget.name} deactivated: logged out and hidden from every list`);
+      setDeactivateTarget(null); setDeleteTarget(null);
+      fetchUsers();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Could not deactivate', 'error');
+    } finally { setStatusSaving(false); }
+  };
+  const LINK_ROWS = [['phasePatients', 'patients have them as the phase Post Counselor', 'their name stays there'], ['pccPatients', 'patients have them as PCC', 'assign another PCC on those patients'], ['psyPatients', 'patients have them as psychologist', ''], ['pendingSent', 'patients sent to them for post counselling, not finished', 'these wait for them: Admin can still open and finish them'], ['openEnquiries', 'open enquiries assigned to them', 'forward them to someone else'], ['openQueries', 'open team chat queries sent to them', 'forward them to someone else'], ['pnb', 'package-not-bought records added by them', '']];
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -327,6 +346,7 @@ const TeamMembers = () => {
                       <Badge tone={u.isActive ? 'active' : 'inactive'}>
                         {u.isActive ? 'Active' : 'Inactive'}
                       </Badge>
+                      {!u.isActive && u.deactivatedAt && <span className="mt-0.5 block text-[11px] text-charcoal/50">since {new Date(u.deactivatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{u.deactivatedByName ? ` by ${u.deactivatedByName}` : ''}</span>}
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
@@ -345,7 +365,7 @@ const TeamMembers = () => {
                           <UserX2 size={15} />
                         </button>
                         <button
-                          onClick={() => setDeleteTarget(u)}
+                          onClick={() => { setDeleteTarget(u); loadLinks(u); }}
                           aria-label={`Delete ${u.name}`}
                           className="p-2 rounded-md text-[#8C3B2E] hover:bg-[#8C3B2E]/10"
                         >
@@ -422,9 +442,17 @@ const TeamMembers = () => {
 
       {/* Delete confirmation */}
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Remove team member">
+        {!links ? <p className="text-sm text-charcoal/60">Checking what is linked to {deleteTarget?.name}…</p> : links.total > 0 ? (
+          <div className="space-y-3 text-sm">
+            <p className="flex gap-2 rounded-lg bg-amber-50 px-3 py-2 text-amber-900"><AlertTriangle size={16} className="mt-0.5 shrink-0" /><span><b>{deleteTarget?.name}</b> cannot be deleted: patients and work are linked to them. Deleting would leave those records pointing at nobody.</span></p>
+            <ul className="space-y-1 text-charcoal/75">{LINK_ROWS.filter(([k]) => links[k]).map(([k, label]) => <li key={k}><b className="text-charcoal">{links[k]}</b> {label}</li>)}</ul>
+            <p className="text-charcoal/70"><b>Deactivate</b> them instead: they are logged out, hidden from every list (reception, Team Chat, Enquiries, assignments) and their name stays on the patients they handled.</p>
+            <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>{deleteTarget?.isActive && <Button onClick={() => { setDeactivateTarget(deleteTarget); setDeleteTarget(null); }}><UserX2 size={15} />Deactivate instead</Button>}</div>
+          </div>
+        ) : (<>
         <p className="text-sm text-charcoal/70">
           Are you sure you want to remove <span className="font-semibold text-charcoal">{deleteTarget?.name}</span>?
-          Their login will stop working immediately. This cannot be undone.
+          Nothing in the CRM is linked to them. Their login will stop working immediately. This cannot be undone.
         </p>
         <div className="flex items-center justify-end gap-2 pt-5">
           <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
@@ -434,6 +462,26 @@ const TeamMembers = () => {
             {deleting ? 'Removing…' : 'Remove'}
           </Button>
         </div>
+        </>)}
+      </Modal>
+
+      <Modal open={!!deactivateTarget} onClose={() => !statusSaving && setDeactivateTarget(null)} title={`Deactivate ${deactivateTarget?.name || ''}`}>
+        {deactivateTarget && <div className="space-y-3 text-sm">
+          <p className="text-charcoal/75">For someone who has left. Their account is kept, but:</p>
+          <ul className="list-disc space-y-1 pl-5 text-charcoal/75">
+            <li>they are <b>logged out at once</b> on every device and cannot log in;</li>
+            <li>they are <b>hidden everywhere</b>: reception cannot send patients to them, and they are not in Team Chat, Enquiries or any assignment list;</li>
+            <li>their <b>name stays</b> on the patients and records they handled (e.g. the phase Post Counselor in Patient Details).</li>
+          </ul>
+          {!links ? <p className="text-charcoal/55">Checking what is linked to them…</p> : links.total > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="mb-1 font-semibold text-amber-900">Still linked to them</p>
+              <ul className="space-y-1 text-amber-900/90">{LINK_ROWS.filter(([k]) => links[k]).map(([k, label, hint]) => <li key={k}><b>{links[k]}</b> {label}{hint ? <span className="block text-xs text-amber-900/70">{hint}</span> : null}</li>)}</ul>
+            </div>
+          )}
+          <p className="text-xs text-charcoal/55">You can activate them again any time from this page.</p>
+          <div className="flex justify-end gap-2"><Button variant="ghost" disabled={statusSaving} onClick={() => setDeactivateTarget(null)}>Cancel</Button><Button variant="danger" disabled={statusSaving} onClick={confirmDeactivate}><UserX2 size={15} />{statusSaving ? 'Deactivating…' : 'Deactivate'}</Button></div>
+        </div>}
       </Modal>
     </div>
   );

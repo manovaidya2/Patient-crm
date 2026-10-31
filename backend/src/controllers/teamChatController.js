@@ -68,7 +68,8 @@ const visibleMessages = (chat, user) => {
   const admin = user.role === ROLES.ADMIN;
   return chat.messages.filter((m) => (!at || new Date(m.createdAt).getTime() > at) && (admin || !(m.hiddenFor || []).some((id) => same(id, user._id))));
 };
-const unreadFor = (chat, user) => visibleMessages(chat, user).filter((m) => !same(m.sender, user._id) && !(m.readBy || []).some((r) => same(r.user, user._id))).length;
+// Only one's own chats count: the admin also sees other people's chats, but opening them does not mark them seen.
+const unreadFor = (chat, user) => !(chat.participants || []).some((id) => same(id, user._id)) ? 0 : visibleMessages(chat, user).filter((m) => !same(m.sender, user._id) && !(m.readBy || []).some((r) => same(r.user, user._id))).length;
 const summaryView = (chat, user) => {
   const shown = visibleMessages(chat, user);
   const last = shown[shown.length - 1];
@@ -234,7 +235,7 @@ const list = asyncHandler(async (req, res) => {
 
 // @route GET /api/team-chat/unread   For the bell: threads with messages this person has not seen.
 const unread = asyncHandler(async (req, res) => {
-  const chats = await TeamChat.find({ ...accessFilter(req.user), status: { $ne: 'closed' } }).select('kind subject patientName participants clearedBy messages.sender messages.readBy messages.senderName messages.createdAt lastMessageAt').sort({ lastMessageAt: -1 }).limit(100).lean();
+  const chats = await TeamChat.find({ participants: req.user._id, status: { $ne: 'closed' } }).select('kind subject patientName participants clearedBy messages.sender messages.readBy messages.senderName messages.createdAt messages.hiddenFor lastMessageAt').sort({ lastMessageAt: -1 }).limit(100).lean();
   const items = chats.map((c) => ({ id: String(c._id), kind: c.kind, subject: c.kind === 'direct' ? 'chat' : c.subject, patientName: c.patientName, withId: String((c.participants || []).find((id) => !same(id, req.user._id)) || ''), unread: unreadFor(c, req.user), lastAt: c.lastMessageAt, lastFrom: c.messages[c.messages.length - 1]?.senderName || '' })).filter((c) => c.unread > 0);
   res.json({ success: true, items, total: items.reduce((n, c) => n + c.unread, 0) });
 });
