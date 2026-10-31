@@ -504,12 +504,12 @@ const resumeJob = asyncHandler(async (req, res) => {
 
 // Post counselling changed the ready date / supply / age group before the request was accepted: the waiting job follows
 // (and its formulation sheet is rebuilt for the new supply and age group).
-const applyPlanToJob = async (job, { readyBy, plan, part, ageBand }, user, details) => {
+const applyPlanToJob = async (job, { readyBy, plan, part, ageBand, extra = {} }, user, details, action = 'Plan changed by post counselling') => {
   if (!job || (job.currentStage || 0) > 0) return;
   const sheetChanged = plan !== job.supplyPlan || part !== job.supplyPart || ageBand !== job.ageBand;
-  Object.assign(job, { readyByDate: readyBy, supplyPlan: plan, supplyPart: part, ageBand });
+  Object.assign(job, { readyByDate: readyBy, supplyPlan: plan, supplyPart: part, ageBand, ...extra });
   if (sheetChanged) await applyFormulation(job);
-  event(job, user, 'Plan changed by post counselling', details);
+  event(job, user, action, details);
   await job.save();
 };
 

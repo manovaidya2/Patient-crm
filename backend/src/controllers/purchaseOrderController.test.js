@@ -395,3 +395,24 @@ test('medicine ready but the delivery not scheduled yet: "Delivery schedule pend
   stage.medicineExplainDate = new Date();
   assert.equal(buildPoView(po, patient).stageKey, 'handover');
 });
+
+test('In Transit edits its medicine request until Medicine Department accepts it', async () => {
+  const patient = makePatient({ approvalStatus: 'approved' });
+  memoryPos();
+  const MedicineJob = require('../models/MedicineJob');
+  mock.method(MedicineJob, 'findOne', async () => null);
+  const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first' }) })).purchaseOrder;
+  await verifyBoth(created.id);
+  await assert.rejects(call(controller.updateMedicineRequest, { params: { id: created.id }, body: { notes: 'x' } }), /no medicine request/);
+  await call(controller.requestMedicine, { params: { id: created.id }, body: { supplyKey: '1+5:first', ageBand: '4-12', readyByDate: '2026-11-02', notes: 'First note' }, files: [] });
+  await assert.rejects(call(controller.updateMedicineRequest, { params: { id: created.id }, body: {} }), /Nothing was changed/);
+  const res = (await call(controller.updateMedicineRequest, { params: { id: created.id }, body: { notes: 'Corrected note', caseCategory: 'ADHD' } })).purchaseOrder;
+  const request = patient.stages[0].medicineRequests[0];
+  assert.equal(request.notes, 'Corrected note');
+  assert.equal(request.caseCategory, 'ADHD');
+  assert.equal(request.editedByName, 'Transit');
+  assert.ok(res.events.some((e) => e.action === 'Medicine request edited'));
+  // Accepted by Medicine Department: no more edits.
+  request.status = 'in_process';
+  await assert.rejects(call(controller.updateMedicineRequest, { params: { id: created.id }, body: { notes: 'Too late' } }), /already accepted/);
+});

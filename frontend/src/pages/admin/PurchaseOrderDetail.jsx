@@ -112,6 +112,8 @@ function doneItems(step, po) {
       } : null,
       med.medicines ? { text: `Medicines: ${med.medicines}` } : null,
       med.notes ? { text: `Notes: ${med.notes}`, sub: med.requestedByName && `by ${med.requestedByName}` } : null,
+      // Every correction made before Medicine Department accepted it: what changed, by whom, when.
+      ...(po.events || []).filter((e) => e.action === 'Medicine request edited').reverse().map((e) => ({ text: `Edited: ${e.details}`, sub: line(e.byName && `by ${e.byName}`, poDateTime(e.at)) })),
     ];
   } else if (step.jobStage) {
     // A fulfilment stage of the medicine job: what Medicine Department ticked and filled.
@@ -333,16 +335,18 @@ function VerifyPanel({ po, onDone }) {
   );
 }
 
-function MedicineRequestForm({ po, onDone }) {
+// `edit`: correct the request already sent (allowed until Medicine Department accepts it), with `onCancel`.
+function MedicineRequestForm({ po, onDone, edit = false, onCancel }) {
   const { user } = useAuth();
   const admin = user?.role === ROLES.ADMIN;
   // Fixed in post counselling: In Transit passes them on as they are (only the admin can change them).
-  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && !admin;
+  const supplyLocked = Boolean(edit ? po.fixedPlan?.paperSupply : po.fixedPlan?.supplyLocked) && !admin;
   const dateLocked = Boolean(po.fixedPlan?.readyDate) && !admin;
-  const ageLocked = Boolean(po.fixedPlan?.ageBandLocked) && !admin;
+  const ageLocked = Boolean(edit ? po.fixedPlan?.paperAgeBand : po.fixedPlan?.ageBandLocked) && !admin;
+  const med = po.medicine || {};
   const [values, setValues] = useState({
     supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), ageBand: po.ageBand || po.suggestedAgeBand || '',
-    caseCategory: po.patientCaseCategory || '', readyByDate: inputDay(po.medicineReadyDate), notes: '',
+    caseCategory: (edit && med.caseCategory) || po.patientCaseCategory || '', readyByDate: inputDay(edit ? med.readyByDate || po.medicineReadyDate : po.medicineReadyDate), notes: edit ? med.notes || '' : '',
   });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -355,16 +359,21 @@ function MedicineRequestForm({ po, onDone }) {
     if (!values.caseCategory) { setError('Select the category: Autism, ADHD, Autism + ADHD or Mental Health'); return; }
     setBusy(true); setError('');
     try {
+      if (edit) {
+        const { data } = await api.patch(`/purchase-orders/${po.id}/medicine-request`, values);
+        onDone(data.purchaseOrder, 'Medicine request updated.');
+        return;
+      }
       const body = new FormData();
       Object.entries(values).forEach(([key, value]) => { if (value) body.append(key, value); });
       files.forEach((file) => body.append('prescription', file));
       const { data } = await api.post(`/purchase-orders/${po.id}/medicine-request`, body);
       onDone(data.purchaseOrder, 'Medicine request sent to Medicine Department.');
-    } catch (err) { setError(err.response?.data?.message || 'Could not send the request'); } finally { setBusy(false); }
+    } catch (err) { setError(err.response?.data?.message || (edit ? 'Could not update the request' : 'Could not send the request')); } finally { setBusy(false); }
   };
   return (
     <form onSubmit={submit} className="space-y-3">
-      <div className="flex gap-3"><Pill size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">Request medicine from Medicine Department</h3><p className="text-sm text-charcoal/65">Confirm the supply and the age group; Medicine Department prepares by this category.</p></div></div>
+      <div className="flex gap-3"><Pill size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">{edit ? 'Edit the medicine request' : 'Request medicine from Medicine Department'}</h3><p className="text-sm text-charcoal/65">{edit ? 'Possible until Medicine Department accepts the request. The changes go to its fulfilment job too.' : 'Confirm the supply and the age group; Medicine Department prepares by this category.'}</p></div></div>
       <ErrorText>{error}</ErrorText>
       <div><p className="mb-1 text-sm font-medium text-charcoal">Category<span className="text-red-700"> *</span> {po.patientCaseCategory && <span className="font-normal text-charcoal/50">(patient's category: {po.patientCaseCategory})</span>}</p><div className="flex flex-wrap gap-1.5">{CASE_CATEGORIES.map((c) => <Chip key={c} active={values.caseCategory === c} onClick={() => set('caseCategory', c)}>{c}</Chip>)}</div></div>
       <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} title={o.hint} active={values.supplyKey === o.key} disabled={supplyLocked && values.supplyKey !== o.key} onClick={() => !supplyLocked && set('supplyKey', o.key)}>{o.label}</Chip>)}</div>{supplyLocked && <FixedNote />}</div>
@@ -374,7 +383,10 @@ function MedicineRequestForm({ po, onDone }) {
         <div className="sm:col-span-2"><p className="mb-1 text-sm text-charcoal/65">No prescription upload: the Medicine Department reads the patient's whole file from the Records Room.</p><PatientFile documents={po.patientDocuments || []} /></div>
         <FieldLabel label="Notes for Medicine Department" className="sm:col-span-2"><input className={poInput} value={values.notes} onChange={(e) => set('notes', e.target.value)} /></FieldLabel>
       </div>
-      <Button type="submit" disabled={busy}><Send size={15} />{busy ? 'Sending...' : 'Send medicine request'}</Button>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={busy}>{edit ? <Check size={15} /> : <Send size={15} />}{busy ? (edit ? 'Saving...' : 'Sending...') : edit ? 'Save changes' : 'Send medicine request'}</Button>
+        {edit && onCancel && <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>}
+      </div>
     </form>
   );
 }
@@ -630,6 +642,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     catch (err) { setError(err.response?.data?.message || 'Could not revert this step'); } finally { setReverting(false); }
   };
   const [busyPayment, setBusyPayment] = useState('');
+  const [editingRequest, setEditingRequest] = useState(false);
   // Admin: delete this PO with everything on it (kept as a copy on the server).
   const navigate = useNavigate();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -850,8 +863,15 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             ) : <p className="mt-2 text-sm text-charcoal/50">No payment recorded on this PO.</p>}
           </Section>}
 
-          {show('medicine') && <Section title="Medicine request" icon={Pill}>
-            {med ? <>
+          {show('medicine') && <Section title="Medicine request" icon={Pill} action={med?.status === 'requested' && canVerify && !editingRequest && <button type="button" className={smallLink} onClick={() => setEditingRequest(true)}><Pencil size={13} />Edit request</button>}>
+            {med && editingRequest && med.status === 'requested' ? <MedicineRequestForm po={po} edit onCancel={() => setEditingRequest(false)} onDone={(next, message) => { setEditingRequest(false); done(next, message); }} /> : med ? <>
+              {med.status === 'requested' && <p className="mb-2 text-xs text-charcoal/60">Can be edited until Medicine Department accepts it.</p>}
+              {(po.events || []).some((e) => e.action === 'Medicine request edited') && (
+                <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <p className="font-bold">Edited after it was sent</p>
+                  <ul className="mt-1 space-y-1">{(po.events || []).filter((e) => e.action === 'Medicine request edited').reverse().map((e, i) => <li key={i}><span className="font-semibold">{e.details}</span><span className="block text-amber-900/70">by {e.byName} · {poDateTime(e.at)}</span></li>)}</ul>
+                </div>
+              )}
               <span className={`mb-2 inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${['made', 'sent_to_courier'].includes(med.status) ? 'bg-emerald-100 text-emerald-800' : med.status === 'cancelled' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : 'bg-amber-100 text-amber-900'}`}>{MED_STATUS[med.status] || med.status}</span>
               <Row label="Category" value={med.caseCategory} />
               <Row label="Medicines" value={med.medicines} />

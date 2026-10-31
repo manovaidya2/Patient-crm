@@ -2,10 +2,10 @@
 // "PO created" to "Treatment started". Nothing here is stored; every step is read from the records the other screens
 // already write (payments, medicine request, courier, phase transit), so all views agree.
 const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
-const { supplyLabel, ageBandFor, AGE_BANDS } = require('../constants/supplyPlans');
+const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
 const { phaseAge } = require('./phaseAge');
-const { medicineDelays, fixedReadyDate, dispatchDelayInput } = require('./medicineDelay');
+const { medicineDelays, fixedReadyDate, dispatchDelayInput, readyDateFromPostCounselling } = require('./medicineDelay');
 const { PO_REVERT_ORDER } = require('./revertFlow');
 const { paymentsOfPo, poPaymentSummary } = require('./poPayment');
 const { STAGE_INDEX } = require('./medicineJobFlow');
@@ -314,7 +314,12 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     phasePendingPayments: poPayments.filter((p) => p.approvalStatus === 'pending').map((p) => ({ ...formatPayment(p), onThisPo: ids.has(String(p._id)) })),
     phaseHold: Boolean(t.holdActive), phaseRemoved: Boolean(t.removedAt),
     // Ready date and supply come from post counselling (PO paper): read-only for In Transit and Medicine Department.
-    fixedPlan: { readyDate: iso(fixedReadyDate({ po, stage })), supplyLocked: Boolean(po.supplyPlan && po.supplyPart), ageBandLocked: Boolean(po.ageBand) },
+    fixedPlan: {
+      readyDate: iso(fixedReadyDate({ po, stage })), supplyLocked: Boolean(po.supplyPlan && po.supplyPart), ageBandLocked: Boolean(po.ageBand),
+      // What the PO paper (post counselling) itself fixed - stays locked when In Transit edits its request.
+      paperSupply: readyDateFromPostCounselling(po) && Boolean(supplyOptionByLabel(po.paperValues?.supplyOrder)),
+      paperAgeBand: readyDateFromPostCounselling(po) && Boolean(ageBandByLabel(po.paperValues?.ageGroup)),
+    },
     // Days late against that date: medicine made (Medicine Department) and released to In Transit.
     delay: medicineDelays({ expected: po.medicineReadyDate || req?.readyByDate, madeAt: req?.madeAt, releasedAt: req?.sentToCourierAt, ...(transitOwner ? dispatchDelayInput({ stage, request: req }) : {}) }),
     medicine: request ? {
@@ -331,6 +336,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
       prescriptionFiles: [...(req.prescriptionFiles || []), ...(req.prescriptionUrl && !(req.prescriptionFiles || []).some((f) => f.url === req.prescriptionUrl) ? [{ url: req.prescriptionUrl, fileName: req.prescriptionFileName || 'Prescription' }] : [])],
       medicineImages: req.medicineImages || [],
       cancelReason: req.cancelReason || '',
+      editedAt: iso(req.editedAt), editedByName: req.editedByName || '',
     } : null,
     courier: request ? { status: courier.status || 'pending', deliveryMode: courier.deliveryMode || '', courierPartner: courier.courierPartner || '', trackingNumber: courier.trackingNumber || '', receivedByName: courier.receivedByName || '', deliveredAt: iso(courier.deliveredAt), dispatchedAt: iso(courier.dispatchedAt) } : null,
     canRequestMedicine: canRequestMedicine && !requestBlockedReason,

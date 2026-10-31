@@ -6,7 +6,7 @@ const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { STAGES } = require('../constants/treatmentStages');
-const { supplyOption, supplyOptionByLabel, AGE_BANDS, ageBandByLabel, ageBandFor } = require('../constants/supplyPlans');
+const { supplyOption, supplyOptionByLabel, supplyLabel, AGE_BANDS, ageBandByLabel, ageBandFor } = require('../constants/supplyPlans');
 const { setPhaseAge } = require('../utils/phaseAge');
 const purchase = require('../utils/purchaseOrderRecord');
 const { assertPurchaseComplete, withBankName, paymentFromPaper } = require('../utils/convertPatient');
@@ -523,6 +523,63 @@ const requestMedicine = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
+// @route PATCH /api/purchase-orders/:id/medicine-request   body: same fields as the request
+// In Transit corrects its medicine request until Medicine Department accepts it (the job is still at "Order accepted").
+// What post counselling fixed (supply, age group, ready date) stays as it is, as when the request was sent.
+const updateMedicineRequest = asyncHandler(async (req, res) => {
+  const po = await loadPo(req.params.id);
+  const patient = await loadPatient(po.patient);
+  const stage = stageOf(patient, po.phase);
+  const request = findRequest(stage, po.medicineRequestId);
+  if (!request || request.status === 'cancelled') fail('There is no medicine request on this PO to edit', 404);
+  if (request.status !== 'requested') fail('Medicine Department has already accepted this request; it cannot be edited now', 409);
+  const MedicineJob = require('../models/MedicineJob');
+  const job = await MedicineJob.findOne({ patient: po.patient, phase: po.phase, requestId: request.requestId || 'legacy' });
+  if (job && (job.currentStage || 0) > 0) fail('Medicine Department has already accepted this request; it cannot be edited now', 409);
+  const body = req.body || {};
+  // Fixed by post counselling = written on the PO paper (the PO itself also gets the supply In Transit picked).
+  const fixedSupply = readyDateFromPostCounselling(po) ? supplyOptionByLabel(po.paperValues?.supplyOrder) : null;
+  const supply = fixedSupply && !canOverrideFixed(req.user) ? fixedSupply : parseSupply(body, { required: false }) || supplyOption(request.supplyPlan, request.supplyPart);
+  if (!supply) fail('Select the medicine supply');
+  const paperAge = readyDateFromPostCounselling(po) ? ageBandByLabel(po.paperValues?.ageGroup) : '';
+  const ageBand = paperAge && !canOverrideFixed(req.user) ? paperAge : clean(body.ageBand, 10) || request.ageBand;
+  if (!AGE_BANDS[ageBand]) fail('Select the age group');
+  if (body.caseCategory && !cleanCaseCategory(body.caseCategory)) fail('Select Autism, ADHD, Autism + ADHD or Mental Health');
+  const caseCategory = cleanCaseCategory(body.caseCategory) || request.caseCategory;
+  const fixedDate = fixedReadyDate({ po });
+  const readyBy = fixedDate && !canOverrideFixed(req.user) ? new Date(fixedDate) : (parseDay(body.readyByDate, 'medicine ready-by date', { required: false }) || request.readyByDate);
+  const notes = body.notes !== undefined ? longText(body.notes) : request.notes;
+  const medicines = body.medicines !== undefined ? longText(body.medicines) : request.medicines;
+  // What changed, for the PO activity and the job.
+  const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '-');
+  const short = (t) => { const v = String(t || '').trim(); return v ? (v.length > 80 ? `${v.slice(0, 80)}...` : v) : '-'; };
+  const changes = [
+    supply.plan !== request.supplyPlan || supply.part !== request.supplyPart ? `supply ${supplyLabel(request.supplyPlan, request.supplyPart) || '-'} -> ${supply.label}` : '',
+    ageBand !== request.ageBand ? `age group ${AGE_BANDS[request.ageBand] || '-'} -> ${AGE_BANDS[ageBand]}` : '',
+    caseCategory !== request.caseCategory ? `category ${request.caseCategory || '-'} -> ${caseCategory}` : '',
+    day(readyBy) !== day(request.readyByDate) ? `ready by ${day(request.readyByDate)} -> ${day(readyBy)}` : '',
+    (notes || '') !== (request.notes || '') ? `notes "${short(request.notes)}" -> "${short(notes)}"` : '',
+    (medicines || '') !== (request.medicines || '') ? `medicines "${short(request.medicines)}" -> "${short(medicines)}"` : '',
+  ].filter(Boolean);
+  if (!changes.length) fail('Nothing was changed');
+  const now = new Date();
+  const dateChanged = day(readyBy) !== day(request.readyByDate);
+  Object.assign(request, { supplyPlan: supply.plan, supplyPart: supply.part, ageBand, caseCategory, notes, medicines, readyByDate: readyBy, ...(dateChanged ? { readyBySetAt: now, readyBySetByName: req.user.name } : {}), editedAt: now, editedByName: req.user.name });
+  if (dateChanged) stage.transit.expectedReadyDate = readyBy;
+  Object.assign(po, { supplyPlan: supply.plan, supplyPart: supply.part, ageBand });
+  if (dateChanged && (!po.medicineReadyDate || !readyDateFromPostCounselling(po))) po.medicineReadyDate = readyBy;
+  logActivity(patient, req.user, `Medicine request edited for Phase ${po.phase}`, `PO ${po.poNumber} | ${changes.join(' | ')}`);
+  event(po, req.user, 'Medicine request edited', changes.join(' | '));
+  await patient.save();
+  await po.save();
+  if (job) {
+    const { applyPlanToJob } = require('./medicineJobController');
+    await applyPlanToJob(job, { readyBy, plan: supply.plan, part: supply.part, ageBand, extra: { caseCategory, requestNotes: notes || '', medicines: medicines || '' } }, req.user, changes.join(' | '), 'Request edited by In Transit');
+    emitMedicineJobChanged(req.app, job._id);
+  }
+  await respond(res, po, patient);
+});
+
 // @route POST /api/purchase-orders/:id/activate-phase
 // Makes this PO's phase the patient's current phase (e.g. Phase 2 bought after Phase 1).
 // Returns stock drawn by a job's preparation when that stage is reverted (ledger "return" rows, never a silent edit).
@@ -630,5 +687,5 @@ module.exports = {
   courierHandovers, listCourierHandovers,
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   loadPoViews, revertStep, deletePurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
-  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase, updatePlan,
+  verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, updateMedicineRequest, activatePhase, updatePlan,
 };
