@@ -341,10 +341,22 @@ async function main() {
           await page.waitForFunction(() => document.body.innerText.includes('What is wrong?'), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `po-final-check-${width}.png`), fullPage: true });
         }
+        if (name === 'patient-overview' && width >= 1280) {
+          // The reminder bell (top right) opens this person's pending reminders in a small panel.
+          await page.evaluate(() => [...document.querySelectorAll('button[title="My reminders"]')].find((b) => b.offsetParent).click());
+          await page.waitForFunction(() => document.body.innerText.includes('My reminders') && document.body.innerText.includes('Open My day'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, 'reminder-bell-' + width + '.png'), fullPage: false });
+          await page.keyboard.press('Escape');
+        }
         if (name === 'team-chat-po') {
           // From the PO: Medicine Dept person's chat opens with the query form inline, type and context prefilled.
           await page.waitForFunction(() => document.body.innerText.includes('Overdue: 3 days past') && [...document.querySelectorAll('input')].some((i) => i.value.startsWith('Medicine not ready - Aarav Mehra')), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, 'team-chat-po-' + width + '.png'), fullPage: true });
+          // Typing keeps the focus: a whole word goes into the box, not one letter.
+          const box = await page.$('textarea[placeholder="What do you need to know or get done?"]');
+          await box.click({ clickCount: 3 }); await page.keyboard.press('Backspace');
+          await page.keyboard.type('Kal tak ready kar do');
+          assert.equal(await page.evaluate((el) => el.value, box), 'Kal tak ready kar do', 'the query message loses focus while typing');
         }
         if (name === 'po-detail' && width >= 1280 && false) {
           await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Raise query').click());

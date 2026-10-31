@@ -68,9 +68,14 @@ export default function RaiseQueryModal({ open, onClose, poId = '', patient = nu
     } catch (err) { setError(err.response?.data?.message || 'Could not send'); } finally { setSaving(false); }
   };
   const byRole = staff.reduce((acc, s) => { (acc[s.role] = acc[s.role] || []).push(s); return acc; }, {});
-  const Wrap = inline ? ({ children }) => <div className="border-b border-cardline bg-[#FFF7ED] px-4 py-3"><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold text-charcoal">{person ? `Raise a query with ${person.name}` : 'Raise a query'}</p><button type="button" onClick={onClose} className="text-xs font-semibold text-charcoal/60 hover:underline">Cancel</button></div>{children}</div> : ({ children }) => <Modal open={open} onClose={() => !saving && onClose()} title={person ? `Raise a query with ${person.name}` : 'Raise a query'} className="max-w-2xl">{children}</Modal>;
-  return (
-    <Wrap>
+  // Called as a function, not used as <Component>: a component made inside render is a new type on every render,
+  // so React would rebuild the form on each keystroke and the inputs would lose focus.
+  const title = person ? `Raise a query with ${person.name}` : 'Raise a query';
+  const wrap = (children) => (inline
+    ? <div className="border-b border-cardline bg-[#FFF7ED] px-4 py-3"><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold text-charcoal">{title}</p><button type="button" onClick={onClose} className="text-xs font-semibold text-charcoal/60 hover:underline">Cancel</button></div>{children}</div>
+    : <Modal open={open} onClose={() => !saving && onClose()} title={title} className="max-w-2xl">{children}</Modal>);
+  return wrap(
+    <>
       {!draft ? <p className="text-sm text-charcoal/60">Loading...</p> : (
         <form onSubmit={submit} className="space-y-3">
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
@@ -100,6 +105,6 @@ export default function RaiseQueryModal({ open, onClose, poId = '', patient = nu
           <Button type="submit" disabled={saving}><Send size={15} />{saving ? 'Sending...' : 'Send'}</Button>
         </form>
       )}
-    </Wrap>
+    </>
   );
 }
