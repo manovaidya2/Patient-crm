@@ -58,7 +58,7 @@ const GROUPS = [
 ];
 
 // Filter buckets for the Purchase Orders page, in pipeline order.
-const STAGE_KEYS = ['verification', 'request', 'medicine', 'handover', 'treatment', 'started', 'rejected'];
+const STAGE_KEYS = ['verification', 'request', 'medicine', 'schedule', 'handover', 'treatment', 'started', 'rejected'];
 // Everything not finished yet (the default list of the Purchase Orders page).
 const isPendingStage = (key) => key !== 'started';
 
@@ -191,6 +191,8 @@ function stageKeyOf(po, steps) {
   if (po.status !== 'verified') return 'verification';
   if (!done('requested') || steps.find((s) => s.key === 'requested')?.failed) return 'request';
   if (!done('ready')) return 'medicine';
+  // Medicine ready, delivery / explanation not fixed with the patient yet.
+  if (!done('scheduled') && !done('handover')) return 'schedule';
   if (!done('handover') || (steps.some((s) => s.key === 'received') && !done('received'))) return 'handover';
   if (!done('started')) return 'treatment';
   return 'started';

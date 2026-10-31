@@ -44,6 +44,7 @@ export const PO_STAGES = [
   { key: 'verification', label: 'To verify', hint: 'PO paper & payment' },
   { key: 'request', label: 'Request medicine', hint: 'Verified, not requested' },
   { key: 'medicine', label: 'With Medicine Dept', hint: 'Accepted, preparing, ready' },
+  { key: 'schedule', label: 'Delivery schedule pending', hint: 'Fix pickup / dispatch & explanation date' },
   { key: 'handover', label: 'Handover', hint: 'Dispatch / pickup' },
   { key: 'treatment', label: 'Medicine explanation', hint: 'PCC explains, then treatment starts' },
   { key: 'started', label: 'Treatment started', hint: 'Treatment active' },

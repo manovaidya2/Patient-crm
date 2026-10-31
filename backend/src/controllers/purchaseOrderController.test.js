@@ -383,3 +383,15 @@ test('only the Post Counselor changes the ready date, supply and age group, and 
     MedicineJob.findOne = oldFindOne;
   }
 });
+
+test('medicine ready but the delivery not scheduled yet: "Delivery schedule pending", then "Handover"', () => {
+  const patient = new Patient({ patientName: 'B', guardianName: 'P', category: 'autism_adhd', number: '1', age: '5' }).toObject();
+  const stage = patient.stages[0];
+  Object.assign(stage, { purchaseOrder: 'PO-1', totalAmount: 1000, payments: [{ amount: 1000, approvalStatus: 'approved' }] });
+  stage.medicineRequests = [{ requestId: 'r1', status: 'made', requestedAt: new Date(), inProcessAt: new Date(), madeAt: new Date(), courier: { status: 'pending' } }];
+  const po = { _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() };
+  assert.equal(buildPoView(po, patient).stageKey, 'schedule');
+  stage.transit = { fulfilmentMode: 'pickup', pickupScheduledAt: new Date() };
+  stage.medicineExplainDate = new Date();
+  assert.equal(buildPoView(po, patient).stageKey, 'handover');
+});
