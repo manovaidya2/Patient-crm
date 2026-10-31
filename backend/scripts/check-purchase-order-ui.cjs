@@ -135,6 +135,7 @@ async function main() {
       if (url.pathname.startsWith('/api/')) {
         let data = { success: true, items: [], patients: [], reminders: [], rows: [], records: [], callLogs: [], banks: [], doctors: [], psychologists: [], postCounselors: [], count: 0, total: 0 };
         if (url.pathname.endsWith('/auth/me')) data = { user };
+        else if (url.pathname === '/api/courier/handovers') data = { success: true, rows: [{ poId: items[0].id, poNumber: items[0].poNumber, patientId: PATIENT_ID, patientName: 'Aarav Mehra', patientCode: 'A-221026-11', patientPhone: '9999999999', phase: 1, supplyLabel: items[0].supplyLabel, section: url.searchParams.get('section') || 'pending', received: false, mode: 'courier', expectedAt: new Date(Date.now() - 86400000).toISOString(), plannedCourier: 'DTDC', plannedAddress: 'Delhi', planNote: '', scheduledByName: 'Transit', scheduledAt: new Date().toISOString(), explanationAt: new Date().toISOString(), explanationMode: 'phone', pcc: 'Dr Asha', medicine: { status: 'made', label: 'Medicine ready', requestedAt: new Date().toISOString() }, payment: { remaining: 0, pendingCount: 0 }, nextStep: { label: 'Dispatched', waitText: 'Waiting for Medicine Department to release the parcel' }, delay: null, courier: { status: 'pending', packageImages: [], deliveryProofImages: [] } }] };
         else if (url.pathname === '/api/purchase-orders') data = { success: true, items, counts: { all: 2, pending: 2, verification: 1, medicine: 1, mine: { all: 1, pending: 1, verification: 1 } } };
         else if (/^\/api\/purchase-orders\/[a-f0-9]{24}$/.test(url.pathname)) data = { success: true, purchaseOrder: [...items, poFinal].find((po) => url.pathname.endsWith(po.id)) };
         else if (url.pathname === `/api/patients/${PATIENT_ID}/purchase-orders`) data = { success: true, phases: { 1: { purchaseOrders: items.map((po, i) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount, status: po.status, createdAt: po.createdAt, createdByName: po.createdByName, medicineRequestId: i === 0 ? 'req-1' : '', paymentIds: raw.stages[0].payments[i] ? [String(raw.stages[0].payments[i]._id)] : [], payment: { totalAmount: po.amount, amountPaid: i === 0 ? 10000 : 0, remaining: i === 0 ? 32000 : 0, pendingCount: i, pendingAmount: 0 } })), unlinkedPaymentIds: [] } } };
@@ -195,6 +196,7 @@ async function main() {
       ['job-edit', `/admin/medicine-jobs/${JOB2_ID}`, 'corrected by Meena'],
       ['job-doctor-wait', `/admin/medicine-jobs/${JOB3_ID}`, 'Please verify formulation from doctor'],
       ['job-papers', `/admin/medicine-jobs/${JOB4_ID}`, 'Upload images'],
+      ['courier-requests', '/admin/courier', 'Open PO timeline'],
       ['job-custom', `/admin/medicine-jobs/${JOB5_ID}`, 'no Formulation Master'],
       ['job-queue', '/admin/medicine-jobs', 'Primary packing & chits'],
       ['stocks', '/admin/stocks', 'MEDHYA-GHRIT'],

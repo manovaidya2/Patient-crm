@@ -1,11 +1,12 @@
-import CourierRequestList from '../../components/CourierRequestList.jsx';
+import CourierHandoverList from '../../components/CourierHandoverList.jsx';
 
+// Medicines dispatched or collected (from the PO timeline), with who received them and the delays.
 const CourierDelivered = () => (
-  <CourierRequestList
+  <CourierHandoverList
+    section="delivered"
     title="Delivered Couriers"
-    subtitle="Delivered courier records will stay listed here for history."
-    statuses={['delivered']}
-    emptyText="No delivered courier records."
+    subtitle="Dispatched and collected medicines from the PO timeline, kept for history."
+    emptyText="Nothing dispatched or collected yet."
   />
 );
 

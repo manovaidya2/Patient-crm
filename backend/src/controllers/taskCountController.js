@@ -86,7 +86,8 @@ const COUNTERS = {
   },
   // Released medicine still to be dispatched or confirmed delivered.
   async '/admin/courier'() {
-    return countRequests(['sent_to_courier'], (r) => ['pending', 'dispatched'].includes(r.courier?.status || 'pending'));
+    const { courierHandovers } = require('./purchaseOrderController');
+    return (await courierHandovers()).filter((r) => r.section === 'pending').length;
   },
   // Requests to accept or to make.
   async '/admin/medicine-requests'() { return countRequests(['requested', 'in_process']); },

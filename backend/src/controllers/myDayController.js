@@ -70,7 +70,9 @@ const COLLECTORS = {
     return rows.map((x) => item('/admin/accounts/refunds', String(x.r._id || `${x._id}-${x.phase}`), x.patientName, `${x.patientCode || ''} · Phase ${x.phase} · refund Rs ${Number(x.r.amount || 0).toLocaleString('en-IN')} to pay`, x.r.createdAt, '/admin/accounts/refunds', { waitingSince: true }));
   },
   async '/admin/courier'() {
-    return requestItems('/admin/courier', ['sent_to_courier'], (r) => ((r.courier?.status || 'pending') === 'dispatched' ? `Dispatched · confirm delivery${r.courier?.trackingNumber ? ` · ${r.courier.trackingNumber}` : ''}` : 'Released · dispatch it'), (r) => ['pending', 'dispatched'].includes(r.courier?.status || 'pending'));
+    const { courierHandovers } = require('./purchaseOrderController');
+    const MODE = { pickup: 'Self pickup', porter: 'Porter', courier: 'Courier' };
+    return (await courierHandovers()).filter((r) => r.section === 'pending').map((r) => item('/admin/courier', r.poId, r.patientName, `${r.poNumber} · ${MODE[r.mode] || r.mode} · ${r.medicine.label}`, r.expectedAt, `/admin/purchase-orders/${r.poId}`));
   },
   async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status]); },
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },

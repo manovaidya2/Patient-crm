@@ -123,19 +123,62 @@ const paymentFromBody = async (body, files, user, poNumber) => {
 };
 
 // Every PO with its patient, as list views (used by the list and by the sidebar task counts).
-const loadPoViews = async (filter = { patient: { $ne: null } }) => {
+const loadPoViews = async (filter = { patient: { $ne: null } }, { includeHandover = false } = {}) => {
   const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
   const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
   const patients = await Patient.find({ _id: { $in: patientIds } })
-    .select('patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate')
+    .select(`patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate${includeHandover ? ' guardianName relativeName address city assignedDoctor' : ''}`)
+    .populate(includeHandover ? { path: 'assignedDoctor', select: 'name' } : [])
     .lean();
   const byId = new Map(patients.map((p) => [String(p._id), p]));
   const MedicineJob = require('../models/MedicineJob');
   const jobs = await MedicineJob.find({ patient: { $in: patientIds } }).select('patient phase requestId currentStage status hold').lean();
   const jobOf = new Map(jobs.map((j) => [`${j.patient}-${j.phase}-${j.requestId}`, j]));
   return pos.filter((po) => byId.has(String(po.patient)))
-    .map((po) => buildPoView(po, byId.get(String(po.patient)), { job: po.medicineRequestId ? jobOf.get(`${po.patient}-${po.phase}-${po.medicineRequestId}`) || null : null, phasePos: pos.filter((o) => String(o.patient) === String(po.patient) && o.phase === po.phase) }));
+    .map((po) => buildPoView(po, byId.get(String(po.patient)), { includeHandover, job: po.medicineRequestId ? jobOf.get(`${po.patient}-${po.phase}-${po.medicineRequestId}`) || null : null, phasePos: pos.filter((o) => String(o.patient) === String(po.patient) && o.phase === po.phase) }));
 };
+
+// Courier Requests / Delivered Couriers: every PO whose medicine In Transit has scheduled (courier, porter or self
+// pickup with its expected date), read from the PO's In Transit timeline. It is "to send" until it is dispatched or
+// collected, then it is under "delivered" (on the way until the patient's receipt is confirmed).
+const MED_LABEL = { requested: 'Waiting for Medicine Dept', in_process: 'Being prepared', made: 'Medicine ready', sent_to_courier: 'Released by Medicine Dept' };
+const courierHandovers = async () => {
+  const views = await loadPoViews({ status: 'verified', medicineRequestId: { $nin: ['', null] } }, { includeHandover: true });
+  // A PO whose medicine already left but is no longer the phase's current request keeps its own courier record.
+  const earlier = views.filter((v) => !v.isPhaseCurrentRequest && v.medicine && ['dispatched', 'delivered'].includes(v.courier?.status)).map((v) => ({
+    poId: v.id, poNumber: v.poNumber, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, patientPhone: v.patientPhone, phase: v.phase, supplyLabel: v.supplyLabel,
+    section: 'delivered', received: v.courier.status === 'delivered', mode: v.courier.deliveryMode === 'self' ? 'pickup' : v.courier.deliveryMode || 'courier', expectedAt: null,
+    medicine: { status: v.medicine.status, label: MED_LABEL[v.medicine.status] || v.medicine.status, readyByDate: v.medicine.readyByDate, requestedAt: v.medicine.requestedAt },
+    payment: v.poPayment, nextStep: null, delay: v.delay,
+    courier: { status: v.courier.status, partner: v.courier.courierPartner, tracking: v.courier.trackingNumber, receivedByName: v.courier.receivedByName, deliveredAt: v.courier.deliveredAt, dispatchedAt: v.courier.dispatchedAt, packageImages: [], deliveryProofImages: [] },
+  }));
+  return [...earlier, ...views.filter((v) => v.isPhaseCurrentRequest && v.handover?.mode && v.medicine && v.medicine.status !== 'cancelled'
+    && (v.steps.find((s) => s.key === 'scheduled')?.done || ['dispatched', 'delivered'].includes(v.handover.courier.status)))
+    .map((v) => {
+      const h = v.handover;
+      const pickup = h.mode === 'pickup';
+      const sent = pickup ? h.courier.status === 'delivered' : ['dispatched', 'delivered'].includes(h.courier.status);
+      const transitNow = v.steps.find((s) => s.branch === 'transit' && s.state === 'current');
+      return {
+        poId: v.id, poNumber: v.poNumber, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, patientPhone: v.patientPhone, phase: v.phase, supplyLabel: v.supplyLabel,
+        section: sent ? 'delivered' : 'pending', received: h.courier.status === 'delivered',
+        mode: h.mode, expectedAt: pickup ? h.pickupAt : h.dispatchAt, plannedCourier: h.plannedCourier, plannedAddress: h.plannedAddress, planNote: pickup ? h.pickupNote : h.planNote,
+        scheduledByName: h.setByName, scheduledAt: h.setAt, explanationAt: h.explanationAt, explanationMode: h.explanationMode, pcc: h.pcc.name,
+        medicine: { status: v.medicine.status, label: MED_LABEL[v.medicine.status] || v.medicine.status, readyByDate: v.medicine.readyByDate, requestedAt: v.medicine.requestedAt },
+        payment: v.poPayment,
+        nextStep: transitNow ? { label: transitNow.label, waitText: transitNow.waitText || '' } : null,
+        delay: v.delay, courier: h.courier,
+      };
+    })].sort((a, b) => new Date(a.expectedAt || 0) - new Date(b.expectedAt || 0));
+};
+
+// @route GET /api/courier/handovers?section=pending|delivered
+const listCourierHandovers = asyncHandler(async (req, res) => {
+  const section = req.query.section === 'delivered' ? 'delivered' : 'pending';
+  const rows = (await courierHandovers()).filter((r) => r.section === section);
+  if (section === 'delivered') rows.sort((a, b) => new Date(b.courier.deliveredAt || b.courier.dispatchedAt || 0) - new Date(a.courier.deliveredAt || a.courier.dispatchedAt || 0));
+  res.json({ success: true, count: rows.length, rows });
+});
 
 // @route GET /api/purchase-orders?stage=&q=&patient=
 const listPurchaseOrders = asyncHandler(async (req, res) => {
@@ -584,6 +627,7 @@ const activatePhase = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  courierHandovers, listCourierHandovers,
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   loadPoViews, revertStep, deletePurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,
   verifyDetails, verifyPayment, rejectPurchaseOrder, requestMedicine, activatePhase, updatePlan,

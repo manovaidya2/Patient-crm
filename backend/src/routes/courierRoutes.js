@@ -9,6 +9,8 @@ const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.IN_TRANSIT));
 
 router.get('/requests', listCourierRequests);
+// New flow: scheduled handovers from the PO / In Transit timeline.
+router.get('/handovers', require('../controllers/purchaseOrderController').listCourierHandovers);
 router.patch('/requests/:patientId/stages/:number', uploadCourierImage.array('courierImage', 10), updateCourierRequest);
 router.delete('/requests/:patientId/stages/:number', deleteCourierRequest);
 

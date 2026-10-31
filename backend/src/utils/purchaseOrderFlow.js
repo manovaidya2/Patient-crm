@@ -215,7 +215,7 @@ function actionByOf(po, stepKey, canRequest, step = null) {
   }
 }
 
-function buildPoView(poDoc, patientDoc, { includeEvents = false, job = null, phasePos = null } = {}) {
+function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover = false, job = null, phasePos = null } = {}) {
   const po = plain(poDoc);
   const patient = plain(patientDoc);
   const stage = (patient.stages || []).find((s) => s.number === po.phase) || {};
@@ -345,6 +345,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, job = null, pha
     groups,
     step: current_ ? { key: current_.key, label: current_.label, waitText: current_.waitText || '', state: current_.state } : { key: 'started', label: 'Treatment started', state: 'done' },
     progress: Math.round((steps.filter((s) => s.state === 'done').length / steps.length) * 100),
+    ...(includeHandover && !includeEvents ? { handover: transitOwner ? handoverRecord({ t, stage, courier, patient, poPayments }) : null } : {}),
     ...(includeEvents ? { events: [...(po.events || [])].reverse().map((e) => ({ ...plain(e), at: iso(e.at) })), paper: paperView(po.paperValues), handover: transitOwner ? handoverRecord({ t, stage, courier, patient, poPayments }) : null, medicineJob: job ? require('./medicineJobFlow').jobSummary(job) : null } : {}),
   };
 }
