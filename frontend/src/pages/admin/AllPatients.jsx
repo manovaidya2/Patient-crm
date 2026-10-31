@@ -1,3 +1,4 @@
+import DateOrRangeFilter from '../../components/DateOrRangeFilter.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, ChevronLeft, ChevronRight, Inbox, AlertTriangle, Users, Plus, Calendar, X, SlidersHorizontal } from 'lucide-react';
@@ -319,26 +320,7 @@ const AllPatients = () => {
             <label htmlFor="consultation-date-filter" className="mb-1 block text-[10px] font-semibold uppercase text-charcoal/55">
               Consultation Date Filter
             </label>
-            <div className="relative">
-              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-charcoal/40" />
-              <input
-                id="consultation-date-filter"
-                type="date"
-                value={consultationDateFilter}
-                onChange={(e) => setConsultationDateFilter(e.target.value)}
-                className="w-full rounded-lg border border-cardline bg-offwhite-200 py-2.5 pl-9 pr-10 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 transition"
-              />
-              {consultationDateFilter && (
-                <button
-                  type="button"
-                  onClick={() => setConsultationDateFilter('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-charcoal/45 hover:bg-sage-muted/25 hover:text-charcoal"
-                  aria-label="Clear consultation date filter"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
+            <DateOrRangeFilter id="consultation-date-filter" value={consultationDateFilter} onChange={setConsultationDateFilter} placeholder="Any date or range" />
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

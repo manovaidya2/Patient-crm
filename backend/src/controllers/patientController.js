@@ -747,12 +747,13 @@ const getPatients = asyncHandler(async (req, res) => {
   }
 
   if (consultationDate) {
-    const dateText = String(consultationDate).trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
+    // One day ("2026-10-31") or a range, both days included ("2026-10-01..2026-10-31").
+    const [fromText, toText = fromText] = String(consultationDate).trim().split('..');
+    if (![fromText, toText].every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) || toText < fromText) {
       return res.status(400).json({ success: false, message: 'Invalid consultation date filter' });
     }
-    const start = new Date(`${dateText}T00:00:00.000Z`);
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    const start = new Date(`${fromText}T00:00:00.000Z`);
+    const end = new Date(new Date(`${toText}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000);
     filter.$expr = {
       $gt: [
         {
