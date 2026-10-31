@@ -4,7 +4,7 @@ const Patient = require('../models/Patient');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES } = require('../constants/treatmentStages');
 const { supplyOption, supplyOptionByLabel, supplyLabel, AGE_BANDS, ageBandByLabel, ageBandFor } = require('../constants/supplyPlans');
 const { setPhaseAge } = require('../utils/phaseAge');
@@ -194,7 +194,9 @@ const listPurchaseOrders = asyncHandler(async (req, res) => {
   counts.all = items.length;
   counts.pending = items.filter((item) => isPendingStage(item.stageKey)).length;
   // Of those, how many wait for the signed-in role (orange marks on the page).
-  const mine = items.filter((item) => item.actionBy.includes(req.user.role));
+  // The Manager's own steps are the Admin's (the step lists name the Admin only).
+  const myRole = isAdminLike(req.user) ? ROLES.ADMIN : req.user.role;
+  const mine = items.filter((item) => item.actionBy.includes(myRole));
   const mineCounts = Object.fromEntries(STAGE_KEYS.map((key) => [key, mine.filter((item) => item.stageKey === key).length]));
   mineCounts.all = mine.length;
   mineCounts.pending = mine.length;
@@ -414,7 +416,7 @@ const rejectPurchaseOrder = asyncHandler(async (req, res) => {
 // them again, and only until the Medicine Department accepts the medicine request. Everything that carries them follows:
 // the PO, its PO paper, the phase's expected date, a waiting medicine request and its job.
 const updatePlan = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(req.user.role)) fail('Only the Post Counselor can change the ready date, supply and age group', 403);
+  if (!isAdminLike(req.user) && req.user.role !== ROLES.POST_COUNSELOR) fail('Only the Post Counselor can change the ready date, supply and age group', 403);
   const po = await loadPo(req.params.id);
   if (po.status === 'cancelled') fail('This purchase order is cancelled');
   const patient = await loadPatient(po.patient);

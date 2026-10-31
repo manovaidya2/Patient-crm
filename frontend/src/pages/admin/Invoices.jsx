@@ -4,6 +4,7 @@ import api from '../../api/axios.js';
 import FinalBillForm from './FinalBillForm.jsx';
 import ConsultationBillForm from './ConsultationBillForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { isAdminLike } from '../../constants/roles.js';
 import InvoicePdfStyleSelector from '../../components/InvoicePdfStyleSelector.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -43,7 +44,7 @@ export default function Invoices({ type }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   // Admin and Post Counselor can correct a saved bill; only Admin can delete one.
-  const canEdit = isAdmin || user?.role === 'post_counselor';
+  const canEdit = isAdminLike(user) || user?.role === 'post_counselor';
   const title = `${BILL_NAMES[type]}s`;
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);

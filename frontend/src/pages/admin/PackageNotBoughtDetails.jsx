@@ -36,7 +36,7 @@ const InfoCell = ({ label, value }) => (
 const PackageNotBoughtDetails = () => {
   const { id } = useParams();
   const { user } = useAuth();
-  const canManageFollowUps = [ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canManageFollowUps = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR].includes(user?.role);
   const [row, setRow] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

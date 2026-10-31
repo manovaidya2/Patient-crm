@@ -7,7 +7,7 @@ import DictationButton from '../../components/ui/DictationButton.jsx';
 import Toast from '../../components/ui/Toast.jsx';
 import { useToast } from '../../components/useToast.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { ROLES, isAdminLike } from '../../constants/roles.js';
 import { Bot as PageTitleIcon } from 'lucide-react';
 
 const formatTime = (iso) =>
@@ -269,7 +269,7 @@ const CrmChatGPT = () => {
                       <span className={`mt-0.5 block text-xs ${activeChat?.id === chat.id ? 'text-offwhite-100/75' : 'text-charcoal/45'}`}>
                         {formatTime(chat.lastMessageAt)}
                       </span>
-                      {user?.role === ROLES.ADMIN && chat.ownerName && (
+                      {isAdminLike(user) && chat.ownerName && (
                         <span className={`mt-0.5 block truncate text-[11px] ${activeChat?.id === chat.id ? 'text-offwhite-100/65' : 'text-charcoal/40'}`}>
                           By {chat.ownerName}
                         </span>

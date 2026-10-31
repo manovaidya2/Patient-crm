@@ -1,6 +1,6 @@
 const FormulationMaster = require('../models/FormulationMaster');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { AGE_BANDS, SUPPLY_OPTIONS } = require('../constants/supplyPlans');
 const { BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, defaultMasterFor, normalizeMaster, formulationFor } = require('../constants/formulationMaster');
 const { getMaster, masterFromDoc } = require('../utils/formulationMasterStore');
@@ -30,7 +30,7 @@ const diffMasters = (before, after) => {
 // @route GET /api/formulation-master
 const listMasters = asyncHandler(async (req, res) => {
   const bands = await Promise.all(BANDS.map((b) => getMaster(b)));
-  res.json({ success: true, bands: bands.map(bandView), items: MASTER_ITEMS, doses: MASTER_DOSES, splitDays: SPLIT_DAYS, pendingKeys: PENDING_KEYS, supplyOptions: SUPPLY_OPTIONS, canEdit: MASTER_EDIT_ROLES.includes(req.user.role) });
+  res.json({ success: true, bands: bands.map(bandView), items: MASTER_ITEMS, doses: MASTER_DOSES, splitDays: SPLIT_DAYS, pendingKeys: PENDING_KEYS, supplyOptions: SUPPLY_OPTIONS, canEdit: isAdminLike(req.user) || MASTER_EDIT_ROLES.includes(req.user.role) });
 });
 
 // Saves the given values as the new version of a band (used by update and reset).

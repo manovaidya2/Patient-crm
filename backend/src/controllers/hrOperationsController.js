@@ -137,7 +137,7 @@ const listLeaves = asyncHandler(async (req, res) => {
 });
 
 const saveLeave = asyncHandler(async (req, res) => {
-  if (![ROLES.HR, ROLES.ADMIN, ROLES.DOCTOR].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only HR, Admin or Doctor can add or edit leave requests' });
+  if (![ROLES.HR, ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only HR, Admin or Doctor can add or edit leave requests' });
   const employeeFilter = { _id: req.body.employeeId };
   if (!(hasHrFullAccess(req.user.role) && req.params.id)) employeeFilter.status = { $in: ['active', 'probation', 'notice_period'] };
   const employee = await HrEmployee.findOne(employeeFilter).lean();

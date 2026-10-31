@@ -5,7 +5,7 @@ const Enquiry = require('../models/Enquiry');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { loadPoViews } = require('./purchaseOrderController');
 const { jobActionBy } = require('./medicineJobController');
 const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
@@ -17,23 +17,26 @@ const { explanationOwner } = require('./transitController');
 const { ADMIN, DOCTOR, MANAGER, POST_COUNSELOR, IN_TRANSIT, MEDICINE_DEPARTMENT, ASSISTANT_DOCTOR } = ROLES;
 const PAGES = {
   '/admin/purchase-orders': [ADMIN, DOCTOR, POST_COUNSELOR, IN_TRANSIT, MANAGER],
-  '/admin/patient-approvals': [ADMIN, DOCTOR, IN_TRANSIT],
-  '/admin/payments': [ADMIN, DOCTOR, IN_TRANSIT],
-  '/admin/accounts/consultations': [ADMIN, DOCTOR, ROLES.RECEPTIONIST],
-  '/admin/accounts/refunds': [ADMIN, DOCTOR, IN_TRANSIT],
-  '/admin/courier': [ADMIN, IN_TRANSIT],
-  '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT],
-  '/admin/medicine-jobs': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT],
-  '/admin/medicine-made': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT],
-  '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT],
-  '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR],
+  '/admin/patient-approvals': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
+  '/admin/payments': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
+  '/admin/accounts/consultations': [ADMIN, DOCTOR, ROLES.RECEPTIONIST, MANAGER],
+  '/admin/accounts/refunds': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
+  '/admin/courier': [ADMIN, IN_TRANSIT, MANAGER],
+  '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
+  '/admin/medicine-jobs': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
+  '/admin/medicine-made': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
+  '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
+  '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/followups': [MANAGER, ASSISTANT_DOCTOR],
   '/admin/family-sessions': [MANAGER, ASSISTANT_DOCTOR],
   '/admin/post-counseling-patients': [ADMIN, POST_COUNSELOR, DOCTOR, MANAGER],
-  '/admin/package-not-bought': [ADMIN, POST_COUNSELOR],
+  '/admin/package-not-bought': [ADMIN, POST_COUNSELOR, MANAGER],
   '/admin/enquiries': Object.values(ROLES).filter((role) => role !== ROLES.HR),
   '/admin/team-chat': Object.values(ROLES).filter((role) => role !== ROLES.HR),
 };
+
+// Whose steps count as this person's: the Manager has the Admin's.
+const stepRole = (user) => (isAdminLike(user) ? ROLES.ADMIN : user.role);
 
 const allRequests = (stage) => [...(stage.medicineRequests || []), ...(stage.medicineRequest?.status ? [stage.medicineRequest] : [])];
 
@@ -60,7 +63,7 @@ const scheduleReminders = async (user) => {
 const COUNTERS = {
   // POs whose current step is this role's (verify, request, schedule, payment, handover, PCC, correction, release...).
   async '/admin/purchase-orders'(user) {
-    return (await loadPoViews()).filter((po) => po.actionBy.includes(user.role)).length;
+    return (await loadPoViews()).filter((po) => po.actionBy.includes(stepRole(user))).length;
   },
   async '/admin/patient-approvals'() {
     return Patient.countDocuments({ $or: [{ approvalStatus: 'pending' }, { 'stages.payments.approvalStatus': 'pending' }] });
@@ -98,7 +101,7 @@ const COUNTERS = {
   async '/admin/medicine-jobs'(user) {
     const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).length;
+    return jobs.filter((j) => jobActionBy(j, handedOver).includes(stepRole(user))).length;
   },
   // Stock items at or below their minimum level (or expired).
   async '/admin/stocks'() {
@@ -156,4 +159,4 @@ const getTaskCounts = asyncHandler(async (req, res) => {
   res.json({ success: true, counts: Object.fromEntries(pages.map((page, i) => [page, values[i]])) });
 });
 
-module.exports = { getTaskCounts, PAGES, COUNTERS };
+module.exports = { getTaskCounts, PAGES, COUNTERS, stepRole };

@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLE_LABELS, isRetiredRole } = require('../constants/roles');
+const { ROLE_LABELS, isRetiredRole, isAdminLike } = require('../constants/roles');
 const CrmAuditLog = require('../models/CrmAuditLog');
 const { dropOtherSockets } = require('../utils/sessionGuard');
 // The token this request came with (this device stays signed in after its own password change).
@@ -103,7 +103,7 @@ const changePassword = asyncHandler(async (req, res) => {
 // @route   PATCH /api/auth/account
 // @access  Private/Admin
 const updateMyAccount = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only the admin can change their login email here' });
+  if (!isAdminLike(req.user)) return res.status(403).json({ success: false, message: 'Only the admin or manager can change their login email here' });
   const { currentPassword, email, newPassword, name } = req.body || {};
   if (!currentPassword) return res.status(400).json({ success: false, message: 'Enter your current password to confirm' });
   const user = await User.findById(req.user._id).select('+password');

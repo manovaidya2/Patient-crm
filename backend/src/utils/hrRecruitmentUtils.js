@@ -8,7 +8,7 @@ const OFFER_TRANSITIONS = {
 };
 
 const canTransition = (map, from, to) => Boolean(map[from]?.includes(to));
-const hasFullAccess = (role) => ['admin', 'doctor'].includes(role);
+const hasFullAccess = (role) => ['admin', 'manager', 'doctor'].includes(role);
 const canEditOffer = (role, status) => hasFullAccess(role)
   ? true
   : role === 'hr' && ['draft', 'rejected'].includes(status);

@@ -14,6 +14,7 @@ const BOARD = [['Prepare (1–4)', 0, 3], ['Pack & check (5–8)', 4, 7], ['Fini
 const BOARD_LOOK = [['#657B6C', 'Order, formulation, sheet, preparation'], ['#7C5CBF', 'Packing, chits, quality check'], ['#B45309', 'Labels, final pack, photos'], ['#2F8F5B', 'Ready, waiting for release']];
 const dueSoon = (j) => ['breached', 'critical'].includes(j.urgency?.level);
 import { useAuth } from '../../context/AuthContext.jsx';
+import { roleAllowed } from '../../constants/roles.js';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '-');
 const URG = { breached: ['Overdue', 'bg-[#8C3B2E]/10 text-[#8C3B2E]'], critical: ['< 24 h', 'bg-[#8C3B2E]/10 text-[#8C3B2E]'], risk: ['< 48 h', 'bg-amber-100 text-amber-900'], normal: ['On time', 'bg-emerald-100 text-emerald-800'] };
@@ -39,15 +40,15 @@ export default function MedicineJobs() {
   return (
     <div className="space-y-4">
       <PageHeader icon={Pill} title="Fulfilment queue"
-        subtitle={items ? `${items.length} job(s) · ${items.filter((j) => (j.actionBy || []).includes(user?.role)).length} waiting on you · ${items.filter(dueSoon).length} due within 24 h. Each medicine request is a 12-stage job, soonest ready-by date first. Open a job to work its current stage.` : 'Each medicine request as a 12-stage job, soonest ready-by date first. Open a job to work its current stage.'}
+        subtitle={items ? `${items.length} job(s) · ${items.filter((j) => roleAllowed(j.actionBy || [], user)).length} waiting on you · ${items.filter(dueSoon).length} due within 24 h. Each medicine request is a 12-stage job, soonest ready-by date first. Open a job to work its current stage.` : 'Each medicine request as a 12-stage job, soonest ready-by date first. Open a job to work its current stage.'}
         actions={<div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="View">{[['board', 'Board'], ['list', 'List']].map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)} className={`rounded-full border px-3.5 py-1.5 text-xs font-bold ${view === k ? 'border-charcoal bg-charcoal text-white' : 'border-[#DED2BD] bg-white text-charcoal hover:bg-[#FBF7ED]'}`}>{l}</button>)}<button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine((v) => !v)} className={`rounded-full border px-3.5 py-1.5 text-xs font-bold ${onlyMine ? 'border-[#F97316] bg-[#F97316] text-white' : 'border-[#DED2BD] bg-white text-charcoal hover:bg-[#FBF7ED]'}`}>Only mine</button></div>} />
       <div className="flex flex-wrap gap-1.5">{[['open', 'In fulfilment'], ['ready', 'Ready - awaiting release'], ['released', 'Released'], ['all', 'All']].map(([v, l]) => <Chip key={v} active={status === v} onClick={() => setStatus(v)}>{l}{counts && <span className="ml-1 opacity-70">{counts[v] ?? 0}</span>}{counts?.mine?.[v] > 0 && <span className="ml-1.5 rounded-full bg-orange-500 px-1.5 py-px text-[10px] font-bold text-white" title="Waiting for you">{counts.mine[v]}</span>}</Chip>)}</div>
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       {view === 'board' && items !== null && (
         <div className="grid items-stretch gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           {BOARD.map(([title, from, to], col) => {
-            const list = items.filter((j) => (j.status === 'released' ? 12 : j.currentStage) >= from && (j.status === 'released' ? 12 : j.currentStage) <= to && (!onlyMine || (j.actionBy || []).includes(user?.role)));
-            const mineHere = list.filter((j) => (j.actionBy || []).includes(user?.role)).length;
+            const list = items.filter((j) => (j.status === 'released' ? 12 : j.currentStage) >= from && (j.status === 'released' ? 12 : j.currentStage) <= to && (!onlyMine || roleAllowed(j.actionBy || [], user)));
+            const mineHere = list.filter((j) => roleAllowed(j.actionBy || [], user)).length;
             const [accent, hint] = BOARD_LOOK[col];
             return (
               <section key={title} className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-[16px] border border-[#E8DFCB] bg-[#FBF7ED]" aria-label={title}>
@@ -60,7 +61,7 @@ export default function MedicineJobs() {
                 {!list.length && <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-[#DED2BD] px-3 py-6 text-center text-xs text-charcoal/50">No jobs</p>}
                 {list.map((j) => {
                   const [ul, ut] = URG[j.urgency?.level] || URG.normal;
-                  const mine = (j.actionBy || []).includes(user?.role);
+                  const mine = roleAllowed(j.actionBy || [], user);
                   const at = j.status === 'released' ? 12 : j.currentStage;
                   return (
                     <button key={j.id} type="button" onClick={() => navigate(`/admin/medicine-jobs/${j.id}`)} className={`flex flex-col gap-1.5 rounded-xl border p-3 text-left shadow-[0_1px_2px_rgba(39,50,56,0.05)] transition hover:-translate-y-px hover:shadow-md ${mine ? 'border-2 border-[#FDBA74] bg-[#FFF7ED]' : 'border-[#E8DFCB] bg-white'}`}>
@@ -84,7 +85,7 @@ export default function MedicineJobs() {
             {items === null ? <tr><td colSpan={5} className="p-6 text-center text-charcoal/55">Loading...</td></tr>
               : !items.length ? <tr><td colSpan={5} className="p-6 text-center text-charcoal/55">No jobs here.</td></tr>
                 : items.map((j) => { const [ul, ut] = URG[j.urgency?.level] || URG.normal; return (
-                  <tr key={j.id} className={`cursor-pointer border-t border-cardline ${(j.actionBy || []).includes(user?.role) ? 'bg-orange-50/70 shadow-[inset_3px_0_0_#f97316] hover:bg-orange-50' : 'hover:bg-sage/5'}`} onClick={() => navigate(`/admin/medicine-jobs/${j.id}`)}>
+                  <tr key={j.id} className={`cursor-pointer border-t border-cardline ${roleAllowed(j.actionBy || [], user) ? 'bg-orange-50/70 shadow-[inset_3px_0_0_#f97316] hover:bg-orange-50' : 'hover:bg-sage/5'}`} onClick={() => navigate(`/admin/medicine-jobs/${j.id}`)}>
                     <td className="px-3 py-2"><b>{j.patientName}</b><div className="text-xs text-charcoal/55">{j.patientCode} · Phase {j.phase}</div></td>
                     <td className="px-3 py-2"><span className="font-mono text-xs font-bold">{j.poNumber || '-'}</span><div className="text-xs text-charcoal/60">{j.supplyLabel || '-'}{j.ageBandLabel ? ` · ${j.ageBandLabel}` : ''}</div></td>
                     <td className="px-3 py-2">{j.readyByDate ? <><span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${ut}`}>{ul}</span><div className="text-xs text-charcoal/60">{day(j.readyByDate)}</div>{j.delay && <DelayChips delay={j.delay} show={['medicine']} className="mt-1" />}</> : <span className="text-xs text-charcoal/50">not set</span>}</td>

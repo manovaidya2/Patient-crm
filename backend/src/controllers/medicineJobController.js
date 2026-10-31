@@ -4,7 +4,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const MedicineJob = require('../models/MedicineJob');
 const StockItem = require('../models/StockItem');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
 const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlans');
 const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../constants/formulationMaster');
@@ -22,6 +22,8 @@ const { moveStock } = require('./stockController');
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT];
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
+// The Manager fills every stage the Admin can (the stage lists name the Admin only).
+const stepRole = (user) => (isAdminLike(user) ? ROLES.ADMIN : user.role);
 const clean = (v, max = 300) => String(v ?? '').trim().slice(0, max);
 const parseJson = (value, fallback) => { if (value == null || value === '') return fallback; if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return fallback; } };
 const parseDay = (value, label) => { const t = clean(value, 40); if (!t) return null; const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(t) ? `${t}T00:00:00.000+05:30` : t); if (Number.isNaN(d.getTime())) fail(`Enter a valid ${label}`); return d; };
@@ -97,7 +99,7 @@ const respond = async (res, job, status = 200) => {
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
 // Correcting the sheet for one patient is the doctor's call (or the admin's); the Medicine Department prepares from it.
 const SHEET_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
-const needSheetOwner = (user, job = null) => { const roles = stageRoles(STAGES[STAGE_INDEX.review], job); if (!roles.includes(user.role)) fail(`The formulation sheet is handled by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
+const needSheetOwner = (user, job = null) => { const roles = stageRoles(STAGES[STAGE_INDEX.review], job); if (!roles.includes(stepRole(user))) fail(`The formulation sheet is handled by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
 
 // Builds (or rebuilds) the formulation sheet, stock needs and chits of a job from its age band and supply using the
 // current (doctor-edited) Formulation Master, or from an already corrected sheet when one is given.
@@ -115,7 +117,7 @@ const applyFormulation = async (job, sheet) => {
 // master value stays beside each change. Stock needs and chits are rebuilt from the corrected sheet.
 // A custom sheet (0-3 years, no master) can also be created by the Medicine Department at the formulation check, after
 // asking the doctor; the doctor verifies it in the next step as usual.
-const canEditSheet = (user, job) => SHEET_EDIT_ROLES.includes(user.role)
+const canEditSheet = (user, job) => SHEET_EDIT_ROLES.includes(stepRole(user))
   || (Boolean(job.formulation?.custom) && (job.currentStage || 0) <= STAGE_INDEX.review && STAGES[STAGE_INDEX.review].roles.includes(user.role));
 const editFormulation = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
@@ -168,11 +170,11 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
 const rebuildSheet = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
-  if (!SHEET_EDIT_ROLES.includes(req.user.role)) needSheetOwner(req.user, job);
+  if (!SHEET_EDIT_ROLES.includes(stepRole(req.user))) needSheetOwner(req.user, job);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
   // Once the doctor has the sheet, a rebuild would drop the doctor's changes: only the doctor / admin does it then.
-  if ((job.currentStage || 0) > STAGE_INDEX.review && !SHEET_EDIT_ROLES.includes(req.user.role)) fail('The doctor has the formulation sheet now; only the doctor or the admin rebuilds it', 403);
+  if ((job.currentStage || 0) > STAGE_INDEX.review && !SHEET_EDIT_ROLES.includes(stepRole(req.user))) fail('The doctor has the formulation sheet now; only the doctor or the admin rebuilds it', 403);
   if (job.hold?.active) fail('Resume the job first', 409);
   if (!job.ageBand || !job.supplyPlan || !job.supplyPart) fail('Set the age group and supply first');
   const hadEdits = Boolean(job.formulation?.edited);
@@ -207,7 +209,7 @@ const listJobs = asyncHandler(async (req, res) => {
   const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
-  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(req.user.role)) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
+  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(stepRole(req.user))) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
   res.json({ success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) });
 });
 
@@ -268,7 +270,7 @@ const completeStage = asyncHandler(async (req, res) => {
   if (!job) fail('Job not found', 404);
   const stage = requireOrder(job, req.params.key);
   const roles = stageRoles(stage, job);
-  if (!roles.includes(req.user.role)) fail(`${stage.label} is done by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403);
+  if (!roles.includes(stepRole(req.user))) fail(`${stage.label} is done by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403);
   const body = req.body || {};
   const checks = parseJson(body.checks, []);
   if (!Array.isArray(checks) || stage.checks.some((_, i) => checks[i] !== true)) fail('Tick every point of the checklist');

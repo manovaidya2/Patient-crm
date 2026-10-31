@@ -5,30 +5,7 @@ import api from '../api/axios.js';
 import useLiveEvent from '../api/useLiveEvent.js';
 import { PAGES } from './PendingWork.jsx';
 
-const DAY = 86400000;
-const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
-// Same buckets as My Day: by due date, or by how long an item has waited.
-const bucketOf = (item) => {
-  const today = startOfToday();
-  if (item.waitingSince) { const days = item.due ? Math.floor((today - new Date(item.due)) / DAY) : 0; return days >= 2 ? 'overdue' : 'today'; }
-  if (!item.due) return 'anytime';
-  const due = new Date(item.due);
-  if (due < today) return 'overdue';
-  if (due < new Date(today.getTime() + DAY)) return 'today';
-  return 'upcoming';
-};
-const BUCKETS = [
-  ['overdue', 'Overdue / waiting long', 'bg-[#FDE2E1] text-[#9F1D1D]'],
-  ['today', 'Today', 'bg-[#FFF1E6] text-[#C2410C]'],
-  ['upcoming', 'Upcoming', 'bg-[#E9EFE9] text-sage'],
-  ['anytime', 'Anytime', 'bg-[#F3EEE2] text-charcoal/70'],
-];
-const when = (item) => {
-  if (!item.due) return '';
-  const d = new Date(item.due);
-  if (item.waitingSince) { const days = Math.floor((startOfToday() - d) / DAY); return days <= 0 ? 'since today' : `waiting ${days} day${days === 1 ? '' : 's'}`; }
-  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-};
+import { BUCKETS, bucketOf, when } from '../utils/taskTiming.js';
 
 // The signed-in person's own pending reminders (everything My Day lists for them), as a small panel that opens from
 // the bell at the top right and closes on a click outside. The count on the bell is the number of items.

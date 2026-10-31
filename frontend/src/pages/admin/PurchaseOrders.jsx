@@ -10,7 +10,7 @@ import { ROLES } from '../../constants/roles.js';
 import { PO_STAGES } from '../../constants/supplyPlans.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
 
-const CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+const CREATE_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 
 export default function PurchaseOrders() {
   const { user } = useAuth();

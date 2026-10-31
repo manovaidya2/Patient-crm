@@ -28,7 +28,7 @@ const PACKABLE_UNITS = ['ml', 'gram'];
 const CONTAINER_KINDS = ['Bottle', 'Vial', 'Jar', 'Pouch', 'Label'];
 const PACK_KINDS = ['Bottle', 'Vial', 'Jar'];
 const TRANSACTION_TYPES = ['add', 'consume', 'adjust', 'pack'];
-const APPROVER_ROLES = ['admin', 'doctor'];
+const APPROVER_ROLES = ['admin', 'manager', 'doctor'];
 const ADJUST_APPROVAL_PERCENT = 0.05;
 const RISKY_ADJUST_REASONS = [/^expired/i, /^damage/i];
 

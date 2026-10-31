@@ -14,7 +14,7 @@ import MultiSelectCell, { splitChoices } from '../components/MultiSelectCell.jsx
 import Drawer from '../components/ui/Drawer.jsx';
 import SalesWeekBoard, { weekOf } from '../components/SalesWeekBoard.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { ROLES } from '../constants/roles.js';
+import { ADMIN_LIKE_ROLES, ROLES, isAdminLike } from '../constants/roles.js';
 import { CalendarRange as PageTitleIcon } from 'lucide-react';
 
 const isoDate = (date) => {
@@ -48,10 +48,10 @@ const Field = ({ column, value, onChange, disabled = false }) => {
 
 const SalesWorkspace = () => {
   const { user, logout } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
-  const canReturnToDashboard = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
+  const isAdmin = isAdminLike(user);
+  const canReturnToDashboard = [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role);
   const canReturnToAppointmentManagement = user?.role === ROLES.SALES_TEAM;
-  const canManageReception = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role);
+  const canManageReception = [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role);
   const [selectedDate, setSelectedDate] = useState(isoDate(new Date()));
   const [allDates, setAllDates] = useState(false);
   const [columns, setColumns] = useState([]);
@@ -371,7 +371,7 @@ const SalesWorkspace = () => {
                   {row.canAccept && <Button size="sm" onClick={() => acceptRow(row)}><Check size={14} />Confirm</Button>}
                   {row.canReschedule && <button title="Reschedule" className="p-2 text-amber-800" onClick={() => { setRescheduleRow(row); setRescheduleDate(''); }}><CalendarRange size={16} /></button>}
                   {row.canMarkNotComing && (row.status === 'not_coming' ? <button title="Reopen lead" disabled={busyRowId === row.id} onClick={() => clearNotComing(row)} className="p-2 text-sage"><RotateCcw size={16} /></button> : <button title="Mark not coming" onClick={() => { setNotComingRow(row); setNotComingReason(''); }} className="p-2 text-amber-800"><CalendarX2 size={16} /></button>)}
-                  {row.canDelete && user?.role !== ROLES.SALES_TEAM && <button title="Delete" onClick={() => removeRow(row)} className="p-2 text-red-700"><Trash2 size={16} /></button>}
+                  {row.canDelete && ![ROLES.SALES_TEAM, ROLES.MANAGER].includes(user?.role) && <button title="Delete" onClick={() => removeRow(row)} className="p-2 text-red-700"><Trash2 size={16} /></button>}
                   {isAdmin && <button title="View row timeline" onClick={() => openTimeline(row)} className="p-2 text-sage"><History size={16} /></button>}
                 </div></td>
               </tr>;

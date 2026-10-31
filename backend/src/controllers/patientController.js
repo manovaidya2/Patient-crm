@@ -29,7 +29,7 @@ const {
   STAGE_STATUS_LABELS,
 } = require('../constants/treatmentStages');
 const { PAYMENT_MODES, ALL_PAYMENT_MODES, PAYMENT_MODE_LABELS } = require('../constants/paymentModes');
-const { ROLES, ASSIGN_DOCTOR_ROLES } = require('../constants/roles');
+const { ROLES, ASSIGN_DOCTOR_ROLES, isAdminLike } = require('../constants/roles');
 const { ALL_SCHEDULE_STATUSES, DISPLAY_STATUS_LABELS, getDisplayStatus } = require('../constants/scheduleStatuses');
 
 const MEDICINE_STATUSES = {
@@ -140,10 +140,10 @@ const canAccessPatient = (user, patient) => {
   return String(assignedId) === String(user._id);
 };
 
-const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
+const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
 const { paymentSummary: transitPaymentSummary, isInTransit } = require('../utils/transitFlow');
 const { paymentForRequest, paymentsOfPo, poPaymentSummary, linkPaymentToPo } = require('../utils/poPayment');
-const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
+const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
 const isApprovedPayment = (payment = {}) => (payment.approvalStatus || 'approved') === 'approved';
 const paidRefundAmount = (payment = {}) => (payment.refunds || [])
   .filter((refund) => ['paid', 'settled'].includes(refund.status))
@@ -294,16 +294,16 @@ const canSeeMedicineDeliveryReminder = (user, patient) => {
 };
 
 const canEditPackageStage = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR].includes(user?.role);
+  [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR].includes(user?.role);
 
 const canEditPatientRecords = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canAddStagePayment = (user) =>
-  [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const canEditPatientIdentity = (user) =>
-  [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
 
 const assigneeKey = (assignedUser, fallbackName = 'Unassigned') =>
   assignedUser?._id ? String(assignedUser._id) : assignedUser ? String(assignedUser) : fallbackName;
@@ -1238,12 +1238,6 @@ const getStaffDashboardStats = asyncHandler(async (req, res) => {
     });
 
     (patient.activityLog || []).slice(-8).forEach((activity) => {
-      if (
-        req.user.role === ROLES.MANAGER
-        && [ROLES.ADMIN, ROLES.DOCTOR].includes(activity.actorRole)
-      ) {
-        return;
-      }
       recentActions.push({
         action: activity.action,
         details: activity.details,
@@ -2070,7 +2064,7 @@ const updatePatientStage = asyncHandler(async (req, res) => {
   }
 
   const stageEntry = patient.stages.find((s) => s.number === stageNum);
-  if (stageEntry.transit?.enteredAt && req.user.role !== ROLES.ADMIN && (medicineExplainDate !== undefined || ((status !== undefined || date !== undefined) && !stageEntry.transit.activatedAt))) {
+  if (stageEntry.transit?.enteredAt && !isAdminLike(req.user) && (medicineExplainDate !== undefined || ((status !== undefined || date !== undefined) && !stageEntry.transit.activatedAt))) {
     return res.status(409).json({ success: false, message: 'Use In Transit to schedule explanation and the assigned doctor completion page to start treatment' });
   }
   if (consultationDate !== undefined) {
@@ -2131,8 +2125,8 @@ const updatePatientStage = asyncHandler(async (req, res) => {
     stageEntry.totalAmount = nextTotalAmount;
   }
   if (postCounselor !== undefined) {
-    if (req.user.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only Admin can update phase post counselor' });
+    if (!isAdminLike(req.user)) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Manager can update phase post counselor' });
     }
     if (!postCounselor) {
       if (stageEntry.postCounselor) {
@@ -2524,7 +2518,7 @@ const checkPaymentCancelAlert = asyncHandler(async (req, res) => {
   const stage = (patient.stages || []).find((s) => s.number === parseInt(req.params.number, 10));
   const pay = stage?.payments.id(req.params.paymentId);
   if (!pay || pay.approvalStatus !== 'cancelled') return res.status(404).json({ success: false, message: 'Cancelled payment not found' });
-  if (req.user.role !== ROLES.ADMIN && !cancelAlertRecipient(pay, req.user)) return res.status(403).json({ success: false, message: 'Only the person who added this payment marks it checked' });
+  if (!isAdminLike(req.user) && !cancelAlertRecipient(pay, req.user)) return res.status(403).json({ success: false, message: 'Only the person who added this payment marks it checked' });
   if (!pay.cancelAlertCheckedAt) {
     pay.cancelAlertCheckedAt = new Date();
     pay.cancelAlertCheckedByName = req.user.name;
@@ -2917,7 +2911,7 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid phase number' });
   }
 
-  if (![ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(req.user.role)) {
+  if (!isAdminLike(req.user) && ![ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'You do not have permission to request medicine' });
   }
 
@@ -2960,9 +2954,9 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
   if (
     existingRequest
     && MEDICINE_LOCKED_STATUSES.includes(existingRequest.status)
-    && req.user.role !== ROLES.ADMIN
+    && !isAdminLike(req.user)
   ) {
-    return res.status(403).json({ success: false, message: 'This medicine request is already done — only Admin can update it' });
+    return res.status(403).json({ success: false, message: 'This medicine request is already done — only Admin or Manager can update it' });
   }
   const nextRequest = {
     ...emptyMedicineRequest(),
@@ -3066,8 +3060,8 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
 
   const { status } = req.body;
   if (req.body.action === 'selfPickup') return res.status(403).json({ success: false, message: 'In Transit records self-pickup after medicine release' });
-  if (status === MEDICINE_STATUSES.CANCELLED && req.user.role !== ROLES.ADMIN) {
-    return res.status(403).json({ success: false, message: 'Only Admin can cancel a medicine request' });
+  if (status === MEDICINE_STATUSES.CANCELLED && !isAdminLike(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin or Manager can cancel a medicine request' });
   }
   if (![MEDICINE_STATUSES.IN_PROCESS, MEDICINE_STATUSES.MADE, MEDICINE_STATUSES.SENT_TO_COURIER, MEDICINE_STATUSES.CANCELLED].includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid medicine status update' });
@@ -3350,8 +3344,8 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   }
 
   const { status } = req.body;
-  if (status === COURIER_STATUSES.CANCELLED && req.user.role !== ROLES.ADMIN) {
-    return res.status(403).json({ success: false, message: 'Only Admin can cancel a courier request' });
+  if (status === COURIER_STATUSES.CANCELLED && !isAdminLike(req.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin or Manager can cancel a courier request' });
   }
   if (![COURIER_STATUSES.DISPATCHED, COURIER_STATUSES.DELIVERED, COURIER_STATUSES.CANCELLED].includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid courier status update' });
@@ -3641,8 +3635,8 @@ const updateScheduleEntry = (fieldKey) =>
       entry.notes = notes;
     }
     if (followUpType !== undefined) {
-      if (req.user.role !== ROLES.ADMIN) {
-        return res.status(403).json({ success: false, message: 'Only Admin can edit schedule type' });
+      if (!isAdminLike(req.user)) {
+        return res.status(403).json({ success: false, message: 'Only Admin or Manager can edit schedule type' });
       }
       const nextFollowUpType = String(followUpType || 'normal').toLowerCase();
       const allowedTypes = fieldKey === 'followUps' ? ['normal', 'sfs', 'tracker', 'video'] : ['normal', 'sfs'];

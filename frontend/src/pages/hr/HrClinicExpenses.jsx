@@ -4,7 +4,7 @@ import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { hasHrFullAccess } from '../../constants/roles.js';
+import { canHrDelete, hasHrFullAccess } from '../../constants/roles.js';
 import { todayInput } from './hrOptions.js';
 
 const fieldClass = 'mt-1 w-full rounded-md border border-cardline bg-white px-3 py-2.5 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
@@ -110,7 +110,7 @@ export default function HrClinicExpenses() {
           <td className="px-4 py-3"><div className="flex items-center gap-1">
             {canEdit(row) && <button title="Edit expense" onClick={() => openEdit(row)} className="p-2 text-sage"><Pencil size={16} /></button>}
             {isAdmin && <Button size="sm" variant="outline" onClick={() => setReview({ row, approval: row.approval === 'pending' ? 'approved' : row.approval, ownerReview: row.ownerReview })}>Review</Button>}
-            {isAdmin && <button title="Delete expense" onClick={() => remove(row)} className="p-2 text-red-700"><Trash2 size={16} /></button>}
+            {canHrDelete(user?.role) && <button title="Delete expense" onClick={() => remove(row)} className="p-2 text-red-700"><Trash2 size={16} /></button>}
           </div></td>
         </tr>)}</tbody>
       </table></div>

@@ -5,7 +5,7 @@ const ManagementColumn = require('../models/AppointmentManagementColumn');
 const Receipt = require('../models/ConsultationReceipt');
 const Bank = require('../models/BankAccount');
 const Audit = require('../models/SalesSheetAudit');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isSalesConfirmationColumn } = require('../utils/appointmentSections');
@@ -25,7 +25,7 @@ const deleteManagedUpload = async (url) => {
   if (!target.toLowerCase().startsWith(`${root.toLowerCase()}${path.sep}`)) return;
   await fs.unlink(target).catch((error) => { if (error.code !== 'ENOENT') throw error; });
 };
-const canWrite = (sheet, row, user) => user.role === ROLES.ADMIN || (sheet === 'management'
+const canWrite = (sheet, row, user) => isAdminLike(user) || (sheet === 'management'
   ? user.role === ROLES.RECEPTIONIST
   : !row.acceptedAt && row.status === 'active' && (user.role === ROLES.RECEPTIONIST || (user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))));
 const loadTarget = async (req) => {
@@ -126,7 +126,7 @@ const updateField = asyncHandler(async (req, res) => {
   const field = `${target.sheet === 'management' && source === 'sales' ? 'salesValues' : 'values'}.${columnId}`;
   const previous = String(previousValue ?? '');
   const condition = previous === '' ? { $or: [{ [field]: '' }, { [field]: { $exists: false } }] } : { [field]: previous };
-  const permissions = target.sheet === 'sales' && req.user.role !== ROLES.ADMIN ? { status: 'active', acceptedAt: null } : {};
+  const permissions = target.sheet === 'sales' && !isAdminLike(req.user) ? { status: 'active', acceptedAt: null } : {};
   const updated = await modelFor(target.sheet).findOneAndUpdate({ _id: target.row._id, ...condition, ...permissions }, { $set: { [field]: value, updatedByName: req.user.name, lastEditedAt: new Date() } }, { new: true });
   if (!updated) fail('This field changed. Reopen the appointment before saving.', 409);
   if (column.type === 'file' && previous && previous !== value) await deleteManagedUpload(previous);
@@ -155,7 +155,7 @@ const prepareReceipt = asyncHandler(async (req, res, next) => {
 });
 const updateSalesReceipt = asyncHandler(async (req, res) => {
   const target = await loadTarget(req);
-  if (target.sheet !== 'sales' || ![ROLES.ADMIN, ROLES.SALES_TEAM].includes(req.user.role) || !target.writable) fail('Sales payment can no longer be edited', 403);
+  if (target.sheet !== 'sales' || !(isAdminLike(req.user) || req.user.role === ROLES.SALES_TEAM) || !target.writable) fail('Sales payment can no longer be edited', 403);
   if (!idValid(req.params.receiptId)) fail('Invalid receipt');
   const amount = Number(req.body.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) fail('Enter a valid advance amount');

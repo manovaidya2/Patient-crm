@@ -6,37 +6,21 @@ import Button from '../../components/ui/Button.jsx';
 import { PageHeader, Section } from '../../components/ui/Layout.jsx';
 import { PAGES } from '../../components/PendingWork.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { isAdminLike } from '../../constants/roles.js';
+import { TeamRoleCards, useTeamPending } from '../../components/TeamPending.jsx';
 
-// Each item is placed by when it is due (or how long it has waited); same buckets for every role.
-const DAY = 86400000;
-const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
-const bucketOf = (item) => {
-  const today = startOfToday();
-  if (item.waitingSince) {
-    const days = item.due ? Math.floor((today - new Date(item.due)) / DAY) : 0;
-    return days >= 2 ? 'overdue' : 'today';
-  }
-  if (!item.due) return 'anytime';
-  const due = new Date(item.due);
-  if (due < today) return 'overdue';
-  if (due < new Date(today.getTime() + DAY)) return 'today';
-  return 'upcoming';
-};
-const BUCKETS = [
-  ['overdue', 'Overdue / waiting long', 'bg-[#FDE2E1] text-[#9F1D1D]'],
-  ['today', 'Today', 'bg-[#FFF1E6] text-[#C2410C]'],
-  ['upcoming', 'Upcoming', 'bg-[#E9EFE9] text-sage'],
-  ['anytime', 'Anytime', 'bg-[#F3EEE2] text-charcoal/70'],
-];
-const when = (item) => {
-  if (!item.due) return '';
-  const d = new Date(item.due);
-  if (item.waitingSince) {
-    const days = Math.floor((startOfToday() - d) / DAY);
-    return days <= 0 ? 'since today' : `waiting ${days} day${days === 1 ? '' : 's'}`;
-  }
-  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-};
+// Admin / Manager: what every role still has to do, on top of their own day.
+function TeamAtAGlance() {
+  const { data } = useTeamPending();
+  if (!data?.roles?.length) return null;
+  return (
+    <Section title={`Team pending · ${data.total}`} action={<Link to="/admin/team-pending" className="text-xs font-semibold text-sage hover:underline">Open team pending</Link>}>
+      <TeamRoleCards roles={data.roles} />
+    </Section>
+  );
+}
+
+import { BUCKETS, bucketOf, when } from '../../utils/taskTiming.js';
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 
 // My day: every open task of this role, from the same rules as the orange counts, grouped by urgency.
@@ -67,6 +51,7 @@ export default function MyDay() {
         actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw size={14} />Refresh</Button>}
       />
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
+      {isAdminLike(user) && <TeamAtAGlance />}
 
       {sections.length > 0 && (
         <section className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }} aria-label="Your work by page">

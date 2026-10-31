@@ -4,7 +4,7 @@ const { fillReceptionPackage } = require('../utils/receptionPackage');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { emptyRecord, cleanRecord, normalizeRecord, definitions, COMPONENTS } = require('../utils/postCounselingRecord');
 const purchase = require('../utils/purchaseOrderRecord');
 const { REGISTRATION_FIELDS, FIELD_GROUPS, CATEGORY_LABEL, RECEPTION_IDS, istDate } = require('../utils/receptionFlow');
@@ -19,16 +19,16 @@ const fail = (message, statusCode = 400) => Object.assign(new Error(message), { 
 const { NOT_GIVEN_KINDS, notGivenView } = require('../utils/postCounselingNotGiven');
 const text = (value, max = 200) => String(value ?? '').trim().slice(0, max);
 
-// The record belongs to a patient reception has sent to a Post Counselor. Only that counselor (or Admin) may fill it;
-// Doctor and Manager can read it.
+// The record belongs to a patient reception has sent to a Post Counselor. Only that counselor (or Admin / Manager) may fill it;
+// the Doctor can read it.
 const loadAccessible = async (req) => {
   const id = String(req.params.id || '');
   if (!mongoose.Types.ObjectId.isValid(id) || id.length !== 24) throw fail('Invalid patient');
   const entry = await Management.findById(id);
   if (!entry || entry.registration?.status !== 'sent') throw fail('Patient not found', 404);
   const isOwner = req.user.role === ROLES.POST_COUNSELOR && String(entry.registration.postCounselor) === String(req.user._id);
-  const canEdit = req.user.role === ROLES.ADMIN || isOwner;
-  if (!canEdit && ![ROLES.DOCTOR, ROLES.MANAGER].includes(req.user.role)) throw fail('This patient was sent to another Post Counselor', 403);
+  const canEdit = isAdminLike(req.user) || isOwner;
+  if (!canEdit && req.user.role !== ROLES.DOCTOR) throw fail('This patient was sent to another Post Counselor', 403);
   return { entry, canEdit };
 };
 

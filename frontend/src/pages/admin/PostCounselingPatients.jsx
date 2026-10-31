@@ -32,7 +32,7 @@ const PostCounselingPatients = () => {
   const [recordPatient, setRecordPatient] = useState(null);
   // Post counselling not done / treatment not given: moves the patient to the Treatment Not Given page.
   const [notGivenPatient, setNotGivenPatient] = useState(null);
-  const canMoveNotGiven = [ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canMoveNotGiven = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR].includes(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');

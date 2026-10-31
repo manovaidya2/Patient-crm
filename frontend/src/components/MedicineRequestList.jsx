@@ -7,7 +7,7 @@ import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
 import Badge from './ui/Badge.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { ROLES } from '../constants/roles.js';
+import { ROLES, isAdminLike } from '../constants/roles.js';
 import { PatientFileButton } from './medicine/PatientFile.jsx';
 import { DelayTable } from './medicine/MedicineDelay.jsx';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from './ui/Attachments.jsx';
@@ -81,7 +81,8 @@ const formatDateTime = (iso) =>
 const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [], pendingStatuses = [] }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = user?.role === ROLES.ADMIN; // deleting stays Admin-only
+  const canManage = isAdminLike(user);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState('');
   const [dateMode, setDateMode] = useState('month');
@@ -142,7 +143,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
   };
 
   const adminRequestAction = async (row, status) => {
-    if (!isAdmin) return;
+    if (!canManage || (status !== 'cancelled' && !isAdmin)) return;
     const label = status === 'cancelled' ? 'cancel this medicine request' : 'delete this medicine request permanently';
     if (!window.confirm(`Are you sure you want to ${label}?`)) return;
     if (status === 'cancelled') {
@@ -331,7 +332,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                 <div key={`${row.patientId}-${row.stage}-${row.requestId}`} className={`grid gap-4 p-5 lg:grid-cols-[1.25fr_1fr_auto] ${pending ? 'bg-orange-50/70 shadow-[inset_4px_0_0_#f97316]' : ''}`}>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {isAdmin ? (
+                      {canManage ? (
                         <Link to={`/admin/patients/${row.patientId}`} className="font-display text-lg font-bold text-charcoal hover:text-sage">
                           {row.patientName}
                         </Link>
@@ -363,7 +364,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                       <p className={`mt-1 text-xs ${['requested', 'in_process'].includes(request.status) && new Date(request.readyByDate).setHours(23, 59, 59) - Date.now() < 2 * 86400000 ? 'font-semibold text-[#8C3B2E]' : 'text-charcoal/55'}`}>
                         Ready by: {new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{request.readyBySetByName ? ` (set by ${request.readyBySetByName})` : ''}
                         {/* The ready date comes from post counselling: only the admin can change it here. */}
-                        {['requested', 'in_process'].includes(request.status) && user?.role === ROLES.ADMIN && (
+                        {['requested', 'in_process'].includes(request.status) && canManage && (
                           <button type="button" className="ml-2 font-semibold text-sage hover:underline" onClick={() => openReadyAction(row, 'change')}>Change</button>
                         )}
                       </p>
@@ -431,16 +432,18 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
                         <ClipboardList size={14} /> {busyKey === `${row.patientId}-${row.stage}-${row.requestId}-job` ? 'Opening...' : 'Open fulfilment job'}
                       </Button>
                     )}
-                    {isAdmin && (
+                    {canManage && (
                       <>
                         {request.status !== 'cancelled' && (
                           <Button size="sm" variant="outline" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'cancelled')}>
                             <Ban size={14} /> Cancel
                           </Button>
                         )}
-                        <Button size="sm" variant="danger" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'delete')}>
-                          <Trash2 size={14} /> Delete
-                        </Button>
+                        {isAdmin && (
+                          <Button size="sm" variant="danger" disabled={!!busyKey} onClick={() => adminRequestAction(row, 'delete')}>
+                            <Trash2 size={14} /> Delete
+                          </Button>
+                        )}
                       </>
                     )}
                     {actions
@@ -496,7 +499,7 @@ const MedicineRequestList = ({ title, subtitle, statuses, emptyText, actions = [
             {readyError && <p className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{readyError}</p>}
             <label className="mt-4 block text-sm font-medium text-charcoal">
               Medicine ready by
-              <input type="date" required disabled={Boolean(readyAction.row.medicineRequest?.readyByDate) && user?.role !== ROLES.ADMIN} value={readyAction.date} onChange={(e) => setReadyAction({ ...readyAction, date: e.target.value })} className="mt-1.5 w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
+              <input type="date" required disabled={Boolean(readyAction.row.medicineRequest?.readyByDate) && !canManage} value={readyAction.date} onChange={(e) => setReadyAction({ ...readyAction, date: e.target.value })} className="mt-1.5 w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20" />
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setReadyAction(null)}>Cancel</Button>

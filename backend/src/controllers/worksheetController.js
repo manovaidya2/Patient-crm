@@ -66,11 +66,8 @@ const getAllowedUsers = async (user) => {
     return [{ id: user._id, name: user.name, role: user.role, roleLabel: ROLE_LABELS[user.role] || user.role }];
   }
 
-  const roles = user.role === ROLES.MANAGER
-    ? [ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST]
-    : WORKSHEET_ROLES;
-
-  const users = await User.find({ role: { $in: roles }, isActive: true })
+  // Admin, Doctor and Manager see every worksheet.
+  const users = await User.find({ role: { $in: WORKSHEET_ROLES }, isActive: true })
     .select('name role')
     .sort({ role: 1, name: 1 });
 

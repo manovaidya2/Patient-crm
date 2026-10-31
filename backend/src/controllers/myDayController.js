@@ -5,12 +5,12 @@ const Enquiry = require('../models/Enquiry');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { loadPoViews } = require('./purchaseOrderController');
 const { jobActionBy } = require('./medicineJobController');
 const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require('../utils/legacyHandover');
 const { explanationOwner } = require('./transitController');
-const { PAGES, COUNTERS } = require('./taskCountController');
+const { PAGES, COUNTERS, stepRole } = require('./taskCountController');
 const { STAGES } = require('../utils/medicineJobFlow');
 
 // "My day": the same open work the orange counts show, as a list of items - who, what, when due, and where to act.
@@ -38,8 +38,8 @@ const requestItems = async (page, statuses, detailOf, extra = () => true) => {
 
 const COLLECTORS = {
   async '/admin/purchase-orders'(user) {
-    return (await loadPoViews()).filter((po) => po.actionBy.includes(user.role))
-      .map((po) => item('/admin/purchase-orders', po.id, po.patientName, `${po.poNumber} · ${(po.openSteps.find((s) => s.actionBy.includes(user.role)) || po.step).label}${po.supplyLabel ? ` · ${po.supplyLabel}` : ''}`, po.createdAt, `/admin/purchase-orders/${po.id}`, { waitingSince: true }));
+    return (await loadPoViews()).filter((po) => po.actionBy.includes(stepRole(user)))
+      .map((po) => item('/admin/purchase-orders', po.id, po.patientName, `${po.poNumber} · ${(po.openSteps.find((s) => s.actionBy.includes(stepRole(user))) || po.step).label}${po.supplyLabel ? ` · ${po.supplyLabel}` : ''}`, po.createdAt, `/admin/purchase-orders/${po.id}`, { waitingSince: true }));
   },
   async '/admin/patient-approvals'() {
     const ps = await Patient.find({ $or: [{ approvalStatus: 'pending' }, { 'stages.payments.approvalStatus': 'pending' }] }).select('patientName patientCode approvalStatus createdAt stages.payments').limit(LIMIT).lean();
@@ -79,7 +79,7 @@ const COLLECTORS = {
   async '/admin/medicine-jobs'(user) {
     const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver).includes(user.role)).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (0 - 3 years)' : ''}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
+    return jobs.filter((j) => jobActionBy(j, handedOver).includes(stepRole(user))).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (0 - 3 years)' : ''}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
   },
   async '/admin/stocks'() {
     const items = await StockItem.find({ isActive: { $ne: false } }).lean();
@@ -93,7 +93,7 @@ const COLLECTORS = {
     for (const p of patients) for (const st of p.stages || []) {
       const t = st.transit || {};
       if (!t.explanationScheduledAt || t.explanationCompletedAt || t.removedAt || !(t.assignedAt || t.explanationDoctor)) continue;
-      if (user.role !== ROLES.ADMIN && explanationOwner(p, st) !== String(user._id)) continue;
+      if (!isAdminLike(user) && explanationOwner(p, st) !== String(user._id)) continue;
       out.push(item('/admin/medicine-explanations', `${p._id}-${st.number}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number} · ${t.explanationMode || 'phone'}`, st.medicineExplainDate, '/admin/medicine-explanations'));
     }
     return out;
@@ -120,7 +120,7 @@ const COLLECTORS = {
   },
   async '/admin/enquiries'(user) {
     const filter = { deletedAt: null, status: { $in: ['open', 'in_progress'] } };
-    if (user.role !== ROLES.ADMIN) Object.assign(filter, { participants: user._id, assignedTo: user._id });
+    if (!isAdminLike(user)) Object.assign(filter, { participants: user._id, assignedTo: user._id });
     const rows = await Enquiry.find(filter).select('subject patientName status createdByName createdAt').sort({ createdAt: 1 }).limit(LIMIT).lean();
     return rows.map((e) => item('/admin/enquiries', String(e._id), e.subject || 'Enquiry', `${e.patientName ? `${e.patientName} · ` : ''}${e.status === 'in_progress' ? 'in progress' : 'open'} · from ${e.createdByName || '-'}`, e.createdAt, `/admin/enquiries?id=${e._id}`, { waitingSince: true }));
   },

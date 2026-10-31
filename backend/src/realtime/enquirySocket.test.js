@@ -9,7 +9,10 @@ test('each person joins only their private enquiry room; sales rooms remain rest
     const rooms = []; const listeners = [];
     connect({ user: { _id: 'person1', role }, join(room) { rooms.push(room); }, on(event) { listeners.push(event); } });
     assert.ok(rooms.includes('enquiry:user:person1'));
-    const sales = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(role);
+    const sales = [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(role);
+    // Only the admin hears every Team Chat; the manager gets its own room for enquiries.
+    assert.equal(rooms.includes('enquiry:admins'), role === ROLES.ADMIN);
+    assert.equal(rooms.includes('enquiry:managers'), role === ROLES.MANAGER);
     assert.equal(rooms.includes('sales-sheet'), sales);
     assert.equal(listeners.includes('sales-sheet:watch-date'), sales);
   }
@@ -22,7 +25,7 @@ test('medicine job changes reach the people who work on or follow the jobs, and 
   for (const role of ALL_ROLES) {
     const rooms = [];
     connect({ user: { _id: 'person1', role }, join(room) { rooms.push(room); }, on() {} });
-    assert.equal(rooms.includes(MEDICINE_JOBS_ROOM), [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT].includes(role), role);
+    assert.equal(rooms.includes(MEDICINE_JOBS_ROOM), [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT].includes(role), role);
   }
   const sent = [];
   const io = { to(room) { sent.push(room); return this; }, emit(event, payload) { sent.push(event, payload.id); } };

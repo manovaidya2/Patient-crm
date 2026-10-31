@@ -5,7 +5,7 @@
 //   In Transit:          the day the medicine was released to In Transit  vs the expected date
 // and against the date In Transit fixed with the patient:
 //   Dispatch / pickup:   the day it was dispatched (or collected)          vs the planned dispatch (or pickup) date
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
@@ -30,8 +30,8 @@ const fixedReadyDate = ({ po = null, stage = null } = {}) => {
   return po?.medicineReadyDate || paperDate(stage?.poPaper?.values?.medicineReadyDate) || null;
 };
 
-// Only the admin may change what post counselling fixed.
-const canOverrideFixed = (user) => user?.role === ROLES.ADMIN;
+// Only the admin (or the manager) may change what post counselling fixed.
+const canOverrideFixed = (user) => isAdminLike(user);
 
 // One step's delay: done (with the days it was late) or still running (days late so far).
 // Kept once done, so a finished step still shows how late it was.

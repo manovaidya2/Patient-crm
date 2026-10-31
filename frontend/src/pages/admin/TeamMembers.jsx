@@ -10,7 +10,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Toast from '../../components/ui/Toast.jsx';
 import { useToast } from '../../components/useToast.js';
-import { CREATABLE_ROLES, RETIRED_ROLES, ROLE_LABELS } from '../../constants/roles.js';
+import { CREATABLE_ROLES, RETIRED_ROLES, ROLE_LABELS, ROLES } from '../../constants/roles.js';
 import { Users as PageTitleIcon } from 'lucide-react';
 
 const emptyForm = { name: '', email: '', password: '', role: '', phone: '' };
@@ -18,6 +18,7 @@ const emptyForm = { name: '', email: '', password: '', role: '', phone: '' };
 const TeamMembers = () => {
   const { toasts, showToast, dismissToast } = useToast();
   const { user, refreshUser } = useAuth();
+  const isAdmin = user?.role === ROLES.ADMIN;
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -350,27 +351,32 @@ const TeamMembers = () => {
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => openEditModal(u)}
-                          aria-label={`Edit ${u.name}`}
-                          className="p-2 rounded-md text-sage hover:bg-sage-muted/25"
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          onClick={() => toggleActive(u)}
-                          aria-label={u.isActive ? `Deactivate ${u.name}` : `Activate ${u.name}`}
-                          className="p-2 rounded-md text-sage hover:bg-sage-muted/25"
-                        >
-                          <UserX2 size={15} />
-                        </button>
-                        <button
-                          onClick={() => { setDeleteTarget(u); loadLinks(u); }}
-                          aria-label={`Delete ${u.name}`}
-                          className="p-2 rounded-md text-[#8C3B2E] hover:bg-[#8C3B2E]/10"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {/* The Manager edits and deactivates staff, but not an Admin account, and never deletes anyone. */}
+                        {(isAdmin || u.role !== ROLES.ADMIN) && <>
+                          <button
+                            onClick={() => openEditModal(u)}
+                            aria-label={`Edit ${u.name}`}
+                            className="p-2 rounded-md text-sage hover:bg-sage-muted/25"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => toggleActive(u)}
+                            aria-label={u.isActive ? `Deactivate ${u.name}` : `Activate ${u.name}`}
+                            className="p-2 rounded-md text-sage hover:bg-sage-muted/25"
+                          >
+                            <UserX2 size={15} />
+                          </button>
+                        </>}
+                        {isAdmin && (
+                          <button
+                            onClick={() => { setDeleteTarget(u); loadLinks(u); }}
+                            aria-label={`Delete ${u.name}`}
+                            className="p-2 rounded-md text-[#8C3B2E] hover:bg-[#8C3B2E]/10"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

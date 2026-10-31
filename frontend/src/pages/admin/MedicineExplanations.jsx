@@ -7,7 +7,7 @@ import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { ROLES, isAdminLike } from '../../constants/roles.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
@@ -75,7 +75,7 @@ export default function MedicineExplanations() {
   return (
     <div className="space-y-4">
       <PageHeader icon={Stethoscope} title="Medicine Explanations"
-        subtitle={`${todayCount} today · ${weekCount} in the next 7 days · Patients assigned to ${user?.role === ROLES.ADMIN ? 'each PCC' : 'you'} for the medicine explanation. Completing it starts the treatment of that phase.`}
+        subtitle={`${todayCount} today · ${weekCount} in the next 7 days · Patients assigned to ${isAdminLike(user) ? 'each PCC' : 'you'} for the medicine explanation. Completing it starts the treatment of that phase.`}
         actions={<>
           <div className="inline-flex gap-1.5" role="group" aria-label="Status">{[['pending', 'Pending'], ['done', 'Completed'], ['all', 'All']].map(([v, l]) => <button key={v} type="button" aria-pressed={status === v} onClick={() => setStatus(v)} className={chip(status === v)}>{l}</button>)}</div>
           <Button variant="outline" size="sm" onClick={load} title="Refresh" aria-label="Refresh"><RefreshCw size={15} /></Button>

@@ -3,7 +3,7 @@ import { AlertTriangle, CalendarDays, Check, CheckCircle2, ClipboardCheck, Messa
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { ROLES, isAdminLike } from '../../constants/roles.js';
 
 const inputClass = 'w-full min-w-0 rounded-lg border border-cardline bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15 disabled:bg-gray-50 disabled:text-charcoal/50';
 const ROLE_LABEL = { admin: 'Admin', doctor: 'Doctor' };
@@ -88,9 +88,10 @@ function ReviewPanel({ item, canReview, onSave }) {
 
 const ReceptionistChecklist = ({ compact = false }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = user?.role === ROLES.ADMIN; // removing a task stays Admin-only
+  const canManage = isAdminLike(user);
   const isReceptionist = user?.role === ROLES.RECEPTIONIST;
-  const canReview = isAdmin || user?.role === ROLES.DOCTOR;
+  const canReview = canManage || user?.role === ROLES.DOCTOR;
   const [today, setToday] = useState(todayLocal());
   const [date, setDate] = useState(todayLocal());
   const [receptionists, setReceptionists] = useState([]);
@@ -264,10 +265,10 @@ const ReceptionistChecklist = ({ compact = false }) => {
                         })()}
                         {!compact && <ReviewPanel item={item} canReview={canReview} onSave={saveReview} />}
                       </div>
-                      {isAdmin && manage && (
+                      {canManage && manage && (
                         <div className="flex shrink-0 gap-1">
                           {editingId === item.id ? <><button type="button" onClick={() => saveItem(item)} className="p-2 text-sage" title="Save"><Save size={16} /></button><button type="button" onClick={() => setEditingId(null)} className="p-2 text-charcoal/50" title="Cancel"><X size={16} /></button></> : <button type="button" onClick={() => { setEditingId(item.id); setEditingLabel(item.label); }} className="p-2 text-sage" title="Edit task"><Pencil size={16} /></button>}
-                          <button type="button" onClick={() => deleteItem(item)} className="p-2 text-red-700" title="Remove task"><Trash2 size={16} /></button>
+                          {isAdmin && <button type="button" onClick={() => deleteItem(item)} className="p-2 text-red-700" title="Remove task"><Trash2 size={16} /></button>}
                         </div>
                       )}
                     </div>
@@ -288,7 +289,7 @@ const ReceptionistChecklist = ({ compact = false }) => {
         <div className="mt-5 rounded-xl border border-sage/40 bg-sage/5 p-4"><p className="flex items-center gap-2 text-sm font-bold text-charcoal"><MessageSquareText size={16} className="text-sage" />Remark for the day</p><p className="mt-1 text-sm text-charcoal/80">{dayReview.remark}</p><p className="mt-1 text-xs text-charcoal/55">{ROLE_LABEL[dayReview.role] || dayReview.role} {dayReview.by} - {stamp(dayReview.at)}</p></div>
       )}
 
-      {isAdmin && !compact && (
+      {canManage && !compact && (
         <div className="mt-5 border-t border-cardline pt-4">
           <button type="button" onClick={() => setManage((v) => !v)} className="text-sm font-semibold text-sage hover:underline">{manage ? 'Done managing tasks' : 'Manage daily tasks (add / edit / remove)'}</button>
           {manage && <form onSubmit={addItem} className="mt-3 flex gap-2"><input required value={newLabel} maxLength={200} onChange={(e) => setNewLabel(e.target.value)} placeholder="New daily task for the receptionist" className={inputClass} /><Button type="submit"><Plus size={16} />Add task</Button></form>}

@@ -54,10 +54,11 @@ test('In Transit can open assignment staff lists and assignment update route', (
 
 test('In Transit can reach medicine request route while unrelated roles cannot', () => {
   const guard = routeGuard(patientRouter, '/:id/stages/:number/medicine-request', 'post');
-  for (const role of [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]) {
+  // The Manager passes wherever the Admin does.
+  for (const role of [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT]) {
     assert.equal(checkAccess(guard, role).allowed, true, role);
   }
-  for (const role of [ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST, ROLES.ASSISTANT_DOCTOR]) {
+  for (const role of [ROLES.POST_COUNSELOR, ROLES.PSYCHOLOGIST, ROLES.RECEPTIONIST, ROLES.ASSISTANT_DOCTOR]) {
     assert.deepEqual(checkAccess(guard, role), { allowed: false, status: 403 }, role);
   }
 });

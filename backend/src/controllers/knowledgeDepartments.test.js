@@ -12,6 +12,7 @@ test('every staff role gets its own library; the retired psychologist role reads
     const own = departmentForRole(role);
     assert.equal(resolveDepartment({ user: { role }, query: {} }), own);
     for (const other of DEPARTMENTS.filter((value) => value !== own)) {
+      if (role === ROLES.MANAGER) { assert.equal(resolveDepartment({ user: { role }, query: { department: other } }), other); continue; }
       assert.throws(() => resolveDepartment({ user: { role }, query: { department: other } }), { statusCode: 403 });
       assert.throws(() => resolveDepartment({ user: { role }, body: { department: other } }), { statusCode: 403 });
     }

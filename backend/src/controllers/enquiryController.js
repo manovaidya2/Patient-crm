@@ -1,14 +1,14 @@
 const mongoose = require('mongoose');
 const Enquiry = require('../models/Enquiry');
 const User = require('../models/User');
-const { ROLES, ALL_ROLES } = require('../constants/roles');
+const { ROLES, ALL_ROLES, isAdminLike } = require('../constants/roles');
 const Patient = require('../models/Patient');
 const { CATEGORY_LABELS } = require('../constants/patientCategories');
 const { phaseAge } = require('../utils/phaseAge');
 const { asyncHandler } = require('../middleware/errorHandler');
 const fail = (message, statusCode = 400) => { const error = new Error(message); error.statusCode = statusCode; throw error; };
 const same = (a, b) => String(a) === String(b);
-const accessFilter = (user) => ({ deletedAt: null, ...(user.role === ROLES.ADMIN ? {} : { participants: user._id }) });
+const accessFilter = (user) => ({ deletedAt: null, ...(isAdminLike(user) ? {} : { participants: user._id }) });
 const requiredText = (value, label, max) => {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text || text.length > max) fail(`${label} is required (maximum ${max} characters)`);
@@ -21,7 +21,7 @@ async function findAssignee(id) {
   return user;
 }
 function allowedActions(entry, user) {
-  const admin = user.role === ROLES.ADMIN;
+  const admin = isAdminLike(user);
   if (admin) return ['comment', 'start', 'forward', 'resolve', 'close', 'reopen'];
   const owner = same(entry.createdBy, user._id);
   const assignee = same(entry.assignedTo, user._id);
@@ -75,7 +75,8 @@ function recordEvent(entry, user, action, note) {
 }
 function emit(req, entry) {
   const io = req.app.get('io');
-  io?.to('enquiry:admins').emit('enquiry:changed', { id: String(entry._id) });
+  // Managers watch every enquiry too; they are kept out of 'enquiry:admins', which also carries Team Chat.
+  for (const room of ['enquiry:admins', 'enquiry:managers']) io?.to(room).emit('enquiry:changed', { id: String(entry._id) });
   for (const id of entry.participants) io?.to(`enquiry:user:${id}`).emit('enquiry:changed', { id: String(entry._id) });
 }
 const staff = asyncHandler(async (req, res) => {
@@ -167,7 +168,7 @@ const markRead = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 const edit = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.ADMIN) fail('Only Admin can edit enquiries', 403);
+  if (!isAdminLike(req.user)) fail('Only Admin or Manager can edit enquiries', 403);
   const entry = await Enquiry.findOne({ _id: req.params.id, deletedAt: null });
   if (!entry) fail('Enquiry not found', 404);
   const reason = requiredText(req.body.reason, 'Edit reason', 1000);
@@ -191,7 +192,7 @@ const edit = asyncHandler(async (req, res) => {
     entry.assignedTo = assignee._id; entry.assignedToName = assignee.name; entry.assignedToRole = assignee.role;
     if (!entry.participants.some((id) => same(id, assignee._id))) entry.participants.push(assignee._id);
   }
-  recordEvent(entry, req.user, 'Edited by Admin', `${reason}\n${changes.join('\n')}`);
+  recordEvent(entry, req.user, req.user.role === ROLES.MANAGER ? 'Edited by Manager' : 'Edited by Admin', `${reason}\n${changes.join('\n')}`);
   try { await entry.save(); } catch (error) { if (error.name === 'VersionError') fail('This enquiry changed. Refresh and try again.', 409); throw error; }
   emit(req, entry);
   res.json({ enquiry: serialize(entry, req.user) });

@@ -6,10 +6,11 @@ import ScheduleReminderAlert from '../../components/ScheduleReminderAlert.jsx';
 import PendingWork from '../../components/PendingWork.jsx';
 import MobileTabBar from '../../components/MobileTabBar.jsx';
 import ReminderBell from '../../components/ReminderBell.jsx';
+import { TeamPendingButton } from '../../components/TeamPending.jsx';
 import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { prefetchGet } from '../../api/axios.js';
-import { ROLES, getDefaultRoute } from '../../constants/roles.js';
+import { ROLES, getDefaultRoute, isAdminLike } from '../../constants/roles.js';
 
 const todayRange = () => {
   const start = new Date();
@@ -123,6 +124,7 @@ const AdminLayout = () => {
             <BrandLogo size="sm" className="!h-7 !w-7" />
             <span className="font-display text-[11px] font-bold leading-4">Manovaidya<span className="block font-medium">Operation System</span></span>
           </span>
+          {isAdminLike(user) && <TeamPendingButton dark />}
           {user?.role !== ROLES.HR && <ReminderBell dark />}
           <button onClick={logout} aria-label="Log out" className="shrink-0 -mr-1 p-2 text-teal-100/80 hover:text-offwhite-100">
             <LogOut size={18} />
@@ -130,7 +132,7 @@ const AdminLayout = () => {
         </div>
 
         {/* Desktop: the reminder bell in its own strip above the page, so it never covers a page's own buttons. */}
-        {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end px-8 pt-3 -mb-5"><ReminderBell /></div>}
+        {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}
         <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
           <ScheduleReminderAlert />
           {onHome && <PendingWork />}

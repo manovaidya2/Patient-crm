@@ -4,6 +4,7 @@ import api from '../../api/axios.js';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../payments/UtrRows.jsx';
 import Button from '../ui/Button.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { isAdminLike } from '../../constants/roles.js';
 import { FixedNote } from '../medicine/MedicineDelay.jsx';
 
 // The In Transit handover / treatment-start actions (calls, delivery mode, pickup or dispatch, receipt, explanation).
@@ -123,7 +124,7 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
   useEffect(() => { if (needsStaff) api.get('/transit/staff', { skipCache: true }).then(({ data }) => setStaff(data.staff)).catch(() => setError('Could not load the staff list')); }, [needsStaff]);
   // The expected ready date was fixed in post counselling: In Transit sends it to the Medicine Department as it is.
   const { user } = useAuth();
-  const dateLocked = formKey === 'raise_request' && Boolean(item.expectedReadyDate) && user?.role !== 'admin';
+  const dateLocked = formKey === 'raise_request' && Boolean(item.expectedReadyDate) && !isAdminLike(user);
   const submit = async (event) => {
     event.preventDefault();
     const missingPill = visible.find((f) => ['pills', 'staff'].includes(f[2]) && f[3] && !values[f[0]]);

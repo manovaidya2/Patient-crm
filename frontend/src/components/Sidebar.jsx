@@ -76,7 +76,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
-import { HR_ACCESS_ROLES, ROLES } from '../constants/roles.js';
+import { HR_ACCESS_ROLES, ROLES, isAdminLike } from '../constants/roles.js';
 import api from '../api/axios.js';
 import BrandLogo from './BrandLogo.jsx';
 
@@ -85,9 +85,16 @@ const ROLE_FIRST_PAGES = {
   [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/treatment-not-given', '/admin/post-counseling-done'],
 };
 
+// The Manager sees every page the Admin sees.
+export const canSeeNavItem = (item, role) => {
+  const asRole = isAdminLike(role) ? ROLES.ADMIN : role;
+  return (!item.adminOnly || asRole === ROLES.ADMIN) && (!item.roles || item.roles.includes(role) || item.roles.includes(asRole)) && !item.hiddenFor?.includes(role);
+};
+
 export const navItems = [
   // Every role's open work in one list (the orange counts, item by item).
   { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
+  { to: '/admin/team-pending', icon: Users, label: 'Team pending', roles: [ROLES.ADMIN, ROLES.MANAGER] },
   { to: '/admin', icon: LayoutDashboard, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
@@ -160,7 +167,7 @@ const NAV_GROUPS = [
 // A role's own department comes first and starts open.
 const HOME_GROUP = {
   [ROLES.RECEPTIONIST]: 'reception', [ROLES.POST_COUNSELOR]: 'postcounselling', [ROLES.IN_TRANSIT]: 'transit',
-  [ROLES.MEDICINE_DEPARTMENT]: 'medicine', [ROLES.ASSISTANT_DOCTOR]: 'care', [ROLES.MANAGER]: 'care',
+  [ROLES.MEDICINE_DEPARTMENT]: 'medicine', [ROLES.ASSISTANT_DOCTOR]: 'care',
 };
 const readOpenGroups = () => { try { return JSON.parse(localStorage.getItem(GROUP_STORAGE_KEY) || '{}'); } catch { return {}; } };
 
@@ -308,10 +315,9 @@ const Sidebar = ({ mobile = false, onClose }) => {
   // Open work per page for this role (orange badges); drops as soon as the steps are completed.
   const location = useLocation();
   const taskCounts = useTaskCounts(`${user?.role}|${location.pathname}`);
-  const isAdmin = user?.role === ROLES.ADMIN;
-  const canSeeAdviceCount = [ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role);
+  const canSeeAdviceCount = isAdminLike(user) || user?.role === ROLES.DOCTOR;
   const roleItems = navItems.filter(
-    (item) => (!item.adminOnly || isAdmin) && (!item.roles || item.roles.includes(user?.role)) && !item.hiddenFor?.includes(user?.role)
+    (item) => canSeeNavItem(item, user?.role)
   );
   // Some roles want their daily pages first; everything else follows in the usual order.
   const firstPages = ROLE_FIRST_PAGES[user?.role] || [];
@@ -442,7 +448,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
         const countOf = (item) => (item.to === '/admin/my-day' ? 0 : Number(taskCounts[item.to] || 0));
         const hrItem = visibleNavItems.find((item) => item.type === 'hr');
         // Order inside the menu: home pages, the role's own work, patient pages, then reference pages at the bottom.
-        const TOP = ['/admin/my-day', '/admin'];
+        const TOP = ['/admin/my-day', '/admin/team-pending', '/admin'];
         const REFERENCE = ['/admin/knowledge-library', '/admin/enquiries'];
         const top = visibleNavItems.filter((item) => TOP.includes(item.to));
         const reference = visibleNavItems.filter((item) => REFERENCE.includes(item.to));
@@ -450,7 +456,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
         const workPages = visibleNavItems.filter((item) => item.group);
         const home = HOME_GROUP[user?.role];
         // Admin and Doctor see every department, so every department keeps its own group.
-        const fullMenu = [ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role);
+        const fullMenu = isAdminLike(user) || user?.role === ROLES.DOCTOR;
         const allGroups = NAV_GROUPS
           .map((group) => ({ group, items: visibleNavItems.filter((item) => item.group === group.key) }))
           .filter((g) => g.items.length);

@@ -1,5 +1,6 @@
 import Badge from '../ui/Badge.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { roleAllowed } from '../../constants/roles.js';
 import { PoProgressBar } from './PoPipeline.jsx';
 import { PO_STATUS } from '../../constants/supplyPlans.js';
 
@@ -12,7 +13,7 @@ export default function PurchaseOrderRow({ po, onOpen, showPatient = true }) {
   const { user } = useAuth();
   const status = PO_STATUS[po.status] || PO_STATUS.pending;
   // Orange until the step waiting for this role is done (actionBy comes from the current step).
-  const mine = (po.actionBy || []).includes(user?.role);
+  const mine = roleAllowed(po.actionBy || [], user);
   return (
     <button type="button" onClick={() => onOpen(po)} className={`w-full rounded-[14px] border p-3.5 text-left transition hover:shadow-sm ${mine ? 'border-2 border-[#FDBA74] bg-[#FFF7ED] hover:border-[#F97316]' : 'border-[#E8DFCB] bg-white hover:border-sage/60'}`}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

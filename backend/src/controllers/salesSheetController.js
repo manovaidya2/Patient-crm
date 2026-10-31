@@ -10,7 +10,7 @@ const SalesSheetAudit = require('../models/SalesSheetAudit');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
 const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 const { RECEPTION_IDS } = require('../utils/receptionFlow');
@@ -157,7 +157,7 @@ const serializeManagementEntry = (entry, user) => ({
   salesLastCallNotes: entry.sourceAppointment?.salesLastCallNotes || '',
   createdBy: String(entry.createdBy), createdByName: entry.createdByName,
   updatedByName: entry.updatedByName || '',
-  canEdit: user.role === ROLES.ADMIN || user.role === ROLES.RECEPTIONIST,
+  canEdit: isAdminLike(user) || user.role === ROLES.RECEPTIONIST,
   createdAt: entry.createdAt, updatedAt: entry.updatedAt,
 });
 const serializeRow = (row, user) => ({
@@ -165,11 +165,11 @@ const serializeRow = (row, user) => ({
   appointmentCode: row.appointmentCode || `APT-${String(row._id).slice(-8).toUpperCase()}`,
   values: Object.fromEntries(row.values || []), createdBy: String(row.createdBy),
   createdByName: row.createdByName, updatedByName: row.updatedByName || '',
-  canEdit: row.status === 'active' && (user.role === ROLES.ADMIN || (user.role === ROLES.RECEPTIONIST && !row.acceptedAt) || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
-  canDelete: user.role !== ROLES.SALES_TEAM && (user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
-  canReschedule: row.status === 'active' && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
-  canMarkNotComing: !row.acceptedAt && (row.status === 'active' || row.status === 'not_coming') && ([ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user.role) || String(row.createdBy) === String(user._id)),
-  canAccept: row.status === 'active' && !row.acceptedAt && (user.role === ROLES.ADMIN || (user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
+  canEdit: row.status === 'active' && (isAdminLike(user) || (user.role === ROLES.RECEPTIONIST && !row.acceptedAt) || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
+  canDelete: ![ROLES.SALES_TEAM, ROLES.MANAGER].includes(user.role) && (user.role === ROLES.ADMIN || (!row.acceptedAt && String(row.createdBy) === String(user._id))),
+  canReschedule: row.status === 'active' && ([ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(user.role) || (!row.acceptedAt && user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
+  canMarkNotComing: !row.acceptedAt && (row.status === 'active' || row.status === 'not_coming') && ([ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(user.role) || String(row.createdBy) === String(user._id)),
+  canAccept: row.status === 'active' && !row.acceptedAt && (isAdminLike(user) || (user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))),
   acceptedAt: row.acceptedAt || null, acceptedByName: row.acceptedByName || '',
   entryAt: row.createdAt, lastEditedAt: row.lastEditedAt || null,
   consultationFee: row.consultationFee ?? null,
@@ -434,7 +434,7 @@ const rescheduleAppointment = asyncHandler(async (req, res) => {
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be rescheduled' });
   if (row.acceptedAt && req.user.role === ROLES.SALES_TEAM) return res.status(403).json({ success: false, message: 'Accepted appointments cannot be rescheduled by Sales Team' });
-  const allowed = [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role) || (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(req.user._id));
+  const allowed = [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role) || (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(req.user._id));
   if (!allowed) return res.status(403).json({ success: false, message: 'You cannot reschedule this appointment' });
   if (nextDate === row.appointmentDate) return res.status(400).json({ success: false, message: 'Choose a different appointment date' });
 
@@ -504,7 +504,7 @@ const clearNotComing = asyncHandler(async (req, res) => {
 });
 
 const logCall = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can record calls' });
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can record calls' });
   const status = req.body?.status;
   const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
   if (!['connected', 'no_answer', 'follow_up'].includes(status)) return res.status(400).json({ success: false, message: 'Select the call outcome' });
@@ -522,7 +522,7 @@ const logCall = asyncHandler(async (req, res) => {
 });
 
 const listCalls = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Call history is not available' });
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Call history is not available' });
   const row = await SalesAppointment.findById(req.params.id).select('createdBy appointmentCode status numberOfCalls callStatus lastCallAt callHistory').lean();
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) !== String(req.user._id)) return res.status(403).json({ success: false, message: 'This appointment belongs to another team member' });
@@ -534,11 +534,11 @@ const listCalls = asyncHandler(async (req, res) => {
   res.json({ success: true, calls, numberOfCalls: row.numberOfCalls || 0,
     legacyCount: Math.max(0, (row.numberOfCalls || 0) - calls.length),
     callStatus: row.callStatus || 'pending', lastCallAt: row.lastCallAt || null,
-    canLog: row.status === 'active' && [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role) });
+    canLog: row.status === 'active' && [ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role) });
 });
 
 const logSalesCall = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.SALES_TEAM].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Sales Team and Admin can record sales calls' });
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES_TEAM].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Sales Team and Admin can record sales calls' });
   const status = req.body?.status;
   const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
   if (!['connected', 'no_answer', 'follow_up'].includes(status)) return res.status(400).json({ success: false, message: 'Select the call outcome' });
@@ -569,11 +569,11 @@ const listSalesCalls = asyncHandler(async (req, res) => {
   res.json({ success: true, calls, numberOfCalls: row.salesNumberOfCalls || 0,
     legacyCount: Math.max(0, (row.salesNumberOfCalls || 0) - calls.length),
     callStatus: row.salesCallStatus || 'pending', lastCallAt: row.salesLastCallAt || null,
-    canLog: row.status === 'active' && !row.acceptedAt && (req.user.role === ROLES.ADMIN || (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(req.user._id))) });
+    canLog: row.status === 'active' && !row.acceptedAt && (isAdminLike(req.user) || (req.user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(req.user._id))) });
 });
 
 const logManagementCall = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can record calls' });
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can record calls' });
   const status = req.body?.status;
   const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
   if (!['connected', 'no_answer', 'follow_up'].includes(status)) return res.status(400).json({ success: false, message: 'Select the call outcome' });
@@ -591,7 +591,7 @@ const logManagementCall = asyncHandler(async (req, res) => {
 });
 
 const listManagementCalls = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can view call history' });
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can view call history' });
   const row = await AppointmentManagementEntry.findById(req.params.id).select('sourceAppointment numberOfCalls callStatus lastCallAt callHistory').lean();
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (row.sourceAppointment) return res.status(409).json({ success: false, message: 'Use the linked sales appointment for this call' });
@@ -701,8 +701,8 @@ const updateAppointment = asyncHandler(async (req, res) => {
   const row = await SalesAppointment.findById(req.params.id);
   if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
   if (row.status !== 'active') return res.status(400).json({ success: false, message: 'Only active appointments can be edited' });
-  if (row.acceptedAt && req.user.role !== ROLES.ADMIN) return res.status(403).json({ success: false, message: 'Accepted appointments can only be edited in Appointment Management' });
-  if (![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(req.user.role) && String(row.createdBy) !== String(req.user._id)) {
+  if (row.acceptedAt && !isAdminLike(req.user)) return res.status(403).json({ success: false, message: 'Accepted appointments can only be edited in Appointment Management' });
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role) && String(row.createdBy) !== String(req.user._id)) {
     return res.status(403).json({ success: false, message: 'Only the member who added this appointment can edit it' });
   }
   row.values = await cleanValues(req.body.values);

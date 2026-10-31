@@ -18,6 +18,7 @@ const validStatus = (module, status) => STATUS_MAP[module]?.includes(status);
 
 const canTransition = (module, from, to, role) => {
   if (!validStatus(module, to) || from === to) return false;
+  if (role === 'manager') role = 'admin'; // the Manager moves records like the Admin
   if (APPROVAL_MODULES.has(module)) {
     if (to === 'pending_approval') return ['admin', 'hr'].includes(role) && ['draft', 'rejected', 'initiated'].includes(from);
     if (['approved', 'rejected'].includes(to)) return ['admin', 'doctor'].includes(role) && from === 'pending_approval';

@@ -19,16 +19,16 @@ import { DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.j
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
-import { ROLES } from '../../constants/roles.js';
+import { ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { CASE_CATEGORIES } from '../../constants/patientCategories.js';
 import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
 
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const day = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const inputDay = (value) => (value ? new Date(value).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '');
-const VERIFY_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT];
-const CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
-const TRANSIT_ROLES = [ROLES.ADMIN, ROLES.IN_TRANSIT];
+const VERIFY_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT];
+const CREATE_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+const TRANSIT_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.IN_TRANSIT];
 const MED_STATUS = { requested: 'Waiting for Medicine Dept', in_process: 'Being prepared', made: 'Medicine ready', sent_to_courier: 'Released', cancelled: 'Cancelled' };
 // Transit steps that belong to handover / treatment start (order and medicine steps live on the PO itself).
 const HANDOVER_ACTIONS = ['schedule_delivery', 'dispatch', 'confirm_received', 'assign_pcc', 'confirm_mode', 'schedule_visit', 'schedule_dispatch', 'start_treatment', 'log_call'];
@@ -339,7 +339,7 @@ function VerifyPanel({ po, onDone }) {
 // `edit`: correct the request already sent (allowed until Medicine Department accepts it), with `onCancel`.
 function MedicineRequestForm({ po, onDone, edit = false, onCancel }) {
   const { user } = useAuth();
-  const admin = user?.role === ROLES.ADMIN;
+  const admin = isAdminLike(user);
   // Fixed in post counselling: In Transit passes them on as they are (only the admin can change them).
   const supplyLocked = Boolean(edit ? po.fixedPlan?.paperSupply : po.fixedPlan?.supplyLocked) && !admin;
   const dateLocked = Boolean(po.fixedPlan?.readyDate) && !admin;
@@ -423,7 +423,7 @@ function PlanEditModal({ po, onClose, onDone }) {
 
 function EditRejectedForm({ po, onDone }) {
   const { user } = useAuth();
-  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && user?.role !== ROLES.ADMIN;
+  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && !isAdminLike(user);
   const [values, setValues] = useState({ supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), amount: String(po.amount || ''), notes: po.notes || '' });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -718,10 +718,10 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
     <div className="flex gap-3"><Clock3 size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">{po.step.label}</h3><p className="text-sm text-charcoal/65">{po.step.waitText || po.requestBlockedReason || 'Waiting for the next team.'}</p></div></div>
   );
   const showHandover = TRANSIT_ROLES.includes(role) && med && med.status !== 'cancelled' && po.isPhaseCurrentRequest;
-  const myTurn = (po.actionBy || []).includes(role);
+  const myTurn = roleAllowed(po.actionBy || [], role);
   // Timeline as a filter: the chosen step (default: the step the PO is on now) decides what the right side shows.
   // After the split each track has its own "now" step: open the one that is this role's work.
-  const mine = (po.openSteps || []).find((s) => s.actionBy.includes(role));
+  const mine = (po.openSteps || []).find((s) => roleAllowed(s.actionBy, role));
   const currentKey = mine?.key || po.steps.find((s) => s.state === 'current' || s.state === 'failed')?.key || 'all';
   const track = medicineTrack(po.steps, po.medicineJob);
   const stepOf = (key) => track.find((s) => s.key === key) || po.steps.find((s) => s.key === key);
@@ -732,7 +732,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const actionKey = next ? (po.status === 'pending' ? (po.detailsVerified ? 'payment' : 'details') : po.status === 'rejected' ? 'details' : 'requested') : po.step.key;
   // "Waiting for ..." is already said by the step header, so it shows on its own only under "All details".
   const showAction = next ? selected === 'all' || selected === actionKey : waiting && selected === 'all';
-  const canRevert = role === ROLES.ADMIN && !['rejected', 'cancelled'].includes(po.status);
+  const canRevert = isAdminLike(role) && !['rejected', 'cancelled'].includes(po.status);
   // Fulfilment step 12 is In Transit's to confirm once the parcel is packed.
   const canFinalCheck = TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'final' && po.medicineJob.status === 'open' && !po.medicineJob.hold;
 
@@ -756,7 +756,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
       {(po.phaseHold || po.phaseRemoved) && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-900">
           <span className="flex items-center gap-2"><AlertTriangle size={15} />{po.requestBlockedReason || `Phase ${po.phase} is ${po.phaseRemoved ? 'removed from In Transit' : 'on hold'}.`}</span>
-          {po.phaseRemoved ? role === ROLES.ADMIN && <Button size="sm" onClick={() => resumePhase('restore')}><RotateCcw size={14} />Restore to In Transit</Button>
+          {po.phaseRemoved ? isAdminLike(role) && <Button size="sm" onClick={() => resumePhase('restore')}><RotateCcw size={14} />Restore to In Transit</Button>
             : TRANSIT_ROLES.includes(role) && <Button size="sm" onClick={() => resumePhase('resume')}><PlayCircle size={14} />Resume</Button>}
         </div>
       )}
@@ -816,7 +816,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             <Row label="Address" value={po.address} />
             <Row label="Patient approval" value={po.approvalStatus === 'approved' ? 'Approved' : 'Pending'} />
           </Section>}
-          {show('po') && <Section title="Purchase order" icon={FileText} action={[ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(role) && po.status !== 'cancelled' && (!po.medicine || ['requested', 'cancelled'].includes(po.medicine.status)) && <button type="button" className={smallLink} onClick={() => setPlanOpen(true)}><Pencil size={13} />Change plan</button>}>
+          {show('po') && <Section title="Purchase order" icon={FileText} action={roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR], role) && po.status !== 'cancelled' && (!po.medicine || ['requested', 'cancelled'].includes(po.medicine.status)) && <button type="button" className={smallLink} onClick={() => setPlanOpen(true)}><Pencil size={13} />Change plan</button>}>
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Row label="PO number" value={po.poNumber} />
               <Row label="Phase" value={`Phase ${po.phase}`} />

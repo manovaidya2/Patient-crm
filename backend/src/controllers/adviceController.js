@@ -1,7 +1,7 @@
 const AdviceRequest = require('../models/AdviceRequest');
 const Patient = require('../models/Patient');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 
 const canAccessPatient = (user, patient) => {
   if (![ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user.role)) return true;
@@ -12,8 +12,8 @@ const canAccessPatient = (user, patient) => {
   return String(assignedId) === String(user._id);
 };
 
-const canRequestAdvice = (user) => [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user.role);
-const canAnswerAdvice = (user) => [ROLES.ADMIN, ROLES.DOCTOR].includes(user.role);
+const canRequestAdvice = (user) => isAdminLike(user) || [ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user.role);
+const canAnswerAdvice = (user) => isAdminLike(user) || user.role === ROLES.DOCTOR;
 
 const ADVICE_PATIENT_SELECT = 'patientName patientCode number stages.number stages.recordFileUrl stages.recordFileName stages.recordFiles';
 
@@ -246,7 +246,7 @@ const updateAdviceRequest = asyncHandler(async (req, res) => {
   if (entry.status !== 'requested') {
     return res.status(400).json({ success: false, message: 'Request cannot be edited after doctor advice is given' });
   }
-  if (req.user.role !== ROLES.ADMIN && String(entry.requestedBy) !== String(req.user._id)) {
+  if (!isAdminLike(req.user) && String(entry.requestedBy) !== String(req.user._id)) {
     return res.status(403).json({ success: false, message: 'You can only edit your own advice request' });
   }
 
@@ -291,7 +291,7 @@ const updateAdviceAnswer = asyncHandler(async (req, res) => {
   if (entry.status !== 'advice_given') {
     return res.status(400).json({ success: false, message: 'Advice has not been given yet' });
   }
-  if (req.user.role !== ROLES.ADMIN && String(entry.adviceGivenBy || '') !== String(req.user._id)) {
+  if (!isAdminLike(req.user) && String(entry.adviceGivenBy || '') !== String(req.user._id)) {
     return res.status(403).json({ success: false, message: 'You can only edit advice given by you' });
   }
 

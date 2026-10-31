@@ -92,7 +92,7 @@ const DigitalMarketing = () => {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const canAddReview = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
+  const canAddReview = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR].includes(user?.role);
   const canDeleteReview = user?.role === ROLES.ADMIN;
   const tableColSpan = columns.length + (canDeleteReview ? 1 : 0);
 

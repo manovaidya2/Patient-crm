@@ -42,7 +42,7 @@ test('forward keeps creator and previous assignee subscribed and records reason'
   assert.equal(entry.alerts.length, 3);
   assert.equal(entry.history[0].actorName, assignee.name);
   assert.equal(entry.history[0].note, 'Medicine team needs to check');
-  assert.equal(events.length, 4);
+  assert.equal(events.length, 5); // admins room, managers room and the three participants
   assert.ok(controller.allowedActions(entry, creator).includes('comment'));
   assert.ok(!controller.allowedActions(entry, assignee).includes('resolve'));
 });

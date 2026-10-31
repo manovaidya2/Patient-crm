@@ -5,7 +5,7 @@ import api from '../../api/axios.js';
 import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
 import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
-import { CREATABLE_ROLES, ROLE_LABELS, ROLES } from '../../constants/roles.js';
+import { CREATABLE_ROLES, ROLE_LABELS, ROLES, isAdminLike } from '../../constants/roles.js';
 import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { LayoutGrid as PageTitleIcon } from 'lucide-react';
@@ -152,7 +152,7 @@ const StageDonutChart = ({ rows = [], loading }) => {
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = isAdminLike(user);
   const [emergencyAdvice, setEmergencyAdvice] = useState({ count: 0, latest: null });
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [followUpFilterMode, setFollowUpFilterMode] = useState('date');
@@ -173,7 +173,7 @@ const Dashboard = () => {
   const loading = usersQuery.loading || statsQuery.loading;
 
   useEffect(() => {
-    if (![ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)) return undefined;
+    if (!isAdmin && user?.role !== ROLES.DOCTOR) return undefined;
 
     const fetchEmergencyAdvice = async () => {
       try {

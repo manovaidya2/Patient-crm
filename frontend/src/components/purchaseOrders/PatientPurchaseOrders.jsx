@@ -9,7 +9,7 @@ import PurchaseOrderRow from './PurchaseOrderRow.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 
-const CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+const CREATE_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 
 // Patient Details > Purchase Orders: every PO of this patient, newest first, and "New PO".
 export default function PatientPurchaseOrders({ patient }) {

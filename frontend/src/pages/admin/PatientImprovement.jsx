@@ -54,7 +54,7 @@ const SessionCell = ({ session }) => {
 // Refreshes on its own; patients who clearly improved in a month go to the Digital Marketing sheet automatically.
 export default function PatientImprovement() {
   const { user } = useAuth();
-  const canSync = [ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role);
+  const canSync = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR].includes(user?.role);
   const [month, setMonth] = useState(thisMonth());
   const [kind, setKind] = useState('all');
   const [show, setShow] = useState('all');

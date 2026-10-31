@@ -22,7 +22,7 @@ const Item = ({ label, value }) => (
 // Post Counseling Patients; every move and restore stays in the history.
 export default function TreatmentNotGiven() {
   const { user } = useAuth();
-  const canAct = [ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canAct = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR].includes(user?.role);
   const isCounselor = user?.role === ROLES.POST_COUNSELOR;
   const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState('');

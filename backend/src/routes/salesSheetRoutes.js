@@ -47,7 +47,8 @@ router.post('/management/:id/reschedule', authorize(ROLES.ADMIN, ROLES.RECEPTION
 router.post('/management/:id/cancel-accept', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.cancelAcceptance);
 router.post('/appointments/:id/reschedule', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.rescheduleAppointment);
 router.post('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.markNotComing);
-router.delete('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.clearNotComing);
+// Clearing a "not coming" mark is an undo, not a delete, so the Manager (named here) may do it too.
+router.delete('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.clearNotComing);
 router.post('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.logCall);
 router.get('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listCalls);
 router.post('/appointments/:id/sales-calls', authorize(ROLES.ADMIN, ROLES.SALES_TEAM), controller.logSalesCall);

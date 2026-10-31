@@ -22,7 +22,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
 import { STAGES, STAGE_LABELS, STAGE_STATUS_OPTIONS } from '../../constants/treatmentStages.js';
 import { PAYMENT_MODES, PAYMENT_MODE_OPTIONS } from '../../constants/paymentModes.js';
-import { ASSIGN_DOCTOR_ROLES, ROLES } from '../../constants/roles.js';
+import { ASSIGN_DOCTOR_ROLES, ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { DISPLAY_STATUS_BADGE_TONE } from '../../constants/scheduleStatuses.js';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from '../../components/ui/Attachments.jsx';
 
@@ -1214,6 +1214,7 @@ const ScheduleCard = ({
   canAdd = true,
   canUpdate = true,
   canEditEntries = false,
+  canDeleteEntries = false,
   formType = 'followup_full',
   allowShortFollowUp = false,
   patient,
@@ -1631,7 +1632,7 @@ const ScheduleCard = ({
                         <Pencil size={14} /> Edit
                       </Button>
                     )}
-                    {canEditEntries && (
+                    {canDeleteEntries && (
                       <button
                         type="button"
                         title="Delete entry"
@@ -1705,7 +1706,7 @@ const ScheduleCard = ({
                     <p>
                       <span className="font-semibold text-charcoal">{e.completionName}</span> · {formatDateTime(e.completedAt)}{e.completedByName ? <> · done by <span className="font-semibold text-charcoal">{e.completedByName}</span></> : null}
                     </p>
-                    {e.completionPdfUrl && <CompactAttachments files={[{ url: e.completionPdfUrl, fileName: e.completionPdfName || 'Completion PDF' }]} label="PDF" deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />}
+                    {e.completionPdfUrl && <CompactAttachments files={[{ url: e.completionPdfUrl, fileName: e.completionPdfName || 'Completion PDF' }]} label="PDF" deleteUrl={canDeleteEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />}
                     {e.meetRecordingUrl && (
                       <a
                         href={e.meetRecordingUrl}
@@ -1750,10 +1751,10 @@ const ScheduleCard = ({
                         >
                           Your browser cannot play this video.
                         </video>
-                        <CompactAttachments files={[{ url: e.videoUrl, fileName: e.videoFileName || 'Follow-up video' }]} label={e.videoSize ? `Video (${(e.videoSize / (1024 * 1024)).toFixed(1)} MB)` : 'Video'} deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />
+                        <CompactAttachments files={[{ url: e.videoUrl, fileName: e.videoFileName || 'Follow-up video' }]} label={e.videoSize ? `Video (${(e.videoSize / (1024 * 1024)).toFixed(1)} MB)` : 'Video'} deleteUrl={canDeleteEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />
                       </div>
                     )}
-                    <CompactAttachments files={e.completionFiles || []} label="Uploads" deleteUrl={canEditEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />
+                    <CompactAttachments files={e.completionFiles || []} label="Uploads" deleteUrl={canDeleteEntries ? `/patients/${patient.id || patient._id}/attachments` : ''} onDeleted={onAttachmentDeleted} />
                     <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-charcoal/60">{e.completionDetails}</p>
                   </div>
                 )}
@@ -2370,7 +2371,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
                   <div className="flex items-center gap-1 text-xs font-semibold text-charcoal/55">
                     {row.status === 'advice_given' ? <CheckCircle2 size={14} className="text-sage" /> : <Clock size={14} className="text-[#9C6B2E]" />}
                     {row.status === 'advice_given' ? formatDateTime(row.adviceGivenAt) : 'Waiting'}
-                    {row.status === 'requested' && (user?.role === ROLES.ADMIN || String(row.requestedBy || '') === String(user?.id || user?._id || '')) && (
+                    {row.status === 'requested' && (isAdminLike(user) || String(row.requestedBy || '') === String(user?.id || user?._id || '')) && (
                       <Button size="sm" variant="ghost" onClick={() => openEditModal(row)} className="ml-1">
                         <Pencil size={13} /> Edit
                       </Button>
@@ -2607,7 +2608,7 @@ const PatientDetails = () => {
   }, [canAssignDoctor]);
 
   useEffect(() => {
-    if (![ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role)) return;
+    if (!roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR], user)) return;
     const fetchPostCounselors = async () => {
       try {
         const { data } = await api.get('/users/post-counselors');
@@ -2630,21 +2631,22 @@ const PatientDetails = () => {
   const guardianKey = isAutism ? 'guardianName' : 'relativeName';
   const isPsychologist = user?.role === ROLES.PSYCHOLOGIST;
   const isReceptionistAccounts = user?.role === ROLES.IN_TRANSIT;
-  const isAdmin = user?.role === ROLES.ADMIN;
-  const canMakeBills = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(user?.role);
+  const isAdmin = user?.role === ROLES.ADMIN; // deleting stays Admin-only
+  const canManage = isAdminLike(user);
+  const canMakeBills = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR], user);
   const isPostCounselor = user?.role === ROLES.POST_COUNSELOR;
-  const canEditStageDetails = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR].includes(user?.role);
+  const canEditStageDetails = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR], user);
   const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
-  const canEditPatientIdentity = [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canEditPatientRecords = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
-  const canAddPayment = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canEditPatientIdentity = roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
+  const canEditPatientRecords = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
+  const canAddPayment = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
   // Medicine is requested from its purchase order (Purchase Orders > PO details). Only Admin keeps the old
   // direct request here, for records made before purchase orders.
-  const canRequestMedicine = user?.role === ROLES.ADMIN;
+  const canRequestMedicine = canManage;
   const canUpdateFamilySessions = true;
   const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isReceptionistAccounts;
-  const canEditPostCounselor = isAdmin || isPostCounselor;
-  const canEditPayments = isAdmin || isPostCounselor;
+  const canEditPostCounselor = canManage || isPostCounselor;
+  const canEditPayments = canManage || isPostCounselor;
 
   // Every field goes through the same PATCH endpoint; the response is the fresh patient record.
   const saveField = async (fieldKey, rawValue) => {
@@ -2992,7 +2994,7 @@ const PatientDetails = () => {
     && !activeStage.medicineConnectDone
     && isDateTodayOrPast(activeStage.medicineNextConnectDate);
   const activeStageAdviceRows = adviceRows.filter((row) => Number(row.stage) === Number(activeStageTab));
-  const canRequestAdvice = [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user?.role);
+  const canRequestAdvice = roleAllowed([ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
   const postCounselorSelectOptions = [
     { value: '', label: 'Not selected' },
     ...(activeStage?.postCounselor?.id && !postCounselorOptions.some((counselor) => String(counselor.id) === String(activeStage.postCounselor.id))
@@ -3603,7 +3605,7 @@ const PatientDetails = () => {
                 <PoPaperCard
                   poPaper={activeStage.poPaper}
                   stage={activeStage}
-                  canAdd={[ROLES.ADMIN, ROLES.POST_COUNSELOR].includes(user?.role)}
+                  canAdd={roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR], user)}
                   onAddImages={async (files) => {
                     const body = new FormData();
                     files.forEach((file) => body.append('screenshot', file));
@@ -3725,7 +3727,7 @@ const PatientDetails = () => {
               <MedicineRequestsSection
                 requests={activeStage.medicineRequests || []}
                 canRequest={canRequestMedicine}
-                isAdmin={isAdmin}
+                isAdmin={canManage}
                 onNewRequest={(payload) => handleRequestMedicine({ ...payload, createNew: true })}
                 onUpdateRequest={(request, payload) => handleRequestMedicine({ ...payload, requestId: request.id })}
                 deleteUrl={isAdmin ? `/patients/${patient.id || patient._id}/attachments` : ''}
@@ -3748,7 +3750,8 @@ const PatientDetails = () => {
                 onDeleteNote={(noteId) => deleteScheduleNote('followups', noteId)}
                 canAdd={!isPsychologist}
                 canUpdate={!isPsychologist}
-                canEditEntries={isAdmin}
+                canEditEntries={canManage}
+                canDeleteEntries={isAdmin}
                 formType="followup_full"
                 patient={patient}
                 stageNumber={activeStage.number}
@@ -3766,7 +3769,8 @@ const PatientDetails = () => {
                 onAddNote={(text) => addScheduleNote('family-sessions', text)}
                 onDeleteNote={(noteId) => deleteScheduleNote('family-sessions', noteId)}
                 canUpdate={canUpdateFamilySessions}
-                canEditEntries={isAdmin}
+                canEditEntries={canManage}
+                canDeleteEntries={isAdmin}
                 formType="family_section_a"
                 allowShortFollowUp
                 patient={patient}

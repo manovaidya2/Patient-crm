@@ -5,7 +5,7 @@ import AdminLayout from './pages/admin/AdminLayout.jsx';
 import EnquiryNotifications from './components/EnquiryNotifications.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { useAuth } from './context/AuthContext.jsx';
-import { ADMIN_LAYOUT_ROLES, HR_ACCESS_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute } from './constants/roles.js';
+import { ADMIN_LAYOUT_ROLES, HR_ACCESS_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute, isAdminLike } from './constants/roles.js';
 
 const GenericDashboard = lazy(() => import('./pages/GenericDashboard.jsx'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard.jsx'));
@@ -37,6 +37,7 @@ const MedicineJobPage = lazy(() => import('./pages/admin/MedicineJob.jsx'));
 const Stocks = lazy(() => import('./pages/admin/Stocks.jsx'));
 const FormulationMasterPage = lazy(() => import('./pages/admin/FormulationMaster.jsx'));
 const MyDay = lazy(() => import('./pages/admin/MyDay.jsx'));
+const TeamPendingPage = lazy(() => import('./pages/admin/TeamPendingPage.jsx'));
 const MEDICINE_JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT];
 const FORMULATION_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 const STOCK_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
@@ -139,7 +140,7 @@ function App() {
           index
           element={
             <ProtectedRoute roles={DASHBOARD_ACCESS_ROLES}>
-              {[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role)
+              {isAdminLike(user) || user?.role === ROLES.DOCTOR
                 ? <Dashboard />
                 : user?.role === ROLES.RECEPTIONIST
                   ? <ReceptionistHomeDashboard />
@@ -169,6 +170,7 @@ function App() {
         <Route path="medicine-jobs/:id" element={<ProtectedRoute roles={MEDICINE_JOB_ROLES}><MedicineJobPage /></ProtectedRoute>} />
         <Route path="stocks" element={<ProtectedRoute roles={STOCK_ROLES}><Stocks /></ProtectedRoute>} />
         <Route path="my-day" element={<ProtectedRoute roles={ADMIN_LAYOUT_ROLES}><MyDay /></ProtectedRoute>} />
+        <Route path="team-pending" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER]}><TeamPendingPage /></ProtectedRoute>} />
         <Route path="formulation-master" element={<ProtectedRoute roles={FORMULATION_ROLES}><FormulationMasterPage /></ProtectedRoute>} />
         <Route path="purchase-orders/:id" element={<ProtectedRoute roles={PURCHASE_ORDER_ROLES}><PurchaseOrderDetail /></ProtectedRoute>} />
         <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />

@@ -8,7 +8,7 @@ import { CompactAttachments } from './ui/Attachments.jsx';
 import SalesCallHistory from './SalesCallHistory.jsx';
 import { columnSection } from '../utils/appointmentSections.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { ROLES } from '../constants/roles.js';
+import { ADMIN_LIKE_ROLES, ROLES, isAdminLike } from '../constants/roles.js';
 
 const inputClass = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2 text-sm text-charcoal outline-none focus:ring-2 focus:ring-sage/30';
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -17,7 +17,7 @@ const paidDate = (value) => value ? new Date(value).toLocaleDateString('en-IN', 
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 const href = (value) => value?.startsWith('/uploads/') ? `${(import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '')}${value}` : undefined;
 const checked = (value) => [true, 'true', '\u2611'].includes(value);
-const appointmentColumnsFor = (columns, sheet, role) => (sheet === 'management' && role === ROLES.ADMIN
+const appointmentColumnsFor = (columns, sheet, role) => (sheet === 'management' && isAdminLike(role)
   ? columns.map((column) => /^(consent|concent)\s*form$/i.test(column.label.trim().replace(/\s+/g, ' '))
     ? { ...column, required: false }
     : column)
@@ -82,7 +82,7 @@ function Field({ column, value, onChange, onError, onUploading }) {
 
 export default function AppointmentForm({ sheet, row, onClose, onChanged, onCreated }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === ROLES.ADMIN;
+  const isAdmin = user?.role === ROLES.ADMIN; // removing a saved file or receipt proof stays Admin-only
   const [data, setData] = useState(null);
   const [tab, setTab] = useState(row.initialTab === 'reception-confirmation' && user?.role === ROLES.SALES_TEAM ? 'sales' : row.initialTab || 'sales');
   const [error, setError] = useState('');
@@ -214,7 +214,7 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     finally { setSaving(false); }
   };
   const receipts = data?.receipts || [];
-  const editableSalesReceipts = sheet === 'sales' && row.id && data?.canEdit && !data.acceptedAt && [ROLES.ADMIN, ROLES.SALES_TEAM].includes(user?.role)
+  const editableSalesReceipts = sheet === 'sales' && row.id && data?.canEdit && !data.acceptedAt && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM].includes(user?.role)
     ? receipts.filter((item) => item.collectionStage === 'advance' && item.status === 'pending') : [];
   const received = receipts.filter((item) => item.status !== 'cancelled').reduce((sum, item) => sum + item.amount, 0);
   const advance = receipts.filter((item) => item.status !== 'cancelled' && item.collectionStage === 'advance').reduce((sum, item) => sum + item.amount, 0);
@@ -234,7 +234,7 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     });
   };
   const tabs = sheet === 'sales'
-    ? [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ...(row.id && [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role) ? [['reception-confirmation', 'Reception calls']] : [])]
+    ? [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ...(row.id && [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role) ? [['reception-confirmation', 'Reception calls']] : [])]
     : [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ['reception-confirmation', 'Reception call confirmation'], ['reception', 'Reception details']];
   const canEditSection = data?.canEdit && !(user?.role === ROLES.RECEPTIONIST && tab === 'sales-confirmation');
   const sectionTones = {
@@ -286,8 +286,8 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
           {((!row.id || editingAll) && canEditSection) ? <Field column={column} value={values[column.id] || ''} onChange={(next) => { const key = fieldSource === 'sales' ? 'salesValues' : 'values'; setData((old) => ({ ...old, [key]: { ...old[key], [column.id]: next } })); }} onError={setError} onUploading={setUploading} /> : editing?.column.id === column.id ? <form onSubmit={saveField} className="space-y-2"><Field column={column} value={value} onChange={setValue} onError={setError} onUploading={setUploading} /><div className="flex gap-2"><Button type="submit" size="sm" disabled={saving || uploading}><Save size={13} />Save</Button><Button size="sm" variant="outline" disabled={saving || uploading} onClick={() => setEditing(null)}>Cancel</Button></div></form> : <Value column={column} value={values[column.id]} onRemove={isAdmin && column.type === 'file' && values[column.id] ? () => removeSavedField(column, fieldSource, values[column.id]) : undefined} />}
           {column.id === OLD_PATIENT_ID && <ExistingPatientCheck code={editing?.column.id === column.id ? value : values[column.id]} onFound={fillFromPatient} />}
         </div>)}{!columns.length && <p className="py-8 text-sm text-charcoal/70">No fields in this section</p>}</div>{editingAll && <div className="flex justify-end gap-2 border-t border-cardline pt-3"><Button variant="outline" disabled={saving || uploading} onClick={() => { setEditingAll(false); load().catch(() => { }); }}>Cancel</Button><Button disabled={saving || uploading} onClick={saveAllFields}><Save size={15} />{saving ? 'Saving...' : 'Save details'}</Button></div>}</div>}
-        {data && tab === 'sales-confirmation' && row.id && (sheet === 'sales' || data.callTarget?.sheet === 'sales') && [ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><h3 className="mb-3 text-sm font-bold">Sales calls</h3><SalesCallHistory embedded key={`sales:${sheet === 'sales' ? row.id : data.callTarget.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={`/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/sales-calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
-        {data && tab === 'reception-confirmation' && row.id && (sheet === 'sales' || data.callTarget) && [ROLES.ADMIN, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><SalesCallHistory embedded key={`reception:${sheet}:${row.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={sheet === 'sales' || data.callTarget.sheet === 'sales' ? `/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/calls` : `/sales-sheet/forms/management/${data.callTarget.id}/calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
+        {data && tab === 'sales-confirmation' && row.id && (sheet === 'sales' || data.callTarget?.sheet === 'sales') && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><h3 className="mb-3 text-sm font-bold">Sales calls</h3><SalesCallHistory embedded key={`sales:${sheet === 'sales' ? row.id : data.callTarget.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={`/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/sales-calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
+        {data && tab === 'reception-confirmation' && row.id && (sheet === 'sales' || data.callTarget) && [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><SalesCallHistory embedded key={`reception:${sheet}:${row.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={sheet === 'sales' || data.callTarget.sheet === 'sales' ? `/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/calls` : `/sales-sheet/forms/management/${data.callTarget.id}/calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
         {data && !row.id && tab === 'payments' && <div className="space-y-4 rounded-md border border-cardline bg-white/50 p-4">
           <div><p className="text-sm font-bold">Consultation payment</p><p className="mt-1 text-xs text-charcoal/70">Set the total fee and, if collected now, record the amount paid below. Both save with this appointment.</p></div>
           <Label title="Total consultation fee"><input className={inputClass} type="number" min="0" step="0.01" max="100000000" value={data.consultationFee ?? ''} onChange={(e) => setData((old) => ({ ...old, consultationFee: e.target.value }))} placeholder="Enter total amount to collect" /></Label>
@@ -296,7 +296,7 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
         </div>}
         {data && !row.id && <div className="flex justify-end border-t border-cardline pt-3"><Button disabled={saving || uploading} onClick={createAppointment}><Save size={15} />{saving ? 'Saving...' : 'Save appointment'}</Button></div>}
         {data && row.id && tab === 'payments' && <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-charcoal/70">Consultation fee</p><div className="mt-1 flex flex-wrap items-center gap-3"><strong className="text-lg">{data.consultationFee == null ? 'Not set' : money(data.consultationFee)}</strong>{data.canEdit && !feeEdit && <Button size="sm" variant="outline" onClick={() => { setFee(data.consultationFee ?? ''); setFeeEdit(true); }}><Pencil size={14} />{data.consultationFee == null ? 'Set consultation fee' : 'Edit consultation fee'}</Button>}</div></div>{data.canEdit && !adding && !editingPayment && ((sheet === 'sales' && [ROLES.ADMIN, ROLES.SALES_TEAM].includes(user?.role)) || sheet !== 'sales') && <Button size="sm" onClick={addReceipt}><Plus size={15} />{sheet === 'sales' ? 'Add sales payment' : 'Record reception payment'}</Button>}</div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-charcoal/70">Consultation fee</p><div className="mt-1 flex flex-wrap items-center gap-3"><strong className="text-lg">{data.consultationFee == null ? 'Not set' : money(data.consultationFee)}</strong>{data.canEdit && !feeEdit && <Button size="sm" variant="outline" onClick={() => { setFee(data.consultationFee ?? ''); setFeeEdit(true); }}><Pencil size={14} />{data.consultationFee == null ? 'Set consultation fee' : 'Edit consultation fee'}</Button>}</div></div>{data.canEdit && !adding && !editingPayment && ((sheet === 'sales' && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM].includes(user?.role)) || sheet !== 'sales') && <Button size="sm" onClick={addReceipt}><Plus size={15} />{sheet === 'sales' ? 'Add sales payment' : 'Record reception payment'}</Button>}</div>
           {feeEdit && <form onSubmit={saveFee} className="flex flex-wrap items-end gap-2"><Label title="Total consultation fee *"><input className={inputClass} type="number" min="0" max="100000000" step="0.01" required value={fee} onChange={(e) => setFee(e.target.value)} /></Label><Button type="submit" disabled={saving}>Save fee</Button><Button variant="outline" disabled={saving} onClick={() => setFeeEdit(false)}>Cancel</Button></form>}
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{[['Sales advance', money(advance)], ['Reception received', money(received - advance)], ['Reception approved', money(approved)], [remaining !== null && remaining < 0 ? 'Extra received' : 'Remaining fee', remaining === null ? 'Fee not set' : money(Math.abs(remaining))]].map(([label, amount]) => <div key={label} className="rounded-md border border-cardline bg-white/60 p-3"><p className="text-xs text-charcoal/70">{label}</p><p className="mt-1 text-base font-bold">{amount}</p></div>)}</div>
           {editableSalesReceipts.length > 0 && !editingPayment && <div className="flex flex-wrap gap-2">{editableSalesReceipts.map((item) => <Button key={item._id} size="sm" variant="outline" onClick={() => openPaymentEdit(item)}><Pencil size={14} />Edit sales advance {money(item.amount)}</Button>)}</div>}

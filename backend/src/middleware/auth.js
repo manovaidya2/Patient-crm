@@ -46,10 +46,12 @@ const protect = async (req, res, next) => {
   }
 };
 
-// Restricts a route to specific roles, e.g. authorize('admin')
+// Restricts a route to specific roles, e.g. authorize('admin'). The Manager passes wherever the Admin does,
+// except a DELETE (deleting stays with the Admin only).
+const managerPasses = (req, roles) => req.user?.role === 'manager' && roles.includes('admin') && req.method !== 'DELETE';
 const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user || !(roles.includes(req.user.role) || managerPasses(req, roles))) {
       return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
     }
     next();

@@ -1,6 +1,6 @@
 const BankAccount = require('../models/BankAccount');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 
 const BANK_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR];
 // In Transit records PO payments too, so it reads the bank list (only Admin adds or edits banks).
@@ -28,7 +28,7 @@ const listBanks = asyncHandler(async (req, res) => {
 });
 
 const createBank = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.ADMIN) {
+  if (!isAdminLike(req.user)) {
     return res.status(403).json({ success: false, message: 'Only Admin can add banks' });
   }
   const name = String(req.body.name || '').trim();
@@ -51,7 +51,7 @@ const createBank = asyncHandler(async (req, res) => {
 });
 
 const updateBank = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.ADMIN) {
+  if (!isAdminLike(req.user)) {
     return res.status(403).json({ success: false, message: 'Only Admin can update banks' });
   }
   const bank = await BankAccount.findById(req.params.id);

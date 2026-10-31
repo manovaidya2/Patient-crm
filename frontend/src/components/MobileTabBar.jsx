@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { Home, Menu, Sun } from 'lucide-react';
-import { navItems } from './Sidebar.jsx';
+import { canSeeNavItem, navItems } from './Sidebar.jsx';
 import useTaskCounts from '../hooks/useTaskCounts.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ROLES, getDefaultRoute } from '../constants/roles.js';
@@ -9,7 +9,7 @@ import { ROLES, getDefaultRoute } from '../constants/roles.js';
 const PREFERRED = {
   [ROLES.ADMIN]: ['/admin/patients', '/admin/purchase-orders', '/admin/patient-approvals'],
   [ROLES.DOCTOR]: ['/admin/patients', '/admin/patient-approvals', '/admin/purchase-orders'],
-  [ROLES.MANAGER]: ['/admin/patients', '/admin/followups', '/admin/family-sessions'],
+  [ROLES.MANAGER]: ['/admin/patients', '/admin/purchase-orders', '/admin/patient-approvals'],
   [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/package-not-bought', '/admin/patients'],
   [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/courier', '/admin/patient-approvals'],
   [ROLES.MEDICINE_DEPARTMENT]: ['/admin/medicine-jobs', '/admin/medicine-requests', '/admin/stocks'],
@@ -36,7 +36,7 @@ export default function MobileTabBar({ onMenu }) {
   const role = user?.role;
   if (!role || role === ROLES.HR) return null;
 
-  const allowed = navItems.filter((item) => item.to && item.icon && (!item.adminOnly || role === ROLES.ADMIN) && (!item.roles || item.roles.includes(role)) && !item.hiddenFor?.includes(role));
+  const allowed = navItems.filter((item) => item.to && item.icon && canSeeNavItem(item, role));
   const byPath = new Map(allowed.map((item) => [item.to, item]));
   const home = getDefaultRoute(role);
   const picks = [];

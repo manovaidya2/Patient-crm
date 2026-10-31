@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const User = require('../models/User');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODES, MODE_LABEL } = require('../utils/transitFlow');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
@@ -61,8 +61,8 @@ const listTransit = asyncHandler(async (req, res) => {
   const q = clean(req.query.q, 100).toLowerCase();
   if (q) items = items.filter((item) => [item.patientName, item.patientCode, item.purchaseOrder, item.patientPhone].some((v) => String(v || '').toLowerCase().includes(q)));
   if (req.query.date) items = items.filter(item => item.enteredAt && new Date(item.enteredAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === req.query.date);
-  const isAdmin = req.user.role === ROLES.ADMIN;
-  // Removed cases are only listed for admin (so they can be restored).
+  const isAdmin = isAdminLike(req.user);
+  // Removed cases are only listed for admin / manager (so they can be restored).
   if (!isAdmin) items = items.filter((item) => !item.removed);
   const counts = Object.fromEntries(VIEWS.map((view) => [view, items.filter((item) => matchesView(item, view)).length]));
   let view = VIEWS.includes(req.query.view) ? req.query.view : 'all';
@@ -348,7 +348,7 @@ const respondWithCase = async (res, patient, stageNumber) => {
 const runAction = asyncHandler(async (req, res) => {
   const { action } = req.body;
   if (!ACTIONS[action]) fail('Unknown in-transit action');
-  if (['accept_request', 'set_ready_by'].includes(action) && req.user.role !== ROLES.ADMIN) fail('Medicine Department owns preparation updates', 403);
+  if (['accept_request', 'set_ready_by'].includes(action) && !isAdminLike(req.user)) fail('Medicine Department owns preparation updates', 403);
   const { patient, stage } = await loadStage(req);
   if (stage.transit.removedAt) fail('This case was removed from In Transit');
   if (stage.transit.activatedAt) fail('Treatment has already started for this phase');
@@ -393,7 +393,7 @@ const restoreToTransit = asyncHandler(async (req, res) => {
 const ackExplanation = asyncHandler(async (req, res) => {
   const { patient, stage } = await loadStage(req);
   if (!stage.medicineExplainDate) fail('No explanation is scheduled for this phase');
-  if (req.user.role !== ROLES.ADMIN && String(stage.transit.explanationDoctor || patient.assignedDoctor || '') !== String(req.user._id)) fail('This explanation is assigned to another doctor', 403);
+  if (!isAdminLike(req.user) && String(stage.transit.explanationDoctor || patient.assignedDoctor || '') !== String(req.user._id)) fail('This explanation is assigned to another doctor', 403);
   Object.assign(stage.transit, { explanationAckAt: new Date(), explanationAckByName: req.user.name });
   logActivity(patient, req.user, stage.number, 'PCC saw the explanation schedule');
   await respondWithCase(res, patient, stage.number);
@@ -409,7 +409,7 @@ const listExplanations = asyncHandler(async (req, res) => {
   let items = [];
   for (const patient of patients) for (const stage of patient.stages || []) {
     if (!stage.transit?.explanationScheduledAt || stage.transit.removedAt) continue;
-    if (req.user.role !== ROLES.ADMIN && explanationOwner(patient, stage) !== String(req.user._id)) continue;
+    if (!isAdminLike(req.user) && explanationOwner(patient, stage) !== String(req.user._id)) continue;
     const item = await caseOf(patient, stage);
     items.push(item);
   }
@@ -430,7 +430,7 @@ const listExplanations = asyncHandler(async (req, res) => {
 const completeExplanation = asyncHandler(async (req, res) => {
   const { patient, stage } = await loadStage(req);
   const t = stage.transit;
-  if (req.user.role !== ROLES.ADMIN && explanationOwner(patient, stage) !== String(req.user._id)) fail('This explanation belongs to another doctor', 403);
+  if (!isAdminLike(req.user) && explanationOwner(patient, stage) !== String(req.user._id)) fail('This explanation belongs to another doctor', 403);
   if (t.holdActive || t.removedAt) fail('This case is on hold or removed');
   if (!t.explanationScheduledAt || !stage.medicineExplainDate) fail('Schedule the explanation first');
   if (t.explanationCompletedAt || t.activatedAt) fail('Explanation already completed', 409);
@@ -452,7 +452,7 @@ const completeExplanation = asyncHandler(async (req, res) => {
 
 const getTransitReminders = asyncHandler(async (req, res) => {
   const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).lean();
-  const now = new Date(), reminders = [], role = req.user.role;
+  const now = new Date(), reminders = [], role = isAdminLike(req.user) ? ROLES.ADMIN : req.user.role;
   for (const patient of patients) for (const stage of patient.stages || []) {
     if (!isInTransit(stage)) continue;
     const t = stage.transit || {}, request = pickRequest(stage);

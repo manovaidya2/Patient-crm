@@ -9,7 +9,7 @@ import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import FormulationSheet from '../../components/medicine/FormulationSheet.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES, ROLE_LABELS } from '../../constants/roles.js';
+import { ROLES, ROLE_LABELS, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { AGE_BANDS, SUPPLY_OPTIONS, supplyKeyOf } from '../../constants/supplyPlans.js';
 import { DelayChips, DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
@@ -247,7 +247,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     const set = (value) => setFields((old) => ({ ...old, [f.key]: value }));
     if (f.type === 'select') return <FieldLabel key={f.key} label={f.label} required={f.required}><select className={poInput} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct}><option value="">Select</option>{f.options.map((o) => <option key={o} value={o}>{o}</option>)}</select></FieldLabel>;
     if (f.type === 'textarea') return <FieldLabel key={f.key} label={f.label} required={f.required} className="sm:col-span-2"><textarea className={poInput} rows={2} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct} /></FieldLabel>;
-    const fixed = f.key === 'readyByDate' && Boolean(job.readyByDate) && user?.role !== ROLES.ADMIN;
+    const fixed = f.key === 'readyByDate' && Boolean(job.readyByDate) && !isAdminLike(user);
     return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} {...(f.type === 'number' ? { min: 0, step: f.step || 'any', inputMode: 'decimal' } : {})} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct || fixed} />{fixed && <FixedNote />}</FieldLabel>;
   };
   const endDate = job.readyByDate && job.formulation ? new Date(new Date(job.readyByDate).getTime() + job.formulation.days * 86400000) : null;
@@ -258,7 +258,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {['review', 'formula'].includes(stage.key) && job.formulation && (
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${job.masterOutdated ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-cardline bg-offwhite-200/60 text-charcoal/70'}`}>
-          {job.formulation.custom ? <span>{job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this child.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
+          {job.formulation.custom ? <span>{job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this child.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
@@ -272,7 +272,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
           {!job.formulation.lines.length && <p className="mt-1.5 text-xs font-semibold">No medicines yet - completing this step sends it to the doctor to create.</p>}
         </div>
       )}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={[ROLES.ADMIN, ROLES.DOCTOR].includes(user?.role) || (Boolean(job.formulation?.custom) && stage.key === 'review' && user?.role === ROLES.MEDICINE_DEPARTMENT)} jobId={job.id} onSaved={onDone} onError={report} />}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) || (Boolean(job.formulation?.custom) && stage.key === 'review' && user?.role === ROLES.MEDICINE_DEPARTMENT)} jobId={job.id} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
@@ -326,7 +326,7 @@ export default function MedicineJobPage() {
   const [holdOpen, setHoldOpen] = useState(false);
   const [holdText, setHoldText] = useState('');
   const [supply, setSupply] = useState({ ageBand: '', supplyKey: '' });
-  const canAct = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT].includes(user?.role);
+  const canAct = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], user);
 
   const load = useCallback(async () => {
     try { const { data } = await api.get(`/medicine-jobs/${id}`, { skipCache: true }); setJob(data.job); setError(''); }
@@ -354,16 +354,16 @@ export default function MedicineJobPage() {
   const shown = useMemo(() => (job && !showRequest ? job.stages[typeof view === 'number' ? view : Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view, showRequest]);
   if (!job) return <div className="space-y-3"><button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-medium text-sage"><ArrowLeft size={15} /> Back</button>{error ? <ErrorText>{error}</ErrorText> : <p className="p-6 text-center text-sm text-charcoal/55">Loading job...</p>}</div>;
   const isCurrent = shown && shown.state === 'current';
-  const stageCanAct = (canAct || user?.role === ROLES.IN_TRANSIT) && isCurrent && !job.hold && job.status !== 'released' && shown.roles.includes(user?.role);
+  const stageCanAct = (canAct || user?.role === ROLES.IN_TRANSIT) && isCurrent && !job.hold && job.status !== 'released' && roleAllowed(shown.roles, user);
   const [urgLabel, urgTone] = URGENCY[job.urgency?.level] || URGENCY.normal;
   // Supply / age group belong to the formulation check, so only that stage's owner changes them.
   // The supply (6 months / 1+5 / 2+4) was chosen in post counselling; only the admin can change it here.
   // Locked only when post counselling sent them (older requests without a PO paper are still chosen here).
-  const supplyLocked = Boolean(job.fixedPlan?.supply) && user?.role !== ROLES.ADMIN;
-  const ageLocked = Boolean(job.fixedPlan?.ageBand) && user?.role !== ROLES.ADMIN;
+  const supplyLocked = Boolean(job.fixedPlan?.supply) && !isAdminLike(user);
+  const ageLocked = Boolean(job.fixedPlan?.ageBand) && !isAdminLike(user);
   // While the doctor verifies the formulation, the Medicine Department's work area waits (blurred).
   const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
-  const canChangeSupply = canAct && ['accept', 'review'].includes(job.currentKey) && job.status === 'open' && (job.stages.find((s) => s.key === 'review')?.roles || []).includes(user?.role);
+  const canChangeSupply = canAct && ['accept', 'review'].includes(job.currentKey) && job.status === 'open' && roleAllowed(job.stages.find((s) => s.key === 'review')?.roles || [], user);
 
   return (
     <div className="space-y-4">
@@ -402,7 +402,7 @@ export default function MedicineJobPage() {
             <span className="min-w-0"><span className="block truncate font-semibold text-charcoal">Request received</span><span className="block truncate text-[11px] text-charcoal/60">{[job.request?.requestedByName || job.requestedByName, dateTime(job.request?.requestedAt || job.requestedAt)].filter(Boolean).join(' · ')}</span></span>
           </button>
           {job.stages.map((s, i) => {
-            const mine = s.state === 'current' && s.roles.includes(user?.role);
+            const mine = s.state === 'current' && roleAllowed(s.roles, user);
             return (
               <button key={s.key} type="button" onClick={() => setView(i)} aria-current={shown?.key === s.key ? 'step' : undefined} className={`grid shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[12.5px] transition lg:w-full ${s.state === 'current' ? 'bg-[#FFF1E6] ring-1 ring-[#FDBA74]' : 'hover:bg-[#FBF7ED]'} ${shown?.key === s.key && s.state !== 'current' ? 'bg-[#F3F6F2] ring-1 ring-sage/40' : ''}`}>
                 <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold ${s.state === 'done' ? 'bg-[#2F8F5B] text-white' : s.state === 'current' ? 'bg-[#F97316] text-white' : 'border-[1.5px] border-[#D9CFBA] text-[#B4AA95]'}`}>{s.state === 'done' ? <Check size={12} /> : s.n}</span>
@@ -433,7 +433,7 @@ export default function MedicineJobPage() {
                 <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-semibold">Completed by {shown.doneByName} ({ROLE_LABELS[shown.doneByRole] || shown.doneByRole}) · {dateTime(shown.doneAt)}</p>
-                    {user?.role === ROLES.ADMIN && job.status !== 'cancelled' && (revertKey === shown.key
+                    {isAdminLike(user) && job.status !== 'cancelled' && (revertKey === shown.key
                       ? <span className="flex flex-wrap items-center gap-2"><input className={`${poInput} w-64`} placeholder="Why is this reverted?" value={revertReason} onChange={(e) => setRevertReason(e.target.value)} /><Button size="sm" disabled={!revertReason.trim()} onClick={runRevert}><RotateCcw size={13} />Revert to this stage</Button><Button size="sm" variant="outline" onClick={() => setRevertKey('')}>Cancel</Button></span>
                       : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Admin: undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
                   </div>

@@ -61,6 +61,10 @@ const updateUser = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'User not found' });
   }
 
+  // The Manager manages every other staff account, never the admin's.
+  if (user.role === ROLES.ADMIN && req.user.role !== ROLES.ADMIN) {
+    return res.status(403).json({ success: false, message: 'Only the admin can change the admin account' });
+  }
   if (user.role === 'admin') {
     return res.status(403).json({ success: false, message: 'Admin account cannot be modified here' });
   }
