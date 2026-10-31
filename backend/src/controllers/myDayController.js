@@ -115,8 +115,8 @@ const COLLECTORS = {
   async '/admin/team-chat'(user) {
     const TeamChat = require('../models/TeamChat');
     const { unreadFor } = require('./teamChatController');
-    const chats = await TeamChat.find({ participants: user._id, status: { $ne: 'closed' } }).select('subject patientName status createdByName assignedToName lastMessageAt messages.sender messages.readBy messages.senderName').sort({ lastMessageAt: -1 }).limit(LIMIT).lean();
-    return chats.filter((c) => unreadFor(c, user) > 0).map((c) => item('/admin/team-chat', String(c._id), c.subject, `${c.patientName ? `${c.patientName} · ` : ''}${unreadFor(c, user)} new · from ${c.messages[c.messages.length - 1]?.senderName || '-'}`, c.lastMessageAt, `/admin/team-chat?id=${c._id}`));
+    const chats = await TeamChat.find({ participants: user._id, status: { $ne: 'closed' } }).select('kind subject patientName status participants createdByName assignedToName lastMessageAt clearedBy messages.sender messages.readBy messages.senderName messages.createdAt').sort({ lastMessageAt: -1 }).limit(LIMIT).lean();
+    return chats.filter((c) => unreadFor(c, user) > 0).map((c) => item('/admin/team-chat', String(c._id), c.kind === 'direct' ? `Chat with ${String(c.participants[0]) === String(user._id) ? c.assignedToName : c.createdByName}` : c.subject, `${c.patientName ? `${c.patientName} · ` : ''}${unreadFor(c, user)} new · from ${c.messages[c.messages.length - 1]?.senderName || '-'}`, c.lastMessageAt, `/admin/team-chat?with=${(c.participants || []).find((id) => String(id) !== String(user._id)) || ''}${c.kind === 'direct' ? '' : `&q=${c._id}`}`));
   },
   async '/admin/enquiries'(user) {
     const filter = { deletedAt: null, status: { $in: ['open', 'in_progress'] } };

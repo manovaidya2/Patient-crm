@@ -41,14 +41,37 @@ const emit = (req, chat) => {
   chat.participants.forEach((id) => io.to(`enquiry:user:${id}`).emit('team-chat:changed', { id: String(chat._id) }));
 };
 
-const messageView = (m, user) => ({
-  id: String(m._id), kind: m.kind, senderId: String(m.sender || ''), senderName: m.senderName, senderRole: m.senderRole, mine: same(m.sender, user._id),
-  body: decryptText(m.body), files: m.files || [], createdAt: m.createdAt,
-  seenBy: (m.readBy || []).filter((r) => !same(r.user, m.sender)).map((r) => r.at),
-});
-const unreadFor = (chat, user) => chat.messages.filter((m) => !same(m.sender, user._id) && !(m.readBy || []).some((r) => same(r.user, user._id))).length;
+// `names`: user id -> name for seen entries written before names were stored.
+const messageView = (m, user, names = new Map()) => {
+  const admin = user.role === ROLES.ADMIN;
+  const deleted = Boolean(m.deletedAt);
+  const seen = (m.readBy || []).filter((r) => !same(r.user, m.sender)).map((r) => ({ name: r.name || names.get(String(r.user)) || 'Someone', at: r.at }));
+  return {
+    id: String(m._id), kind: m.kind, senderId: String(m.sender || ''), senderName: m.senderName, senderRole: m.senderRole, mine: same(m.sender, user._id),
+    // A message deleted for everyone: its text and files are kept only for the admin.
+    body: deleted && !admin ? '' : decryptText(m.body), files: deleted && !admin ? [] : m.files || [], createdAt: m.createdAt,
+    deleted, deletedAt: m.deletedAt || null, deletedByName: m.deletedByName || '',
+    seenBy: seen.map((s) => s.at), seen,
+    // What this person may do with it from the message menu.
+    canDeleteForAll: m.kind === 'message' && !deleted && (admin || same(m.sender, user._id)),
+  };
+};
+const namesOf = (chat) => new Map([[String(chat.createdBy), chat.createdByName], [String(chat.assignedTo), chat.assignedToName], ...chat.messages.filter((m) => m.sender).map((m) => [String(m.sender), m.senderName])]);
+// What this person still sees of a thread: a member who deleted it sees only what came after; the admin sees all.
+const clearedAt = (chat, user) => {
+  if (user.role === ROLES.ADMIN) return null;
+  const mine = (chat.clearedBy || []).filter((c) => same(c.user, user._id)).map((c) => new Date(c.at).getTime());
+  return mine.length ? Math.max(...mine) : null;
+};
+const visibleMessages = (chat, user) => {
+  const at = clearedAt(chat, user);
+  const admin = user.role === ROLES.ADMIN;
+  return chat.messages.filter((m) => (!at || new Date(m.createdAt).getTime() > at) && (admin || !(m.hiddenFor || []).some((id) => same(id, user._id))));
+};
+const unreadFor = (chat, user) => visibleMessages(chat, user).filter((m) => !same(m.sender, user._id) && !(m.readBy || []).some((r) => same(r.user, user._id))).length;
 const summaryView = (chat, user) => {
-  const last = chat.messages[chat.messages.length - 1];
+  const shown = visibleMessages(chat, user);
+  const last = shown[shown.length - 1];
   return {
     id: String(chat._id), kind: chat.kind, subject: chat.subject, queryType: chat.queryType || '', status: chat.status,
     createdById: String(chat.createdBy), createdByName: chat.createdByName, createdByRole: chat.createdByRole,
@@ -58,7 +81,7 @@ const summaryView = (chat, user) => {
     context: { ...(chat.context?.toObject ? chat.context.toObject() : chat.context || {}), purchaseOrder: chat.context?.purchaseOrder ? String(chat.context.purchaseOrder) : '', medicineJob: chat.context?.medicineJob ? String(chat.context.medicineJob) : '' },
     resolution: chat.resolution, resolvedAt: chat.resolvedAt, resolvedByName: chat.resolvedByName, closedAt: chat.closedAt, closedByName: chat.closedByName,
     lastMessageAt: chat.lastMessageAt, createdAt: chat.createdAt,
-    lastMessage: last ? { senderName: last.senderName, kind: last.kind, preview: decryptText(last.body).slice(0, 120), at: last.createdAt } : null,
+    lastMessage: last ? { senderName: last.senderName, kind: last.kind, preview: last.deletedAt && user.role !== ROLES.ADMIN ? 'This message was deleted' : decryptText(last.body).slice(0, 120), at: last.createdAt } : null,
     unread: unreadFor(chat, user),
     actions: allowedActions(chat, user),
   };
@@ -78,19 +101,20 @@ function allowedActions(chat, user) {
   if (chat.status !== 'open' && (admin || owner)) actions.push('reopen');
   return actions;
 }
-const fullView = (chat, user) => ({ ...summaryView(chat, user), messages: chat.messages.map((m) => messageView(m, user)) });
+const fullView = (chat, user) => ({ ...summaryView(chat, user), cleared: Boolean(clearedAt(chat, user)), messages: visibleMessages(chat, user).map((m) => messageView(m, user, namesOf(chat))) });
 
 // @route GET /api/team-chat/people   Everyone in the team (WhatsApp-style list): each with the last message of our
 // chat, how many of their messages I have not read, and how many queries between us are open.
 const people = asyncHandler(async (req, res) => {
   const users = await User.find({ isActive: true, role: { $in: ALL_ROLES }, _id: { $ne: req.user._id } }).select('name role').sort({ role: 1, name: 1 }).lean();
-  const chats = await TeamChat.find({ participants: req.user._id }).select('kind status pairKey participants lastMessageAt messages.sender messages.senderName messages.readBy messages.body messages.kind messages.createdAt').lean();
+  const chats = await TeamChat.find({ participants: req.user._id }).select('kind status pairKey participants lastMessageAt clearedBy messages.sender messages.senderName messages.readBy messages.body messages.kind messages.createdAt messages.hiddenFor messages.deletedAt').lean();
   const byPair = new Map();
   for (const c of chats) {
     const key = c.pairKey || pairKeyOf(c.participants[0], c.participants[1]);
     const slot = byPair.get(key) || { lastAt: null, last: null, unread: 0, openQueries: 0 };
-    const last = c.messages[c.messages.length - 1];
-    if (last && (!slot.lastAt || new Date(last.createdAt) > new Date(slot.lastAt))) { slot.lastAt = last.createdAt; slot.last = { senderName: last.senderName, preview: decryptText(last.body).slice(0, 80), kind: c.kind }; }
+    const shown = visibleMessages(c, req.user);
+    const last = shown[shown.length - 1];
+    if (last && (!slot.lastAt || new Date(last.createdAt) > new Date(slot.lastAt))) { slot.lastAt = last.createdAt; slot.last = { senderName: last.senderName, preview: last.deletedAt ? 'This message was deleted' : decryptText(last.body).slice(0, 80), kind: c.kind }; }
     slot.unread += unreadFor(c, req.user);
     if (c.kind === 'query' && c.status !== 'closed') slot.openQueries += 1;
     byPair.set(key, slot);
@@ -112,9 +136,10 @@ const withUser = asyncHandler(async (req, res) => {
     await direct.save();
   }
   let changed = false;
-  direct.messages.forEach((m) => { if (!same(m.sender, req.user._id) && !(m.readBy || []).some((r) => same(r.user, req.user._id))) { m.readBy.push({ user: req.user._id, at: new Date() }); changed = true; } });
+  direct.messages.forEach((m) => { if (!same(m.sender, req.user._id) && !(m.readBy || []).some((r) => same(r.user, req.user._id))) { m.readBy.push({ user: req.user._id, name: req.user.name, at: new Date() }); changed = true; } });
   if (changed) { await direct.save(); emit(req, direct); }
-  const queries = await TeamChat.find({ kind: { $ne: 'direct' }, pairKey, participants: req.user._id }).sort({ lastMessageAt: -1 }).limit(100);
+  const queries = (await TeamChat.find({ kind: { $ne: 'direct' }, pairKey, participants: req.user._id }).sort({ lastMessageAt: -1 }).limit(100))
+    .filter((q) => !clearedAt(q, req.user) || visibleMessages(q, req.user).length);
   res.json({ success: true, person: { id: String(other._id), name: other.name, role: other.role, queryTypes: queryTypesFor(other.role) }, chat: fullView(direct, req.user), queries: queries.map((q) => summaryView(q, req.user)) });
 });
 
@@ -203,13 +228,13 @@ const list = asyncHandler(async (req, res) => {
   const search = text(req.query.search, 120).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (search) filter.$or = ['subject', 'patientName', 'patientCode', 'context.poNumber', 'createdByName', 'assignedToName'].map((k) => ({ [k]: { $regex: search, $options: 'i' } }));
   const chats = await TeamChat.find(filter).sort({ lastMessageAt: -1 }).limit(300);
-  const rows = chats.map((c) => summaryView(c, req.user));
+  const rows = chats.filter((c) => !clearedAt(c, req.user) || visibleMessages(c, req.user).length).map((c) => summaryView(c, req.user));
   res.json({ success: true, rows, counts: { open: rows.filter((r) => r.status === 'open').length, resolved: rows.filter((r) => r.status === 'resolved').length, closed: rows.filter((r) => r.status === 'closed').length, unread: rows.reduce((n, r) => n + r.unread, 0) } });
 });
 
 // @route GET /api/team-chat/unread   For the bell: threads with messages this person has not seen.
 const unread = asyncHandler(async (req, res) => {
-  const chats = await TeamChat.find({ ...accessFilter(req.user), status: { $ne: 'closed' } }).select('kind subject patientName participants messages.sender messages.readBy messages.senderName messages.createdAt lastMessageAt').sort({ lastMessageAt: -1 }).limit(100).lean();
+  const chats = await TeamChat.find({ ...accessFilter(req.user), status: { $ne: 'closed' } }).select('kind subject patientName participants clearedBy messages.sender messages.readBy messages.senderName messages.createdAt lastMessageAt').sort({ lastMessageAt: -1 }).limit(100).lean();
   const items = chats.map((c) => ({ id: String(c._id), kind: c.kind, subject: c.kind === 'direct' ? 'chat' : c.subject, patientName: c.patientName, withId: String((c.participants || []).find((id) => !same(id, req.user._id)) || ''), unread: unreadFor(c, req.user), lastAt: c.lastMessageAt, lastFrom: c.messages[c.messages.length - 1]?.senderName || '' })).filter((c) => c.unread > 0);
   res.json({ success: true, items, total: items.reduce((n, c) => n + c.unread, 0) });
 });
@@ -220,7 +245,7 @@ const detail = asyncHandler(async (req, res) => {
   if (!chat) fail('Chat not found', 404);
   let changed = false;
   if (chat.participants.some((id) => same(id, req.user._id))) {
-    chat.messages.forEach((m) => { if (!same(m.sender, req.user._id) && !(m.readBy || []).some((r) => same(r.user, req.user._id))) { m.readBy.push({ user: req.user._id, at: new Date() }); changed = true; } });
+    chat.messages.forEach((m) => { if (!same(m.sender, req.user._id) && !(m.readBy || []).some((r) => same(r.user, req.user._id))) { m.readBy.push({ user: req.user._id, name: req.user.name, at: new Date() }); changed = true; } });
   }
   if (changed) { await chat.save(); emit(req, chat); }
   res.json({ success: true, chat: fullView(chat, req.user) });
@@ -303,4 +328,50 @@ const act = asyncHandler(async (req, res) => {
   res.json({ success: true, chat: fullView(chat, req.user) });
 });
 
-module.exports = { people, withUser, pairs, pairView, staff, poContext, list, unread, detail, create, send, act, allowedActions, accessFilter, unreadFor };
+// @route POST /api/team-chat/:id/messages/:messageId/delete   body: { scope: 'me' | 'everyone' }
+// "Delete for me" hides one message for this person; "Delete for everyone" (the sender, or the admin) leaves
+// "This message was deleted" for the others - the admin still reads it.
+const deleteMessage = asyncHandler(async (req, res) => {
+  const chat = await TeamChat.findOne({ _id: req.params.id, ...accessFilter(req.user) });
+  if (!chat) fail('Chat not found', 404);
+  const m = chat.messages.id(req.params.messageId);
+  if (!m) fail('Message not found', 404);
+  const admin = req.user.role === ROLES.ADMIN;
+  if (req.body?.scope === 'everyone') {
+    if (m.kind !== 'message') fail('This line cannot be deleted');
+    if (!admin && !same(m.sender, req.user._id)) fail('Only the sender (or the admin) deletes a message for everyone', 403);
+    if (!m.deletedAt) Object.assign(m, { deletedAt: new Date(), deletedByName: req.user.name });
+  } else {
+    if (admin) fail('As admin, delete it for everyone instead');
+    if (!(m.hiddenFor || []).some((id) => same(id, req.user._id))) m.hiddenFor.push(req.user._id);
+  }
+  await chat.save(); emit(req, chat);
+  res.json({ success: true, chat: fullView(chat, req.user) });
+});
+
+// @route POST /api/team-chat/:id/clear   A member deletes a chat / query from their own side only.
+const clearForMe = asyncHandler(async (req, res) => {
+  const chat = await TeamChat.findOne({ _id: req.params.id, participants: req.user._id });
+  if (!chat) fail('Chat not found', 404);
+  if (req.user.role === ROLES.ADMIN) fail('As admin, delete the chat for everyone instead', 400);
+  chat.clearedBy = (chat.clearedBy || []).filter((c) => !same(c.user, req.user._id));
+  chat.clearedBy.push({ user: req.user._id, at: new Date() });
+  await chat.save(); emit(req, chat);
+  res.json({ success: true });
+});
+
+// @route DELETE /api/team-chat/:id   body: { reason }   Admin: deletes a chat / query for everyone. A full copy is kept
+// (DeletedRecord, messages still encrypted) so it can be looked up or put back.
+const removeChat = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN) fail('Only the admin deletes a chat for everyone', 403);
+  const chat = await TeamChat.findById(req.params.id);
+  if (!chat) fail('Chat not found', 404);
+  const reason = text(req.body?.reason, 500);
+  const DeletedRecord = require('../models/DeletedRecord');
+  await DeletedRecord.create({ kind: 'team_chat', refId: String(chat._id), label: chat.kind === 'direct' ? `${chat.createdByName} ↔ ${chat.assignedToName}` : chat.subject, patient: chat.patient || null, patientName: chat.patientName || '', reason, deletedByName: req.user.name, deletedByRole: req.user.role, deletedAt: new Date(), data: JSON.parse(JSON.stringify(chat.toObject())) });
+  await TeamChat.deleteOne({ _id: chat._id });
+  emit(req, chat);
+  res.json({ success: true });
+});
+
+module.exports = { deleteMessage, clearForMe, removeChat, people, withUser, pairs, pairView, staff, poContext, list, unread, detail, create, send, act, allowedActions, accessFilter, unreadFor };

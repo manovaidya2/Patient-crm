@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, ExternalLink, Eye, Forward, MessageCircle, MessageSquarePlus, RotateCcw, Search, ShieldCheck, Users } from 'lucide-react';
+import { ArrowLeft, Check, ExternalLink, Eye, Forward, MessageCircle, MessageSquarePlus, RotateCcw, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
 import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
@@ -95,6 +95,20 @@ export default function TeamChat() {
     catch (err) { setError(err.response?.data?.message || 'Could not do that'); } finally { setSaving(false); }
   };
   const [staff, setStaff] = useState([]);
+  // Delete: a member hides the chat for themselves only; the admin deletes it for everyone (a copy is kept).
+  const [deleting, setDeleting] = useState(null); // the thread to delete
+  const [deleteReason, setDeleteReason] = useState('');
+  const runDelete = async () => {
+    setSaving(true); setError('');
+    try {
+      if (isAdmin) await api.delete(`/team-chat/${deleting.id}`, { data: { reason: deleteReason } });
+      else await api.post(`/team-chat/${deleting.id}/clear`);
+      const wasQuery = deleting.kind !== 'direct';
+      setDeleting(null); setDeleteReason('');
+      if (wasQuery) closeQuery(); else if (isAdmin && pairKey) setParams({ pair: pairKey });
+      loadConv(); loadPeople();
+    } catch (err) { setError(err.response?.data?.message || 'Could not delete'); } finally { setSaving(false); }
+  };
   useEffect(() => { if (action === 'forward') api.get('/team-chat/staff', { skipCache: true }).then(({ data }) => setStaff(data.users || [])).catch(() => setStaff([])); }, [action]);
 
   const q = search.trim().toLowerCase();
@@ -161,6 +175,7 @@ export default function TeamChat() {
                     {query.actions.includes('close') && <Button size="sm" variant="outline" onClick={() => { setAction('close'); setNote(''); }}><Check size={14} />Close{query.status === 'resolved' ? ' (satisfied)' : ''}</Button>}
                     {query.actions.includes('reopen') && <Button size="sm" variant="outline" onClick={() => { setAction('reopen'); setNote(''); }}><RotateCcw size={14} />Reopen</Button>}
                     {query.actions.includes('forward') && <Button size="sm" variant="outline" onClick={() => { setAction('forward'); setNote(''); setForwardTo(''); }}><Forward size={14} />Forward</Button>}
+                    <button type="button" onClick={() => setDeleting(query)} title={isAdmin ? 'Delete this query for everyone' : 'Delete this query from your side'} className="rounded-lg border border-cardline p-2 text-[#8C3B2E] hover:bg-[#8C3B2E]/10"><Trash2 size={14} /></button>
                   </div>
                 </div>
                 {query.context?.summary && <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-[#F3F6F2] px-3 py-2 font-body text-xs text-charcoal/75">{query.context.summary}</pre>}
@@ -176,7 +191,10 @@ export default function TeamChat() {
                   <Avatar name={person.pair ? person.name.split(' ')[0] : person.name} />
                   <div className="min-w-0"><h2 className="truncate text-lg font-bold text-charcoal">{person.name}</h2><p className="text-[13px] text-charcoal/60">{person.pair ? 'Admin view of this conversation' : ROLE_LABELS[person.role] || person.role}</p></div>
                 </div>
-                {!person.pair && <Button size="sm" onClick={() => setRaise(true)}><MessageSquarePlus size={15} />Raise query</Button>}
+                <span className="flex items-center gap-1.5">
+                  {!person.pair && <Button size="sm" onClick={() => setRaise(true)}><MessageSquarePlus size={15} />Raise query</Button>}
+                  {conv.chat && conv.chat.messages.length > 0 && <button type="button" onClick={() => setDeleting(conv.chat)} title={isAdmin ? 'Delete this chat for everyone' : 'Delete this chat from your side'} className="rounded-lg border border-cardline p-2 text-[#8C3B2E] hover:bg-[#8C3B2E]/10"><Trash2 size={15} /></button>}
+                </span>
               </header>
               {poId && !person.pair && <div className="max-h-[55%] shrink-0 overflow-y-auto"><RaiseQueryModal open inline poId={poId} person={person} initialType={poSuggest?.queryType || ''} onClose={() => setParams({ with: withId })} onCreated={(c) => { setParams({ with: withId, q: c.id }); loadConv(); loadPeople(); }} /></div>}
               {conv.queries.length > 0 && (
@@ -201,6 +219,15 @@ export default function TeamChat() {
       </div>
 
       {person && !person.pair && !poId && <RaiseQueryModal open={raise} onClose={() => setRaise(false)} person={person} onCreated={(c) => { loadConv(); loadPeople(); openQuery(c.id); }} />}
+      <Modal open={Boolean(deleting)} onClose={() => !saving && setDeleting(null)} title={deleting?.kind === 'direct' ? 'Delete this chat' : 'Delete this query'} className="max-w-md">
+        {deleting && <div className="space-y-3 text-sm">
+          {isAdmin
+            ? <p className="text-charcoal/75">This deletes it <b>for everyone</b> ({deleting.createdByName} and {deleting.assignedToName}). A full copy is kept on the server, so it can be put back if this was a mistake.</p>
+            : <p className="text-charcoal/75">This deletes the messages <b>from your side only</b>. {deleting.kind === 'direct' ? 'The other person' : 'The other side'} still sees them, and so does the admin. A new message will show the chat again.</p>}
+          {isAdmin && <label className="block space-y-1">Reason (optional)<input className={input} value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="e.g. Test chat" /></label>}
+          <div className="flex gap-2"><Button className="bg-[#8C3B2E] hover:bg-[#7a3226]" disabled={saving} onClick={runDelete}><Trash2 size={14} />{saving ? 'Deleting...' : isAdmin ? 'Delete for everyone' : 'Delete for me'}</Button><Button variant="outline" disabled={saving} onClick={() => setDeleting(null)}>Cancel</Button></div>
+        </div>}
+      </Modal>
       <Modal open={Boolean(action)} onClose={() => !saving && setAction('')} title={{ resolve: 'Resolve this query', close: 'Close this query', reopen: 'Reopen this query', forward: 'Forward to someone else' }[action] || ''} className="max-w-lg">
         <div className="space-y-3">
           {action === 'forward' && <label className="block space-y-1 text-sm">Forward to *<select className={input} value={forwardTo} onChange={(e) => setForwardTo(e.target.value)}><option value="">Select the person</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.name} · {ROLE_LABELS[s.role] || s.role}</option>)}</select></label>}

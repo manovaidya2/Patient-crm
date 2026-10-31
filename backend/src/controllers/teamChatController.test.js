@@ -58,3 +58,55 @@ test('a query goes one-to-one: raised, answered, resolved, closed; only the two 
   await assert.rejects(call(controller.detail, other, { params: { id } }), /not found/);
   assert.equal((await call(controller.detail, admin, { params: { id } })).chat.messages.length >= 3, true);
 });
+
+test('a member deletes a chat from their own side only; the admin still sees it and can delete it for everyone', async () => {
+  const chats = [];
+  mock.method(User, 'findOne', (f) => ({ select: () => ({ lean: async () => [transit, med].find((u) => String(u._id) === String(f._id)) || null }) }));
+  mock.method(TeamChat.prototype, 'save', async function save() { await this.validate(); if (!chats.includes(this)) chats.push(this); return this; });
+  mock.method(TeamChat, 'findOne', async (f) => chats.find((c) => String(c._id) === String(f._id) && (!f.participants || c.participants.some((id) => String(id) === String(f.participants)))) || null);
+  const id = (await call(controller.create, transit, { body: { subject: 'Dose doubt', assignedTo: String(med._id), message: 'Old message' } })).chat.id;
+  await call(controller.clearForMe, transit, { params: { id } });
+  assert.equal((await call(controller.detail, transit, { params: { id } })).chat.messages.length, 0, 'gone for the one who deleted it');
+  assert.equal((await call(controller.detail, med, { params: { id } })).chat.messages.length, 1, 'still there for the other side');
+  assert.equal((await call(controller.detail, admin, { params: { id } })).chat.messages.length, 1, 'the admin sees everything');
+  await new Promise((r) => setTimeout(r, 5));
+  await call(controller.send, med, { params: { id }, body: { message: 'New reply' } });
+  assert.deepEqual((await call(controller.detail, transit, { params: { id } })).chat.messages.map((m) => m.body), ['New reply'], 'a newer message shows again, the old part stays hidden');
+  // Admin delete: for everyone, with a copy kept.
+  const DeletedRecord = require('../models/DeletedRecord');
+  const archived = [];
+  mock.method(DeletedRecord, 'create', async (d) => { archived.push(d); return d; });
+  mock.method(TeamChat, 'findById', async (x) => chats.find((c) => String(c._id) === String(x)) || null);
+  mock.method(TeamChat, 'deleteOne', async ({ _id }) => { const i = chats.findIndex((c) => String(c._id) === String(_id)); if (i >= 0) chats.splice(i, 1); });
+  await assert.rejects(call(controller.removeChat, transit, { params: { id }, body: {} }), /Only the admin/);
+  await call(controller.removeChat, admin, { params: { id }, body: { reason: 'Test chat' } });
+  assert.equal(chats.length, 0);
+  assert.equal(archived[0].kind, 'team_chat');
+  assert.ok(archived[0].data.messages.every((m) => m.body.startsWith('enc1:')), 'the copy stays encrypted');
+});
+
+test('each message: info shows who saw it and when; delete for me hides it for me; delete for everyone (sender / admin)', async () => {
+  const chats = [];
+  mock.method(User, 'findOne', (f) => ({ select: () => ({ lean: async () => [transit, med].find((u) => String(u._id) === String(f._id)) || null }) }));
+  mock.method(TeamChat.prototype, 'save', async function save() { await this.validate(); if (!chats.includes(this)) chats.push(this); return this; });
+  mock.method(TeamChat, 'findOne', async (f) => chats.find((c) => String(c._id) === String(f._id) && (!f.participants || c.participants.some((id) => String(id) === String(f.participants)))) || null);
+  const created = (await call(controller.create, transit, { body: { subject: 'Q', assignedTo: String(med._id), message: 'First' } })).chat;
+  const id = created.id; const mid = created.messages[0].id;
+  await call(controller.detail, med, { params: { id } });
+  let v = (await call(controller.detail, transit, { params: { id } })).chat;
+  assert.equal(v.messages[0].seen[0].name, 'Meena', 'info: seen by Meena');
+  assert.ok(v.messages[0].seen[0].at);
+  assert.equal(v.messages[0].canDeleteForAll, true);
+  // The other side cannot delete my message for everyone, but can hide it for themselves.
+  await assert.rejects(call(controller.deleteMessage, med, { params: { id, messageId: mid }, body: { scope: 'everyone' } }), /Only the sender/);
+  v = (await call(controller.deleteMessage, med, { params: { id, messageId: mid }, body: { scope: 'me' } })).chat;
+  assert.equal(v.messages.length, 0, 'hidden for Meena');
+  assert.equal((await call(controller.detail, transit, { params: { id } })).chat.messages.length, 1, 'still there for the sender');
+  // Delete for everyone: "deleted" for the others, the admin still reads it.
+  v = (await call(controller.deleteMessage, transit, { params: { id, messageId: mid }, body: { scope: 'everyone' } })).chat;
+  assert.equal(v.messages[0].deleted, true);
+  assert.equal(v.messages[0].body, '');
+  const a = (await call(controller.detail, admin, { params: { id } })).chat.messages[0];
+  assert.equal(a.body, 'First');
+  assert.equal(a.deletedByName, 'Tanu');
+});

@@ -10,7 +10,13 @@ const messageSchema = new mongoose.Schema({
   body: { type: String, default: '' },
   files: { type: [{ url: String, fileName: String }], default: [] },
   // Who has opened the thread since this message (the "seen" ticks).
-  readBy: { type: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, at: Date }], default: [] },
+  readBy: { type: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, name: { type: String, default: '' }, at: Date }], default: [] },
+  // "Delete for me": hidden for these people only.
+  hiddenFor: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: [] },
+  // "Delete for everyone" (by the sender or the admin): the others see "This message was deleted"; the admin still
+  // reads what it said.
+  deletedAt: { type: Date, default: null },
+  deletedByName: { type: String, trim: true, default: '' },
   createdAt: { type: Date, default: Date.now },
 }, { _id: true });
 
@@ -52,6 +58,9 @@ const teamChatSchema = new mongoose.Schema({
   resolvedAt: { type: Date, default: null }, resolvedByName: { type: String, trim: true, default: '' },
   closedAt: { type: Date, default: null }, closedByName: { type: String, trim: true, default: '' },
   lastMessageAt: { type: Date, default: Date.now, index: true },
+  // "Delete chat" by a member: everything up to that moment is hidden for that person only (the other side and the
+  // admin still see it). A newer message shows the chat again, from that point on.
+  clearedBy: { type: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, at: Date }], default: [] },
 }, { timestamps: true });
 
 teamChatSchema.index({ participants: 1, lastMessageAt: -1 });

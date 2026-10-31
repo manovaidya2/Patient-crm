@@ -138,7 +138,7 @@ const COUNTERS = {
   async '/admin/team-chat'(user) {
     const TeamChat = require('../models/TeamChat');
     const { unreadFor } = require('./teamChatController');
-    const chats = await TeamChat.find({ participants: user._id, status: { $ne: 'closed' } }).select('messages.sender messages.readBy').lean();
+    const chats = await TeamChat.find({ participants: user._id, status: { $ne: 'closed' } }).select('clearedBy messages.sender messages.readBy messages.createdAt').lean();
     return chats.filter((c) => unreadFor(c, user) > 0).length;
   },
   async '/admin/enquiries'(user) {

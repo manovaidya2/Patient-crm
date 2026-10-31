@@ -18,5 +18,8 @@ router.post('/', uploadTeamChatFile.array('files', 5), controller.create);
 router.get('/:id', controller.detail);
 router.post('/:id/messages', uploadTeamChatFile.array('files', 5), controller.send);
 router.post('/:id/action', controller.act);
+router.post('/:id/clear', controller.clearForMe);
+router.post('/:id/messages/:messageId/delete', controller.deleteMessage);
+router.delete('/:id', controller.removeChat);
 
 module.exports = router;
