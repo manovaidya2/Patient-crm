@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const Enquiry = require('../models/Enquiry');
 const User = require('../models/User');
 const { ROLES, ALL_ROLES } = require('../constants/roles');
+const Patient = require('../models/Patient');
+const { CATEGORY_LABELS } = require('../constants/patientCategories');
+const { phaseAge } = require('../utils/phaseAge');
 const { asyncHandler } = require('../middleware/errorHandler');
 const fail = (message, statusCode = 400) => { const error = new Error(message); error.statusCode = statusCode; throw error; };
 const same = (a, b) => String(a) === String(b);
@@ -33,7 +36,38 @@ function allowedActions(entry, user) {
 function serialize(entry, user) {
   const data = entry.toObject ? entry.toObject() : { ...entry };
   delete data.alerts;
-  return { ...data, id: String(data._id), actions: allowedActions(entry, user) };
+  return { ...data, patient: data.patient ? String(data.patient._id || data.patient) : '', id: String(data._id), actions: allowedActions(entry, user) };
+}
+
+// What the enquiry form shows about a patient found in the system.
+const patientSummary = (p) => ({
+  id: String(p._id), patientName: p.patientName || '', patientCode: p.patientCode || '', number: p.number || '', alternateNumber: p.alternateNumber || '',
+  guardianName: p.guardianName || p.relativeName || '', category: CATEGORY_LABELS[p.category] || p.category || '', age: phaseAge(p, p.currentStage || 1) || p.age || '',
+  currentStage: p.currentStage || 1, approvalStatus: p.approvalStatus || 'approved', isActive: p.isActive !== false,
+  city: p.city || '', pcc: p.assignedDoctor?.name || '', createdAt: p.createdAt || null,
+});
+const PATIENT_FIELDS = 'patientName patientCode number alternateNumber guardianName relativeName category age stages.number stages.age currentStage approvalStatus isActive city assignedDoctor createdAt';
+// A PCC / psychologist only finds their own patients (as on the patient pages).
+const ownPatients = (user) => (user.role === ROLES.ASSISTANT_DOCTOR ? { assignedDoctor: user._id } : user.role === ROLES.PSYCHOLOGIST ? { assignedPsychologist: user._id } : {});
+
+// @route GET /api/enquiries/patients?q=   Patients matching a name, patient / appointment ID or phone number.
+const searchPatients = asyncHandler(async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 80);
+  if (q.length < 2) return res.json({ patients: [] });
+  const rx = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  const digits = q.replace(/\D/g, '');
+  const or = [{ patientName: rx }, { patientCode: rx }, ...(digits.length >= 4 ? [{ number: { $regex: digits } }, { alternateNumber: { $regex: digits } }] : [])];
+  const rows = await Patient.find({ $or: or, ...ownPatients(req.user) }).select(PATIENT_FIELDS).populate('assignedDoctor', 'name').sort({ updatedAt: -1 }).limit(8).lean();
+  res.json({ patients: rows.map(patientSummary) });
+});
+
+// The linked patient for create / edit: must exist (and be one the user can see).
+async function linkedPatient(id, user) {
+  if (!id) return null;
+  if (!mongoose.isValidObjectId(id)) fail('Select the patient again');
+  const p = await Patient.findOne({ _id: id, ...ownPatients(user) }).select('patientName patientCode').lean();
+  if (!p) fail('That patient was not found');
+  return p;
 }
 function recordEvent(entry, user, action, note) {
   entry.history.push({ action, note, actor: user._id, actorName: user.name, assigneeName: entry.assignedToName, status: entry.status });
@@ -83,7 +117,8 @@ const create = asyncHandler(async (req, res) => {
   const patientReference = String(req.body.patientReference || '').trim();
   if (patientReference.length > 100) fail('Patient reference is too long');
   const assignee = await findAssignee(req.body.assignedTo);
-  const entry = new Enquiry({ patientName, patientReference, subject, description,
+  const linked = await linkedPatient(req.body.patientId, req.user);
+  const entry = new Enquiry({ patientName, patientReference: patientReference || linked?.patientCode || '', patient: linked?._id || null, subject, description,
     createdBy: req.user._id, createdByName: req.user.name,
     assignedTo: assignee._id, assignedToName: assignee.name, assignedToRole: assignee.role,
     participants: [...new Set([String(req.user._id), String(assignee._id)])],
@@ -145,6 +180,11 @@ const edit = asyncHandler(async (req, res) => {
   if (reference.length > 100) fail('Patient reference is too long');
   if (entry.patientReference !== reference) changes.push(`Reference: ${entry.patientReference} -> ${reference}`);
   entry.patientReference = reference;
+  if (req.body.patientId !== undefined) {
+    const linked = await linkedPatient(req.body.patientId, req.user);
+    if (String(entry.patient || '') !== String(linked?._id || '')) changes.push(`Linked patient: ${linked ? `${linked.patientName} (${linked.patientCode})` : 'removed'}`);
+    entry.patient = linked?._id || null;
+  }
   if (!same(entry.assignedTo, req.body.assignedTo)) {
     const assignee = await findAssignee(req.body.assignedTo);
     changes.push(`Assigned: ${entry.assignedToName} -> ${assignee.name}`);
@@ -166,4 +206,4 @@ const remove = asyncHandler(async (req, res) => {
   try { await entry.save(); } catch (error) { if (error.name === 'VersionError') fail('This enquiry changed. Refresh and try again.', 409); throw error; }
   emit(req, entry); res.json({ success: true });
 });
-module.exports = { staff, list, detail, create, update, edit, remove, notifications, markRead, allowedActions, accessFilter };
+module.exports = { searchPatients, staff, list, detail, create, update, edit, remove, notifications, markRead, allowedActions, accessFilter };

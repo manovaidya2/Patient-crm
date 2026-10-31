@@ -110,3 +110,28 @@ test('admin edits preserve creator and timeline; delete is audited and staff are
   assert.ok(entry.deletedAt instanceof Date);
   assert.equal(entry.history.at(-1).note, 'Duplicate enquiry');
 });
+test('an enquiry can be linked to a patient found by name, ID or phone; a PCC only finds their own patients', async () => {
+  const Patient = require('../models/Patient');
+  const original = Patient.findOne;
+  const originalFind = Patient.find;
+  const patient = { _id: new mongoose.Types.ObjectId(), patientName: 'Aayush', patientCode: 'A-251026-15' };
+  const filters = [];
+  Patient.find = (filter) => { filters.push(filter); return { select: () => ({ populate: () => ({ sort: () => ({ limit: () => ({ lean: async () => [{ ...patient, number: '8447100448', category: 'autism_adhd', currentStage: 1 }] }) }) }) }) }; };
+  Patient.findOne = (filter) => ({ select: () => ({ lean: async () => (String(filter._id) === String(patient._id) ? patient : null) }) });
+  try {
+    const search = (user, q) => new Promise((resolve, reject) => controller.searchPatients({ user, query: { q } }, { json: resolve }, reject));
+    const found = await search(creator, '84471');
+    assert.equal(found.patients[0].patientCode, 'A-251026-15');
+    assert.ok(filters[0].$or.some((f) => f.number), 'a phone number is searched too');
+    const pcc = { _id: new mongoose.Types.ObjectId(), name: 'PCC', role: ROLES.ASSISTANT_DOCTOR };
+    await search(pcc, 'Aay');
+    assert.equal(String(filters[1].assignedDoctor), String(pcc._id), 'a PCC searches only their own patients');
+    assert.deepEqual(await search(creator, 'a'), { patients: [] }, 'one letter finds nothing');
+    User.findOne = () => ({ select: async () => assignee });
+    Enquiry.prototype.save = async function () { return this; };
+    const { res } = await invoke(controller.create, creator, { patientName: 'Aayush', patientId: String(patient._id), subject: 'Dose', description: 'Details', assignedTo: String(assignee._id) });
+    assert.equal(res.data.enquiry.patient, String(patient._id), 'linked to the patient');
+    assert.equal(res.data.enquiry.patientReference, 'A-251026-15', 'the Patient ID fills in when left empty');
+    await assert.rejects(invoke(controller.create, creator, { patientName: 'X', patientId: String(new mongoose.Types.ObjectId()), subject: 'S', description: 'D', assignedTo: String(assignee._id) }), /not found/);
+  } finally { Patient.findOne = original; Patient.find = originalFind; }
+});

@@ -210,7 +210,7 @@ function App() {
         <Route
           path="payments"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR]}>
               <Payments />
             </ProtectedRoute>
           }
@@ -221,7 +221,7 @@ function App() {
         <Route
           path="approved-payments"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR]}>
               <ApprovedPayments />
             </ProtectedRoute>
           }

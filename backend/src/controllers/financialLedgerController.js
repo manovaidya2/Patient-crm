@@ -93,7 +93,7 @@ const ledgerPipeline = (kind = 'all') => [
   ] } }]),
 ];
 const getLedger = asyncHandler(async (req, res) => {
-  const restrictedKind = { receptionist: 'consultation', in_transit: 'treatment' }[req.user?.role];
+  const restrictedKind = { receptionist: 'consultation', in_transit: 'treatment', post_counselor: 'treatment' }[req.user?.role];
   if (restrictedKind) req.query.kind = restrictedKind;
   const match = ledgerMatch(req.query);
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);

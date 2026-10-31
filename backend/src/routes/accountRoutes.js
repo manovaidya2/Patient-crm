@@ -7,7 +7,8 @@ const { uploadConsultationFeeProof } = require('../middleware/fileUploads');
 
 const router = express.Router();
 
-router.use(protect, authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.IN_TRANSIT));
+// Post Counselor: reads the treatment payments ledger (Payments / Approved Payments pages) only.
+router.use(protect, authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR));
 
 router.get('/overview', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST), getAccountsOverview);
 router.get('/ledger', ledger.getLedger);

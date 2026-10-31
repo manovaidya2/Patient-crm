@@ -4,6 +4,7 @@ const { GENERAL_CRM_ROLES, ROLES } = require('../constants/roles');
 const controller = require('../controllers/enquiryController');
 router.use(protect, authorize(...GENERAL_CRM_ROLES));
 router.get('/staff', controller.staff);
+router.get('/patients', controller.searchPatients);
 router.get('/notifications', controller.notifications);
 router.get('/', controller.list);
 router.post('/', controller.create);

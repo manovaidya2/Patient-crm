@@ -84,7 +84,9 @@ import { BookOpen as PageTitleIcon } from 'lucide-react';
 
 export default function FinancialLedger({ kind = 'all', title, initialStatus = 'all', fixedStatus }) {
   const { user } = useAuth();
-  if (user?.role === ROLES.IN_TRANSIT) kind = 'treatment';
+  if ([ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR].includes(user?.role)) kind = 'treatment';
+  // The Post Counselor sees the payments; In Transit / doctor / admin verify or cancel them.
+  const canReview = user?.role !== ROLES.POST_COUNSELOR;
   if (user?.role === ROLES.RECEPTIONIST) kind = 'consultation';
   const isAdmin = user?.role === ROLES.ADMIN;
   const [url, setUrl] = useSearchParams();
@@ -220,7 +222,7 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
       {selected.refunds?.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Refund history</h3>{selected.refunds.map((refund, index) => <div key={refund._id || index} className="border-t border-cardline py-2 text-sm"><p>{money(refund.amount)} | {refund.status} | {stamp(refund.paidAt || refund.createdAt)}</p><p className="break-words text-xs">{refund.reason}</p></div>)}</div>}
       {selected.patientId && <Link className="inline-block text-sm font-semibold text-sage underline" to={`/admin/patients/${selected.patientId}`}>Open patient details</Link>}
       {isAdmin && selected.refunds?.length > 0 && <p className="text-xs text-charcoal/70">This payment has refund history and cannot be deleted.</p>}
-      {!action && <div className="flex flex-wrap justify-end gap-2">{isAdmin && !(selected.refunds?.length > 0) && <Button variant="outline" onClick={() => setAction('delete')}><Trash2 size={15} />Delete payment</Button>}{selected.status === 'pending' && <><Button variant="outline" onClick={() => { setAction('cancel'); setReason(''); }}><X size={15} />Cancel payment</Button><Button onClick={() => setAction('approve')}><Check size={15} />Approve payment</Button></>}</div>}
+      {!action && <div className="flex flex-wrap justify-end gap-2">{isAdmin && !(selected.refunds?.length > 0) && <Button variant="outline" onClick={() => setAction('delete')}><Trash2 size={15} />Delete payment</Button>}{selected.status === 'pending' && canReview && <><Button variant="outline" onClick={() => { setAction('cancel'); setReason(''); }}><X size={15} />Cancel payment</Button><Button onClick={() => setAction('approve')}><Check size={15} />Approve payment</Button></>}</div>}
       {action && <div className="space-y-3 border-t border-cardline pt-3"><p className="text-sm font-semibold">{action === 'approve' ? 'Confirm this payment has been verified?' : action === 'delete' ? `Permanently delete this ${selected.status} ${selected.kind} payment of ${money(selected.amount)}? This will remove it from the patient balance and ledger.` : 'Cancellation reason'}</p>{action === 'cancel' && <textarea aria-label="Cancellation reason" className={field} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />}{actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setAction(null)}>Back</Button><Button disabled={saving || (action === 'cancel' && !reason.trim())} onClick={action === 'delete' ? deletePayment : review}>{saving ? 'Saving...' : action === 'delete' ? 'Delete payment' : 'Confirm'}</Button></div></div>}
     </div>}</Modal>
   </div>;

@@ -10,6 +10,8 @@ const alertSchema = new mongoose.Schema({
 const schema = new mongoose.Schema({
   patientName: { type: String, required: true, trim: true, maxlength: 150 },
   patientReference: { type: String, trim: true, maxlength: 100, default: '' },
+  // The patient in the system this enquiry is about (picked by name / ID / phone), when there is one.
+  patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
   subject: { type: String, required: true, trim: true, maxlength: 180 },
   description: { type: String, required: true, trim: true, maxlength: 4000 },
   status: { type: String, enum: ['open', 'in_progress', 'resolved', 'closed'], default: 'open' },
