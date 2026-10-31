@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Management = require('../models/AppointmentManagementEntry');
+const { fillReceptionPackage } = require('../utils/receptionPackage');
 const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -188,6 +189,7 @@ const convertToPatient = asyncHandler(async (req, res) => {
   }
   await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.patient': created.patient._id, 'postCounseling.purchase.values.poNo': created.poNumber } });
   await linkConsultationReceipts(entry, created.patient);
+  await fillReceptionPackage(entry._id);
   await audit(req, entry, 'Converted to patient', `Patient ${registration.patientId}${created.existing ? ` (returning patient, Phase ${created.phase})` : ''} — purchase order ${created.poNumber} sent to In Transit`);
   emitChanged(req, entry);
   res.json({ success: true, patientId: String(created.patient._id), inTransit: created.inTransit, poNumber: created.poNumber, existing: Boolean(created.existing), phase: created.phase || 1 });
@@ -244,6 +246,7 @@ const markNotPurchased = asyncHandler(async (req, res) => {
     throw error;
   }
   await Management.updateOne({ _id: entry._id }, { $set: { 'postCounseling.outcome.packageNotBought': row._id } });
+  await fillReceptionPackage(entry._id);
   await audit(req, entry, 'Marked package not purchased', reason);
   emitChanged(req, entry);
   res.json({ success: true, packageNotBoughtId: String(row._id) });

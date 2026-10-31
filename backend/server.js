@@ -49,7 +49,11 @@ connectDB()
   .catch((error) => console.error(`Old medicine requests could not get their jobs: ${error.message}`))
   .then(() => require('./src/utils/phaseAge').backfillPhaseAges())
   .then((count) => { if (count) console.log(`Phase ages filled for ${count} patient(s)`); })
-  .catch((error) => console.error(`Phase ages could not be filled: ${error.message}`));
+  .catch((error) => console.error(`Phase ages could not be filled: ${error.message}`))
+  // Converted / not-purchased visits get Package Offered, Advance, Due and Status in reception details.
+  .then(() => require('./src/utils/receptionPackage').backfillReceptionPackage())
+  .then((count) => { if (count) console.log(`Reception package details filled for ${count} appointment(s)`); })
+  .catch((error) => console.error(`Reception package details could not be filled: ${error.message}`));
 
 const app = express();
 const server = http.createServer(app);

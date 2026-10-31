@@ -2,6 +2,7 @@ const PackageNotBoughtPatient = require('../models/PackageNotBoughtPatient');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const Management = require('../models/AppointmentManagementEntry');
+const { fillReceptionPackage } = require('../utils/receptionPackage');
 const purchaseOrder = require('../utils/purchaseOrderRecord');
 const { patientInputFromRegistration, assertPurchaseComplete, withBankName, createConvertedPatient, linkConsultationReceipts } = require('../utils/convertPatient');
 const { findByCode, summaryOf, visitPhaseOf } = require('../utils/existingPatient');
@@ -387,6 +388,7 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
         'postCounseling.purchase': { values: created.values, totals: cleaned.totals, savedAt: new Date(), savedByName: req.user.name },
       } });
       await linkConsultationReceipts(entry, created.patient);
+      await fillReceptionPackage(entry._id);
       req.app?.get?.('io')?.to(postCounselingUserRoom(entry.registration?.postCounselor)).to(POST_COUNSELING_ALL_ROOM).emit('post-counseling:changed', { id: String(entry._id) });
     }
   }
