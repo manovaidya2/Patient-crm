@@ -109,6 +109,7 @@ module.exports = {
   uploadCourierImage: createUpload('courier', { imagesOnly: true }),
   uploadTransitFile: createUpload('transit'),
   uploadPurchaseOrderFile: createUpload('purchase-orders'),
+  uploadTeamChatFile: createUpload('team-chat'),
   uploadScheduleCompletion: createUpload('schedule'),
   uploadFollowUpVideo: createUpload('followup-videos', {
     allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/3gpp'],

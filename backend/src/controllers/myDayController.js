@@ -112,6 +112,12 @@ const COLLECTORS = {
       return item('/admin/package-not-bought', String(r._id), r.patientName, `${r.parentName || ''}${r.program ? ` · ${r.program}` : ''} · ${next ? 'follow-up' : 'no follow-up set'}`, next, `/admin/package-not-bought/${r._id}`);
     });
   },
+  async '/admin/team-chat'(user) {
+    const TeamChat = require('../models/TeamChat');
+    const { unreadFor } = require('./teamChatController');
+    const chats = await TeamChat.find({ participants: user._id, status: { $ne: 'closed' } }).select('subject patientName status createdByName assignedToName lastMessageAt messages.sender messages.readBy messages.senderName').sort({ lastMessageAt: -1 }).limit(LIMIT).lean();
+    return chats.filter((c) => unreadFor(c, user) > 0).map((c) => item('/admin/team-chat', String(c._id), c.subject, `${c.patientName ? `${c.patientName} · ` : ''}${unreadFor(c, user)} new · from ${c.messages[c.messages.length - 1]?.senderName || '-'}`, c.lastMessageAt, `/admin/team-chat?id=${c._id}`));
+  },
   async '/admin/enquiries'(user) {
     const filter = { deletedAt: null, status: { $in: ['open', 'in_progress'] } };
     if (user.role !== ROLES.ADMIN) Object.assign(filter, { participants: user._id, assignedTo: user._id });

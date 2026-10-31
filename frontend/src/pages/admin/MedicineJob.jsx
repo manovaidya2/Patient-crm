@@ -14,6 +14,7 @@ import { AGE_BANDS, SUPPLY_OPTIONS, supplyKeyOf } from '../../constants/supplyPl
 import { DelayChips, DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePaperUpload, DosePapersView } from '../../components/medicine/DosePapers.jsx';
+import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const dateTime = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -424,7 +425,7 @@ export default function MedicineJobPage() {
             </div>
           )}
           <div className={waitingForDoctor && shown?.key === 'formula' ? 'pointer-events-none select-none space-y-3.5 opacity-80 blur-[2px]' : 'space-y-3.5'} aria-hidden={(waitingForDoctor && shown?.key === 'formula') || undefined}>
-          {showRequest && <RequestStep job={job} onNext={() => setView(0)} />}
+          {showRequest && <><RequestStep job={job} onNext={() => setView(0)} /><ChatQueries jobId={job.id} compact /></>}
           {shown && (
             <Section tone={stageCanAct ? 'action' : undefined} title={`${shown.n} · ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
               <p className="mb-3 text-sm text-charcoal/70">{shown.purpose}</p>

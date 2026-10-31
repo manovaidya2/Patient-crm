@@ -60,6 +60,7 @@ const ReceptionistDashboard = lazy(() => import('./pages/admin/ReceptionistDashb
 const ReceptionistHomeDashboard = lazy(() => import('./pages/admin/ReceptionistHomeDashboard.jsx'));
 const ReceptionistChecklist = lazy(() => import('./pages/admin/ReceptionistChecklist.jsx'));
 const Enquiries = lazy(() => import('./pages/admin/Enquiries.jsx'));
+const TeamChat = lazy(() => import('./pages/admin/TeamChat.jsx'));
 const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
 const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
 const ReceptionRegister = lazy(() => import('./pages/admin/ReceptionRegister.jsx'));
@@ -430,6 +431,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="team-chat" element={<ProtectedRoute roles={ADMIN_LAYOUT_ROLES.filter((role) => role !== ROLES.HR)}><TeamChat /></ProtectedRoute>} />
         <Route
           path="enquiries"
           element={<ProtectedRoute roles={ADMIN_LAYOUT_ROLES.filter((role) => role !== ROLES.HR)}><Enquiries /></ProtectedRoute>}

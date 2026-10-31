@@ -135,6 +135,13 @@ async function main() {
       if (url.pathname.startsWith('/api/')) {
         let data = { success: true, items: [], patients: [], reminders: [], rows: [], records: [], callLogs: [], banks: [], doctors: [], psychologists: [], postCounselors: [], count: 0, total: 0 };
         if (url.pathname.endsWith('/auth/me')) data = { user };
+        else if (url.pathname === '/api/team-chat/people') data = { success: true, people: [{ id: '6500000000000000000000e1', name: 'Meena', role: 'medicine_department', lastAt: new Date().toISOString(), last: { senderName: 'Meena', preview: 'Kal subah tak.', kind: 'query' }, unread: 1, openQueries: 1, queryTypes: [{ key: 'medicine_not_ready', label: 'Medicine not ready / overdue', subject: 'Medicine not ready', message: 'When will it be ready?' }, { key: 'other', label: 'Other', subject: '', message: '' }] }, { id: '6500000000000000000000e2', name: 'Dr Asha', role: 'assistant_doctor', lastAt: null, last: null, unread: 0, openQueries: 0, queryTypes: [{ key: 'explanation_pending', label: 'Medicine not explained yet', subject: 'Medicine explanation pending', message: 'When?' }] }] };
+        else if (url.pathname === '/api/team-chat/with/6500000000000000000000e1') data = { success: true, person: { id: '6500000000000000000000e1', name: 'Meena', role: 'medicine_department', lastAt: new Date().toISOString(), last: { senderName: 'Meena', preview: 'Kal subah tak.', kind: 'query' }, unread: 1, openQueries: 1, queryTypes: [{ key: 'medicine_not_ready', label: 'Medicine not ready / overdue', subject: 'Medicine not ready', message: 'When will it be ready?' }, { key: 'other', label: 'Other', subject: '', message: '' }] }, chat: { id: '6500000000000000000000d1', kind: 'direct', status: 'open', actions: ['message'], messages: [{ id: 'd1', kind: 'message', mine: false, senderName: 'Meena', senderRole: 'medicine_department', body: 'Hello Tanu', files: [], createdAt: new Date().toISOString(), seenBy: [] }] }, queries: [{ id: '6500000000000000000000f1', kind: 'query', subject: 'Medicine overdue - Aarav Mehra', queryType: 'medicine_not_ready', status: 'open', createdById: 'me', createdByName: 'Tanu', createdByRole: 'in_transit', assignedToId: '6500000000000000000000e1', assignedToName: 'Meena', assignedToRole: 'medicine_department', participants: ['me', '6500000000000000000000e1'], patientId: PATIENT_ID, patientName: 'Aarav Mehra', patientCode: 'A-221026-11', context: { purchaseOrder: items[0].id, poNumber: 'PO-4821', summary: 'Overdue: 3 days' }, resolution: '', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString(), unread: 0, actions: ['message', 'forward', 'close'], messages: [{ id: 'm1', kind: 'message', mine: true, senderName: 'Tanu', senderRole: 'in_transit', body: 'Kab tak ready hogi?', files: [], createdAt: new Date().toISOString(), seenBy: [new Date().toISOString()] }, { id: 'm2', kind: 'message', mine: false, senderName: 'Meena', senderRole: 'medicine_department', body: 'Kal subah tak.', files: [], createdAt: new Date().toISOString(), seenBy: [] }] }] };
+        else if (url.pathname === '/api/team-chat/staff') data = { users: [{ id: '6500000000000000000000e1', name: 'Meena', role: 'medicine_department' }] };
+        else if (url.pathname === '/api/team-chat/unread') data = { success: true, items: [], total: 0 };
+        else if (url.pathname === '/api/team-chat/context') data = { success: true, suggest: { role: 'medicine_department', queryType: 'medicine_not_ready' }, context: { purchaseOrder: items[0].id, poNumber: 'PO-4821', phase: 1, step: 'Medicine ready', summary: 'PO PO-4821 · Phase 1\nOverdue: 3 days past the ready-by date' }, patient: { id: PATIENT_ID, patientName: 'Aarav Mehra', patientCode: 'A-221026-11' }, subject: 'Medicine overdue - Aarav Mehra (PO-4821)' };
+        else if (url.pathname === '/api/team-chat/6500000000000000000000f1') data = { success: true, chat: { id: '6500000000000000000000f1', kind: 'query', subject: 'Medicine overdue - Aarav Mehra', status: 'open', createdById: 'me', createdByName: 'Tanu', createdByRole: 'in_transit', assignedToId: 'x', assignedToName: 'Meena', assignedToRole: 'medicine_department', participants: ['me', 'x'], patientId: PATIENT_ID, patientName: 'Aarav Mehra', patientCode: 'A-221026-11', context: { purchaseOrder: items[0].id, poNumber: 'PO-4821', summary: 'Overdue: 3 days' }, resolution: '', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString(), unread: 0, actions: ['message', 'forward', 'close'], messages: [{ id: 'm1', kind: 'message', mine: true, senderName: 'Tanu', senderRole: 'in_transit', body: 'Kab tak ready hogi?', files: [], createdAt: new Date().toISOString(), seenBy: [new Date().toISOString()] }, { id: 'm2', kind: 'message', mine: false, senderName: 'Meena', senderRole: 'medicine_department', body: 'Kal subah tak.', files: [], createdAt: new Date().toISOString(), seenBy: [] }] } };
+        else if (url.pathname === '/api/team-chat') data = { success: true, rows: [{ id: '6500000000000000000000f1', kind: 'query', subject: 'Medicine overdue - Aarav Mehra', status: 'open', createdById: 'me', createdByName: 'Tanu', assignedToName: 'Meena', patientName: 'Aarav Mehra', context: { poNumber: 'PO-4821' }, lastMessageAt: new Date().toISOString(), lastMessage: { senderName: 'Meena', preview: 'Kal subah tak.' }, unread: 1 }], counts: { open: 1, resolved: 0, closed: 0, unread: 1 } };
         else if (url.pathname === '/api/courier/handovers') data = { success: true, rows: [{ poId: items[0].id, poNumber: items[0].poNumber, patientId: PATIENT_ID, patientName: 'Aarav Mehra', patientCode: 'A-221026-11', patientPhone: '9999999999', phase: 1, supplyLabel: items[0].supplyLabel, section: url.searchParams.get('section') || 'pending', received: false, mode: 'courier', expectedAt: new Date(Date.now() - 86400000).toISOString(), plannedCourier: 'DTDC', plannedAddress: 'Delhi', planNote: '', scheduledByName: 'Transit', scheduledAt: new Date().toISOString(), explanationAt: new Date().toISOString(), explanationMode: 'phone', pcc: 'Dr Asha', medicine: { status: 'made', label: 'Medicine ready', requestedAt: new Date().toISOString() }, payment: { remaining: 0, pendingCount: 0 }, nextStep: { label: 'Dispatched', waitText: 'Waiting for Medicine Department to release the parcel' }, delay: null, courier: { status: 'pending', packageImages: [], deliveryProofImages: [] } }] };
         else if (url.pathname === '/api/purchase-orders') data = { success: true, items, counts: { all: 2, pending: 2, verification: 1, medicine: 1, mine: { all: 1, pending: 1, verification: 1 } } };
         else if (/^\/api\/purchase-orders\/[a-f0-9]{24}$/.test(url.pathname)) data = { success: true, purchaseOrder: [...items, poFinal].find((po) => url.pathname.endsWith(po.id)) };
@@ -197,6 +204,8 @@ async function main() {
       ['job-doctor-wait', `/admin/medicine-jobs/${JOB3_ID}`, 'Please verify formulation from doctor'],
       ['job-papers', `/admin/medicine-jobs/${JOB4_ID}`, 'Upload images'],
       ['courier-requests', '/admin/courier', 'Open PO timeline'],
+      ['team-chat', '/admin/team-chat?with=6500000000000000000000e1', 'Hello Tanu'],
+      ['team-chat-po', '/admin/team-chat?po=' + items[0].id, 'Raise a query with Meena'],
       ['job-custom', `/admin/medicine-jobs/${JOB5_ID}`, 'no Formulation Master'],
       ['job-queue', '/admin/medicine-jobs', 'Primary packing & chits'],
       ['stocks', '/admin/stocks', 'MEDHYA-GHRIT'],
@@ -215,6 +224,7 @@ async function main() {
     for (const width of [1440, 390]) {
       await page.setViewport({ width, height: 1000 });
       for (const [name, route, text] of shots) {
+        if (process.env.PO_UI_TRACE) console.log(`step ${name} ${width}`);
         await page.goto(base + route, { waitUntil: 'networkidle0' });
         try {
           await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 15000 }, text);
@@ -330,6 +340,17 @@ async function main() {
           await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('No, send back')).click());
           await page.waitForFunction(() => document.body.innerText.includes('What is wrong?'), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `po-final-check-${width}.png`), fullPage: true });
+        }
+        if (name === 'team-chat-po') {
+          // From the PO: Medicine Dept person's chat opens with the query form inline, type and context prefilled.
+          await page.waitForFunction(() => document.body.innerText.includes('Overdue: 3 days past') && [...document.querySelectorAll('input')].some((i) => i.value.startsWith('Medicine not ready - Aarav Mehra')), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, 'team-chat-po-' + width + '.png'), fullPage: true });
+        }
+        if (name === 'po-detail' && width >= 1280 && false) {
+          await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Raise query').click());
+          await page.waitForFunction(() => document.body.innerText.includes('Overdue: 3 days') && document.body.innerText.includes('Send to'), { timeout: 15000 });
+          await page.screenshot({ path: path.join(output, 'po-raise-query-' + width + '.png'), fullPage: false });
+          await page.keyboard.press('Escape');
         }
         if (name === 'job-custom') {
           // 0 - 3 years: "Create formulation" opens an empty medicine row to fill for the child.

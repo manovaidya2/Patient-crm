@@ -32,6 +32,7 @@ const PAGES = {
   '/admin/post-counseling-patients': [ADMIN, POST_COUNSELOR, DOCTOR, MANAGER],
   '/admin/package-not-bought': [ADMIN, POST_COUNSELOR],
   '/admin/enquiries': Object.values(ROLES).filter((role) => role !== ROLES.HR),
+  '/admin/team-chat': Object.values(ROLES).filter((role) => role !== ROLES.HR),
 };
 
 const allRequests = (stage) => [...(stage.medicineRequests || []), ...(stage.medicineRequest?.status ? [stage.medicineRequest] : [])];
@@ -133,6 +134,13 @@ const COUNTERS = {
   },
   // Enquiries still open or in progress, exactly as the page lists them by default: admin sees all, everyone else
   // the ones assigned to them. Soft-deleted entries never count.
+  // Team chat: threads with messages this person has not read yet (the admin: only threads the admin is in).
+  async '/admin/team-chat'(user) {
+    const TeamChat = require('../models/TeamChat');
+    const { unreadFor } = require('./teamChatController');
+    const chats = await TeamChat.find({ participants: user._id, status: { $ne: 'closed' } }).select('messages.sender messages.readBy').lean();
+    return chats.filter((c) => unreadFor(c, user) > 0).length;
+  },
   async '/admin/enquiries'(user) {
     const filter = { deletedAt: null, status: { $in: ['open', 'in_progress'] } };
     if (user.role !== ADMIN) Object.assign(filter, { participants: user._id, assignedTo: user._id });

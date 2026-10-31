@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeft, Check, CheckCircle2, ClipboardList, Clock3, ExternalLink, FileText, IndianRupee, Layers,
-  PauseCircle, Pencil, Phone, PhoneCall, Pill, PlayCircle, Plus, RotateCcw, Send, ShieldCheck, Stethoscope, Trash2, Truck, UserRound, X,
+  MessageCircle, PauseCircle, Pencil, Phone, PhoneCall, Pill, PlayCircle, Plus, RotateCcw, Send, ShieldCheck, Stethoscope, Trash2, Truck, UserRound, X,
 } from 'lucide-react';
 import api from '../../api/axios.js';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../../components/payments/UtrRows.jsx';
@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
+import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 import { ROLES } from '../../constants/roles.js';
 import { CASE_CATEGORIES } from '../../constants/patientCategories.js';
 import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
@@ -745,6 +746,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {myTurn && <button type="button" onClick={() => setPicked(null)} title="Show this step" className="inline-flex items-center gap-1.5 rounded-full border border-[#FDBA74] bg-[#FFF1E6] px-3 py-1.5 text-[11.5px] font-bold text-[#C2410C] hover:border-[#F97316]"><span className="h-2 w-2 rounded-full bg-[#F97316]" aria-hidden="true" />Your action · {(mine || po.step).label}</button>}
+          <Button size="sm" variant="outline" onClick={() => navigate(`/admin/team-chat?po=${po.id}`)} title="Ask someone about this PO (medicine overdue, payment, delivery...) - goes to one person with the patient and PO details"><MessageCircle size={14} />Raise query</Button>
           {po.patientPhone && <a href={`tel:${po.patientPhone}`}><Button size="sm" variant="outline"><Phone size={14} />{po.patientPhone}</Button></a>}
           {showPatientLink && <Link to={`/admin/patients/${po.patientId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />Patient</Button></Link>}
           {canVerify && po.status === 'verified' && po.currentStage !== po.phase && <Button size="sm" variant="outline" onClick={activatePhase}><Layers size={14} />Make Phase {po.phase} current</Button>}
@@ -901,6 +903,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
               {TRANSIT_ROLES.includes(role) || [ROLES.DOCTOR].includes(role) ? <Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><ExternalLink size={13} />Open the job</Link> : null}
             </Section>
           )}
+          {(selected === 'all' || show('medicine') || show('handover') || show('job')) && <ChatQueries poId={po.id} patient={{ id: po.patientId, patientName: po.patientName, patientCode: po.patientCode }} />}
           {selected === 'all' && po.events?.length > 0 && (
             <Section title="Activity" icon={Clock3}>
               <ol className="space-y-2">{po.events.map((e, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-xs text-charcoal/45">{poDateTime(e.at)}</span><span className="min-w-0"><b className="font-semibold text-charcoal">{e.action}</b>{e.details ? <span className="text-charcoal/70"> - {e.details}</span> : ''} <span className="text-xs text-charcoal/45">· {e.byName}</span></span></li>)}</ol>
