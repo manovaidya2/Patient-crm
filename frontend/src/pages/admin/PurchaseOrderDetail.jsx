@@ -22,7 +22,8 @@ import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 import { ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { CASE_CATEGORIES } from '../../constants/patientCategories.js';
-import { AGE_BANDS, PO_STATUS, SUPPLY_OPTIONS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
+import { AGE_BANDS, PO_STATUS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
+import SupplyChips from '../../components/medicine/SupplyChips.jsx';
 
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const day = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -378,7 +379,7 @@ function MedicineRequestForm({ po, onDone, edit = false, onCancel }) {
       <div className="flex gap-3"><Pill size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">{edit ? 'Edit the medicine request' : 'Request medicine from Medicine Department'}</h3><p className="text-sm text-charcoal/65">{edit ? 'Possible until Medicine Department accepts the request. The changes go to its fulfilment job too.' : 'Confirm the supply and the age group; Medicine Department prepares by this category.'}</p></div></div>
       <ErrorText>{error}</ErrorText>
       <div><p className="mb-1 text-sm font-medium text-charcoal">Category<span className="text-red-700"> *</span> {po.patientCaseCategory && <span className="font-normal text-charcoal/50">(patient's category: {po.patientCaseCategory})</span>}</p><div className="flex flex-wrap gap-1.5">{CASE_CATEGORIES.map((c) => <Chip key={c} active={values.caseCategory === c} onClick={() => set('caseCategory', c)}>{c}</Chip>)}</div></div>
-      <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} title={o.hint} active={values.supplyKey === o.key} disabled={supplyLocked && values.supplyKey !== o.key} onClick={() => !supplyLocked && set('supplyKey', o.key)}>{o.label}</Chip>)}</div>{supplyLocked && <FixedNote />}</div>
+      <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply<span className="text-red-700"> *</span></p><SupplyChips value={values.supplyKey} onChange={(key) => set('supplyKey', key)} locked={supplyLocked} />{supplyLocked && <FixedNote />}</div>
       <div><p className="mb-1 text-sm font-medium text-charcoal">Age group<span className="text-red-700"> *</span> {po.patientAge && <span className="font-normal text-charcoal/50">(patient age {po.patientAge})</span>}</p><div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={values.ageBand === b.value} disabled={ageLocked && values.ageBand !== b.value} onClick={() => !ageLocked && set('ageBand', b.value)}>{b.label}{b.value === po.suggestedAgeBand ? ' (by age)' : ''}</Chip>)}</div>{ageLocked && <FixedNote />}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <FieldLabel label="Medicine ready-by date" required><input className={poInput} type="date" required readOnly={dateLocked} disabled={dateLocked} value={values.readyByDate} onChange={(e) => set('readyByDate', e.target.value)} />{dateLocked && <FixedNote />}</FieldLabel>
@@ -413,7 +414,7 @@ function PlanEditModal({ po, onClose, onDone }) {
         <p className="text-sm text-charcoal/65">Decided in post counselling. In Transit and the Medicine Department work to these and cannot change them. They can be changed here until the Medicine Department accepts the request.</p>
         <ErrorText>{error}</ErrorText>
         <FieldLabel label="Medicine ready expected date" required><input className={poInput} type="date" required value={values.medicineReadyDate} onChange={(e) => set('medicineReadyDate', e.target.value)} /></FieldLabel>
-        <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply</p><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={values.supplyKey === o.key} onClick={() => set('supplyKey', o.key)}>{o.label}</Chip>)}</div></div>
+        <div><p className="mb-1 text-sm font-medium text-charcoal">Medicine supply</p><SupplyChips value={values.supplyKey} onChange={(key) => set('supplyKey', key)} /></div>
         <FieldLabel label="Patient age (this phase)" required><input className={poInput} required value={values.patientAge} onChange={(e) => set('patientAge', e.target.value)} placeholder="e.g. 6" /></FieldLabel>
         <p className="text-sm text-charcoal/70">Age group: <b className="text-charcoal">{ageBandLabel(ageBandFor(values.patientAge)) || 'enter the age (from 3 years)'}</b></p>
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button></div>
@@ -443,7 +444,7 @@ function EditRejectedForm({ po, onDone }) {
     <form onSubmit={submit} className="space-y-3">
       <div className="flex gap-3"><AlertTriangle size={20} className="mt-0.5 shrink-0 text-[#8C3B2E]" /><div><h3 className="text-base font-bold text-charcoal">Rejected - correct and resend</h3><p className="text-sm text-[#8C3B2E]">{po.rejectReason} <span className="text-charcoal/50">({po.rejectedByName}, {poDateTime(po.rejectedAt)})</span></p></div></div>
       <ErrorText>{error}</ErrorText>
-      <div><div className="flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={values.supplyKey === o.key} disabled={supplyLocked && values.supplyKey !== o.key} onClick={() => !supplyLocked && setValues((v) => ({ ...v, supplyKey: o.key }))}>{o.label}</Chip>)}</div>{supplyLocked && <FixedNote />}</div>
+      <div><SupplyChips value={values.supplyKey} onChange={(key) => setValues((v) => ({ ...v, supplyKey: key }))} locked={supplyLocked} />{supplyLocked && <FixedNote />}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <FieldLabel label="PO amount (Rs)"><input className={poInput} value={values.amount} onChange={(e) => setValues((v) => ({ ...v, amount: e.target.value }))} /></FieldLabel>
         <FieldLabel label="Add PO paper image"><input className={`${poInput} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></FieldLabel>

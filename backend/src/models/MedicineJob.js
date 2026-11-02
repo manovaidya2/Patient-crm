@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isValidPlan } = require('../constants/supplyPlans');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
 
 const fileSchema = new mongoose.Schema({ url: String, fileName: String }, { _id: false });
@@ -50,7 +51,7 @@ const medicineJobSchema = new mongoose.Schema(
     requestId: { type: String, trim: true, required: true },
     purchaseOrder: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', default: null, index: true },
     poNumber: { type: String, trim: true, default: '' },
-    supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
+    supplyPlan: { type: String, validate: { validator: isValidPlan, message: 'Unknown medicine supply plan' }, default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
     ageBand: { type: String, enum: ['', '0-3', '3-4', '4-12', '12-70', '70+'], default: '' },
     medicines: { type: String, trim: true, default: '' },

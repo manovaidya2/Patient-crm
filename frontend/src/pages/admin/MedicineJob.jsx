@@ -11,7 +11,9 @@ import FormulationSheet from '../../components/medicine/FormulationSheet.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, ROLE_LABELS, isAdminLike, roleAllowed } from '../../constants/roles.js';
-import { AGE_BANDS, SUPPLY_OPTIONS, supplyKeyOf } from '../../constants/supplyPlans.js';
+import { AGE_BANDS, supplyKeyOf } from '../../constants/supplyPlans.js';
+import SupplyChips from '../../components/medicine/SupplyChips.jsx';
+import { customMonthsOf } from '../../constants/supplyPlans.js';
 import { DelayChips, DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePaperUpload, DosePapersView } from '../../components/medicine/DosePapers.jsx';
@@ -259,7 +261,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {['review', 'formula'].includes(stage.key) && job.formulation && (
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${job.masterOutdated ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-cardline bg-offwhite-200/60 text-charcoal/70'}`}>
-          {job.formulation.custom ? <span>{job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this child.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
+          {job.formulation.custom ? <span>{customMonthsOf(job.formulation.plan) ? `Custom supply of ${job.formulation.months} months` : job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this patient.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
@@ -461,7 +463,7 @@ export default function MedicineJobPage() {
                     <div className="mb-4 rounded-lg border border-cardline bg-offwhite-200/60 p-3">
                       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">{supplyLocked || ageLocked ? 'Age group & supply (sent by post counselling)' : 'Age group & supply (choose as per the prescription)'}</p>
                       <div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={supply.ageBand === b.value} disabled={ageLocked && supply.ageBand !== b.value} onClick={() => !ageLocked && setSupply((s) => ({ ...s, ageBand: b.value }))}>{b.label}</Chip>)}</div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">{SUPPLY_OPTIONS.map((o) => <Chip key={o.key} active={supply.supplyKey === o.key} disabled={supplyLocked && supply.supplyKey !== o.key} onClick={() => !supplyLocked && setSupply((s) => ({ ...s, supplyKey: o.key }))}>{o.label}</Chip>)}</div>
+                      <div className="mt-2"><SupplyChips value={supply.supplyKey} onChange={(key) => setSupply((s) => ({ ...s, supplyKey: key }))} locked={supplyLocked} /></div>
                       {supplyLocked && <FixedNote />}
                       {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart)) && <Button size="sm" className="mt-2" onClick={saveSupply}>Rebuild sheet</Button>}
                     </div>

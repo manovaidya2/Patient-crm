@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isValidPlan } = require('../constants/supplyPlans');
 const { STAGES } = require('../constants/treatmentStages');
 
 const PO_STATUSES = ['pending', 'verified', 'rejected', 'cancelled'];
@@ -43,7 +44,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     patientCode: { type: String, trim: true, default: '' },
     patientName: { type: String, trim: true, default: '' },
     phase: { type: Number, enum: STAGES, required: true },
-    supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
+    supplyPlan: { type: String, validate: { validator: isValidPlan, message: 'Unknown medicine supply plan' }, default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
     ageBand: { type: String, enum: ['', '0-3', '3-4', '4-12', '12-70', '70+'], default: '' },
     packageName: { type: String, trim: true, default: '', maxlength: 200 },

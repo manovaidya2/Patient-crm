@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isValidPlan } = require('../constants/supplyPlans');
 const { profileSchemaFields } = require('../utils/patientProfile');
 const { ALL_CATEGORIES, CATEGORIES } = require('../constants/patientCategories');
 const { STAGES, STAGE_STATUSES, ALL_STAGE_STATUSES } = require('../constants/treatmentStages');
@@ -132,7 +133,7 @@ const medicineRequestSchema = new mongoose.Schema(
     // Last correction by In Transit before Medicine Department accepted it.
     editedAt: { type: Date, default: null },
     editedByName: { type: String, trim: true, default: '' },
-    supplyPlan: { type: String, enum: ['', '6M', '1+5', '2+4'], default: '' },
+    supplyPlan: { type: String, validate: { validator: isValidPlan, message: 'Unknown medicine supply plan' }, default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
     ageBand: { type: String, enum: ['', '0-3', '3-4', '4-12', '12-70', '70+'], default: '' },
     // Autism / ADHD / Autism + ADHD / Mental Health (from the patient's Sales case category).

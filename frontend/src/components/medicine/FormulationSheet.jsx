@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { customMonthsOf } from '../../constants/supplyPlans.js';
 import { Pencil, Plus, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
@@ -78,7 +79,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   return (
     <div className="rounded-lg border border-cardline bg-offwhite-100 p-4 sm:p-6">
       {canEdit && <div className="mb-2 flex justify-end"><Button size="sm" variant={f.custom && !f.lines.length ? 'primary' : 'outline'} onClick={startEditing}>{f.custom && !f.lines.length ? <><Plus size={13} />Create formulation</> : f.custom ? <><Pencil size={13} />Edit formulation</> : <><Pencil size={13} />Edit sheet</>}</Button></div>}
-      {f.custom && <p className="mb-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">{f.ageBandLabel}: no Formulation Master for this age group. {f.lines.length ? 'This formulation was made for this child.' : 'No medicines yet - the formulation is made for this child.'}</p>}
+      {f.custom && <p className="mb-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">{customMonthsOf(f.plan) ? `Custom supply of ${f.months} months` : f.ageBandLabel}: no Formulation Master for this age group. {f.lines.length ? 'This formulation was made for this child.' : 'No medicines yet - the formulation is made for this child.'}</p>}
       {f.edited && <p className="mb-2 rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900">This sheet was corrected for this patient only (the Formulation Master is unchanged); master values are shown struck through.</p>}
       <div className="border-b border-charcoal pb-2 text-center"><p className="text-xs font-bold tracking-wide">AUTISM, ADHD &amp; CHILD DEVELOPMENT</p><p className="text-base font-bold">{f.title}</p><p className="text-xs text-charcoal/60">आयु: {f.ageBandLabel} · आपूर्ति: {f.months} महीने ({f.days} दिन) · गणना: 1 महीना = 30 दिन, माप-चम्मच = 5 ml</p></div>
       <p className="mt-2 text-xs text-charcoal/60">मरीज: <b className="text-charcoal">{patientName}</b> · ID {patientCode}</p>

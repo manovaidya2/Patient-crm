@@ -22,8 +22,25 @@ const AGE_BANDS = {
   '70+': 'Above 70 years',
 };
 
-const supplyOption = (plan, part) => SUPPLY_OPTIONS.find((o) => o.plan === plan && o.part === part) || null;
-const supplyOptionByLabel = (label) => SUPPLY_OPTIONS.find((o) => o.label === label) || null;
+// Custom supply: the Post Counselor chooses the months (1-12). It is stored as plan "C<months>" with part "full", so it
+// travels through every PO, request and job like the fixed plans. It has no Formulation Master: the Medicine
+// Department makes this patient's formulation at the formulation check (same way as 0-3 years).
+const CUSTOM_PLAN = /^C([1-9]|1[0-2])$/;
+const CUSTOM_PICK_LABEL = 'Custom (choose months)';
+const customMonths = (plan) => { const m = CUSTOM_PLAN.exec(String(plan || '')); return m ? Number(m[1]) : 0; };
+const customOption = (months) => ({ key: `C${months}:full`, plan: `C${months}`, part: 'full', months, days: months * 30, label: `Custom: ${months} month${months === 1 ? '' : 's'}`, custom: true });
+const isValidPlan = (plan) => plan === '' || plan == null || Boolean(SUPPLY_PLANS[plan]) || customMonths(plan) > 0;
+
+const supplyOption = (plan, part) => {
+  const months = customMonths(plan);
+  if (months && (!part || part === 'full')) return customOption(months);
+  return SUPPLY_OPTIONS.find((o) => o.plan === plan && o.part === part) || null;
+};
+const supplyOptionByLabel = (label) => {
+  const m = /^Custom: (\d{1,2}) months?$/i.exec(String(label || '').trim());
+  if (m && customMonths(`C${Number(m[1])}`)) return customOption(Number(m[1]));
+  return SUPPLY_OPTIONS.find((o) => o.label === label) || null;
+};
 const supplyLabel = (plan, part) => supplyOption(plan, part)?.label || '';
 
 // "7", "7 years", "7 y 4 m", "3.5", "8 months" -> age band. Exactly 4 / 12 / 70 belong to the lower band ("above 4"
@@ -44,4 +61,4 @@ const ageBandFor = (age) => {
 // The PO paper keeps the age group as its label ("Above 4 - 12 years").
 const ageBandByLabel = (label) => Object.keys(AGE_BANDS).find((key) => AGE_BANDS[key] === label) || '';
 
-module.exports = { SUPPLY_PLANS, SUPPLY_OPTIONS, AGE_BANDS, supplyOption, supplyOptionByLabel, supplyLabel, ageBandFor, ageBandByLabel };
+module.exports = { SUPPLY_PLANS, SUPPLY_OPTIONS, AGE_BANDS, CUSTOM_PICK_LABEL, customMonths, customOption, isValidPlan, supplyOption, supplyOptionByLabel, supplyLabel, ageBandFor, ageBandByLabel };

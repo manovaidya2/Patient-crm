@@ -17,6 +17,11 @@ export const AGE_BANDS = [
 ];
 
 export const supplyKeyOf = (plan, part) => (plan && part ? `${plan}:${part}` : '');
+// Custom supply (months chosen by the Post Counselor): plan "C<months>", part "full" - see backend supplyPlans.js.
+export const CUSTOM_PICK_LABEL = 'Custom (choose months)';
+export const customMonthsOf = (keyOrPlan) => { const m = /^C([1-9]|1[0-2])(?::full)?$/.exec(String(keyOrPlan || '')); return m ? Number(m[1]) : 0; };
+export const customKey = (months) => `C${months}:full`;
+export const isCustomSupplyLabel = (label) => /^Custom(:| \()/.test(String(label || ''));
 export const ageBandLabel = (value) => AGE_BANDS.find((band) => band.value === value)?.label || '';
 // Same rule as the backend: the dose age group from an age like "6", "4.5" or "13 years".
 export const ageBandFor = (age) => {

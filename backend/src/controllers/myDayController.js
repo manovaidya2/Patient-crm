@@ -79,7 +79,7 @@ const COLLECTORS = {
   async '/admin/medicine-jobs'(user) {
     const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver).includes(stepRole(user))).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (0 - 3 years)' : ''}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
+    return jobs.filter((j) => jobActionBy(j, handedOver).includes(stepRole(user))).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (custom)' : ''}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
   },
   async '/admin/stocks'() {
     const items = await StockItem.find({ isActive: { $ne: false } }).lean();
