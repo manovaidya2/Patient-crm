@@ -146,6 +146,7 @@ const serializeManagementEntry = (entry, user) => ({
   arrivalTime: String(entry.values?.get?.(RECEPTION_IDS.arrivalTime) || ''),
   registrationStatus: entry.registration?.status || '',
   registrationPostCounselorName: entry.registration?.postCounselorName || '',
+  registrationReturned: entry.registration?.returned?.at ? { reason: entry.registration.returned.reason, byName: entry.registration.returned.byName, at: entry.registration.returned.at } : null,
   rescheduleNote: entry.rescheduleNote || '', rescheduledFromDate: entry.rescheduledFromDate || '',
   lastCallAt: entry.sourceAppointment?.lastCallAt || entry.lastCallAt || null,
   numberOfCalls: entry.sourceAppointment?.numberOfCalls || entry.numberOfCalls || 0,

@@ -18,6 +18,22 @@ const registrationSchema = new mongoose.Schema({
   sentAt: { type: Date, default: null },
   sentByName: { type: String, trim: true, default: '' },
   consultationDate: { type: String, default: '' },
+  // Sent back by the Post Counselor for a correction: the note reception reads. Cleared when it is sent again.
+  returned: { type: new mongoose.Schema({
+    reason: { type: String, trim: true, default: '', maxlength: 1000 }, at: { type: Date, default: Date.now },
+    by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, byName: { type: String, trim: true, default: '' },
+  }, { _id: false }), default: null },
+  // Every return and the re-send that answered it, kept.
+  returns: { type: [new mongoose.Schema({
+    reason: { type: String, trim: true, default: '', maxlength: 1000 }, at: { type: Date, default: Date.now }, byName: { type: String, trim: true, default: '' },
+    resentAt: { type: Date, default: null }, resentByName: { type: String, trim: true, default: '' },
+  }, { _id: false })], default: undefined },
+  // Moved to another Post Counselor by the Admin / Manager (e.g. sent to the wrong person); every move is kept.
+  reassignments: { type: [new mongoose.Schema({
+    from: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, fromName: { type: String, trim: true, default: '' },
+    to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, toName: { type: String, trim: true, default: '' },
+    reason: { type: String, trim: true, default: '', maxlength: 500 }, at: { type: Date, default: Date.now }, byName: { type: String, trim: true, default: '' },
+  }, { _id: false })], default: undefined },
 }, { _id: false });
 
 // "Treatment not given" moves (and restores) of a post-counselling patient; the full history is kept.

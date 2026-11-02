@@ -198,3 +198,60 @@ test('post counseling list: a counselor only sees their own patients', async () 
     assert.equal(search.res.body.patients.length, 0);
   });
 });
+
+test('admin moves a sent registration to another Post Counselor; the move is kept in the history', async () => {
+  const sent = entry({ [RECEPTION_IDS.patientId]: 'V-171026-11' }, { registration: { status: 'sent', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', fields: new Map() } });
+  const OTHER = 'c'.repeat(24);
+  let update = null;
+  await withStubs([
+    [Management, 'findById', async () => sent],
+    [User, 'findOne', (filter) => ({ select: () => ({ lean: async () => ({ _id: filter._id, name: filter._id === COUNSELOR ? 'Abhishek' : 'Pragya' }) }) })],
+    [Management, 'findOneAndUpdate', async (filter, change) => { update = change; return { ...sent, registration: { ...sent.registration, postCounselor: OTHER, postCounselorName: 'Pragya' } }; }],
+  ], async () => {
+    const admin = { _id: 'adm', name: 'Admin', role: 'admin' };
+    const { res, error } = await call(controller.reassignPostCounselor, { body: { postCounselorId: OTHER, reason: 'Sent by mistake' }, user: admin });
+    assert.equal(error, null);
+    assert.equal(update.$set['registration.postCounselorName'], 'Pragya');
+    assert.equal(update.$push['registration.reassignments'].fromName, 'Abhishek');
+    assert.equal(update.$push['registration.reassignments'].reason, 'Sent by mistake');
+    assert.equal(res.body.registration.postCounselorName, 'Pragya');
+    const same = await call(controller.reassignPostCounselor, { body: { postCounselorId: COUNSELOR }, user: admin });
+    assert.match(same.error.message, /already has this patient/);
+  });
+});
+
+test('the Post Counselor sends a wrong registration back to reception with a note; sending it again answers the note', async () => {
+  const sent = entry({ [RECEPTION_IDS.patientId]: 'V-171026-11' }, { registration: { status: 'sent', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', fields: new Map() } });
+  let update = null;
+  await withStubs([
+    [Management, 'findById', async () => sent],
+    [Management, 'findOneAndUpdate', async (filter, change) => { update = change; return { ...sent, registration: { ...sent.registration, status: 'draft', returned: change.$set['registration.returned'] } }; }],
+  ], async () => {
+    const other = await call(controller.returnToReception, { body: { reason: 'Wrong date of birth' }, user: { _id: 'x'.repeat(24), name: 'Pragya', role: 'post_counselor' } });
+    assert.equal(other.error.statusCode, 403, 'another Post Counselor cannot send it back');
+    const short = await call(controller.returnToReception, { body: { reason: '' }, user: { _id: COUNSELOR, name: 'Abhishek', role: 'post_counselor' } });
+    assert.match(short.error.message, /what reception has to correct/);
+    const { res, error } = await call(controller.returnToReception, { body: { reason: 'Wrong date of birth' }, user: { _id: COUNSELOR, name: 'Abhishek', role: 'post_counselor' } });
+    assert.equal(error, null);
+    assert.equal(update.$set['registration.status'], 'draft');
+    assert.equal(update.$push['registration.returns'].reason, 'Wrong date of birth');
+    assert.equal(res.body.registration.returned.reason, 'Wrong date of birth');
+    assert.equal(res.body.registration.status, 'draft');
+  });
+  // Reception corrects it and sends it again: the note is cleared and kept in the history as answered.
+  const fields = { phase: '1', patientName: 'Vyom Sharma', age: '3', category: 'autism_adhd', patientHistoryBy: 'Mother', dateOfBirth: '2023-05-12', fatherName: 'Raj', fatherNumber: '9999999999' };
+  const returned = entry({ [RECEPTION_IDS.patientId]: 'V-171026-11' }, { registration: { status: 'draft', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', fields: new Map(), consultationDate: '2026-10-17', returned: { reason: 'Wrong date of birth', at: new Date(), byName: 'Abhishek' }, returns: [{ reason: 'Wrong date of birth', at: new Date(), byName: 'Abhishek' }] } });
+  let resend = null;
+  await withStubs([
+    [Management, 'findById', async () => returned],
+    [User, 'findOne', () => ({ select: () => ({ lean: async () => ({ _id: COUNSELOR, name: 'Abhishek' }) }) })],
+    [Management, 'findOneAndUpdate', async (filter, change) => { resend = change.$set.registration; return { ...returned, registration: { ...resend, fields: new Map(Object.entries(resend.fields)) } }; }],
+  ], async () => {
+    const ok = await call(controller.sendRegistration, { body: { fields, postCounselorId: COUNSELOR } });
+    assert.equal(ok.error, null);
+    assert.equal(resend.status, 'sent');
+    assert.equal(resend.returned, null);
+    assert.equal(resend.returns[0].resentByName, 'Prachi');
+    assert.equal(resend.consultationDate, '2026-10-17', 'the consultation date stays the original one');
+  });
+});

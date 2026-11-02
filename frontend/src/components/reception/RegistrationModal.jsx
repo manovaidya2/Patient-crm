@@ -105,6 +105,13 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
       {data && step === 'form' && (
         <div className="space-y-4">
           {sent && <div className="rounded border border-sage/40 bg-sage/10 px-3 py-2 text-sm text-charcoal">Already sent to <b>{data.postCounselorName}</b>. These details can no longer be changed here.</div>}
+          {!sent && data.returned && (
+            <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-sm text-[#7F1D1D]">
+              <p className="font-bold">Sent back by {data.returned.byName} · {new Date(data.returned.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+              <p className="mt-0.5 whitespace-pre-wrap">{data.returned.reason}</p>
+              <p className="mt-1 text-xs text-[#991B1B]">Correct the details below, then press "Registration complete" to send the patient again.</p>
+            </div>
+          )}
           <div className="rounded-lg border border-sage/40 bg-sage/10 px-3 py-2 text-sm"><span className="text-charcoal/60">Patient ID</span> <b className="ml-1 text-base text-charcoal">{data.patientId}</b><span className="ml-3 text-xs text-charcoal/50">Appointment {data.appointmentCode}{data.meta?.tokenNumber ? ` · Token ${data.meta.tokenNumber}` : ''}{data.meta?.arrivalTime ? ` · Arrived ${data.meta.arrivalTime}` : ''}</span></div>
           {data.existingPatient && (
             <div className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-950">

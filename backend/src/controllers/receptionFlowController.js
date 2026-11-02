@@ -5,7 +5,7 @@ const Patient = require('../models/Patient');
 const User = require('../models/User');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { ROLES } = require('../constants/roles');
+const { ROLES, isAdminLike } = require('../constants/roles');
 const { dateRoom, postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 const { notGivenView } = require('../utils/postCounselingNotGiven');
 const { PATIENT_TYPE_ID, EXISTING, existingCodeFrom, resolveExisting, findByCode, summaryOf } = require('../utils/existingPatient');
@@ -77,6 +77,9 @@ const registrationView = (entry) => {
     postCounselorName: registration.postCounselorName || '',
     sentAt: registration.sentAt || null,
     consultationDate: registration.consultationDate || '',
+    // Sent back by the Post Counselor: the correction reception has to make before sending again.
+    returned: registration.returned?.at ? { reason: registration.returned.reason, at: registration.returned.at, byName: registration.returned.byName } : null,
+    returns: (registration.returns || []).map((r) => ({ reason: r.reason, at: r.at, byName: r.byName, resentAt: r.resentAt || null, resentByName: r.resentByName || '' })),
   };
 };
 
@@ -179,11 +182,15 @@ const sendRegistration = asyncHandler(async (req, res) => {
   const counselor = await User.findOne({ _id: req.body.postCounselorId, role: ROLES.POST_COUNSELOR, isActive: true }).select('name').lean();
   if (!counselor) throw fail('Choose an active Post Counselor');
   const now = new Date();
+  // A registration sent back for a correction goes again: the return is answered, the history stays.
+  const previous = entry.registration || {};
+  const returns = (previous.returns || []).map((r) => (r.resentAt ? r : { reason: r.reason, at: r.at, byName: r.byName, resentAt: now, resentByName: req.user.name }));
   const updated = await Management.findOneAndUpdate({ _id: entry._id, 'registration.status': { $ne: 'sent' } }, {
     $set: {
       registration: {
         fields, status: 'sent', savedAt: now, savedByName: req.user.name, postCounselor: counselor._id, postCounselorName: counselor.name,
-        sentAt: now, sentByName: req.user.name, consultationDate: istDate(now),
+        sentAt: now, sentByName: req.user.name, consultationDate: previous.consultationDate || istDate(now),
+        returned: null, ...(returns.length ? { returns } : {}), ...(previous.reassignments?.length ? { reassignments: previous.reassignments } : {}),
       },
       updatedByName: req.user.name, lastEditedAt: now,
     },
@@ -192,6 +199,59 @@ const sendRegistration = asyncHandler(async (req, res) => {
   await audit(req, entry, 'Registration sent', `Patient ${patientId} sent to Post Counselor ${counselor.name}`);
   emitChanged(req, entry);
   req.app.get('io')?.to(postCounselingUserRoom(counselor._id)).to(POST_COUNSELING_ALL_ROOM).emit('post-counseling:changed', { id: String(entry._id) });
+  res.json({ success: true, registration: registrationView(updated) });
+});
+
+// @route POST /api/post-counseling/patients/:id/return   { reason }   (the assigned Post Counselor, Admin / Manager)
+// Something reception filled is wrong: the registration goes back to reception with the note, leaves the Post
+// Counselor's list, and comes back when reception corrects it and sends it again.
+const returnToReception = asyncHandler(async (req, res) => {
+  const entry = await loadEntry(req);
+  if (entry.registration?.status !== 'sent') throw fail('This registration is not with a Post Counselor right now');
+  if (entry.postCounseling?.outcome?.kind) throw fail('This patient has already been converted or marked package not purchased', 409);
+  const mine = String(entry.registration.postCounselor || '') === String(req.user._id);
+  if (!mine && !isAdminLike(req.user)) throw fail('Only the assigned Post Counselor can send this back', 403);
+  const reason = String(req.body.reason || '').trim().slice(0, 1000);
+  if (reason.length < 3) throw fail('Write what reception has to correct');
+  const now = new Date();
+  const updated = await Management.findOneAndUpdate({ _id: entry._id, 'registration.status': 'sent' }, {
+    $set: { 'registration.status': 'draft', 'registration.returned': { reason, at: now, by: req.user._id, byName: req.user.name }, updatedByName: req.user.name, lastEditedAt: now },
+    $push: { 'registration.returns': { reason, at: now, byName: req.user.name } },
+  }, { new: true });
+  if (!updated) throw fail('This registration could not be sent back', 409);
+  await audit(req, entry, 'Registration returned to reception', `Patient ${valueOf(entry, RECEPTION_IDS.patientId)}: ${reason}`);
+  emitChanged(req, entry);
+  req.app.get('io')?.to(POST_COUNSELING_ALL_ROOM).to(postCounselingUserRoom(entry.registration.postCounselor)).emit('post-counseling:changed', { id: String(entry._id) });
+  res.json({ success: true, registration: registrationView(updated) });
+});
+
+// @route PUT /api/post-counseling/patients/:id/counselor   { postCounselorId, reason }   (Admin / Manager)
+// A registration sent to the wrong Post Counselor moves to another one. Whatever was filled so far stays with the
+// patient; the lists of both counselors update at once.
+const reassignPostCounselor = asyncHandler(async (req, res) => {
+  const entry = await loadEntry(req);
+  if (entry.registration?.status !== 'sent') throw fail('This registration has not been sent to a Post Counselor yet');
+  if (entry.postCounseling?.outcome?.kind) throw fail('This patient has already been converted or marked package not purchased', 409);
+  if (!validId(req.body.postCounselorId)) throw fail('Choose a Post Counselor');
+  const counselor = await User.findOne({ _id: req.body.postCounselorId, role: ROLES.POST_COUNSELOR, isActive: true }).select('name').lean();
+  if (!counselor) throw fail('Choose an active Post Counselor');
+  const previous = { id: entry.registration.postCounselor, name: entry.registration.postCounselorName || '' };
+  if (String(previous.id) === String(counselor._id)) throw fail(`${counselor.name} already has this patient`);
+  const reason = String(req.body.reason || '').trim().slice(0, 500);
+  const now = new Date();
+  const updated = await Management.findOneAndUpdate({ _id: entry._id, 'registration.status': 'sent' }, {
+    $set: { 'registration.postCounselor': counselor._id, 'registration.postCounselorName': counselor.name, updatedByName: req.user.name, lastEditedAt: now },
+    $push: { 'registration.reassignments': { from: previous.id, fromName: previous.name, to: counselor._id, toName: counselor.name, reason, at: now, byName: req.user.name } },
+  }, { new: true });
+  if (!updated) throw fail('This registration could not be moved', 409);
+  await audit(req, entry, 'Post Counselor changed', `Patient ${valueOf(entry, RECEPTION_IDS.patientId)}: ${previous.name || '-'} -> ${counselor.name}${reason ? ` (${reason})` : ''}`);
+  emitChanged(req, entry);
+  const io = req.app.get('io');
+  if (io) {
+    let rooms = io.to(POST_COUNSELING_ALL_ROOM).to(postCounselingUserRoom(counselor._id));
+    if (previous.id) rooms = rooms.to(postCounselingUserRoom(previous.id));
+    rooms.emit('post-counseling:changed', { id: String(entry._id) });
+  }
   res.json({ success: true, registration: registrationView(updated) });
 });
 
@@ -204,6 +264,12 @@ const listPostCounselors = asyncHandler(async (req, res) => {
 // @route GET /api/post-counseling/patients
 // A Post Counselor sees only the patients sent to them; Admin / Doctor / Manager see everyone's.
 // Patients sent to post counselling, as cards. `notGiven`: list the Treatment Not Given page instead.
+// The latest move between Post Counselors, for the card.
+const lastMove = (entry) => {
+  const moves = entry.registration?.reassignments || [];
+  const m = moves[moves.length - 1];
+  return m ? { fromName: m.fromName, toName: m.toName, reason: m.reason, at: m.at, byName: m.byName } : null;
+};
 const listSentPatients = (notGiven) => asyncHandler(async (req, res) => {
   // Once the outcome is decided (converted / package not purchased) the patient leaves this list; they stay in Post Counseling Done.
   // Patients moved to Treatment Not Given leave it too, until they are restored.
@@ -223,6 +289,9 @@ const listSentPatients = (notGiven) => asyncHandler(async (req, res) => {
       primaryConcern: valueOf(entry, RECEPTION_IDS.primaryConcern),
       consultationDate: view.consultationDate, sentAt: view.sentAt, sentByName: entry.registration?.sentByName || '',
       postCounselor: view.postCounselor, postCounselorName: view.postCounselorName,
+      reassignedFrom: lastMove(entry),
+      // Returned to reception earlier and sent again: the Post Counselor sees what was corrected.
+      lastReturn: (entry.registration?.returns || []).slice(-1).map((r) => ({ reason: r.reason, at: r.at, byName: r.byName, resentAt: r.resentAt || null, resentByName: r.resentByName || '' }))[0] || null,
       recordSavedAt: entry.postCounseling?.savedAt || null,
       notGiven: notGivenView(entry),
       existingPatientCode: view.existingPatientCode,
@@ -233,4 +302,4 @@ const listSentPatients = (notGiven) => asyncHandler(async (req, res) => {
 const listPostCounselingPatients = listSentPatients(false);
 const listNotGivenPatients = listSentPatients(true);
 
-module.exports = { markArrival, getRegistration, lookupExistingPatient, withExistingPatient, saveRegistration, sendRegistration, listPostCounselors, listPostCounselingPatients, listNotGivenPatients, registrationView };
+module.exports = { markArrival, getRegistration, lookupExistingPatient, withExistingPatient, saveRegistration, sendRegistration, reassignPostCounselor, returnToReception, listPostCounselors, listPostCounselingPatients, listNotGivenPatients, registrationView };
