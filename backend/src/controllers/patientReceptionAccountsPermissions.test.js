@@ -97,3 +97,11 @@ test('In Transit patient updates are restricted to assignment fields', async () 
   assert.equal(status, 403);
   assert.match(body.message, /only assign/i);
 });
+
+test('In Transit can add a patient (and check the Patient ID); Reception cannot', () => {
+  for (const [path, method] of [['/', 'post'], ['/check-code', 'get']]) {
+    const guard = routeGuard(patientRouter, path, method);
+    for (const role of [ROLES.ADMIN, ROLES.MANAGER, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR]) assert.equal(checkAccess(guard, role).allowed, true, `${role} ${method} ${path}`);
+    assert.deepEqual(checkAccess(guard, ROLES.RECEPTIONIST), { allowed: false, status: 403 }, `receptionist ${method} ${path}`);
+  }
+});
