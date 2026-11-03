@@ -117,7 +117,7 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   const { patient, stage, stocks, txs } = setup({ paid: 10000 });
   const { job } = await open(patient);
   const id = job.id;
-  await assert.rejects(complete(id, 'review'), /Complete "Order accepted" first/);
+  await assert.rejects(complete(id, 'review'), /Complete "Accept Order" first/);
   await assert.rejects(call(controller.completeStage, { params: { id, key: 'accept' }, body: { checks: '[true,false]', fields: '{}' } }), /Tick every point/);
   await assert.rejects(complete(id, 'accept', {}), /ready by is required/i);
   await assert.rejects(complete(id, 'accept', { readyByDate: '2026-11-02' }, {}, transit), /done by/);

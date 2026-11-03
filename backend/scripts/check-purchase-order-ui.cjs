@@ -237,7 +237,7 @@ async function main() {
         if (name === 'job-review') {
           // Stage 4 (preparation) and stage 5 (chits) are reachable by clicking the rail; they must render too.
           // Step 0 shows the request as it came in and the patient's Records Room file.
-          for (const [label, text] of [['0. Request received', 'Patient file (Records Room)'], ['1. Order accepted', 'Ready-by date is achievable'], ['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['3. Doctor formulation verification', 'Added: Brahmi churna'], ['4. Stock match', 'BT-100'], ['5. Medicine preparation', 'drawn (sheet'], ['7. Pack QC', 'Opens after']]) {
+          for (const [label, text] of [['0. Request received', 'Patient file (Records Room)'], ['1. Accept Order', 'Ready-by date is achievable'], ['2. Prescription & formulation check', '1 MONTH FORMULATION | PART 1'], ['3. Doctor formulation verification', 'Added: Brahmi churna'], ['4. Stock match', 'BT-100'], ['5. Medicine preparation', 'drawn (sheet'], ['7. Pack QC', 'Opens after']]) {
             await page.evaluate((l) => [...document.querySelectorAll('nav button')].find((b) => b.innerText.includes(l)).click(), label.slice(3));
             try { await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 15000 }, text); }
             catch { await page.screenshot({ path: path.join(output, `FAILED-job-${label.slice(0, 1)}-${width}.png`), fullPage: true }); throw new Error(`job stage "${label}" at ${width}: "${text}" not shown. Page says: ${(await page.evaluate(() => document.body.innerText)).slice(0, 500)} | errors: ${errors.join(' / ')}`); }

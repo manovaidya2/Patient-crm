@@ -13,7 +13,7 @@ const MED_DOC = MED;
 
 // field: { key, label, type: text|date|number|select|textarea, required, options }
 const STAGES = [
-  { key: 'accept', n: 1, label: 'Order accepted', hi: 'ऑर्डर स्वीकार', roles: MED, sop: 'SOP S0',
+  { key: 'accept', n: 1, label: 'Accept Order', hi: 'ऑर्डर स्वीकार', roles: MED, sop: 'SOP S0',
     purpose: 'Accept the request from In Transit and commit to a ready date. Acceptance starts the department timeline.',
     checks: ['Patient ID, name and phase match the purchase order', 'Supply (6 months / 1+5 / 2+4 part) and age group identified', 'Patient file (Records Room) read, or Reception asked to scan it', 'Ready-by date is achievable'],
     fields: [{ key: 'readyByDate', label: 'Medicine will be ready by', type: 'date', required: true }] },
