@@ -15,6 +15,6 @@ test('treatment papers go only to the PCC chosen in Settings; none chosen means 
   mock.restoreAll();
   setting({ id: String(aditi._id), name: 'Aditi' });
   await assert.doesNotReject(assertPaperPcc(aditi));
-  await assert.rejects(assertPaperPcc(neha), /made by Aditi/);
+  await assert.rejects(assertPaperPcc(neha), /Aditi makes the treatment papers/);
   await assert.doesNotReject(assertPaperPcc({ _id: new mongoose.Types.ObjectId(), role: 'admin' }), 'the admin can always step in');
 });

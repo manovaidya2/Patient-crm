@@ -65,19 +65,24 @@ const STAGES = [
     purpose: 'The PCC chosen by the admin makes this kit\'s treatment papers (medicine paper, diet plan ...) from the doctor\'s formulation and adds each one with its name and every page. The doctor checks them in the next step.',
     checks: ['Every paper for this supply is made, with the patient name and ID on it', 'Doses and timings on the papers match the formulation from the doctor', 'Every page of every paper added and readable', 'Papers given to the Medicine Department'],
     fields: [{ key: 'givenAt', label: 'Papers given to the Medicine Department at', type: 'datetime', required: true }] },
-  { key: 'doctor', n: 10, label: 'Doctor verification', hi: 'डॉक्टर सत्यापन', roles: DOC, sop: 'SOP S5',
-    purpose: 'The doctor checks the open kit against the prescription and verifies steps 7, 8 and 9 (Packing-1, the quality check and the medicine dose papers, shown below): patient, supply part, every medicine, dose, counts, packaging and papers.',
-    checks: ['Packing-1 (step 7), quality check (step 8) and the dose papers (step 9) checked below', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],
-    // A HOLD says what to correct in the stage notes; the kit goes back to Packing-1.
-    fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }] },
-  { key: 'pack2', n: 10, label: 'Packing-2 (final parcel)', hi: 'पैकिंग-2 अंतिम पार्सल', roles: MED, sop: 'SOP S7',
-    purpose: 'Secure bundle, bubble wrap, tested box, tape, logo and recipient label. Parents / Courier slip faces outward.',
-    checks: ['Doctor PASS; medicine photo and every paper page accepted', 'Parents / Courier information slip on the correct outward side', 'Bottles and droppers upright, leak-safe cushioning; pouches and papers protected', 'Box size tested for this kit; voids filled; no movement', 'Tape, logo stickers and recipient label applied'],
+  // Step 10: the final parcel, with the treatment papers the PCC made (step 9) inside.
+  { key: 'pack2', n: 10, label: 'Packing-2 (parcel with treatment papers)', hi: 'पैकिंग-2 पार्सल व ट्रीटमेंट पेपर', roles: MED, sop: 'SOP S7',
+    purpose: 'Secure bundle with the treatment papers (step 9) in a protected sleeve, bubble wrap, tested box, tape, logo and recipient label. Parents / Courier slip faces outward.',
+    checks: ['Treatment papers from step 9 packed in the parcel, in a protected sleeve', 'Parents / Courier information slip on the correct outward side', 'Bottles and droppers upright, leak-safe cushioning; pouches and papers protected', 'Box size tested for this kit; voids filled; no movement', 'Tape, logo stickers and recipient label applied'],
     fields: [{ key: 'boxCode', label: 'Box used', type: 'select', required: true, options: ['BX-55 (5x5)', 'BX-L 8x10', 'BX-L 9x10', 'BX-L 10x10', 'Other'] }, { key: 'weight', label: 'Parcel weight (kg)', type: 'number', step: 'any', required: true }, { key: 'materials', label: 'Materials used / wastage', type: 'text' }] },
-  { key: 'final', n: 11, label: 'Final check pending', hi: 'अंतिम जाँच', roles: TRANSIT, sop: 'SOP S8',
-    purpose: 'In Transit checks the packed parcel against the job before it goes out. PASS marks the medicine READY (not released).',
+  // Step 11: the final verification check, by the PCC the admin chose in Settings ("Final medicine check"), on the
+  // Medicine Final Check page. The Medicine Department waits (locked) and can ring the PCC's alarm.
+  { key: 'final', n: 11, label: 'Final verification check', hi: 'अंतिम जाँच', roles: PCC, sop: 'SOP S8',
+    purpose: 'The PCC chosen by the admin checks the packed parcel (with the treatment papers) against the job. The doctor verifies it next.',
     checks: ['Patient, prescription and supply part match', 'Bottle, dropper and packet counts reconciled; lids and seals intact', 'Medicine papers: same patient name and code on each; first / repeat set complete', 'Medicine photo and every dose-paper page linked and accepted', 'Outer box intact, correct size, logo; recipient details verified'],
     fields: [{ key: 'remarks', label: 'Remarks', type: 'textarea' }] },
+  // Step 12: the doctor's final verification. PASS marks the medicine READY (released after the full payment);
+  // HOLD sends it back to Packing-2 (the parcel is redone and checked again).
+  { key: 'doctor', n: 12, label: 'Doctor final verification', hi: 'डॉक्टर अंतिम सत्यापन', roles: DOC, sop: 'SOP S5',
+    purpose: 'The doctor verifies the kit against the prescription before release: the open-kit photo, the quality check, the treatment papers, the parcel and the final check (shown below). PASS marks the medicine READY; it is released to In Transit after the full payment.',
+    checks: ['Open-kit photo (step 7), quality check (step 8), treatment papers (step 9), parcel (step 10) and final check (step 11) checked', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],
+    // A HOLD says what to correct in the stage notes; the kit goes back to Packing-2.
+    fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }] },
   { key: 'release', n: 12, label: 'Release to In Transit', hi: 'रिलीज़', roles: MED, sop: 'SOP S8 · SOP 2',
     purpose: 'Hand the parcel to In Transit. Allowed only after full verified payment; the medicine stays in department custody until then.',
     checks: ['Full payment verified by In Transit (checked automatically)', 'Parcel and package ID match this job', 'Receiving In Transit staff recorded'],

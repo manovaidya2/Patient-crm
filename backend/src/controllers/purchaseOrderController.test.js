@@ -260,11 +260,10 @@ test('after the medicine is accepted the timeline runs in two tracks, each with 
   assert.deepEqual(now(), ['ready', 'handover']);
   assert.match(view.steps.find((s) => s.key === 'handover').waitText, /release/);
   assert.ok(!view.actionBy.includes('in_transit'));
-  // Packing done: the final check (fulfilment step 12, on the Medicine Dept track) is for In Transit to confirm.
-  view = buildPoView(po, patient, { job: { status: 'open', currentStage: 11 } });
+  // Parcel packed: the final verification check (fulfilment step 11) is for the final-check PCC.
+  view = buildPoView(po, patient, { job: { status: 'open', currentStage: 10 } });
   assert.deepEqual(now(), ['ready', 'handover']);
-  assert.ok(view.actionBy.includes('in_transit') && !view.actionBy.includes('medicine_department'));
-  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).label, 'Final check pending');
+  assert.ok(view.actionBy.includes('assistant_doctor') && !view.actionBy.includes('medicine_department'));
   // Before the medicine is accepted there is one "now" step.
   stage.medicineRequests[0].status = 'requested';
   view = buildPoView(po, patient);
@@ -299,7 +298,7 @@ test('actionBy names the role whose turn it is, and empties once the step is don
   assert.deepEqual(actionByOf({ status: 'pending' }, 'details', false), ['admin', 'doctor', 'in_transit']);
   assert.ok(actionByOf({ status: 'verified' }, 'requested', false).includes('in_transit'), 'a blocked request is still for In Transit to clear');
   assert.ok(actionByOf({ status: 'verified' }, 'ready', false).includes('medicine_department'), 'preparing and packing');
-  assert.deepEqual(actionByOf({ status: 'verified' }, 'ready', false, { finalDue: true }), ['admin', 'in_transit'], 'the final check is confirmed by In Transit');
+  assert.deepEqual(actionByOf({ status: 'verified' }, 'ready', false, { jobRoles: ['assistant_doctor', 'admin'] }), ['assistant_doctor', 'admin'], 'the open fulfilment step names its owner (e.g. the final-check PCC)');
   assert.ok(actionByOf({ status: 'verified' }, 'scheduled', false).includes('in_transit'));
   assert.deepEqual(actionByOf({ status: 'verified' }, 'explained', false), ['admin', 'assistant_doctor']);
   assert.deepEqual(actionByOf({ status: 'verified' }, undefined, false), [], 'treatment started: nobody');

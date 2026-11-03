@@ -48,7 +48,8 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
       clear(request, ['sentToCourierAt', 'sentToCourierByName']);
       if (phaseEntry?.transit) { snapshot.transit = take(phaseEntry.transit, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']); clear(phaseEntry.transit, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']); }
     }
-    if (gone.has('final') && request.status === 'made') {
+    // The doctor's final verification (step 12) makes the medicine; undoing it (or anything before) un-makes it.
+    if (gone.has('doctor') && request.status === 'made') {
       request.status = 'in_process';
       clear(request, ['madeAt', 'madeByName', 'packagedByName', 'lastMedicineCheckedByName', 'packagingDetailsFilledByName', 'packagingDetailsFilledAt']);
     }
@@ -57,7 +58,7 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
       clear(request, ['inProcessAt', 'inProcessByName']);
     }
   }
-  job.status = gone.has('final') ? 'open' : gone.has('release') ? 'ready' : job.status;
+  job.status = gone.has('doctor') ? 'open' : gone.has('release') ? 'ready' : job.status;
   job.currentStage = stageIndex;
   snapshot.at = now;
   return snapshot;
@@ -154,7 +155,7 @@ const PO_REVERTS = {
   async ready(ctx) {
     const { request, job, stage } = ctx;
     if (!['made', 'sent_to_courier'].includes(request.status)) return null;
-    if (job && job.stages.some((s) => s.key === 'final')) return revertJobTo(job, STAGE_INDEX.final, { request, phaseEntry: stage, returnStock: ctx.returnStock, now: ctx.now });
+    if (job && job.stages.some((s) => s.key === 'doctor')) return revertJobTo(job, STAGE_INDEX.doctor, { request, phaseEntry: stage, returnStock: ctx.returnStock, now: ctx.now });
     const keys = ['status', 'madeAt', 'madeByName', 'packagedByName', 'lastMedicineCheckedByName', 'packagingDetailsFilledByName', 'packagingDetailsFilledAt'];
     const snapshot = { request: take(request, keys) };
     request.status = 'in_process'; clear(request, keys.slice(1));

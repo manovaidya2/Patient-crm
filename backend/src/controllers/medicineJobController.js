@@ -383,12 +383,12 @@ const completeStage = asyncHandler(async (req, res) => {
     Object.assign(request, { lastMedicineCheckedByName: req.user.name });
   }
   if (stage.key === 'doctor' && fields.result === 'HOLD') {
-    // Back to QC after correction; the notes say what has to be corrected (older jobs sent it as remarks).
+    // Back to Packing-2 after correction; the notes say what has to be corrected (older jobs sent it as remarks).
     const why = notes || clean(fields.remarks, 500);
     if (!why) fail('Write in the notes what has to be corrected');
-    job.currentStage = STAGE_INDEX.pack1;
-    // Steps 7, 8 and 9 are done again (the uploaded papers stay unless new pages are uploaded).
-    job.stages = job.stages.filter((s) => !['qc', 'pack1', 'photos'].includes(s.key));
+    job.currentStage = STAGE_INDEX.pack2;
+    // The parcel (step 10) and the final check (step 11) are done again.
+    job.stages = job.stages.filter((s) => !['pack2', 'final'].includes(s.key));
     Object.assign(job.hold, { active: true, reason: `Doctor HOLD: ${why}`, at: now, byName: req.user.name, stageKey: 'doctor' });
     event(job, req.user, 'Doctor hold', why);
     await job.save();
@@ -426,20 +426,25 @@ const completeStage = asyncHandler(async (req, res) => {
     detail = job.photos.paperSets.map((p) => `${p.name}: ${p.files.length} page(s)`).join(' | ');
   }
   if (stage.key === 'final') {
+    // The PCC the admin chose for the final medicine check (Settings).
+    await require('./treatmentPaperController').assertKindPcc('final', req.user);
     const packer = job.stages.find((s) => s.key === 'pack2');
-    // The final checker is whoever completes this step.
     if (packer?.doneByName && packer.doneByName.trim().toLowerCase() === String(req.user.name || '').trim().toLowerCase()) fail('The final check must be done by someone other than the Packing-2 operator');
+    detail = 'Final verification check done - the doctor verifies next';
+  }
+  // The doctor's PASS (step 12) makes the medicine READY: it waits for the full payment and the release.
+  if (stage.key === 'doctor' && fields.result === 'PASS') {
     const prep = job.stages.find((s) => s.key === 'prepare');
     const photos = job.photos.overview || [];
     Object.assign(request, {
       status: 'made', madeAt: now, madeByName: prep?.fields?.preparerName || prep?.doneByName || req.user.name,
       packagedByName: job.stages.find((s) => s.key === 'pack2')?.doneByName || req.user.name,
-      lastMedicineCheckedByName: req.user.name, packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: now,
+      lastMedicineCheckedByName: job.stages.find((s) => s.key === 'final')?.doneByName || req.user.name, packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: now,
       medicineImageUrl: photos[0]?.url || request.medicineImageUrl || null, medicineImageFileName: photos[0]?.fileName || request.medicineImageFileName || '',
       medicineImages: [...(request.medicineImages || []), ...photos.filter((p) => !(request.medicineImages || []).some((m) => m.url === p.url))],
     });
     job.status = 'ready';
-    logActivity(patient, req.user, `Medicine made for Phase ${job.phase}`, `Final check by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
+    logActivity(patient, req.user, `Medicine made for Phase ${job.phase}`, `Doctor final verification by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
     detail = 'Medicine READY - awaiting payment clearance and release';
   }
   if (stage.key === 'release') {
@@ -523,8 +528,12 @@ const holdJob = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   if (job.status === 'released') fail('This medicine is already released');
-  // In Transit holds a job only to send it back from the final check.
-  if (req.user.role === ROLES.IN_TRANSIT && STAGES[job.currentStage]?.key !== 'final') fail('In Transit can send a job back only at the final check', 403);
+  // In Transit sends a job back only from its quality check; the final-check PCC only from the final check.
+  if (req.user.role === ROLES.IN_TRANSIT && STAGES[job.currentStage]?.key !== 'qc') fail('In Transit can send a job back only at the quality check', 403);
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
+    if (STAGES[job.currentStage]?.key !== 'final') fail('The PCC can send a job back only at the final check', 403);
+    await require('./treatmentPaperController').assertKindPcc('final', req.user);
+  }
   const reason = clean(req.body?.reason, 500);
   if (!reason) fail('Write the reason for the hold');
   Object.assign(job.hold, { active: true, reason, at: new Date(), byName: req.user.name, stageKey: STAGES[job.currentStage]?.key || '' });
@@ -569,24 +578,25 @@ const getPatientFile = asyncHandler(async (req, res) => {
 // @route POST /api/medicine-jobs/:id/ring-transit   body: { note }
 // The Medicine Department rings In Transit's alarm when a job waits on In Transit (quality check / final check), or the
 // PCC's when it waits for the treatment papers.
-const TRANSIT_STAGE_KEYS = ['qc', 'final'];
-const RING_STAGE_KEYS = [...TRANSIT_STAGE_KEYS, 'photos'];
+const TRANSIT_STAGE_KEYS = ['qc'];
+const PCC_STAGE_KEYS = ['photos', 'final'];
+const RING_STAGE_KEYS = [...TRANSIT_STAGE_KEYS, ...PCC_STAGE_KEYS];
 const ringTransit = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   const key = STAGES[job.currentStage || 0]?.key;
   if (job.status !== 'open' || !RING_STAGE_KEYS.includes(key)) fail('This job is not waiting on In Transit or the PCC', 409);
   const note = clean(req.body?.note, 300);
-  const paperPcc = key === 'photos' ? await require('./treatmentPaperController').getPaperPcc() : null;
-  if (key === 'photos' && !paperPcc) fail('The admin has not chosen who makes the treatment papers yet (Settings)', 409);
+  const paperPcc = PCC_STAGE_KEYS.includes(key) ? await require('./treatmentPaperController').pccForStage(key) : null;
+  if (PCC_STAGE_KEYS.includes(key) && !paperPcc) fail('The admin has not chosen the PCC for this step yet (Settings)', 409);
   job.transitAlarm = { at: new Date(), byName: req.user.name, note, stageKey: key };
-  const forPcc = key === 'photos';
+  const forPcc = PCC_STAGE_KEYS.includes(key);
   event(job, req.user, forPcc ? 'Alarm rung for the PCC' : 'Alarm rung for In Transit', `${STAGES[job.currentStage].label}${note ? ` - ${note}` : ''}`);
   await job.save();
   const io = req.app?.get?.('io');
   if (forPcc) {
     // Only to the PCC the admin chose.
-    io?.to(`enquiry:user:${paperPcc.id}`).emit('pcc:alarm', { id: String(job._id) });
+    io?.to(`enquiry:user:${paperPcc.id}`).emit('pcc:alarm', { id: String(job._id), stage: key });
   } else io?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('transit:alarm', { id: String(job._id) });
   return respond(res, job);
 });

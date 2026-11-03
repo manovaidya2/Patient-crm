@@ -68,7 +68,7 @@ export function PoProgressBar({ steps = [] }) {
 // The Medicine Dept track: the fulfilment stages of the medicine job (live), or - for a request without a job - the
 // PO's own "ready" and "released" steps. A job stage that is a PO step ("Final check" = Medicine ready, "Release" =
 // Released) selects that PO step; the others select "job:<stage key>".
-const JOB_TO_PO_STEP = { final: 'ready', release: 'released' };
+const JOB_TO_PO_STEP = { doctor: 'ready', release: 'released' };
 const OWNER = { in_transit: 'In Transit', assistant_doctor: 'The PCC', doctor: 'The doctor', medicine_department: 'Medicine Department' };
 const ownerText = (roles = []) => `${OWNER[roles.find((r) => r !== 'admin')] || 'Medicine Department'} is on this step`;
 export function medicineTrack(steps = [], job = null) {

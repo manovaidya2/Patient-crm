@@ -17,7 +17,7 @@ const TEAM_PAGES = {
   [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/package-not-bought', '/admin/purchase-orders', E],
   [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/patient-approvals', '/admin/payments', '/admin/accounts/refunds', '/admin/self-pickup-schedule', '/admin/courier', E],
   [ROLES.MEDICINE_DEPARTMENT]: ['/admin/medicine-requests', '/admin/medicine-jobs', '/admin/medicine-made', '/admin/stocks', E],
-  [ROLES.ASSISTANT_DOCTOR]: ['/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', E],
+  [ROLES.ASSISTANT_DOCTOR]: ['/admin/treatment-papers', '/admin/final-check', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', E],
   [ROLES.SALES_TEAM]: [E],
   [ROLES.DIGITAL_MARKETING]: [E],
 };

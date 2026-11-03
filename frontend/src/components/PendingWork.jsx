@@ -16,6 +16,7 @@ export const PAGES = {
   '/admin/medicine-made': ['Medicine Made', 'Made, waiting for release'],
   '/admin/stocks': ['Stocks', 'Items low or expired'],
   '/admin/treatment-papers': ['Make Treatment Paper', 'Treatment papers to make (fulfilment step 9)'],
+  '/admin/final-check': ['Medicine Final Check', 'Parcels to check (fulfilment step 11)'],
   '/admin/medicine-explanations': ['Medicine Explanations', 'Explanations to complete (PCC)'],
   '/admin/followups': ['Follow-ups', 'Late / due today'],
   '/admin/family-sessions': ['Family Sessions', 'Late / due today'],

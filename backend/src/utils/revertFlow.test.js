@@ -66,18 +66,19 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   assert.equal(c.stage.payments[1].approvalStatus, 'pending', 'the balance payment goes back to pending');
   assert.equal(c.stage.payments[0].approvalStatus, 'approved', "the PO's own verified payment stays");
   assert.equal(c.job.status, 'open');
-  assert.equal(c.job.currentStage, STAGE_INDEX.final);
-  assert.equal(c.job.stages.length, STAGE_INDEX.final);
+  // Back to the doctor's final verification (step 12); the final check (step 11) stays done.
+  assert.equal(c.job.currentStage, STAGE_INDEX.doctor);
+  assert.equal(c.job.stages.length, STAGE_INDEX.doctor);
   assert.equal(c.job.consumption[0].txId !== null, true, 'preparation is before "ready": stock stays drawn');
   assert.deepEqual(returned, []);
   assert.equal(snapshot.started.transit.explanationNote, 'Explained');
   assert.deepEqual(snapshot.released.stages.map((s) => s.key), ['release'], 'the release record is kept in the snapshot');
-  assert.deepEqual(snapshot.ready.stages.map((s) => s.key), ['final'], 'the final-check record is kept in the snapshot');
+  assert.deepEqual(snapshot.ready.stages.map((s) => s.key), ['doctor'], 'the doctor final-verification record is kept in the snapshot');
   assert.equal(snapshot.fullpay.payments.length, 1);
   assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted']);
   // The final check is open again on the Medicine Dept track, for In Transit to confirm.
   assert.equal(stepsOf(c).find((s) => s.key === 'ready').state, 'current');
-  assert.match(stepsOf(c).find((s) => s.key === 'ready').waitText, /In Transit confirms/);
+  assert.match(stepsOf(c).find((s) => s.key === 'ready').waitText, /Step 12 Doctor final verification: the doctor/);
 });
 
 test('reverting "PO details verify" takes the whole case back: request cancelled, job cancelled, stock returned, payments pending', async () => {

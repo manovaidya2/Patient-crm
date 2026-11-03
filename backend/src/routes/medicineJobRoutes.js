@@ -18,7 +18,7 @@ router.patch('/:id/supply', authorize(...JOB_ROLES), setSupply);
 router.patch('/:id/formulation', authorize(...JOB_ROLES), editFormulation);
 router.post('/:id/rebuild', authorize(...JOB_ROLES), rebuildSheet);
 router.post('/:id/stages/:key', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), uploadMedicineImage.fields([{ name: 'photoA', maxCount: 10 }, { name: 'photoB', maxCount: 10 }, ...Array.from({ length: 10 }, (_, i) => ({ name: `paper_${i}`, maxCount: 30 }))]), completeStage);
-router.post('/:id/hold', authorize(...JOB_ROLES, ROLES.IN_TRANSIT), holdJob);
+router.post('/:id/hold', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), holdJob);
 router.post('/:id/return', authorize(...JOB_ROLES), returnToTransit);
 router.post('/:id/ring-transit', authorize(ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN), ringTransit);
 router.post('/:id/revert', authorize(ROLES.ADMIN), revertJob);

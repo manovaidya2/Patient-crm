@@ -34,6 +34,7 @@ const CourierRequests = lazy(() => import('./pages/admin/CourierRequests.jsx'));
 const SelfPickupSchedule = lazy(() => import('./pages/admin/SelfPickupSchedule.jsx'));
 const TreatmentPapers = lazy(() => import('./pages/admin/TreatmentPapers.jsx'));
 const SettingsPage = lazy(() => import('./pages/admin/Settings.jsx'));
+const MedicineFinalCheck = lazy(() => import('./pages/admin/MedicineFinalCheck.jsx'));
 const PurchaseOrders = lazy(() => import('./pages/admin/PurchaseOrders.jsx'));
 const MedicineJobs = lazy(() => import('./pages/admin/MedicineJobs.jsx'));
 const MedicineJobPage = lazy(() => import('./pages/admin/MedicineJob.jsx'));
@@ -292,6 +293,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="final-check" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineFinalCheck /></ProtectedRoute>} />
         <Route path="settings" element={<ProtectedRoute roles={[ROLES.ADMIN]}><SettingsPage /></ProtectedRoute>} />
         <Route path="treatment-papers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><TreatmentPapers /></ProtectedRoute>} />
         <Route path="self-pickup-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><SelfPickupSchedule /></ProtectedRoute>} />

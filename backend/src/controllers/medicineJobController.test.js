@@ -171,7 +171,7 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   assert.equal(v.currentKey, 'photos');
   mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
   await assert.rejects(complete(id, 'photos', {}, { files: {} }), /done by/);
-  await assert.rejects(complete(id, 'photos', { givenAt: new Date().toISOString() }, { files: {} }, otherPcc), /made by Aditi/);
+  await assert.rejects(complete(id, 'photos', { givenAt: new Date().toISOString() }, { files: {} }, otherPcc), /Aditi makes the treatment papers/);
   await assert.rejects(complete(id, 'photos', {}, { files: {} }, pcc), /given to the Medicine Department at is required/);
   const given = { givenAt: new Date().toISOString() };
   await assert.rejects(complete(id, 'photos', { givenAt: new Date(Date.now() + 86400000).toISOString() }, { files: {} }, pcc), /cannot be in the future/);
@@ -182,31 +182,37 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   v = (await complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { paper_0: [file, file, file], paper_1: [file] } }, pcc)).job;
   assert.deepEqual(v.photos.paperSets.map((p) => p.name), ['Medicine Paper', 'Diet Plan']);
   assert.equal(v.photos.paperSets[0].files.length, 3, 'every page of a paper is kept');
-  // Step 10, doctor only, verifies 7, 8 and 9; a HOLD sends the kit back to Packing-1 and those steps are done again.
+  // Step 10 Packing-2, the parcel with the treatment papers (Medicine Department).
+  assert.equal(v.currentKey, 'pack2');
+  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 })).job;
+  // Step 11 the final verification check, by the PCC chosen in Settings; nobody else.
+  assert.equal(v.currentKey, 'final');
+  await assert.rejects(complete(id, 'final', {}, {}, med2), /done by/);
+  await assert.rejects(complete(id, 'final', {}, {}, transit), /done by/);
+  await assert.rejects(complete(id, 'final', {}, {}, otherPcc), /Aditi does the final medicine check/);
+  // "No" at the final check: the PCC sends it back (a hold); Medicine Department fixes it and resumes.
+  await assert.rejects(call(controller.holdJob, { params: { id }, body: { reason: 'x' }, user: transit }), /only at the quality check/);
+  v = (await call(controller.holdJob, { params: { id }, body: { reason: 'Final check not OK: seal broken' }, user: pcc })).job;
+  assert.equal(v.hold.reason, 'Final check not OK: seal broken');
+  await assert.rejects(complete(id, 'final', {}, {}, pcc), /on hold/);
+  v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Resealed' } })).job;
+  v = (await complete(id, 'final', {}, {}, pcc)).job;
+  assert.equal(v.status, 'open', 'not ready until the doctor verifies');
+  // Step 12, the doctor's final verification; a HOLD sends it back to Packing-2 and the final check is done again.
   assert.equal(v.currentKey, 'doctor');
   await assert.rejects(complete(id, 'doctor', { result: 'PASS' }, {}, med), /done by/);
   await assert.rejects(complete(id, 'doctor', { result: 'HOLD' }, {}, doctor), /what has to be corrected/);
   v = (await complete(id, 'doctor', { result: 'HOLD' }, { notes: 'Pouch 2 leaking' }, doctor)).job;
   assert.equal(v.hold.reason, 'Doctor HOLD: Pouch 2 leaking');
-  assert.equal(v.currentKey, 'pack1');
-  await assert.rejects(complete(id, 'pack1', {}, {}, med2), /on hold/);
+  assert.equal(v.currentKey, 'pack2');
+  await assert.rejects(complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 }, {}, med2), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Pouch repacked' } })).job;
-  v = (await complete(id, 'pack1', {}, { files: {} }, med2)).job;
-  v = (await complete(id, 'qc', { result: 'PASS' }, {}, transit)).job;
-  // Redone after the HOLD: the photo and the papers uploaded before stay unless new ones come.
-  v = (await complete(id, 'photos', { givenAt: new Date().toISOString() }, { files: {} }, pcc)).job;
+  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.9 }, {}, med2)).job;
+  v = (await complete(id, 'final', {}, {}, pcc)).job;
+  // The photo and the papers stay through the HOLD.
   assert.equal(v.photos.paperSets[0].files.length, 3);
   assert.equal(v.photos.overview.length, 1);
   v = (await complete(id, 'doctor', { result: 'PASS' }, {}, doctor)).job;
-  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 })).job;
-  // In Transit does the final check (from the PO timeline); the Medicine Department cannot.
-  await assert.rejects(complete(id, 'final', {}, {}, med2), /done by in transit/);
-  // "No" at the final check: In Transit sends it back (a hold); Medicine Department fixes it and resumes.
-  v = (await call(controller.holdJob, { params: { id }, body: { reason: 'Final check not OK: seal broken' }, user: transit })).job;
-  assert.equal(v.hold.reason, 'Final check not OK: seal broken');
-  await assert.rejects(complete(id, 'final', {}, {}, transit), /on hold/);
-  v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Resealed' } })).job;
-  v = (await complete(id, 'final', {}, {}, transit)).job;
   assert.equal(v.status, 'ready');
   assert.equal(stage.medicineRequests[0].status, 'made', 'In Transit sees the medicine as made');
   assert.equal(stage.medicineRequests[0].medicineImages.length, 1, 'Photo A becomes the medicine photo');

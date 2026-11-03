@@ -96,6 +96,15 @@ const findRequest = (stage, requestId) => {
 
 const shortDay = (value) => new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
 
+// The open fulfilment step and who has it, e.g. 'Step 11 Final verification check: the PCC'.
+const OWNER = { in_transit: 'In Transit', assistant_doctor: 'the PCC', doctor: 'the doctor', medicine_department: 'Medicine Department' };
+const jobStepText = (job) => {
+  const idx = job ? job.currentStage || 0 : -1;
+  const stage = idx >= 0 ? JOB_STAGES[idx] : null;
+  if (!stage || job.status !== 'open') return 'Medicine Department is preparing and packing the medicine';
+  return `Step ${idx + 1} ${stage.label}: ${OWNER[stage.roles.find((r) => r !== 'admin')] || 'Medicine Department'}`;
+};
+
 function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay, patient, job }) {
   const status = request?.status;
   const accepted = ['in_process', 'made', 'sent_to_courier'].includes(status);
@@ -137,13 +146,12 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
     },
     { key: 'requested', group: 'medicine', label: 'Medicine request', done: Boolean(request), failed: status === 'cancelled', at: iso(request?.requestedAt), by: request?.requestedByName, text: status === 'cancelled' ? `Cancelled: ${request.cancelReason || ''}` : [supplyLabel(po.supplyPlan, po.supplyPart), AGE_BANDS[po.ageBand]].filter(Boolean).join(' | '), waitText: 'In Transit sends the request to Medicine Department' },
     { key: 'accepted', group: 'medicine', label: 'To be accepted by Medicine Dept', done: accepted, returned: !accepted && Boolean(job?.returned?.at), at: iso(!accepted && job?.returned?.at ? job.returned.at : request?.inProcessAt), by: !accepted && job?.returned?.at ? job.returned.byName : request?.inProcessByName, text: !accepted && job?.returned?.at ? `Sent back to In Transit: ${job.returned.reason}` : request?.readyByDate ? `Ready by ${new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}` : '', waitText: 'Waiting for Medicine Department' },
-    // Medicine Department's track: the medicine is prepared and packed (fulfilment steps 2-11), In Transit confirms the
-    // final check of the packed parcel (step 12, `finalDue`: In Transit's turn), then it is released once the full
-    // payment is verified.
+    // Medicine Department's track: the fulfilment job (formulation, preparation, packing, quality check, treatment papers,
+    // parcel, final check), the doctor's final verification makes it ready, then it is released once the full payment
+    // is verified. The wait text names the open fulfilment step and who has it.
     {
-      key: 'ready', group: 'medicine', branch: 'medicine', label: 'Final check pending', jobRoles, done: made, at: iso(made ? request?.madeAt : null), by: made ? (request?.lastMedicineCheckedByName || request?.madeByName) : '', finalDue,
-      waitText: finalDue ? 'In Transit confirms the final check of the packed parcel (fulfilment step 12)'
-        : job?.hold?.active ? `Sent back / on hold: ${job.hold.reason} - Medicine Department fixes it and resumes` : 'Medicine Department is preparing and packing the medicine',
+      key: 'ready', group: 'medicine', branch: 'medicine', label: 'Doctor final verification', jobRoles, done: made, at: iso(made ? request?.madeAt : null), by: made ? (request?.lastMedicineCheckedByName || request?.madeByName) : '', finalDue,
+      waitText: job?.hold?.active ? `Sent back / on hold: ${job.hold.reason} - Medicine Department fixes it and resumes` : jobStepText(job),
     },
     { key: 'released', group: 'medicine', branch: 'medicine', label: 'Release by Medicine Dept', done: released, at: iso(request?.sentToCourierAt), by: request?.sentToCourierByName, waitText: 'Medicine Department releases the parcel once the full payment is verified' },
     // In Transit's track, worked while the medicine is prepared: call the patient until the call connects, schedule
@@ -233,7 +241,7 @@ function actionByOf(po, stepKey, canRequest, step = null) {
     case 'details': case 'payment': return VERIFY;
     // Also when blocked (patient approval, payment): clearing the blocker is In Transit's work too.
     case 'requested': return VERIFY;
-    case 'ready': return step?.finalDue ? TRANSIT : step?.jobRoles?.length ? step.jobRoles : MED;
+    case 'ready': return step?.jobRoles?.length ? step.jobRoles : MED;
     case 'accepted': return step?.returned ? TRANSIT : MED;
     case 'released': return MED;
     case 'calls': case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;

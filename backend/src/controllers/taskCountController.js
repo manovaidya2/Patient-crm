@@ -25,6 +25,7 @@ const PAGES = {
   '/admin/courier': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/self-pickup-schedule': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/treatment-papers': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
+  '/admin/final-check': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-jobs': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-made': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
@@ -98,6 +99,8 @@ const COUNTERS = {
   },
   // Kits waiting for their treatment papers (fulfilment step 9), for the PCC the admin chose.
   async '/admin/treatment-papers'(user) { return require('./treatmentPaperController').pendingPaperCount(user); },
+  // Parcels waiting for the final verification check (step 11), for the PCC the admin chose.
+  async '/admin/final-check'(user) { return require('./treatmentPaperController').pendingPaperCount(user, 'final'); },
   // Self pickups scheduled, still to be collected.
   async '/admin/self-pickup-schedule'() {
     const { courierHandovers } = require('./purchaseOrderController');
@@ -172,7 +175,7 @@ const getTaskCounts = asyncHandler(async (req, res) => {
 // Badges, My day, the reminder bell and Team pending all ask for the same lists; each is worked out once and shared
 // (see utils/readCache: emptied by any save). A list is the same for everyone, for one role, or for one person.
 // Team Chat and Enquiries are cheap and change when read, so they are always worked out fresh.
-const PER_PERSON = new Set(['/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
+const PER_PERSON = new Set(['/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
 const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs']);
 const UNCACHED = new Set(['/admin/team-chat', '/admin/enquiries']);
 const scopeOf = (page, user) => (PER_PERSON.has(page) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');

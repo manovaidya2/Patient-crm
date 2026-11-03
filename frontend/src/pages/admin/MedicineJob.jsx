@@ -144,7 +144,7 @@ function DoneList({ stage, job }) {
 }
 
 // Step 10: the doctor verifies steps 7, 8 and 9 together - what each recorded and the dose-paper pages.
-const VERIFIED_BY_DOCTOR = ['qc', 'pack1', 'photos'];
+const VERIFIED_BY_DOCTOR = ['pack1', 'qc', 'photos', 'pack2', 'final'];
 function VerifySteps({ job }) {
   return (
     <div className="space-y-3 rounded-lg border border-sage/30 bg-[#F3F6F2] p-3">
@@ -376,7 +376,7 @@ export default function MedicineJobPage() {
   const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
   // Step 8 (quality check, In Transit) and step 9 (treatment papers, the PCC) are locked and blurred for the Medicine
   // Department, who can ring the alarm of whoever has the step.
-  const RING_FOR = { qc: { who: 'In Transit', what: 'verify the quality check' }, photos: { who: 'the PCC', what: 'make the treatment papers' } };
+  const RING_FOR = { qc: { who: 'In Transit', what: 'verify the quality check' }, photos: { who: 'the PCC', what: 'make the treatment papers' }, final: { who: 'the PCC', what: 'do the final verification check' } };
   const ringFor = job.status === 'open' && !job.hold && user?.role === ROLES.MEDICINE_DEPARTMENT ? RING_FOR[job.currentKey] : null;
   const waitingForTransit = Boolean(ringFor);
   const lockedStep = (waitingForDoctor && shown?.key === 'formula') || (waitingForTransit && shown?.key === job.currentKey);
@@ -433,12 +433,6 @@ export default function MedicineJobPage() {
           })}
         </nav>
         <main className="relative min-w-0 space-y-3.5">
-          {job.currentKey === 'final' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT && (
-            <div className="flex items-center gap-2 rounded-xl border-2 border-[#FDBA74] bg-[#FFF7ED] px-4 py-3 text-sm font-bold text-[#C2410C]">
-              <Clock3 size={17} />Final check is confirmed by In Transit
-              <span className="font-normal text-charcoal/70">· The parcel is packed; In Transit checks it and marks the medicine ready, then you release it.</span>
-            </div>
-          )}
           {waitingForDoctor && (
             <div className="sticky top-3 z-10 flex items-center gap-2 rounded-xl border-2 border-[#FDBA74] bg-[#FFF7ED] px-4 py-3 text-sm font-bold text-[#C2410C] shadow-sm">
               <Clock3 size={17} />Please contact or remind doctor sir to create formulation

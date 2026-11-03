@@ -280,64 +280,6 @@ function QualityCheckPanel({ po, onDone }) {
   );
 }
 
-function FinalCheckPanel({ po, onDone }) {
-  const stage = po.medicineJob.stages.find((s) => s.key === 'final');
-  const [ticks, setTicks] = useState(() => stage.checks.map(() => false));
-  const [remarks, setRemarks] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  // "No": the job goes back to Medicine Department on hold with the reason; they fix it and resume.
-  const sendBack = async () => {
-    setBusy(true); setError('');
-    try { await api.post(`/medicine-jobs/${po.medicineJob.id}/hold`, { reason: `Final check not OK: ${reason.trim()}` }); await onDone('Sent back to Medicine Department with the reason.'); }
-    catch (err) { setError(err.response?.data?.message || 'Could not send it back'); } finally { setBusy(false); }
-  };
-  const submit = async () => {
-    setBusy(true); setError('');
-    try {
-      const body = new FormData();
-      body.append('checks', JSON.stringify(ticks));
-      body.append('fields', JSON.stringify({ remarks }));
-      await api.post(`/medicine-jobs/${po.medicineJob.id}/stages/final`, body);
-      await onDone('Final check confirmed: the medicine is ready.');
-    } catch (err) { setError(err.response?.data?.message || 'Could not save the final check'); } finally { setBusy(false); }
-  };
-  const all = ticks.every(Boolean);
-  return (
-    <Section title={`${stage.n} · ${stage.label}`} icon={ShieldCheck} action={<Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className={smallLink}><ExternalLink size={13} />Photos & papers in the job</Link>} className="border-2 border-[#FDBA74]">
-      <div className="space-y-3">
-        <p className="text-sm text-charcoal/70">{stage.purpose}</p>
-        {/* What the parcel is checked against: the patient's file and what Medicine Department photographed. */}
-        <PatientFile documents={po.patientDocuments || []} />
-        <div className="rounded-lg border border-cardline bg-white/70 px-3 py-2"><p className="mb-1.5 text-sm font-semibold text-charcoal">Medicine photo & dose papers (step 9)</p><DosePapersView job={po.medicineJob} /></div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-charcoal/50">Checklist · {ticks.filter(Boolean).length} of {ticks.length} ticked</p>
-        <div className="space-y-1.5">
-          {stage.checks.map((check, i) => (
-            <label key={check} className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm ${ticks[i] ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-[#E8DFCB] bg-[#FBF7ED] text-charcoal'}`}>
-              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#2F8F5B]" checked={ticks[i]} onChange={(e) => setTicks((list) => list.map((v, n) => (n === i ? e.target.checked : v)))} />
-              <span>{check}</span>
-            </label>
-          ))}
-        </div>
-        <div>
-          <p className="mb-1.5 text-sm font-semibold text-charcoal">Is the medicine verified?<span className="text-red-700"> *</span></p>
-          <div className="flex gap-2">
-            <Chip active={answer === 'yes'} onClick={() => setAnswer('yes')}>Yes, verified</Chip>
-            <Chip active={answer === 'no'} onClick={() => setAnswer('no')}>No, send back</Chip>
-          </div>
-        </div>
-        {answer === 'yes' && <FieldLabel label="Remarks"><textarea className={poInput} rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></FieldLabel>}
-        {answer === 'no' && <FieldLabel label="What is wrong?" required><textarea className={poInput} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Diet plan page missing, seal broken on BT-100" /></FieldLabel>}
-        <ErrorText>{error}</ErrorText>
-        {answer === 'yes' && <Button disabled={busy || !all} onClick={submit}><Check size={14} />{busy ? 'Saving...' : all ? 'Confirm - medicine ready' : 'Tick every point to confirm'}</Button>}
-        {answer === 'no' && <Button variant="outline" disabled={busy || !reason.trim()} onClick={sendBack}><RotateCcw size={14} />{busy ? 'Sending...' : 'Send back to Medicine Dept'}</Button>}
-      </div>
-    </Section>
-  );
-}
-
 function RejectBox({ po, onDone, onBack }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -805,8 +747,6 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   // "Waiting for ..." is already said by the step header, so it shows on its own only under "All details".
   const showAction = next ? selected === 'all' || selected === actionKey : waiting && selected === 'all';
   const canRevert = isAdminLike(role) && !['rejected', 'cancelled'].includes(po.status);
-  // Fulfilment step 12 is In Transit's to confirm once the parcel is packed.
-  const canFinalCheck = TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'final' && po.medicineJob.status === 'open' && !po.medicineJob.hold;
 
   return (
     <div className="po-compact space-y-3">
@@ -881,7 +821,6 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           )}
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
           {show('final') && TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (selected === 'all' || selected === 'job:qc' || selected === currentKey) && <QualityCheckPanel key={po.medicineJob.id} po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
-          {show('final') && canFinalCheck && <FinalCheckPanel po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
           {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current' || (selectedStep?.key === 'scheduled' && !['dispatched', 'delivered'].includes(po.handover?.courier?.status))) && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}
           {show('patient') && <Section title="Patient" icon={UserRound}>

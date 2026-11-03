@@ -10,14 +10,17 @@
 //            is asked again on the doctor's sheet.
 //  v5 -> v6: Packing-1 is step 7 (Medicine Department) and the quality check step 8 (In Transit). A job whose Pack QC was
 //            done but Packing-1 not goes back to Packing-1, and In Transit checks the kit after it.
+//  v6 -> v7: Packing-2 is step 10, the final check (a PCC) step 11 and the doctor's final verification step 12. An open
+//            job between the papers and the release goes to the first of those not done; a doctor check done before
+//            the final check is asked again after it.
 const MedicineJob = require('../models/MedicineJob');
 const { STAGES, STAGE_INDEX } = require('./medicineJobFlow');
 
-const STAGES_VERSION = 6;
+const STAGES_VERSION = 7;
 
 const migrateJobStages = async () => {
   const old = await MedicineJob.collection.find({ $or: [{ stagesVersion: { $exists: false } }, { stagesVersion: { $lt: STAGES_VERSION } }] })
-    .project({ currentStage: 1, stages: 1, stagesVersion: 1 }).toArray();
+    .project({ currentStage: 1, stages: 1, stagesVersion: 1, status: 1 }).toArray();
   let moved = 0;
   for (const job of old) {
     const version = job.stagesVersion || 1;
@@ -61,6 +64,16 @@ const migrateJobStages = async () => {
         current = STAGE_INDEX.pack1;
         events.push({ at: new Date(), action: 'Quality check moved to In Transit', details: 'Packing-1 is now step 7; In Transit checks the open kit after it (step 8)', byName: 'System', byRole: '' });
       }
+    }
+    if (version < 7 && job.status === 'open' && current >= STAGE_INDEX.pack2 && current <= STAGE_INDEX.doctor) {
+      let keys = new Set(stages.map((s) => s.key));
+      if (keys.has('doctor') && !keys.has('final')) {
+        stages = stages.filter((s) => s.key !== 'doctor');
+        keys = new Set(stages.map((s) => s.key));
+        events.push({ at: new Date(), action: 'Doctor verification moved after the final check', details: 'The doctor now verifies the packed parcel after the final check (step 12)', byName: 'System', byRole: '' });
+      }
+      const next = [STAGE_INDEX.pack2, STAGE_INDEX.final, STAGE_INDEX.doctor].find((i) => !keys.has(STAGES[i].key));
+      if (next !== undefined) current = next;
     }
     const changed = reweighed || current !== (job.currentStage || 0) || stages.length !== (job.stages || []).length;
     if (changed) moved += 1;
