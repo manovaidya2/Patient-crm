@@ -15,6 +15,9 @@ const med = { _id: new mongoose.Types.ObjectId(), name: 'Meena', role: 'medicine
 const med2 = { _id: new mongoose.Types.ObjectId(), name: 'Prachi', role: 'medicine_department' };
 const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Dr Garg', role: 'doctor' };
 const transit = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
+const pcc = { _id: new mongoose.Types.ObjectId(), name: 'Aditi', role: 'assistant_doctor' };
+const otherPcc = { _id: new mongoose.Types.ObjectId(), name: 'Neha', role: 'assistant_doctor' };
+const InventorySetting = require('../models/InventorySetting');
 const file = { filename: 'a.png', originalname: 'photoA.png' };
 
 test('formulation master: six-month totals split into parts exactly as the packing table', () => {
@@ -84,6 +87,8 @@ function setup({ paid = 42000, approval = 'approved' } = {}) {
   const jobs = [];
   mock.method(MedicineJob, 'findOne', async (f) => jobs.find((j) => String(j.patient) === String(f.patient) && j.phase === f.phase && j.requestId === f.requestId) || null);
   mock.method(MedicineJob, 'findById', async (id) => jobs.find((j) => String(j._id) === String(id)) || null);
+  // The alarm list reads the open jobs (find().select().lean()).
+  mock.method(MedicineJob, 'find', () => ({ select: () => ({ lean: async () => jobs.filter((j) => j.status === 'open').map((j) => j.toObject()) }) }));
   const origSave = MedicineJob.prototype.save;
   mock.method(MedicineJob.prototype, 'save', async function save() { await this.validate(); if (!jobs.includes(this)) jobs.push(this); return this; });
   return { patient, stage, stocks, txs, jobs, origSave };
@@ -117,21 +122,23 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   const { patient, stage, stocks, txs } = setup({ paid: 10000 });
   const { job } = await open(patient);
   const id = job.id;
-  await assert.rejects(complete(id, 'review'), /Complete "Accept Order" first/);
+  await assert.rejects(complete(id, 'formula', {}, {}, doctor), /Complete "Accept Order" first/);
   await assert.rejects(call(controller.completeStage, { params: { id, key: 'accept' }, body: { checks: '[true,false]', fields: '{}' } }), /Tick every point/);
   await assert.rejects(complete(id, 'accept', {}), /ready by is required/i);
   await assert.rejects(complete(id, 'accept', { readyByDate: '2026-11-02' }, {}, transit), /done by/);
   const fixedDate = stage.medicineRequests[0].readyByDate.toISOString();
   let v = (await complete(id, 'accept', { readyByDate: '2026-11-02' })).job;
-  assert.equal(v.currentKey, 'review');
+  // The doctor makes the formulation next; the Medicine Department waits.
+  assert.equal(v.currentKey, 'formula');
   assert.equal(stage.medicineRequests[0].status, 'in_process', 'the request shows "in process" to In Transit');
   assert.equal(stage.medicineRequests[0].readyByDate.toISOString(), fixedDate, 'the date fixed in post counselling stays; the department cannot change it');
-  v = (await complete(id, 'review')).job;
-  // The doctor verifies the formulation next; the Medicine Department waits.
-  assert.equal(v.currentKey, 'formula');
   await assert.rejects(complete(id, 'formula', {}, {}, med), /done by/);
-  await assert.rejects(complete(id, 'stock', {}), /Complete "Doctor formulation verification" first/);
+  await assert.rejects(complete(id, 'review', {}), /Complete "Prescription & formulation \(Doctor\)" first/);
   v = (await complete(id, 'formula', { remarks: 'Sheet is right' }, {}, doctor)).job;
+  // Then the Medicine Department gets the doctor's formulation.
+  assert.equal(v.currentKey, 'review');
+  await assert.rejects(complete(id, 'review', {}, {}, doctor), /done by/);
+  v = (await complete(id, 'review')).job;
   v = (await complete(id, 'stock', {})).job;
   // Preparation: SHIVA-LEH needs an actual (spoon -> gram not set); everything else follows the sheet.
   await assert.rejects(complete(id, 'prepare', {}), /SHIVA-LEH/);
@@ -147,31 +154,44 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   await assert.rejects(complete(id, 'fill', {}), /Confirm every chit/);
   v = (await complete(id, 'fill', {}, { chits: JSON.stringify(v.chits.map((c) => ({ key: c.key, confirmed: true }))) })).job;
   assert.ok(v.chits.every((c) => c.confirmed));
-  // The Medicine Department does its own pack QC, the preparer's login included.
-  v = (await complete(id, 'qc', { result: 'PASS' }, {}, med)).job;
-  v = (await complete(id, 'pack1', {})).job;
-  // Step 9: every page of each paper of this kit, and all medicines together.
+  // Step 7 Packing-1 (Medicine Department) with the photo of all medicines together, step 8 the quality check by In Transit.
+  await assert.rejects(complete(id, 'pack1', {}, { files: {} }), /all medicines together/);
+  v = (await complete(id, 'pack1', {}, { files: { photoA: [file] } })).job;
+  assert.equal(v.photos.overview.length, 1);
+  assert.equal(v.currentKey, 'qc');
+  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med), /done by in transit/);
+  // While it waits, the Medicine Department rings In Transit's alarm; In Transit sees why.
+  v = (await call(controller.ringTransit, { params: { id }, body: { note: 'Kit ready on table 2' } })).job;
+  assert.equal(v.transitAlarm.stageKey, 'qc');
+  const rung = await call(controller.transitAlarms, { user: transit });
+  assert.ok(rung.alarms.some((a) => a.id === id && a.note === 'Kit ready on table 2' && a.step === 'Quality check'));
+  v = (await complete(id, 'qc', { result: 'PASS' }, {}, transit)).job;
+  assert.ok(!(await call(controller.transitAlarms, { user: transit })).alarms.some((a) => a.id === id), 'the alarm stops once the step is done');
+  // Step 9: the treatment papers, by the PCC the admin chose (every page of each paper). The Medicine Department cannot.
   assert.equal(v.currentKey, 'photos');
-  await assert.rejects(complete(id, 'photos', {}, { files: {} }), /all medicines together/);
+  mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }), /done by/);
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }, otherPcc), /made by Aditi/);
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }, pcc), /Add the treatment papers/);
   // Papers are named on the page; each needs its pages.
-  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: '', slot: 0 }]), files: { photoA: [file] } }), /name of each paper/);
-  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]), files: { photoA: [file] } }), /Upload the pages of "Diet Plan"/);
-  v = (await complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { photoA: [file], paper_0: [file, file, file], paper_1: [file] } })).job;
+  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: '', slot: 0 }]) }, pcc), /name of each paper/);
+  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]) }, pcc), /Upload the pages of "Diet Plan"/);
+  v = (await complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { paper_0: [file, file, file], paper_1: [file] } }, pcc)).job;
   assert.deepEqual(v.photos.paperSets.map((p) => p.name), ['Medicine Paper', 'Diet Plan']);
   assert.equal(v.photos.paperSets[0].files.length, 3, 'every page of a paper is kept');
-  // Step 10, doctor only, verifies 7, 8 and 9; a HOLD sends the kit back to QC and those steps are done again.
+  // Step 10, doctor only, verifies 7, 8 and 9; a HOLD sends the kit back to Packing-1 and those steps are done again.
   assert.equal(v.currentKey, 'doctor');
   await assert.rejects(complete(id, 'doctor', { result: 'PASS' }, {}, med), /done by/);
   await assert.rejects(complete(id, 'doctor', { result: 'HOLD' }, {}, doctor), /what has to be corrected/);
   v = (await complete(id, 'doctor', { result: 'HOLD' }, { notes: 'Pouch 2 leaking' }, doctor)).job;
   assert.equal(v.hold.reason, 'Doctor HOLD: Pouch 2 leaking');
-  assert.equal(v.currentKey, 'qc');
-  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med2), /on hold/);
+  assert.equal(v.currentKey, 'pack1');
+  await assert.rejects(complete(id, 'pack1', {}, {}, med2), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Pouch repacked' } })).job;
-  v = (await complete(id, 'qc', { result: 'PASS' }, {}, med2)).job;
-  v = (await complete(id, 'pack1', {})).job;
-  // Redone after the HOLD: the papers uploaded before stay unless new pages come.
-  v = (await complete(id, 'photos', {}, { files: {} })).job;
+  v = (await complete(id, 'pack1', {}, { files: {} }, med2)).job;
+  v = (await complete(id, 'qc', { result: 'PASS' }, {}, transit)).job;
+  // Redone after the HOLD: the photo and the papers uploaded before stay unless new ones come.
+  v = (await complete(id, 'photos', {}, { files: {} }, pcc)).job;
   assert.equal(v.photos.paperSets[0].files.length, 3);
   assert.equal(v.photos.overview.length, 1);
   v = (await complete(id, 'doctor', { result: 'PASS' }, {}, doctor)).job;
@@ -204,8 +224,8 @@ test('stock stage refuses a shortage unless a shortage request is raised', async
   stocks.find((s) => s.code === 'RY-33').currentStock = 2;
   const { job } = await open(patient);
   await complete(job.id, 'accept', { readyByDate: '2026-11-02' });
-  await complete(job.id, 'review');
   await complete(job.id, 'formula', {}, {}, doctor);
+  await complete(job.id, 'review');
   await assert.rejects(complete(job.id, 'stock', {}), /Short in stock: RY-33/);
   const v = (await complete(job.id, 'stock', { shortageAccepted: true })).job;
   const matched = v.stages.find((s) => s.key === 'stock').snapshot.stockTable;
@@ -247,7 +267,8 @@ test('the formulation sheet can be corrected until preparation; master values st
   assert.equal(v.chits.find((c) => c.itemKey === 'ghrit').dose, 'सुबह: 1 चम्मच');
   assert.ok(v.events.some((e) => e.action === 'Formulation sheet corrected'));
   // Rebuilding from the Formulation Master drops the patient corrections and says so.
-  v = (await call(controller.rebuildSheet, { params: { id: job.id } })).job;
+  await assert.rejects(call(controller.rebuildSheet, { params: { id: job.id } }), /handled by doctor/, 'the Medicine Department does not rebuild it');
+  v = (await call(controller.rebuildSheet, { params: { id: job.id }, user: doctor })).job;
   assert.equal(v.formulation.edited, false);
   assert.equal(by('ghrit').qty, 75);
   assert.equal(v.masterOutdated, false);
@@ -255,8 +276,8 @@ test('the formulation sheet can be corrected until preparation; master values st
   v = (await edit([{ key: 'ghrit', qty: 120 }, { key: 'nasya', packed: false }])).job;
   // After preparation the sheet is locked.
   await complete(job.id, 'accept', { readyByDate: '2026-11-02' });
-  await complete(job.id, 'review');
   await complete(job.id, 'formula', {}, {}, doctor);
+  await complete(job.id, 'review');
   await complete(job.id, 'stock', {});
   await complete(job.id, 'prepare', {}, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }]) });
   assert.equal(stocks.find((s) => s.code === 'MEDHYA-GHRIT').currentStock, 5000 - 120, 'the corrected quantity is what gets drawn');
@@ -286,7 +307,7 @@ test('the doctor adds or removes a medicine for this patient only; the master st
   assert.equal(formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }).lines.some((l) => l.name === 'Brahmi churna'), false);
 });
 
-test('0 - 3 years has no master: the sheet starts empty, Medicine Department or the doctor creates it for the child', async () => {
+test('0 - 3 years has no master: the sheet starts empty, the doctor creates it for the child at step 2', async () => {
   const { patient, stage } = setup();
   stage.medicineRequests[0].ageBand = '0-3';
   const { job } = await open(patient);
@@ -294,19 +315,14 @@ test('0 - 3 years has no master: the sheet starts empty, Medicine Department or 
   assert.equal(job.formulation.custom, true);
   assert.equal(job.formulation.lines.length, 0);
   await complete(id, 'accept', { readyByDate: '2026-11-02' });
-  // Medicine Department may write it here (after asking the doctor) - only for a custom sheet, only up to this step.
-  const edit = (lines, user = med) => call(controller.editFormulation, { params: { id }, body: { lines }, user });
-  let v = (await edit([{ add: true, name: 'Brahmi ghrit', when: 'सुबह', unit: 'ml', qty: 30, dose: '2 बूँद' }])).job;
-  assert.equal(v.formulation.lines.length, 1);
-  assert.ok(v.chits.some((c) => c.name === 'Brahmi ghrit'));
-  v = (await edit([{ key: v.formulation.lines[0].key, removed: true }])).job;
-  // Or it goes to the doctor empty: the doctor's step cannot finish without medicines.
-  v = (await complete(id, 'review')).job;
-  assert.equal(v.currentKey, 'formula');
-  await assert.rejects(edit([{ add: true, name: 'X', unit: 'g', qty: 1 }]), /doctor or the admin/, 'after the check only the doctor / admin edits');
+  const edit = (lines, user = doctor) => call(controller.editFormulation, { params: { id }, body: { lines }, user });
+  await assert.rejects(edit([{ add: true, name: 'X', unit: 'g', qty: 1 }], med), /doctor or the admin/, 'the Medicine Department does not write it');
   await assert.rejects(complete(id, 'formula', {}, {}, doctor), /Add the medicines/);
-  v = (await edit([{ add: true, name: 'Shankhpushpi syrup', when: 'रात', unit: 'ml', qty: 60, dose: '1 ml' }], doctor)).job;
+  let v = (await edit([{ add: true, name: 'Shankhpushpi syrup', when: 'रात को खाने के बाद', unit: 'ml', qty: 60, dose: '1 ml' }])).job;
+  assert.ok(v.chits.some((c) => c.name === 'Shankhpushpi syrup'));
   v = (await complete(id, 'formula', {}, {}, doctor)).job;
+  assert.equal(v.currentKey, 'review', 'the Medicine Department gets it next');
+  v = (await complete(id, 'review')).job;
   assert.equal(v.currentKey, 'stock', 'then the same process as every sheet');
 });
 
@@ -318,13 +334,13 @@ test('an old request (before the fulfilment timeline, no PO): the admin and the 
   assert.ok(job.stages.every((s) => s.roles.includes('doctor') && s.roles.includes('admin')), 'every stage is open to the doctor and the admin');
   const id = job.id;
   let v = (await complete(id, 'accept', { readyByDate: '2026-11-02' }, {}, doctor)).job;
-  assert.equal(v.currentKey, 'review');
-  // The age group and supply missing on the old request are set here, by the doctor too.
-  await assert.rejects(complete(id, 'review', {}, {}, doctor), /age group and medicine supply/);
+  assert.equal(v.currentKey, 'formula');
+  // The age group and supply missing on the old request are set by the doctor at the formulation step.
+  await assert.rejects(complete(id, 'formula', {}, {}, doctor), /age group and medicine supply/);
   v = (await call(controller.setSupply, { params: { id }, body: { ageBand: '4-12', supplyKey: '1+5:first' }, user: doctor })).job;
   assert.ok(v.formulation.lines.length > 0);
-  v = (await complete(id, 'review', {}, {}, doctor)).job;
-  assert.equal(v.currentKey, 'formula');
+  v = (await complete(id, 'formula', {}, {}, doctor)).job;
+  assert.equal(v.currentKey, 'review');
   // A request on a PO keeps its owners: the doctor cannot do the Medicine Department's stage there.
   const { patient: p2 } = setup();
   const { job: onPo } = await call(controller.openForRequest, { body: { patientId: String(p2._id), phase: 1, requestId: 'r1' } });

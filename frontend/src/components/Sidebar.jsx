@@ -110,6 +110,7 @@ export const navItems = [
   { to: '/admin/outgoing-couriers', icon: PackageMinus, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/patients', icon: Users, label: 'All Patients', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.SALES_TEAM, ROLES.IN_TRANSIT] },
   { to: '/admin/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT] },
+  { to: '/admin/treatment-papers', icon: FileText, label: 'Make Treatment Paper', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/medicine-explanations', icon: MessagesSquare, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: UserCheck, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },

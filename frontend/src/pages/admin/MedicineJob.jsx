@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock3, ExternalLink, FileText, Lock, PauseCircle, Pill, PlayCircle, Printer, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock3, ExternalLink, FileText, Lock, PauseCircle, BellRing, Pill, PlayCircle, Printer, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
@@ -265,17 +265,14 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
-      {stage.key === 'review' && job.formulation?.custom && (
+      {stage.key === 'formula' && job.formulation?.custom && (
         <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
-          <p className="font-bold">{job.formulation.ageBandLabel}: no Formulation Master - make this child's formulation</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px]">
-            <li><b>Create it here</b> after asking the doctor: "Create formulation" below, add each medicine, save. The doctor still verifies it in step 3.</li>
-            <li><b>Or send it to the doctor</b>: complete this step without medicines; the doctor creates the formulation in step 3 ("Create formulation of {job.patientName}" reaches the doctor).</li>
-          </ul>
-          {!job.formulation.lines.length && <p className="mt-1.5 text-xs font-semibold">No medicines yet - completing this step sends it to the doctor to create.</p>}
+          <p className="font-bold">{customMonthsOf(job.formulation.plan) ? `Custom supply of ${job.formulation.months} months` : job.formulation.ageBandLabel}: no Formulation Master - create this child's formulation</p>
+          <p className="mt-1 text-[13px]">"Create formulation" below, add each medicine with its timing, dose and total quantity, save, then complete this step. It goes to the Medicine Department as you made it.</p>
         </div>
       )}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) || (Boolean(job.formulation?.custom) && stage.key === 'review' && user?.role === ROLES.MEDICINE_DEPARTMENT)} jobId={job.id} onSaved={onDone} onError={report} />}
+      {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
@@ -298,7 +295,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked={c.confirmed || Boolean(chits[c.key])} disabled={!canAct || c.confirmed} onToggle={() => setChits((o) => ({ ...o, [c.key]: !o[c.key] }))} />)}</div>
         </div>
       )}
-      {stage.key === 'photos' && <DosePaperUpload job={job} files={files} setFiles={setFiles} rows={paperRows} setRows={setPaperRows} removed={removedPapers} setRemoved={setRemovedPapers} disabled={!canAct} />}
+      {stage.key === 'pack1' && <DosePaperUpload part="overview" job={job} files={files} setFiles={setFiles} disabled={!canAct} />}
+      {stage.key === 'photos' && <DosePaperUpload part="papers" job={job} files={files} setFiles={setFiles} rows={paperRows} setRows={setPaperRows} removed={removedPapers} setRemoved={setRemovedPapers} disabled={!canAct} />}
       {stage.key === 'doctor' && <VerifySteps job={job} />}
       {stage.key === 'release' && job.payment && (
         <div className={`rounded-lg px-3 py-2 text-sm ${job.payment.releasable ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
@@ -331,6 +329,7 @@ export default function MedicineJobPage() {
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnText, setReturnText] = useState('');
   const [holdText, setHoldText] = useState('');
+  const [ringNote, setRingNote] = useState('');
   const [supply, setSupply] = useState({ ageBand: '', supplyKey: '' });
   const canAct = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], user);
 
@@ -344,7 +343,7 @@ export default function MedicineJobPage() {
   useEffect(() => { if (job) setSupply({ ageBand: job.ageBand, supplyKey: supplyKeyOf(job.supplyPlan, job.supplyPart) }); }, [job?.id, job?.ageBand, job?.supplyPlan, job?.supplyPart]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
   const done = (next, message) => { setJob(next); setNotice(message); setView(null); setHoldOpen(false); setHoldText(''); };
-  const act = async (path, body) => { setError(''); try { const { data } = await api.post(`/medicine-jobs/${id}/${path}`, body); done(data.job, path === 'hold' ? 'Job put on hold.' : path === 'return' ? 'Sent back to In Transit with your note.' : 'Job resumed.'); } catch (err) { setError(err.response?.data?.message || 'Could not save'); } };
+  const act = async (path, body) => { setError(''); try { const { data } = await api.post(`/medicine-jobs/${id}/${path}`, body); done(data.job, path === 'hold' ? 'Job put on hold.' : path === 'return' ? 'Sent back to In Transit with your note.' : path === 'ring-transit' ? 'Alarm rung.' : 'Job resumed.'); } catch (err) { setError(err.response?.data?.message || 'Could not save'); } };
   // Admin undo of a completed stage (and every stage after it), with a reason.
   const [revertKey, setRevertKey] = useState('');
   const [revertReason, setRevertReason] = useState('');
@@ -360,16 +359,22 @@ export default function MedicineJobPage() {
   const shown = useMemo(() => (job && !showRequest ? job.stages[typeof view === 'number' ? view : Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view, showRequest]);
   if (!job) return <div className="space-y-3"><button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-medium text-sage"><ArrowLeft size={15} /> Back</button>{error ? <ErrorText>{error}</ErrorText> : <p className="p-6 text-center text-sm text-charcoal/55">Loading job...</p>}</div>;
   const isCurrent = shown && shown.state === 'current';
-  const stageCanAct = (canAct || user?.role === ROLES.IN_TRANSIT) && isCurrent && !job.hold && job.status !== 'released' && roleAllowed(shown.roles, user);
+  const stageCanAct = (canAct || [ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR].includes(user?.role)) && isCurrent && !job.hold && job.status !== 'released' && roleAllowed(shown.roles, user);
   const [urgLabel, urgTone] = URGENCY[job.urgency?.level] || URGENCY.normal;
   // Supply / age group belong to the formulation check, so only that stage's owner changes them.
   // The supply (6 months / 1+5 / 2+4) was chosen in post counselling; only the admin can change it here.
   // Locked only when post counselling sent them (older requests without a PO paper are still chosen here).
   const supplyLocked = Boolean(job.fixedPlan?.supply) && !isAdminLike(user);
   const ageLocked = Boolean(job.fixedPlan?.ageBand) && !isAdminLike(user);
-  // While the doctor verifies the formulation, the Medicine Department's work area waits (blurred).
+  // While the doctor makes the formulation (step 2), the Medicine Department's step is locked and blurred.
   const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
-  const canChangeSupply = canAct && ['accept', 'review'].includes(job.currentKey) && job.status === 'open' && roleAllowed(job.stages.find((s) => s.key === 'review')?.roles || [], user);
+  // Step 8 (quality check, In Transit) and step 9 (treatment papers, the PCC) are locked and blurred for the Medicine
+  // Department, who can ring the alarm of whoever has the step.
+  const RING_FOR = { qc: { who: 'In Transit', what: 'verify the quality check' }, photos: { who: 'the PCC', what: 'make the treatment papers' } };
+  const ringFor = job.status === 'open' && !job.hold && user?.role === ROLES.MEDICINE_DEPARTMENT ? RING_FOR[job.currentKey] : null;
+  const waitingForTransit = Boolean(ringFor);
+  const lockedStep = (waitingForDoctor && shown?.key === 'formula') || (waitingForTransit && shown?.key === job.currentKey);
+  const canChangeSupply = canAct && ['accept', 'formula'].includes(job.currentKey) && job.status === 'open' && roleAllowed(job.stages.find((s) => s.key === 'formula')?.roles || [], user);
 
   return (
     <div className="space-y-4">
@@ -430,11 +435,28 @@ export default function MedicineJobPage() {
           )}
           {waitingForDoctor && (
             <div className="sticky top-3 z-10 flex items-center gap-2 rounded-xl border-2 border-[#FDBA74] bg-[#FFF7ED] px-4 py-3 text-sm font-bold text-[#C2410C] shadow-sm">
-              <Clock3 size={17} />Please verify formulation from doctor
-              <span className="font-normal text-charcoal/70">· The doctor is checking {job.patientName}'s formulation; stock match opens after that.</span>
+              <Clock3 size={17} />Please contact or remind doctor sir to create formulation
+              <span className="font-normal text-charcoal/70">· {job.patientName}'s formulation is with the doctor (step 2). Step 3 opens for you as soon as the doctor sends it.</span>
             </div>
           )}
-          <div className={waitingForDoctor && shown?.key === 'formula' ? 'pointer-events-none select-none space-y-3.5 opacity-80 blur-[2px]' : 'space-y-3.5'} aria-hidden={(waitingForDoctor && shown?.key === 'formula') || undefined}>
+          {waitingForTransit && shown?.key === job.currentKey && (
+            <div className="absolute inset-x-0 top-24 z-20 mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border-2 border-[#FDBA74] bg-white/95 px-5 py-6 text-center shadow-lg">
+              <Clock3 size={26} className="text-[#C2410C]" />
+              <p className="text-base font-extrabold text-[#C2410C]">Waiting for {ringFor.who} to {ringFor.what}</p>
+              <p className="text-sm text-charcoal/70">Step {shown.n} is done by {ringFor.who}. Ring their alarm to call them now.</p>
+              {job.transitAlarm?.stageKey === job.currentKey && <p className="text-xs text-charcoal/60">Last rung {dateTime(job.transitAlarm.at)} by {job.transitAlarm.byName}{job.transitAlarm.note ? ` · "${job.transitAlarm.note}"` : ''}</p>}
+              <input className={`${poInput} mt-1`} placeholder={`Message for ${ringFor.who} (optional)`} value={ringNote} onChange={(e) => setRingNote(e.target.value)} />
+              <Button className="bg-[#DC2626] hover:bg-[#B91C1C]" onClick={async () => { await act('ring-transit', { note: ringNote }); setRingNote(''); }}><BellRing size={15} />Ring alarm to {ringFor.who}</Button>
+            </div>
+          )}
+          {waitingForDoctor && shown?.key === 'formula' && (
+            <div className="absolute inset-x-0 top-24 z-20 mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border-2 border-[#FDBA74] bg-white/95 px-5 py-6 text-center shadow-lg">
+              <Clock3 size={26} className="text-[#C2410C]" />
+              <p className="text-base font-extrabold text-[#C2410C]">Please contact or remind doctor sir to create formulation</p>
+              <p className="text-sm text-charcoal/70">This step is the doctor's. You get the formulation in step 3 once the doctor sends it.</p>
+            </div>
+          )}
+          <div className={lockedStep ? 'pointer-events-none select-none space-y-3.5 opacity-70 blur-[3px]' : 'space-y-3.5'} aria-hidden={lockedStep || undefined}>
           {showRequest && <><RequestStep job={job} onNext={() => setView(0)} /><ChatQueries jobId={job.id} compact /></>}
           {shown && (
             <Section tone={stageCanAct ? 'action' : undefined} title={`${shown.n} · ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
@@ -465,8 +487,8 @@ export default function MedicineJobPage() {
               ) : (
                 <>
                   {/* The patient's whole file (Records Room): in step 0, and again next to the formulation check. */}
-                  {shown.key === 'review' ? <PatientFile documents={job.patientDocuments || []} className="mb-4" /> : <button type="button" onClick={() => setView('request')} className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><FileText size={13} />Request details & patient file (step 0)</button>}
-                  {shown.key === 'review' && canChangeSupply && (
+                  {['formula', 'review'].includes(shown.key) ? <PatientFile documents={job.patientDocuments || []} className="mb-4" /> : <button type="button" onClick={() => setView('request')} className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><FileText size={13} />Request details & patient file (step 0)</button>}
+                  {shown.key === 'formula' && canChangeSupply && (
                     <div className="mb-4 rounded-lg border border-cardline bg-offwhite-200/60 p-3">
                       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">{supplyLocked || ageLocked ? 'Age group & supply (sent by post counselling)' : 'Age group & supply (choose as per the prescription)'}</p>
                       <div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={supply.ageBand === b.value} disabled={ageLocked && supply.ageBand !== b.value} onClick={() => !ageLocked && setSupply((s) => ({ ...s, ageBand: b.value }))}>{b.label}</Chip>)}</div>

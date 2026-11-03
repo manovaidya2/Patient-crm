@@ -825,6 +825,12 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             </Section>
           )}
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
+          {TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (
+            <Section title="Quality check is yours (fulfilment step 8)" icon={ShieldCheck} className="border-2 border-[#FDBA74]">
+              <p className="mb-2 text-sm text-charcoal/75">The Medicine Department has packed the open kit (Packing-1). Check it and PASS or HOLD it on the fulfilment job.</p>
+              <Link to={`/admin/medicine-jobs/${po.medicineJob.id}`}><Button size="sm"><ExternalLink size={14} />Open quality check</Button></Link>
+            </Section>
+          )}
           {show('final') && canFinalCheck && <FinalCheckPanel po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
           {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current') && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}

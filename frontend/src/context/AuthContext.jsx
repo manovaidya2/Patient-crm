@@ -44,6 +44,8 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
+    // A new login rings the alarms (doctor's formulations, In Transit's) again: a snooze lasts only within the session.
+    try { Object.keys(localStorage).filter((k) => k.startsWith('alarmSnooze:')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
     window.dispatchEvent(new Event('crm:logout'));
     setUser(null);
   };

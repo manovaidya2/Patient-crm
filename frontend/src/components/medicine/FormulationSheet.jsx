@@ -6,6 +6,9 @@ import Button from '../ui/Button.jsx';
 import { FieldLabel, poInput } from '../purchaseOrders/CreatePurchaseOrderModal.jsx';
 
 const UNITS = ['g', 'ml', 'tablet', 'spoon', 'drop', 'piece'];
+// When the medicine is taken (as on the Formulation Master); "Other" lets the doctor type it.
+export const TIMINGS = ['सुबह -- शाम', 'सुबह (खाली पेट)', 'रात को खाने के बाद', 'सुबह -- दोपहर', 'सुबह -- दोपहर -- शाम', 'सुबह', 'दोपहर', 'शाम', 'रात', 'दोपहर -- शाम', 'सुबह -- रात', 'सुबह (खाली पेट) -- शाम', 'खाने के बाद'];
+const OTHER = '__other';
 const emptyAdd = () => ({ name: '', when: '', qty: '', unit: 'g', dose: '', containers: '', stockCode: '' });
 const num = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number.isInteger(Number(v)) ? String(v) : String(Math.round(Number(v) * 1000) / 1000));
 
@@ -25,7 +28,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
     try {
       const lines = [
         ...Object.entries(draft).map(([key, v]) => ({ key, ...v, components: v.components ? Object.entries(v.components).map(([code, qty]) => ({ code, qty })) : undefined })),
-        ...adds.filter((a) => a.name.trim()).map((a) => ({ add: true, ...a })),
+        ...adds.filter((a) => a.name.trim()).map(({ otherTiming, ...a }) => ({ add: true, ...a })),
       ];
       const { data } = await api.patch(`/medicine-jobs/${jobId}/formulation`, { lines });
       setEditing(false); setDraft({}); setAdds([]); onSaved?.(data.job, 'Formulation sheet corrected.');
@@ -59,7 +62,14 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
           return (
             <div key={i} className="grid gap-2 rounded-lg border border-cardline bg-white/70 p-3 sm:grid-cols-2">
               <FieldLabel label="Medicine name" required><input className={poInput} value={a.name} onChange={(e) => setAdd({ name: e.target.value })} /></FieldLabel>
-              <FieldLabel label="When (timing)"><input className={poInput} value={a.when} onChange={(e) => setAdd({ when: e.target.value })} placeholder="e.g. सुबह -- शाम" /></FieldLabel>
+              <FieldLabel label="When (timing)">
+                <select className={poInput} value={a.when === '' ? '' : TIMINGS.includes(a.when) && !a.otherTiming ? a.when : OTHER} onChange={(e) => (e.target.value === OTHER ? setAdd({ when: '', otherTiming: true }) : setAdd({ when: e.target.value, otherTiming: false }))}>
+                  <option value="">Select timing</option>
+                  {TIMINGS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  <option value={OTHER}>Other (type it)</option>
+                </select>
+                {(a.otherTiming || (a.when && !TIMINGS.includes(a.when))) && <input className={`${poInput} mt-1.5`} value={a.when} onChange={(e) => setAdd({ when: e.target.value, otherTiming: true })} placeholder="Type the timing" />}
+              </FieldLabel>
               <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-2">
                 <FieldLabel label="Total quantity" required><input className={poInput} type="number" step="0.001" min="0" value={a.qty} onChange={(e) => setAdd({ qty: e.target.value })} /></FieldLabel>
                 <FieldLabel label="Unit"><select className={poInput} value={a.unit} onChange={(e) => setAdd({ unit: e.target.value })}>{UNITS.map((u) => <option key={u} value={u}>{u}</option>)}</select></FieldLabel>

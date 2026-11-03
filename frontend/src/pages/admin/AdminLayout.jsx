@@ -6,6 +6,9 @@ import ScheduleReminderAlert from '../../components/ScheduleReminderAlert.jsx';
 import PendingWork from '../../components/PendingWork.jsx';
 import MobileTabBar from '../../components/MobileTabBar.jsx';
 import ReminderBell from '../../components/ReminderBell.jsx';
+import FormulationAlarm from '../../components/medicine/FormulationAlarm.jsx';
+import TransitAlarm from '../../components/medicine/TransitAlarm.jsx';
+import PaperAlarm from '../../components/medicine/PaperAlarm.jsx';
 import { TeamPendingButton } from '../../components/TeamPending.jsx';
 import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -134,6 +137,12 @@ const AdminLayout = () => {
         </div>
 
         {/* Desktop: the reminder bell in its own strip above the page, so it never covers a page's own buttons. */}
+        {/* The doctor's alarm for formulations pending over a day (rings on every login / refresh until sent). */}
+        {user?.role === ROLES.DOCTOR && <FormulationAlarm user={user} />}
+        {/* In Transit's alarm, rung by the Medicine Department while a job waits on In Transit (quality check). */}
+        {user?.role === ROLES.IN_TRANSIT && <TransitAlarm user={user} />}
+        {/* The PCC who makes treatment papers: the Medicine Department rings it while a kit waits (step 9). */}
+        {user?.role === ROLES.ASSISTANT_DOCTOR && <PaperAlarm user={user} />}
         {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}
         <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
           <ScheduleReminderAlert />

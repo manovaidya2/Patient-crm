@@ -25,7 +25,7 @@ test('medicine job changes reach the people who work on or follow the jobs, and 
   for (const role of ALL_ROLES) {
     const rooms = [];
     connect({ user: { _id: 'person1', role }, join(room) { rooms.push(room); }, on() {} });
-    assert.equal(rooms.includes(MEDICINE_JOBS_ROOM), [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT].includes(role), role);
+    assert.equal(rooms.includes(MEDICINE_JOBS_ROOM), [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR].includes(role), role);
   }
   const sent = [];
   const io = { to(room) { sent.push(room); return this; }, emit(event, payload) { sent.push(event, payload.id); } };

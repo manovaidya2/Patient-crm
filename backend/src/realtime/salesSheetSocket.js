@@ -11,7 +11,8 @@ const POST_COUNSELING_ALL_ROOM = 'post-counseling:all';
 const postCounselingViewers = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER];
 // Medicine fulfilment: everyone who works on or follows a job hears when one changes (e.g. the doctor's sheet edit).
 const MEDICINE_JOBS_ROOM = 'medicine-jobs';
-const medicineJobViewers = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT];
+// The PCC too: the treatment-paper PCC works fulfilment step 9.
+const medicineJobViewers = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
 // In Transit changed a case (call, schedule, dispatch, receipt, PCC): the Self Pickup / Porter / Courier Schedule pages reload.
 const emitTransitChanged = (app, patientId, phase) => app?.get?.('io')?.to(MEDICINE_JOBS_ROOM).emit('transit:changed', { patientId: String(patientId), phase });
 const emitMedicineJobChanged = (app, jobId) => app?.get?.('io')?.to(MEDICINE_JOBS_ROOM).emit('medicine-job:changed', { id: String(jobId) });

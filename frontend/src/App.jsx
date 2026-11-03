@@ -32,6 +32,7 @@ const MedicineInventory = lazy(() => import('./pages/admin/MedicineInventory.jsx
 const ClinicInventory = lazy(() => import('./pages/admin/ClinicInventory.jsx'));
 const CourierRequests = lazy(() => import('./pages/admin/CourierRequests.jsx'));
 const SelfPickupSchedule = lazy(() => import('./pages/admin/SelfPickupSchedule.jsx'));
+const TreatmentPapers = lazy(() => import('./pages/admin/TreatmentPapers.jsx'));
 const PurchaseOrders = lazy(() => import('./pages/admin/PurchaseOrders.jsx'));
 const MedicineJobs = lazy(() => import('./pages/admin/MedicineJobs.jsx'));
 const MedicineJobPage = lazy(() => import('./pages/admin/MedicineJob.jsx'));
@@ -39,7 +40,7 @@ const Stocks = lazy(() => import('./pages/admin/Stocks.jsx'));
 const FormulationMasterPage = lazy(() => import('./pages/admin/FormulationMaster.jsx'));
 const MyDay = lazy(() => import('./pages/admin/MyDay.jsx'));
 const TeamPendingPage = lazy(() => import('./pages/admin/TeamPendingPage.jsx'));
-const MEDICINE_JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT];
+const MEDICINE_JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
 const FORMULATION_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 const STOCK_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const PurchaseOrderDetail = lazy(() => import('./pages/admin/PurchaseOrderDetail.jsx'));
@@ -290,6 +291,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="treatment-papers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><TreatmentPapers /></ProtectedRoute>} />
         <Route path="self-pickup-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><SelfPickupSchedule /></ProtectedRoute>} />
         <Route
           path="courier-delivered"

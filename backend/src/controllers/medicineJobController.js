@@ -21,7 +21,7 @@ const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
 const { moveStock } = require('./stockController');
 
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
-const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT];
+const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 // The Manager fills every stage the Admin can (the stage lists name the Admin only).
 const stepRole = (user) => (isAdminLike(user) ? ROLES.ADMIN : user.role);
@@ -100,7 +100,7 @@ const respond = async (res, job, status = 200) => {
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
 // Correcting the sheet for one patient is the doctor's call (or the admin's); the Medicine Department prepares from it.
 const SHEET_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
-const needSheetOwner = (user, job = null) => { const roles = stageRoles(STAGES[STAGE_INDEX.review], job); if (!roles.includes(stepRole(user))) fail(`The formulation sheet is handled by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
+const needSheetOwner = (user, job = null) => { const roles = stageRoles(STAGES[STAGE_INDEX.formula], job); if (!roles.includes(stepRole(user))) fail(`The formulation sheet is handled by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
 
 // Builds (or rebuilds) the formulation sheet, stock needs and chits of a job from its age band and supply using the
 // current (doctor-edited) Formulation Master, or from an already corrected sheet when one is given.
@@ -118,8 +118,8 @@ const applyFormulation = async (job, sheet) => {
 // master value stays beside each change. Stock needs and chits are rebuilt from the corrected sheet.
 // A custom sheet (0-3 years, no master) can also be created by the Medicine Department at the formulation check, after
 // asking the doctor; the doctor verifies it in the next step as usual.
-const canEditSheet = (user, job) => SHEET_EDIT_ROLES.includes(stepRole(user))
-  || (Boolean(job.formulation?.custom) && (job.currentStage || 0) <= STAGE_INDEX.review && STAGES[STAGE_INDEX.review].roles.includes(user.role));
+// The doctor makes the formulation at step 2 (custom ones too); the Medicine Department works from it as sent.
+const canEditSheet = (user) => SHEET_EDIT_ROLES.includes(stepRole(user));
 const editFormulation = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
@@ -154,7 +154,7 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
     supplyPlan: sent.plan || request.supplyPlan || poDoc?.supplyPlan || '', supplyPart: sent.part || request.supplyPart || poDoc?.supplyPart || '', ageBand: sent.ageBand || request.ageBand || poDoc?.ageBand || ageBandFor(phaseAge(patient, stage.number)) || '',
     medicines: request.medicines || '', caseCategory: request.caseCategory || '', requestNotes: request.notes || '', requestedAt: request.requestedAt || new Date(), requestedByName: request.requestedByName || '', readyByDate: request.readyByDate || null,
     status: request.status === 'sent_to_courier' ? 'released' : request.status === 'made' ? 'ready' : 'open',
-    currentStage: request.status === 'sent_to_courier' ? STAGES.length : request.status === 'made' ? STAGE_INDEX.release : request.status === 'in_process' ? STAGE_INDEX.review : 0,
+    currentStage: request.status === 'sent_to_courier' ? STAGES.length : request.status === 'made' ? STAGE_INDEX.release : request.status === 'in_process' ? STAGE_INDEX.formula : 0,
     events: [{ at: new Date(), action: 'Job opened', details: `Medicine request ${requestId}${request.poNumber ? ` | PO ${request.poNumber}` : ''}`, byName: user.name, byRole: user.role }],
   });
   if (request.status === 'in_process' || request.status === 'made' || request.status === 'sent_to_courier') {
@@ -243,7 +243,7 @@ const setSupply = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   needSheetOwner(req.user, job);
-  if ((job.currentStage || 0) > STAGE_INDEX.review) fail('The supply cannot change after the formulation check');
+  if ((job.currentStage || 0) > STAGE_INDEX.formula) fail('The supply cannot change after the doctor has sent the formulation');
   const ageBand = clean(req.body?.ageBand, 10);
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
   const [plan, part] = String(req.body?.supplyKey || '').split(':');
@@ -310,7 +310,7 @@ const completeStage = asyncHandler(async (req, res) => {
     logActivity(patient, req.user, `Medicine request accepted for Phase ${job.phase}`, `Ready by ${readyBy.toISOString().slice(0, 10)}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
     detail = `Ready by ${readyBy.toISOString().slice(0, 10)}`;
   }
-  if (stage.key === 'review' && !job.formulation) fail('Set the age group and medicine supply first (the formulation sheet is built from them)');
+  if (['formula', 'review'].includes(stage.key) && !job.formulation) fail('Set the age group and medicine supply first (the formulation sheet is built from them)');
   // A custom sheet (0-3 years) needs its medicines before the doctor signs it off and before anything is drawn.
   if (['formula', 'stock'].includes(stage.key) && job.formulation?.custom && !job.formulation.lines.some((l) => l.packed)) fail('Add the medicines of this child\'s formulation first (0 - 3 years has no Formulation Master)');
   if (stage.key === 'stock') {
@@ -381,7 +381,7 @@ const completeStage = asyncHandler(async (req, res) => {
     // Back to QC after correction; the notes say what has to be corrected (older jobs sent it as remarks).
     const why = notes || clean(fields.remarks, 500);
     if (!why) fail('Write in the notes what has to be corrected');
-    job.currentStage = STAGE_INDEX.qc;
+    job.currentStage = STAGE_INDEX.pack1;
     // Steps 7, 8 and 9 are done again (the uploaded papers stay unless new pages are uploaded).
     job.stages = job.stages.filter((s) => !['qc', 'pack1', 'photos'].includes(s.key));
     Object.assign(job.hold, { active: true, reason: `Doctor HOLD: ${why}`, at: now, byName: req.user.name, stageKey: 'doctor' });
@@ -389,13 +389,17 @@ const completeStage = asyncHandler(async (req, res) => {
     await job.save();
     return respond(res, job);
   }
-  if (stage.key === 'photos') {
-    // The photo of all medicines together (required), plus the papers the department adds itself: a name typed for each
-    // and its pages (body.papers = [{ name, slot }] with the pages under paper_<slot>). Papers uploaded before stay
-    // (e.g. redone after a doctor HOLD) unless named in body.removePapers; a paper added again with the same name replaces them.
+  if (stage.key === 'pack1') {
+    // The photo of all medicines together (the open kit), taken where the medicines are.
     const a = fileItems(req.files?.photoA || []);
-    if (!a.length && !job.photos.overview.length) fail('Upload the photo of all medicines together');
-    if (a.length) job.photos.overview = a;
+    if (!a.length && !(job.photos?.overview || []).length) fail('Upload the photo of all medicines together');
+    if (a.length) { job.photos.overview = a; job.markModified('photos'); }
+  }
+  if (stage.key === 'photos') {
+    // The treatment papers, made by the PCC the admin chose: a name for each and its pages (body.papers = [{ name, slot }]
+    // with the pages under paper_<slot>). Papers uploaded before stay (e.g. redone after a doctor HOLD) unless named in
+    // body.removePapers; a paper added again with the same name replaces them.
+    await require('./treatmentPaperController').assertPaperPcc(req.user);
     const removed = new Set((parseJson(body.removePapers, []) || []).map((n) => clean(n, 120).toLowerCase()));
     let sets = (job.photos.paperSets || []).filter((p) => !removed.has(String(p.name || '').toLowerCase()));
     const added = parseJson(body.papers, []);
@@ -409,11 +413,12 @@ const completeStage = asyncHandler(async (req, res) => {
       sets = sets.filter((p) => String(p.name || '').toLowerCase() !== name.toLowerCase());
       sets.push({ name, files: pages });
     }
+    if (!sets.length) fail('Add the treatment papers: the name of each paper and its pages');
     job.photos.paperSets = sets;
     const b = fileItems(req.files?.photoB || []);
     if (b.length) job.photos.papers.push(...b);
     job.markModified('photos');
-    detail = [`${job.photos.overview.length} medicine photo(s)`, ...job.photos.paperSets.map((p) => `${p.name}: ${p.files.length} page(s)`)].join(' | ');
+    detail = job.photos.paperSets.map((p) => `${p.name}: ${p.files.length} page(s)`).join(' | ');
   }
   if (stage.key === 'final') {
     const packer = job.stages.find((s) => s.key === 'pack2');
@@ -555,4 +560,57 @@ const getPatientFile = asyncHandler(async (req, res) => {
   res.json({ success: true, documents: await patientDocuments(patient) });
 });
 
-module.exports = { returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };
+
+// @route POST /api/medicine-jobs/:id/ring-transit   body: { note }
+// The Medicine Department rings In Transit's alarm when a job waits on In Transit (quality check / final check), or the
+// PCC's when it waits for the treatment papers.
+const TRANSIT_STAGE_KEYS = ['qc', 'final'];
+const RING_STAGE_KEYS = [...TRANSIT_STAGE_KEYS, 'photos'];
+const ringTransit = asyncHandler(async (req, res) => {
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  const key = STAGES[job.currentStage || 0]?.key;
+  if (job.status !== 'open' || !RING_STAGE_KEYS.includes(key)) fail('This job is not waiting on In Transit or the PCC', 409);
+  const note = clean(req.body?.note, 300);
+  job.transitAlarm = { at: new Date(), byName: req.user.name, note, stageKey: key };
+  const forPcc = key === 'photos';
+  event(job, req.user, forPcc ? 'Alarm rung for the PCC' : 'Alarm rung for In Transit', `${STAGES[job.currentStage].label}${note ? ` - ${note}` : ''}`);
+  await job.save();
+  const io = req.app?.get?.('io');
+  if (forPcc) {
+    // To the PCC the admin chose (every PCC when none is chosen).
+    const pcc = await require('./treatmentPaperController').getPaperPcc();
+    if (pcc) io?.to(`enquiry:user:${pcc.id}`).emit('pcc:alarm', { id: String(job._id) });
+    else io?.emit('pcc:alarm', { id: String(job._id) });
+  } else io?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('transit:alarm', { id: String(job._id) });
+  return respond(res, job);
+});
+
+// @route GET /api/medicine-jobs/transit-alarms
+// Jobs whose alarm the Medicine Department rang and which still wait on that In Transit step.
+const transitAlarms = asyncHandler(async (req, res) => {
+  const jobs = await MedicineJob.find({ status: 'open', 'transitAlarm.at': { $ne: null }, currentStage: { $in: TRANSIT_STAGE_KEYS.map((k) => STAGE_INDEX[k]) } })
+    .select('patientName patientCode phase poNumber purchaseOrder currentStage transitAlarm').lean();
+  const alarms = jobs.filter((j) => j.transitAlarm?.stageKey === STAGES[j.currentStage]?.key).map((j) => ({
+    id: String(j._id), patientName: j.patientName, patientCode: j.patientCode || '', phase: j.phase, poNumber: j.poNumber || '',
+    purchaseOrderId: j.purchaseOrder ? String(j.purchaseOrder) : '', step: STAGES[j.currentStage].label, stepNo: j.currentStage + 1,
+    at: j.transitAlarm.at, byName: j.transitAlarm.byName, note: j.transitAlarm.note,
+  })).sort((a, b) => new Date(b.at) - new Date(a.at));
+  res.json({ success: true, alarms });
+});
+
+// @route GET /api/medicine-jobs/doctor-alarms
+// Formulations waiting on the doctor (step 2) for more than a day: the doctor's page rings an alarm until they are sent.
+const FORMULATION_ALARM_AFTER_MS = 24 * 3600000;
+const doctorAlarms = asyncHandler(async (req, res) => {
+  const now = Date.now();
+  const jobs = await MedicineJob.find({ status: 'open', currentStage: STAGE_INDEX.formula, 'hold.active': { $ne: true } })
+    .select('patientName patientCode phase poNumber stages.key stages.doneAt requestedAt').lean();
+  const alarms = jobs.map((job) => {
+    const since = (job.stages || []).find((s) => s.key === 'accept')?.doneAt || job.requestedAt;
+    return { id: String(job._id), patientName: job.patientName, patientCode: job.patientCode || '', phase: job.phase, poNumber: job.poNumber || '', since, hours: since ? Math.floor((now - new Date(since).getTime()) / 3600000) : null };
+  }).filter((a) => a.since && now - new Date(a.since).getTime() > FORMULATION_ALARM_AFTER_MS).sort((a, b) => new Date(a.since) - new Date(b.since));
+  res.json({ success: true, alarms });
+});
+
+module.exports = { ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };

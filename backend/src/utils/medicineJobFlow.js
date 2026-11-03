@@ -7,6 +7,8 @@ const { medicineDelays } = require('./medicineDelay');
 const MED = [ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN];
 const DOC = [ROLES.DOCTOR, ROLES.ADMIN];
 const TRANSIT = [ROLES.IN_TRANSIT, ROLES.ADMIN];
+// The PCC the admin chose for treatment papers (checked in the controller; see controllers/treatmentPaperController).
+const PCC = [ROLES.ASSISTANT_DOCTOR, ROLES.ADMIN];
 // Each stage is filled by its owner only (admin can step in anywhere): the doctor fills the doctor stages, In Transit
 // the final check (from the PO timeline), the Medicine Department everything else. Kept as a name for the stages the doctor used to share.
 const MED_DOC = MED;
@@ -17,16 +19,19 @@ const STAGES = [
     purpose: 'Accept the request from In Transit and commit to a ready date. Acceptance starts the department timeline.',
     checks: ['Patient ID, name and phase match the purchase order', 'Supply (6 months / 1+5 / 2+4 part) and age group identified', 'Patient file (Records Room) read, or Reception asked to scan it', 'Ready-by date is achievable'],
     fields: [{ key: 'readyByDate', label: 'Medicine will be ready by', type: 'date', required: true }] },
-  { key: 'review', n: 2, label: 'Prescription & formulation check', hi: 'पर्चा व मात्रा मिलान', roles: MED_DOC, sop: 'SOP 5 · HR-17',
-    purpose: 'Match the prescription with the Formulation Master sheet below. Doses, totals, packs and days must agree before anything is weighed.',
-    checks: ['Age group and supply part confirmed against the patient age and PO', 'Every medicine, dose and total quantity matched with the prescription', 'What was supplied earlier and what remains checked (for a second part)', 'Unclear dose or instruction clarified with the doctor - nothing assumed'],
-    fields: [] },
-  // The doctor verifies the sheet the Medicine Department checked. Changes here (dose, quantity, a medicine added or
-  // removed) are for this patient's request only; the Formulation Master is not touched.
-  { key: 'formula', n: 3, label: 'Doctor formulation verification', hi: 'डॉक्टर फ़ॉर्मूला सत्यापन', roles: DOC, sop: 'Doctor sign-off',
-    purpose: 'The doctor verifies the formulation sheet for this patient. Any change made here (dose, quantity, a medicine added or removed) applies to this patient\'s request only; the Formulation Master stays as it is.',
-    checks: ['Every medicine, dose and total quantity on the sheet is right for this patient', 'Medicines to add or remove for this patient are done on the sheet', 'Changes apply to this request only (the Formulation Master is not changed)'],
+  // Step 2 is the doctor's: the formulation of this patient is made from the prescription (built from the Formulation
+  // Master and edited, or created for a custom supply / 0-3 years). Changes are for this patient's request only; the
+  // Formulation Master is not touched. The Medicine Department waits (their page shows the step locked).
+  { key: 'formula', n: 2, label: 'Prescription & formulation (Doctor)', hi: 'पर्चा व फ़ॉर्मूला - डॉक्टर', roles: DOC, sop: 'Doctor sign-off',
+    purpose: 'The doctor reads the prescription and the patient file and makes this patient\'s formulation: edit the sheet (dose, timing, quantity), add or remove medicines, or create it when there is no Formulation Master. Completing this step sends the formulation to the Medicine Department.',
+    checks: ['Prescription and patient file read', 'Every medicine, dose, timing and total quantity is right for this patient', 'Medicines to add or remove for this patient are done on the sheet'],
     fields: [{ key: 'remarks', label: 'Doctor remarks', type: 'textarea' }] },
+  // Step 3: the Medicine Department gets the formulation exactly as the doctor sent it and works from it. Nothing is
+  // changed here; an unclear point goes back to the doctor (hold).
+  { key: 'review', n: 3, label: 'Formulation from doctor', hi: 'डॉक्टर का फ़ॉर्मूला', roles: MED, sop: 'SOP 5 · HR-17',
+    purpose: 'The formulation sheet as the doctor sent it. Read it before stock and preparation: doses, totals, packs and days. Anything unclear goes back to the doctor - nothing is changed or assumed here.',
+    checks: ['Formulation sheet received from the doctor; patient name and ID match', 'Age group and supply part match the purchase order', 'Every medicine, dose, timing and total quantity is clear', 'Unclear points asked to the doctor - nothing assumed'],
+    fields: [] },
   { key: 'stock', n: 3, label: 'Stock match', hi: 'स्टॉक मिलान', roles: MED, sop: 'SOP 6 · D-19',
     purpose: 'Every ingredient and bottle is in stock with a valid batch; shortages are requested now, not when the shelf is empty.',
     checks: ['Required quantities compared with Stocks (table below)', 'Batch / expiry valid beyond the treatment end date', 'Bottles, droppers, pouches, chits and labels available', 'Shortage request raised where needed'],
@@ -41,24 +46,29 @@ const STAGES = [
     purpose: 'Fill each bottle, dropper and pouch, record actual fill, and confirm every chit below on its pack.',
     checks: ['Each unit filled and actual ml / g recorded; caps and inner seals secure, no leak', 'Powder pouch folded three times with safe outer closure; no exposed staple', 'Every pack carries name, code, patient ID, pack x/n and dose chit', 'Like medicines grouped 2-4 per band; no mixing of codes', 'Morning-evening and noon-night chits not swapped'],
     fields: [] },
-  { key: 'qc', n: 6, label: 'Pack QC', hi: 'क्वालिटी जाँच', roles: MED_DOC, sop: 'SOP S3 · HR-23-25',
-    purpose: 'The Medicine Department checks identity, quantity, appearance, closure, integrity and chits.',
+  { key: 'pack1', n: 7, label: 'Packing-1 (open kit)', hi: 'पैकिंग-1 खुली किट', roles: MED, sop: 'SOP S4',
+    purpose: 'All packs in one open tray per patient, countable, with papers in a separate sleeve. Nothing is sealed yet: In Transit checks the open kit next (quality check).',
+    checks: ['All medicines in one open tray / envelope for this patient', 'Each medicine group with its code and pack count in front', 'Bottles, droppers, packets and chits all visible; nothing loose', 'Packing-1 checklist (name, ID, age, formula, months, supply) attached; not bubble-wrapped', 'One photo of all the medicines together, every name / code visible'],
+    // The photo of the open kit (all medicines together) is taken here, where the medicines are.
+    fields: [], files: [{ key: 'photoA', label: 'All medicines together', required: true }] },
+  // Step 8: In Transit checks the open kit the Medicine Department packed (key kept as 'qc'). HOLD puts the job on hold
+  // for the Medicine Department to correct; they resume it and In Transit checks again. The Medicine Department can
+  // ring an alarm on In Transit's screen while it waits.
+  { key: 'qc', n: 8, label: 'Quality check', hi: 'क्वालिटी जाँच', roles: TRANSIT, sop: 'SOP S3 · HR-23-25',
+    purpose: 'In Transit checks the open kit (Packing-1): identity, quantity, appearance, closure, integrity and chits. HOLD sends it back to the Medicine Department to correct.',
     checks: ['Identity: medicine code, formulation version, batch match the job', 'Quantity: actual g / ml of every pack and pack count match', 'Appearance: colour, smell, moisture, lumps, foreign particles OK', 'Closure and integrity: folds, caps, no leak, tear or loose staple', 'Chits: name, dose, timing, days, pack x/n readable and correct', 'Treatment papers (first supply) present'],
     fields: [{ key: 'result', label: 'QC result', type: 'select', required: true, options: ['PASS', 'HOLD'] }, { key: 'findings', label: 'Findings / deviations', type: 'textarea' }] },
-  { key: 'pack1', n: 7, label: 'Packing-1 (open kit)', hi: 'पैकिंग-1 खुली किट', roles: MED, sop: 'SOP S4',
-    purpose: 'All QC-passed packs in one open tray per patient, countable, with papers in a separate sleeve. Nothing is sealed yet.',
-    checks: ['All QC-passed medicines in one open tray / envelope for this patient', 'Each medicine group with its code and pack count in front', 'Bottles, droppers, packets and chits all visible; nothing loose', 'Treatment papers (as applicable) in a separate clean sleeve', 'Packing-1 checklist (name, ID, age, formula, months, supply) attached; not bubble-wrapped'],
-    fields: [] },
   // Key kept as 'photos' (older jobs carry it). Every paper that goes with the kit is photographed page by page.
-  { key: 'photos', n: 9, label: 'Medicine dose papers', hi: 'दवा-निर्देश पेपर', roles: MED, sop: 'SOP S6',
-    purpose: 'One photo of all the medicines together, then add each paper that goes with this kit (its name and every page). The doctor checks them in the next step.',
-    checks: ['Every paper for this supply is in the kit, with the patient name and ID on it', 'Every page of every paper photographed and readable', 'All medicines photographed together, every name / code visible'],
-    // photoA = all medicines together; the papers are added on the page (name + pages under paper_0, paper_1, ...).
-    fields: [], files: [{ key: 'photoA', label: 'All medicines together', required: true }] },
+  // Step 9: the treatment papers are made by the PCC the admin chose (Make Treatment Paper page). The Medicine
+  // Department waits (locked) and can ring the PCC's alarm. Papers are added by name with every page.
+  { key: 'photos', n: 9, label: 'Make treatment papers', hi: 'ट्रीटमेंट पेपर बनाना', roles: PCC, sop: 'SOP S6',
+    purpose: 'The PCC chosen by the admin makes this kit\'s treatment papers (medicine paper, diet plan ...) from the doctor\'s formulation and adds each one with its name and every page. The doctor checks them in the next step.',
+    checks: ['Every paper for this supply is made, with the patient name and ID on it', 'Doses and timings on the papers match the formulation from the doctor', 'Every page of every paper added and readable'],
+    fields: [] },
   { key: 'doctor', n: 10, label: 'Doctor verification', hi: 'डॉक्टर सत्यापन', roles: DOC, sop: 'SOP S5',
-    purpose: 'The doctor checks the open kit against the prescription and verifies steps 7, 8 and 9 (Pack QC, Packing-1 and the medicine dose papers, shown below): patient, supply part, every medicine, dose, counts, packaging and papers.',
-    checks: ['Pack QC (step 7), Packing-1 (step 8) and the dose papers (step 9) checked below', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],
-    // A HOLD says what to correct in the stage notes; the kit goes back to Pack QC.
+    purpose: 'The doctor checks the open kit against the prescription and verifies steps 7, 8 and 9 (Packing-1, the quality check and the medicine dose papers, shown below): patient, supply part, every medicine, dose, counts, packaging and papers.',
+    checks: ['Packing-1 (step 7), quality check (step 8) and the dose papers (step 9) checked below', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],
+    // A HOLD says what to correct in the stage notes; the kit goes back to Packing-1.
     fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }] },
   { key: 'pack2', n: 10, label: 'Packing-2 (final parcel)', hi: 'पैकिंग-2 अंतिम पार्सल', roles: MED, sop: 'SOP S7',
     purpose: 'Secure bundle, bubble wrap, tested box, tape, logo and recipient label. Parents / Courier slip faces outward.',
@@ -140,6 +150,8 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     progress: Math.round((stages.filter((s) => s.state === 'done').length / STAGES.length) * 100),
     hold: job.hold?.active ? { ...job.hold, at: iso(job.hold.at) } : null,
     returned: job.returned?.at ? { reason: job.returned.reason, at: iso(job.returned.at), byName: job.returned.byName } : null,
+    // The last alarm the Medicine Department rang for In Transit (for the step it was rung on).
+    transitAlarm: job.transitAlarm?.at ? { at: iso(job.transitAlarm.at), byName: job.transitAlarm.byName || '', note: job.transitAlarm.note || '', stageKey: job.transitAlarm.stageKey || '' } : null,
     returns: (job.returns || []).map((r) => ({ reason: r.reason, at: iso(r.at), byName: r.byName, resentAt: iso(r.resentAt), resentByName: r.resentByName || '' })),
     urgency: u,
     // Days late against the date fixed in post counselling: made (final check) and released to In Transit.

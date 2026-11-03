@@ -5,10 +5,15 @@
 //  v2 -> v3: "Medicine dose papers" (step 9) now comes before "Doctor verification" (step 10). A job waiting on the papers
 //            with the doctor already done goes back to the papers; the doctor verifies again after them.
 //  v3 -> v4: the parcel weight (Packing-2) is entered in kg, no longer in grams; saved weights are divided by 1000.
+//  v4 -> v5: the doctor makes the formulation at step 2 and the Medicine Department reads it at step 3 (the two swapped).
+//            A job whose Medicine Department check was done but the doctor's not goes back to the doctor, and the check
+//            is asked again on the doctor's sheet.
+//  v5 -> v6: Packing-1 is step 7 (Medicine Department) and the quality check step 8 (In Transit). A job whose Pack QC was
+//            done but Packing-1 not goes back to Packing-1, and In Transit checks the kit after it.
 const MedicineJob = require('../models/MedicineJob');
 const { STAGES, STAGE_INDEX } = require('./medicineJobFlow');
 
-const STAGES_VERSION = 4;
+const STAGES_VERSION = 6;
 
 const migrateJobStages = async () => {
   const old = await MedicineJob.collection.find({ $or: [{ stagesVersion: { $exists: false } }, { stagesVersion: { $lt: STAGES_VERSION } }] })
@@ -40,6 +45,22 @@ const migrateJobStages = async () => {
         reweighed = true;
         return { ...s, fields: { ...s.fields, weight: grams / 1000 } };
       });
+    }
+    if (version < 5) {
+      const keys = new Set(stages.map((s) => s.key));
+      if (keys.has('review') && !keys.has('formula') && current === STAGE_INDEX.review) {
+        stages = stages.filter((s) => s.key !== 'review');
+        current = STAGE_INDEX.formula;
+        events.push({ at: new Date(), action: 'Formulation moved to the doctor', details: 'The doctor now makes the formulation first (step 2); the Medicine Department reads it after (step 3)', byName: 'System', byRole: '' });
+      }
+    }
+    if (version < 6) {
+      const keys = new Set(stages.map((s) => s.key));
+      if (keys.has('qc') && !keys.has('pack1') && current === STAGE_INDEX.qc) {
+        stages = stages.filter((s) => s.key !== 'qc');
+        current = STAGE_INDEX.pack1;
+        events.push({ at: new Date(), action: 'Quality check moved to In Transit', details: 'Packing-1 is now step 7; In Transit checks the open kit after it (step 8)', byName: 'System', byRole: '' });
+      }
     }
     const changed = reweighed || current !== (job.currentStage || 0) || stages.length !== (job.stages || []).length;
     if (changed) moved += 1;

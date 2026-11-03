@@ -43,9 +43,10 @@ const Pickers = ({ onAdd }) => (
 
 export const MAX_NEW_PAPERS = 10;
 
-// Step 9: the photo of all medicines together (required), then papers the department adds itself (name + pages).
+// part 'overview': the photo of all medicines together (step 7, Medicine Department). part 'papers': the treatment
+// papers (step 9, the PCC), each by name with every page.
 // files: { photoA: File[], paper_<i>: File[] }; rows: [{ name }] for paper_<i>; removed: names of earlier papers to drop.
-export function DosePaperUpload({ job, files, setFiles, rows, setRows, removed, setRemoved, disabled }) {
+export function DosePaperUpload({ job, files, setFiles, rows = [], setRows = () => {}, removed = [], setRemoved = () => {}, disabled, part = 'all' }) {
   const add = (key, list) => setFiles((o) => ({ ...o, [key]: [...(o[key] || []), ...list] }));
   const drop = (key, i) => setFiles((o) => ({ ...o, [key]: (o[key] || []).filter((_, n) => n !== i) }));
   const overview = files.photoA || [];
@@ -62,13 +63,14 @@ export function DosePaperUpload({ job, files, setFiles, rows, setRows, removed, 
   };
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-cardline bg-white/70 p-3">
+      {part !== 'papers' && <div className="rounded-lg border border-cardline bg-white/70 p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div><p className="text-sm font-bold text-charcoal">All medicines together<span className="text-red-700"> *</span></p><p className="text-xs text-charcoal/55">One photo, every medicine name / code visible{before.length && !overview.length ? ` · ${before.length} uploaded before` : ''}</p></div>
           {!disabled && <Pickers onAdd={(list) => add('photoA', list)} />}
         </div>
         {overview.length ? <Picked files={overview} onRemove={(i) => drop('photoA', i)} /> : before.length ? <Thumbs files={before} word="photo" /> : <p className="text-xs text-[#9C6B2E]">No photo yet.</p>}
-      </div>
+      </div>}
+      {part !== 'overview' && <>
 
       {earlier.length > 0 && (
         <div className="space-y-2">
@@ -109,6 +111,7 @@ export function DosePaperUpload({ job, files, setFiles, rows, setRows, removed, 
       {!disabled && rows.length < MAX_NEW_PAPERS && (
         <button type="button" onClick={() => setRows((list) => [...list, { name: '' }])} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-sage px-3 py-2 text-sm font-semibold text-sage hover:bg-sage/5"><Plus size={15} />Add paper</button>
       )}
+      </>}
     </div>
   );
 }
