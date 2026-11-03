@@ -51,7 +51,7 @@ const rowOf = (j) => {
   const stage = (j.stages || []).find((s) => s.key === 'photos');
   const alarm = j.transitAlarm?.at && j.transitAlarm.stageKey === 'photos' ? j.transitAlarm : null;
   return {
-    id: String(j._id), patientName: j.patientName, patientCode: j.patientCode || '', phase: j.phase, poNumber: j.poNumber || '',
+    id: String(j._id), purchaseOrderId: j.purchaseOrder ? String(j.purchaseOrder) : '', patientName: j.patientName, patientCode: j.patientCode || '', phase: j.phase, poNumber: j.poNumber || '',
     supplyLabel: supplyLabel(j.supplyPlan, j.supplyPart), ageBandLabel: AGE_BANDS[j.ageBand] || '', readyByDate: j.readyByDate || null,
     waitingSince: (j.stages || []).find((s) => s.key === 'qc')?.doneAt || null,
     doneAt: stage?.doneAt || null, doneByName: stage?.doneByName || '',
@@ -68,7 +68,7 @@ const listPapers = asyncHandler(async (req, res) => {
   const filter = view === 'pending'
     ? { status: 'open', currentStage: STAGE_INDEX.photos }
     : { 'stages.key': 'photos', 'stages.doneAt': { $ne: null } };
-  const jobs = await MedicineJob.find(filter).select('patientName patientCode phase poNumber supplyPlan supplyPart ageBand readyByDate stages photos transitAlarm').sort(view === 'pending' ? { readyByDate: 1 } : { updatedAt: -1 }).limit(view === 'pending' ? 500 : 100).lean();
+  const jobs = await MedicineJob.find(filter).select('patientName patientCode phase poNumber purchaseOrder supplyPlan supplyPart ageBand readyByDate stages photos transitAlarm').sort(view === 'pending' ? { readyByDate: 1 } : { updatedAt: -1 }).limit(view === 'pending' ? 500 : 100).lean();
   res.json({ success: true, pcc, mine: true, step: STAGES[STAGE_INDEX.photos].label, rows: jobs.map(rowOf) });
 });
 

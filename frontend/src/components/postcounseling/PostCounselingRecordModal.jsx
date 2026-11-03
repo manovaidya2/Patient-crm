@@ -41,7 +41,9 @@ const Frame = ({ asPage, onClose, children }) => (asPage
   ? <div className="rounded-[14px] border border-[#E8DFCB] bg-offwhite-100 p-4 sm:p-6"><h1 className="mb-4 text-xl font-bold text-charcoal">Post-counselling record</h1>{children}</div>
   : <Modal open onClose={onClose} title="Post-counselling record" className="max-w-5xl">{children}</Modal>);
 
-const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly = false, asPage = false, recordUrl = '' }) => {
+// only: section letters to show (e.g. ['C', 'E'] for the treatment-paper PCC); all when not given.
+const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly = false, asPage = false, recordUrl = '', only = null }) => {
+  const showSec = (letter) => !only || only.includes(letter);
   const [data, setData] = useState(null);
   const [record, setRecord] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -138,9 +140,9 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
           </div>
 
           {!readOnly && <OutcomeBanner outcome={data.outcome} result={result} />}
-          <VisitPhase patient={patient} data={data} editable={!readOnly && data.canEdit && !data.outcome} onData={(next) => setData(next)} />
+          {!only && <VisitPhase patient={patient} data={data} editable={!readOnly && data.canEdit && !data.outcome} onData={(next) => setData(next)} />}
 
-          {readOnly && data.registration && (
+          {readOnly && data.registration && !only && (
             <details className="rounded-lg border border-cardline bg-white/60 p-3" open>
               <summary className="cursor-pointer text-sm font-bold text-charcoal">Registration details <span className="font-normal text-charcoal/50">· consultation {data.registration.consultationDate || '-'} · {data.registration.postCounselorName}</span></summary>
               <div className="mt-3 space-y-3">
@@ -157,7 +159,7 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
             </details>
           )}
 
-          <section className="space-y-3">
+          {showSec('A') && <section className="space-y-3">
             <SectionTitle letter="A">Guided post-counselling questions (tick + note)</SectionTitle>
             <div className="grid gap-3 md:grid-cols-2">
               {defs.sectionA.map((question) => (
@@ -168,9 +170,9 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
                 </div>
               ))}
             </div>
-          </section>
+          </section>}
 
-          <section className="space-y-3">
+          {showSec('B') && <section className="space-y-3">
             <SectionTitle letter="B">Decision readiness &amp; counselling conclusion</SectionTitle>
             <div className="grid gap-3 md:grid-cols-2">
               {defs.sectionB.map((field) => (
@@ -192,9 +194,9 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
                 <p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.approved)}</p>
               </div>
             </div>
-          </section>
+          </section>}
 
-          <section className="space-y-3">
+          {showSec('C') && <section className="space-y-3">
             <SectionTitle letter="C">Customized treatment &amp; support components</SectionTitle>
             <div className="overflow-hidden rounded-lg border border-cardline">
               <div className="grid grid-cols-[1fr_auto] gap-3 bg-[#56695D] px-4 py-2 text-xs font-semibold text-white">
@@ -220,9 +222,9 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
               <p className="mb-1 text-xs font-semibold text-charcoal/70">Other doctor-recommended component</p>
               <input disabled={!editable} value={record.otherComponent} onChange={(event) => change((next) => { next.otherComponent = event.target.value; return next; })} maxLength={300} className={inputClass} />
             </div>
-          </section>
+          </section>}
 
-          <section className="space-y-3">
+          {showSec('E') && <section className="space-y-3">
             <SectionTitle letter="E">Program value &amp; approved payment structure</SectionTitle>
             <div className="grid gap-3 md:grid-cols-2">
               <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Selected components reference value <span className="font-normal text-charcoal/45">(auto)</span></p><p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-bold text-charcoal">{rupees(totals.reference)}</p></div>
@@ -256,9 +258,9 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
               })()}
               <div><p className="mb-1 text-xs font-semibold text-charcoal/70">Other approved plan / note</p><input disabled={!editable} value={record.e.otherPlan} onChange={(event) => setE('otherPlan', event.target.value)} maxLength={500} className={inputClass} /></div>
             </div>
-          </section>
+          </section>}
 
-          {readOnly && data.saved && (
+          {readOnly && data.saved && !only && (
             <section className="space-y-3">
               <SectionTitle letter="F-H">Purchase order &amp; payment</SectionTitle>
               {data.purchase.saved ? <PurchaseOrderStep patient={patient} data={data} readOnly onData={() => {}} /> : <p className="text-sm text-charcoal/60">The purchase order details have not been filled yet.</p>}
