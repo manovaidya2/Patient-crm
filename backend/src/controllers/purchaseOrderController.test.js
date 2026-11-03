@@ -157,7 +157,7 @@ test('a rejected PO needs a reason and goes back to verification once corrected'
   const patient = makePatient();
   memoryPos();
   const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient) })).purchaseOrder;
-  await assert.rejects(call(controller.rejectPurchaseOrder, { params: { id: created.id }, body: {} }), /why/);
+  await assert.rejects(call(controller.rejectPurchaseOrder, { params: { id: created.id }, body: {} }), /what has to be corrected/);
   const rejected = (await call(controller.rejectPurchaseOrder, { params: { id: created.id }, body: { reason: 'Wrong amount' } })).purchaseOrder;
   assert.equal(rejected.stageKey, 'rejected');
   await assert.rejects(call(controller.requestMedicine, { params: { id: created.id } }), /Verify the PO details/);
@@ -312,6 +312,10 @@ test('ready date and supply come from post counselling: In Transit cannot change
   const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first', medicineReadyDate: '2026-11-05' }), user: counselor })).purchaseOrder;
   assert.ok(created.fixedPlan.readyDate, 'the Post Counselor fixed the ready date');
   await assert.rejects(call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '6M:full' } }), /supply is set by post counselling/);
+  // Before In Transit checks it, the Post Counselor may still change the supply; once checked, only the admin.
+  const own = (await call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '2+4:first' }, user: counselor })).purchaseOrder;
+  assert.equal(own.supplyLabel, '2+4: First 2 months');
+  await call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '1+5:first' }, user: counselor });
   await assert.rejects(call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { medicineReadyDate: '2026-11-20' } }), /ready date is set by post counselling/);
   // Sending the same values is not a change.
   await call(controller.updatePurchaseOrder, { params: { id: created.id }, body: { supplyKey: '1+5:first', medicineReadyDate: '2026-11-05' } });

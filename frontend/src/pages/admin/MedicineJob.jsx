@@ -327,6 +327,9 @@ export default function MedicineJobPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [holdOpen, setHoldOpen] = useState(false);
+  // Before accepting: an unclear request goes back to In Transit with what is unclear.
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnText, setReturnText] = useState('');
   const [holdText, setHoldText] = useState('');
   const [supply, setSupply] = useState({ ageBand: '', supplyKey: '' });
   const canAct = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], user);
@@ -341,7 +344,7 @@ export default function MedicineJobPage() {
   useEffect(() => { if (job) setSupply({ ageBand: job.ageBand, supplyKey: supplyKeyOf(job.supplyPlan, job.supplyPart) }); }, [job?.id, job?.ageBand, job?.supplyPlan, job?.supplyPart]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
   const done = (next, message) => { setJob(next); setNotice(message); setView(null); setHoldOpen(false); setHoldText(''); };
-  const act = async (path, body) => { setError(''); try { const { data } = await api.post(`/medicine-jobs/${id}/${path}`, body); done(data.job, path === 'hold' ? 'Job put on hold.' : 'Job resumed.'); } catch (err) { setError(err.response?.data?.message || 'Could not save'); } };
+  const act = async (path, body) => { setError(''); try { const { data } = await api.post(`/medicine-jobs/${id}/${path}`, body); done(data.job, path === 'hold' ? 'Job put on hold.' : path === 'return' ? 'Sent back to In Transit with your note.' : 'Job resumed.'); } catch (err) { setError(err.response?.data?.message || 'Could not save'); } };
   // Admin undo of a completed stage (and every stage after it), with a reason.
   const [revertKey, setRevertKey] = useState('');
   const [revertReason, setRevertReason] = useState('');
@@ -382,6 +385,7 @@ export default function MedicineJobPage() {
           {job.delay && <DelayChips delay={job.delay} show={['medicine', 'transit', 'dispatch']} />}
           <div className="w-40" title={`${job.progress}% done`}><p className="text-right text-[11px] text-charcoal/60">Stage {Math.min(job.currentStage + 1, job.totalStages)} of {job.totalStages} · <b className="text-charcoal">{job.progress}%</b></p><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#EFE3CF]"><div className="h-full rounded-full bg-sage transition-all" style={{ width: `${job.progress}%` }} /></div></div>
           {job.purchaseOrderId && <Link to={`/admin/purchase-orders/${job.purchaseOrderId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />PO</Button></Link>}
+          {canAct && job.status === 'open' && job.currentStage === 0 && !job.returned && !job.hold && <Button size="sm" variant="outline" onClick={() => { setReturnOpen((v) => !v); setHoldOpen(false); }}><RotateCcw size={14} />Send back to In Transit</Button>}
           {canAct && job.status !== 'released' && !job.hold && <Button size="sm" variant="outline" onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={14} />Hold</Button>}
         </div>
       </header>
@@ -394,6 +398,9 @@ export default function MedicineJobPage() {
       {job.oldFlow && job.status !== 'released' && <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900"><b>Old request</b> (made before the fulfilment timeline, no PO): the Admin and the Doctor can fill every step to move it on, with the Medicine Department.{!job.ageBand || !job.supplyPlan ? ' Set its age group and supply at step 2 first.' : ''}</p>}
       <ErrorText>{error}</ErrorText>
       {notice && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />{notice}</p>}
+      {returnOpen && <div className="flex flex-wrap gap-2 rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] p-3"><input className={`${poInput} flex-1`} placeholder="What is unclear in the request? (e.g. supply 6 months or 1+5? age group?)" value={returnText} onChange={(e) => setReturnText(e.target.value)} /><Button size="sm" disabled={returnText.trim().length < 3} onClick={async () => { await act('return', { reason: returnText }); setReturnOpen(false); setReturnText(''); }}><RotateCcw size={14} />Send back</Button></div>}
+      {job.returned && <div className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] p-3 text-sm text-[#7F1D1D]"><b>Sent back to In Transit:</b> {job.returned.reason} <span className="text-[#7F1D1D]/60">({job.returned.byName}, {dateTime(job.returned.at)})</span><p className="mt-1 text-xs">Waiting for In Transit to correct the request. It can be accepted once they send it again.</p></div>}
+      {!job.returned && job.returns?.length > 0 && job.currentStage === 0 && (() => { const r = job.returns[job.returns.length - 1]; return <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900"><b>Corrected by In Transit</b>{r.resentByName ? ` (${r.resentByName}, ${dateTime(r.resentAt)})` : ''} · you had asked: {r.reason}</div>; })()}
       {holdOpen && <div className="flex flex-wrap gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><input className={`${poInput} flex-1`} placeholder="Reason for the hold (e.g. dose unclear, leak)" value={holdText} onChange={(e) => setHoldText(e.target.value)} /><Button size="sm" disabled={!holdText.trim()} onClick={() => act('hold', { reason: holdText })}>Put on hold</Button></div>}
       {job.hold && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#8C3B2E]/30 bg-[#8C3B2E]/5 p-3 text-sm"><span><b className="text-[#8C3B2E]">On hold:</b> {job.hold.reason} <span className="text-charcoal/50">({job.hold.byName}, {dateTime(job.hold.at)})</span></span>{canAct && <div className="flex gap-2"><input className={`${poInput} w-64`} placeholder="Corrective action taken" value={holdText} onChange={(e) => setHoldText(e.target.value)} /><Button size="sm" disabled={!holdText.trim()} onClick={() => act('resume', { note: holdText })}><PlayCircle size={14} />Resume</Button></div>}</div>}
       {job.formulation?.pending?.length > 0 && <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900"><b>Points the doctor still has to confirm:</b> {job.formulation.pending.join(' ')}</div>}

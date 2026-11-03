@@ -224,6 +224,8 @@ const buildJobList = async (status, user) => {
 const jobActionBy = (job, handedOver) => {
   if (job.status === 'released' || job.status === 'cancelled') return [];
   if (handedOver?.has(String(job.requestId))) return [];
+  // Sent back for a correction: In Transit's turn until the request is corrected.
+  if (job.returned?.at) return [ROLES.ADMIN, ROLES.IN_TRANSIT];
   if (job.hold?.active) return JOB_ROLES;
   return stageRoles(STAGES[job.currentStage || 0], job);
 };
@@ -294,6 +296,7 @@ const completeStage = asyncHandler(async (req, res) => {
   stage.fields.forEach((f) => { record.fields[f.key] = f.type === 'number' ? Number(fields[f.key]) : clean(fields[f.key], f.type === 'textarea' ? 2000 : 300); });
   let detail = '';
 
+  if (stage.key === 'accept' && job.returned?.at) fail('This request was sent back to In Transit. It can be accepted once In Transit corrects it', 409);
   if (stage.key === 'accept') {
     // The ready date came with the request (fixed in post counselling); the Medicine Department cannot change it.
     const readyBy = job.readyByDate && !canOverrideFixed(req.user) ? new Date(job.readyByDate) : parseDay(fields.readyByDate, 'ready-by date');
@@ -482,6 +485,29 @@ const revertJob = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
+// @route POST /api/medicine-jobs/:id/return   body: { reason }
+// Before accepting, the Medicine Department sends an unclear request back to In Transit with what is unclear. In
+// Transit corrects the request on the PO; that clears it and the request comes back here to accept.
+const returnToTransit = asyncHandler(async (req, res) => {
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  const roles = stageRoles(STAGES[STAGE_INDEX.accept], job);
+  if (!roles.includes(stepRole(req.user))) fail('Only the Medicine Department sends a request back', 403);
+  if (job.status !== 'open' || (job.currentStage || 0) > STAGE_INDEX.accept) fail('This request is already accepted; put the job on hold instead', 409);
+  if (job.returned?.at) fail('This request is already with In Transit for a correction', 409);
+  const reason = clean(req.body?.reason, 1000);
+  if (reason.length < 3) fail('Write what is unclear in the request');
+  const now = new Date();
+  job.returned = { reason, at: now, byName: req.user.name };
+  job.returns = [...(job.returns || []), { reason, at: now, byName: req.user.name }];
+  event(job, req.user, 'Sent back to In Transit', reason);
+  await job.save();
+  if (job.purchaseOrder) {
+    await PurchaseOrder.updateOne({ _id: job.purchaseOrder }, { $push: { events: { at: now, action: 'Medicine request sent back', details: reason, byName: req.user.name, byRole: req.user.role } } });
+  }
+  await respond(res, job);
+});
+
 // @route POST /api/medicine-jobs/:id/hold   body: { reason }
 const holdJob = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
@@ -529,4 +555,4 @@ const getPatientFile = asyncHandler(async (req, res) => {
   res.json({ success: true, documents: await patientDocuments(patient) });
 });
 
-module.exports = { getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };
+module.exports = { returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };

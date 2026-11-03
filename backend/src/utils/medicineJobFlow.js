@@ -139,6 +139,8 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     status: job.status, currentStage: current, currentKey: STAGES[current]?.key || '', totalStages: STAGES.length,
     progress: Math.round((stages.filter((s) => s.state === 'done').length / STAGES.length) * 100),
     hold: job.hold?.active ? { ...job.hold, at: iso(job.hold.at) } : null,
+    returned: job.returned?.at ? { reason: job.returned.reason, at: iso(job.returned.at), byName: job.returned.byName } : null,
+    returns: (job.returns || []).map((r) => ({ reason: r.reason, at: iso(r.at), byName: r.byName, resentAt: iso(r.resentAt), resentByName: r.resentByName || '' })),
     urgency: u,
     // Days late against the date fixed in post counselling: made (final check) and released to In Transit.
     delay: medicineDelays({ expected: job.readyByDate, madeAt: done.get('final')?.doneAt, releasedAt: done.get('release')?.doneAt, ...dispatch, now }),
@@ -164,7 +166,7 @@ function jobSummary(jobDoc) {
   if (!jobDoc) return null;
   const v = buildJobView(jobDoc);
   return {
-    id: v.id, status: v.status, currentKey: v.currentKey, progress: v.progress, hold: v.hold, photos: v.photos, urgency: v.urgency, readyByDate: v.readyByDate, delay: v.delay,
+    id: v.id, status: v.status, currentKey: v.currentKey, progress: v.progress, hold: v.hold, returned: v.returned, photos: v.photos, urgency: v.urgency, readyByDate: v.readyByDate, delay: v.delay,
     currentLabel: v.status === 'released' ? 'Released to In Transit' : v.status === 'ready' ? 'Medicine ready - awaiting release' : (STAGES[v.currentStage]?.label || ''),
     stages: v.stages.map((s) => ({
       key: s.key, n: s.n, label: s.label, state: s.state, doneAt: s.doneAt, doneByName: s.doneByName, purpose: s.purpose || '', roles: s.roles, checks: s.checks,

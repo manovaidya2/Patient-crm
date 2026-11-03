@@ -1,5 +1,5 @@
 const express = require('express');
-const { JOB_ROLES, JOB_VIEW_ROLES, getPatientFile, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, revertJob } = require('../controllers/medicineJobController');
+const { JOB_ROLES, JOB_VIEW_ROLES, getPatientFile, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, revertJob, returnToTransit } = require('../controllers/medicineJobController');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const { uploadMedicineImage } = require('../middleware/fileUploads');
@@ -15,6 +15,7 @@ router.patch('/:id/formulation', authorize(...JOB_ROLES), editFormulation);
 router.post('/:id/rebuild', authorize(...JOB_ROLES), rebuildSheet);
 router.post('/:id/stages/:key', authorize(...JOB_ROLES, ROLES.IN_TRANSIT), uploadMedicineImage.fields([{ name: 'photoA', maxCount: 10 }, { name: 'photoB', maxCount: 10 }, ...Array.from({ length: 10 }, (_, i) => ({ name: `paper_${i}`, maxCount: 30 }))]), completeStage);
 router.post('/:id/hold', authorize(...JOB_ROLES, ROLES.IN_TRANSIT), holdJob);
+router.post('/:id/return', authorize(...JOB_ROLES), returnToTransit);
 router.post('/:id/revert', authorize(ROLES.ADMIN), revertJob);
 router.post('/:id/resume', authorize(...JOB_ROLES), resumeJob);
 

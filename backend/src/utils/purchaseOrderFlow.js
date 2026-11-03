@@ -125,7 +125,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
       waitText: linked.count ? 'In Transit matches the payment proof and verifies it' : 'In Transit confirms there is no payment on this PO',
     },
     { key: 'requested', group: 'medicine', label: 'Medicine requested', done: Boolean(request), failed: status === 'cancelled', at: iso(request?.requestedAt), by: request?.requestedByName, text: status === 'cancelled' ? `Cancelled: ${request.cancelReason || ''}` : [supplyLabel(po.supplyPlan, po.supplyPart), AGE_BANDS[po.ageBand]].filter(Boolean).join(' | '), waitText: 'In Transit sends the request to Medicine Department' },
-    { key: 'accepted', group: 'medicine', label: 'Accepted by Medicine Dept', done: accepted, at: iso(request?.inProcessAt), by: request?.inProcessByName, text: request?.readyByDate ? `Ready by ${new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}` : '', waitText: 'Waiting for Medicine Department' },
+    { key: 'accepted', group: 'medicine', label: 'Accepted by Medicine Dept', done: accepted, returned: !accepted && Boolean(job?.returned?.at), at: iso(!accepted && job?.returned?.at ? job.returned.at : request?.inProcessAt), by: !accepted && job?.returned?.at ? job.returned.byName : request?.inProcessByName, text: !accepted && job?.returned?.at ? `Sent back to In Transit: ${job.returned.reason}` : request?.readyByDate ? `Ready by ${new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}` : '', waitText: 'Waiting for Medicine Department' },
     // Medicine Department's track: the medicine is prepared and packed (fulfilment steps 2-11), In Transit confirms the
     // final check of the packed parcel (step 12, `finalDue`: In Transit's turn), then it is released once the full
     // payment is verified.
@@ -203,14 +203,15 @@ const TRANSIT = ['admin', 'in_transit'];
 const VERIFY = ['admin', 'doctor', 'in_transit'];
 const MED = ['admin', 'doctor', 'medicine_department'];
 function actionByOf(po, stepKey, canRequest, step = null) {
-  if (po.status === 'rejected') return ['admin', 'doctor', 'post_counselor', 'in_transit'];
+  if (po.status === 'rejected') return po.source === 'conversion' ? ['admin', 'post_counselor'] : ['admin', 'doctor', 'post_counselor', 'in_transit'];
   if (po.status === 'cancelled') return [];
   switch (stepKey) {
     case 'details': case 'payment': return VERIFY;
     // Also when blocked (patient approval, payment): clearing the blocker is In Transit's work too.
     case 'requested': return VERIFY;
     case 'ready': return step?.finalDue ? TRANSIT : MED;
-    case 'accepted': case 'released': return MED;
+    case 'accepted': return step?.returned ? TRANSIT : MED;
+    case 'released': return MED;
     case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;
     case 'explained': return ['admin', 'assistant_doctor'];
     default: return [];

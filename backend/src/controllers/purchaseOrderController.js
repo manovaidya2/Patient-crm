@@ -306,18 +306,24 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
 });
 
 // @route PATCH /api/purchase-orders/:id   (multipart: paper[])
-// Correct a PO before it is verified. A rejected PO goes back to In Transit for checking again.
+// Correct a PO before In Transit has checked it (the Post Counselor who made it, or the admin), or after In Transit
+// sent it back. A sent-back PO goes to In Transit for checking again.
 const updatePurchaseOrder = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
   if (!['pending', 'rejected'].includes(po.status)) fail('A verified purchase order cannot be edited');
+  const admin = canOverrideFixed(req.user);
+  if (po.status === 'pending' && po.detailsVerifiedAt && !admin) fail('In Transit has already checked this PO; ask In Transit to send it back to correct it', 409);
   const body = req.body || {};
   const changes = [];
   const supply = parseSupply(body);
-  const admin = canOverrideFixed(req.user);
+  // The supply is the Post Counselor's decision: they (and the admin) may change it; In Transit cannot.
+  const ownsPlan = admin || req.user.role === ROLES.POST_COUNSELOR;
   const supplyChanged = supply && (supply.plan !== po.supplyPlan || supply.part !== po.supplyPart);
-  // The supply and the ready date come from post counselling: In Transit cannot change them.
-  if (supplyChanged && po.supplyPlan && !admin) fail('The medicine supply is set by post counselling on the PO paper; only the admin can change it', 403);
-  if (supplyChanged) { po.supplyPlan = supply.plan; po.supplyPart = supply.part; changes.push(supply.label); }
+  if (supplyChanged && po.supplyPlan && !ownsPlan) fail('The medicine supply is set by post counselling on the PO paper; only the Post Counselor or the admin can change it', 403);
+  if (supplyChanged) {
+    po.supplyPlan = supply.plan; po.supplyPart = supply.part; changes.push(supply.label);
+    if (po.paperValues?.supplyOrder !== undefined) { po.paperValues = { ...po.paperValues, supplyOrder: supply.label, supplyMonths: supply.custom ? String(supply.months) : '' }; po.markModified('paperValues'); }
+  }
   if (body.packageName !== undefined) po.packageName = clean(body.packageName, 200);
   if (body.amount !== undefined) { po.amount = amountOf(body.amount, 'PO amount'); changes.push(`Rs ${po.amount}`); }
   if (body.medicineReadyDate !== undefined) {
@@ -332,7 +338,7 @@ const updatePurchaseOrder = asyncHandler(async (req, res) => {
   const resubmitted = po.status === 'rejected';
   // A corrected PO is checked from the start again.
   if (resubmitted) Object.assign(po, { status: 'pending', detailsVerifiedAt: null, detailsVerifiedByName: '', detailsChecks: [] });
-  event(po, req.user, resubmitted ? 'Corrected and sent for verification again' : 'PO updated', changes.join(' | '));
+  event(po, req.user, resubmitted ? 'Corrected and sent for verification again' : 'PO edited before verification', [changes.join(' | '), resubmitted && po.rejectReason ? `answering: ${po.rejectReason}` : ''].filter(Boolean).join(' | '));
   await po.save();
   const patient = await Patient.findById(po.patient).populate('assignedDoctor', 'name').lean();
   await respond(res, po, patient);
@@ -409,7 +415,7 @@ const rejectPurchaseOrder = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
   if (po.status !== 'pending') fail('Only a purchase order waiting for verification can be rejected', 409);
   const reason = clean(req.body?.reason, 500);
-  if (!reason) fail('Enter why the purchase order is rejected');
+  if (!reason) fail('Write what has to be corrected');
   Object.assign(po, { status: 'rejected', rejectedAt: new Date(), rejectedByName: req.user.name, rejectReason: reason });
   event(po, req.user, 'PO rejected', reason);
   await po.save();
@@ -569,7 +575,10 @@ const updateMedicineRequest = asyncHandler(async (req, res) => {
     (notes || '') !== (request.notes || '') ? `notes "${short(request.notes)}" -> "${short(notes)}"` : '',
     (medicines || '') !== (request.medicines || '') ? `medicines "${short(request.medicines)}" -> "${short(medicines)}"` : '',
   ].filter(Boolean);
-  if (!changes.length) fail('Nothing was changed');
+  // A request sent back by the Medicine Department may be sent again with only a reply in the notes.
+  const answering = Boolean(job?.returned?.at);
+  if (!changes.length && !answering) fail('Nothing was changed');
+  if (answering) changes.push(`answering: ${job.returned.reason}`);
   const now = new Date();
   const dateChanged = day(readyBy) !== day(request.readyByDate);
   Object.assign(request, { supplyPlan: supply.plan, supplyPart: supply.part, ageBand, caseCategory, notes, medicines, readyByDate: readyBy, ...(dateChanged ? { readyBySetAt: now, readyBySetByName: req.user.name } : {}), editedAt: now, editedByName: req.user.name });
@@ -580,9 +589,15 @@ const updateMedicineRequest = asyncHandler(async (req, res) => {
   event(po, req.user, 'Medicine request edited', changes.join(' | '));
   await patient.save();
   await po.save();
+  if (job && answering) {
+    job.returns = (job.returns || []).map((r) => (r.resentAt ? r : { ...(r.toObject ? r.toObject() : r), resentAt: now, resentByName: req.user.name }));
+    job.returned = { reason: '', at: null, byName: '' };
+    job.events.push({ at: now, action: 'Corrected by In Transit', details: changes.join(' | '), byName: req.user.name, byRole: req.user.role });
+    if ((job.currentStage || 0) > 0) await job.save();
+  }
   if (job) {
     const { applyPlanToJob } = require('./medicineJobController');
-    await applyPlanToJob(job, { readyBy, plan: supply.plan, part: supply.part, ageBand, extra: { caseCategory, requestNotes: notes || '', medicines: medicines || '' } }, req.user, changes.join(' | '), 'Request edited by In Transit');
+    await applyPlanToJob(job, { readyBy, plan: supply.plan, part: supply.part, ageBand, extra: { caseCategory, requestNotes: notes || '', medicines: medicines || '' } }, req.user, changes.join(' | '), answering ? 'Request corrected by In Transit' : 'Request edited by In Transit');
     emitMedicineJobChanged(req.app, job._id);
   }
   await respond(res, po, patient);

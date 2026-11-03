@@ -65,6 +65,16 @@ const medicineJobSchema = new mongoose.Schema(
     status: { type: String, enum: ['open', 'ready', 'released', 'cancelled'], default: 'open', index: true },
     currentStage: { type: Number, default: 0 },
     stages: { type: [stageRecordSchema], default: [] },
+    // Sent back to In Transit before acceptance (request unclear); cleared when In Transit corrects the request.
+    returned: {
+      reason: { type: String, trim: true, default: '' },
+      at: { type: Date, default: null },
+      byName: { type: String, trim: true, default: '' },
+    },
+    returns: {
+      type: [{ reason: String, at: Date, byName: String, resentAt: Date, resentByName: String, _id: false }],
+      default: undefined,
+    },
     hold: {
       active: { type: Boolean, default: false },
       reason: { type: String, trim: true, default: '' },

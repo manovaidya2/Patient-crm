@@ -288,14 +288,14 @@ function RejectBox({ po, onDone, onBack }) {
   const [error, setError] = useState('');
   const reject = async () => {
     setBusy(true); setError('');
-    try { const { data } = await api.post(`/purchase-orders/${po.id}/reject`, { reason }); onDone(data.purchaseOrder, 'Purchase order rejected. The creator corrects it and sends it again.'); }
+    try { const { data } = await api.post(`/purchase-orders/${po.id}/reject`, { reason }); onDone(data.purchaseOrder, `Sent back to ${po.source === 'conversion' ? 'the Post Counselor' : 'the creator'}. They correct it and send it again.`); }
     catch (err) { setError(err.response?.data?.message || 'Could not reject'); } finally { setBusy(false); }
   };
   return (
     <div className="space-y-2 rounded-lg border border-[#8C3B2E]/25 bg-[#8C3B2E]/5 p-3">
       <ErrorText>{error}</ErrorText>
-      <FieldLabel label="Why is it rejected?" required><input className={poInput} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. amount does not match the screenshot" /></FieldLabel>
-      <div className="flex gap-2"><Button variant="danger" disabled={busy || !reason.trim()} onClick={reject}>Reject PO</Button><Button variant="outline" onClick={onBack}>Back</Button></div>
+      <FieldLabel label="What has to be corrected?" required><input className={poInput} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. amount does not match the screenshot, wrong supply" /></FieldLabel>
+      <div className="flex gap-2"><Button variant="danger" disabled={busy || !reason.trim()} onClick={reject}><RotateCcw size={15} />Send back</Button><Button variant="outline" onClick={onBack}>Back</Button></div>
     </div>
   );
 }
@@ -331,7 +331,7 @@ function VerifyPanel({ po, onDone }) {
       {!rejecting ? (
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy || !allChecked} onClick={run}><Check size={15} />{busy ? 'Saving...' : step === 'details' ? 'Verify PO details' : 'Verify payment'}</Button>
-          <Button variant="outline" disabled={busy} onClick={() => setRejecting(true)}><X size={15} />Reject</Button>
+          <Button variant="outline" disabled={busy} onClick={() => setRejecting(true)}><RotateCcw size={15} />Send back to {po.source === 'conversion' ? 'Post Counselor' : 'creator'}</Button>
         </div>
       ) : <RejectBox po={po} onDone={onDone} onBack={() => setRejecting(false)} />}
     </div>
@@ -425,7 +425,9 @@ function PlanEditModal({ po, onClose, onDone }) {
 
 function EditRejectedForm({ po, onDone }) {
   const { user } = useAuth();
-  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && !isAdminLike(user);
+  // The supply is the Post Counselor's decision: they and the admin change it; In Transit cannot.
+  const supplyLocked = Boolean(po.fixedPlan?.supplyLocked) && !isAdminLike(user) && user?.role !== ROLES.POST_COUNSELOR;
+  const pending = po.status === 'pending';
   const [values, setValues] = useState({ supplyKey: supplyKeyOf(po.supplyPlan, po.supplyPart), amount: String(po.amount || ''), notes: po.notes || '' });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -437,12 +439,14 @@ function EditRejectedForm({ po, onDone }) {
       Object.entries(values).forEach(([key, value]) => body.append(key, value));
       files.forEach((file) => body.append('paper', file));
       const { data } = await api.patch(`/purchase-orders/${po.id}`, body);
-      onDone(data.purchaseOrder, 'Corrected and sent to In Transit again.');
+      onDone(data.purchaseOrder, pending ? 'Saved. In Transit checks the corrected PO.' : 'Corrected and sent to In Transit again.');
     } catch (err) { setError(err.response?.data?.message || 'Could not save'); } finally { setBusy(false); }
   };
   return (
     <form onSubmit={submit} className="space-y-3">
-      <div className="flex gap-3"><AlertTriangle size={20} className="mt-0.5 shrink-0 text-[#8C3B2E]" /><div><h3 className="text-base font-bold text-charcoal">Rejected - correct and resend</h3><p className="text-sm text-[#8C3B2E]">{po.rejectReason} <span className="text-charcoal/50">({po.rejectedByName}, {poDateTime(po.rejectedAt)})</span></p></div></div>
+      {pending
+        ? <div className="flex gap-3"><Pencil size={20} className="mt-0.5 shrink-0 text-sage" /><div><h3 className="text-base font-bold text-charcoal">Edit the PO</h3><p className="text-sm text-charcoal/65">In Transit has not checked it yet, so you can still correct it. Once In Transit verifies the details it is locked; In Transit can send it back to you if something is wrong.</p></div></div>
+        : <div className="flex gap-3"><AlertTriangle size={20} className="mt-0.5 shrink-0 text-[#8C3B2E]" /><div><h3 className="text-base font-bold text-charcoal">Sent back by In Transit - correct and send again</h3><p className="text-sm text-[#8C3B2E]">{po.rejectReason} <span className="text-charcoal/50">({po.rejectedByName}, {poDateTime(po.rejectedAt)})</span></p></div></div>}
       <ErrorText>{error}</ErrorText>
       <div><SupplyChips value={values.supplyKey} onChange={(key) => setValues((v) => ({ ...v, supplyKey: key }))} locked={supplyLocked} />{supplyLocked && <FixedNote />}</div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -450,7 +454,7 @@ function EditRejectedForm({ po, onDone }) {
         <FieldLabel label="Add PO paper image"><input className={`${poInput} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></FieldLabel>
         <FieldLabel label="Notes" className="sm:col-span-2"><input className={poInput} value={values.notes} onChange={(e) => setValues((v) => ({ ...v, notes: e.target.value }))} /></FieldLabel>
       </div>
-      <Button type="submit" disabled={busy}><RotateCcw size={15} />{busy ? 'Saving...' : 'Save and resend for verification'}</Button>
+      <Button type="submit" disabled={busy}>{pending ? <Check size={15} /> : <RotateCcw size={15} />}{busy ? 'Saving...' : pending ? 'Save changes' : 'Save and send to In Transit again'}</Button>
     </form>
   );
 }
@@ -714,6 +718,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const med = po.medicine;
   let next = null;
   if (po.status === 'pending' && canVerify) next = <VerifyPanel po={po} onDone={done} />;
+  else if (po.status === 'pending' && !po.detailsVerified && canCreate) next = <EditRejectedForm po={po} onDone={done} />;
   else if (po.status === 'rejected' && canCreate) next = <EditRejectedForm po={po} onDone={done} />;
   else if (po.canRequestMedicine && canVerify) next = <MedicineRequestForm po={po} onDone={done} />;
   const waiting = !next && !med && po.step.state !== 'done' && (
@@ -755,6 +760,10 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {role === ROLES.ADMIN && <Button size="sm" variant="outline" className="border-[#8C3B2E]/40 text-[#8C3B2E] hover:bg-[#8C3B2E]/5" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }}><Trash2 size={14} />Delete PO</Button>}
         </div>
       </header>
+      <details className="rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-2.5" open={(po.patientDocuments || []).length > 0}>
+        <summary className="cursor-pointer text-sm font-bold text-charcoal">Patient file (Records Room) · {(po.patientDocuments || []).length ? `${po.patientDocuments.length} document${po.patientDocuments.length === 1 ? '' : 's'}` : 'not scanned yet'}</summary>
+        <PatientFile documents={po.patientDocuments || []} className="mt-2" />
+      </details>
       {(po.phaseHold || po.phaseRemoved) && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-900">
           <span className="flex items-center gap-2"><AlertTriangle size={15} />{po.requestBlockedReason || `Phase ${po.phase} is ${po.phaseRemoved ? 'removed from In Transit' : 'on hold'}.`}</span>
@@ -867,7 +876,14 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             ) : <p className="mt-2 text-sm text-charcoal/50">No payment recorded on this PO.</p>}
           </Section>}
 
-          {show('medicine') && <Section title="Medicine request" icon={Pill} action={med?.status === 'requested' && canVerify && !editingRequest && <button type="button" className={smallLink} onClick={() => setEditingRequest(true)}><Pencil size={13} />Edit request</button>}>
+          {show('medicine') && <Section title="Medicine request" icon={Pill} action={med?.status === 'requested' && canVerify && !editingRequest && <button type="button" className={smallLink} onClick={() => setEditingRequest(true)}><Pencil size={13} />{po.medicineJob?.returned ? 'Correct & send again' : 'Edit request'}</button>}>
+            {med?.status === 'requested' && po.medicineJob?.returned && (
+              <div className="mb-2 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-sm text-[#7F1D1D]">
+                <p className="font-bold">Sent back by {po.medicineJob.returned.byName} (Medicine Dept) · {poDateTime(po.medicineJob.returned.at)}</p>
+                <p className="mt-0.5 whitespace-pre-wrap">{po.medicineJob.returned.reason}</p>
+                <p className="mt-1 text-xs text-[#991B1B]">Correct the request (or answer in the notes) and save: it goes back to the Medicine Department to accept.</p>
+              </div>
+            )}
             {med && editingRequest && med.status === 'requested' ? <MedicineRequestForm po={po} edit onCancel={() => setEditingRequest(false)} onDone={(next, message) => { setEditingRequest(false); done(next, message); }} /> : med ? <>
               {med.status === 'requested' && <p className="mb-2 text-xs text-charcoal/60">Can be edited until Medicine Department accepts it.</p>}
               {(po.events || []).some((e) => e.action === 'Medicine request edited') && (
