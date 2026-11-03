@@ -31,20 +31,21 @@ const SECTION_B = [
 ];
 
 // price: null = filled in at post-counselling time (Customized Ayurvedic Formulations), 0 = no charge.
+// scope: the delivery scope / session commitment printed on the paper beside each component.
 const COMPONENTS = [
-  { key: 'dosDontsDiet', label: "Do's & Don'ts + Diet Plan Guidance", price: 18000 },
-  { key: 'ayurvedicFormulations', label: 'Customized Ayurvedic Formulations', price: null },
-  { key: 'panchakarmaKit', label: 'Panchakarma / Home Support Kit', price: 18000 },
-  { key: 'medicalHandHolding', label: 'Medical Counselling Team Hand-Holding', price: 24000 },
-  { key: 'progressTracking', label: 'Progress & Monitoring Tracking', price: 12000 },
-  { key: 'sensoryGuidance', label: 'Sensory / Neurotouch Therapy Guidance', price: 10000 },
-  { key: 'homeTherapyPlan', label: 'Customized Home Therapy Plan', price: 18000 },
-  { key: 'behaviourRoutinePlan', label: 'Behaviour / Routine Development Plan', price: 15000 },
-  { key: 'familyCounselling', label: 'Family Counselling Sessions', price: 18000 },
-  { key: 'regularFollowUps', label: 'Regular Follow-ups', price: 30000 },
-  { key: 'parentTraining', label: 'Parent Training / Home Implementation', price: 12000 },
-  { key: 'functionalSkills', label: 'Functional Skills / Independence Plan', price: 15000 },
-  { key: 'querySupport', label: 'Multiple Query Support & Resolution', price: 0 },
+  { key: 'dosDontsDiet', label: "Do's & Don'ts + Diet Plan Guidance", price: 18000, scope: '2 dedicated guidance/review sessions' },
+  { key: 'ayurvedicFormulations', label: 'Customized Ayurvedic Formulations', price: null, scope: '1 medicine explanation session + doubt clarification as needed' },
+  { key: 'panchakarmaKit', label: 'Panchakarma / Home Support Kit', price: 18000, scope: '1 demonstration; review within follow-ups' },
+  { key: 'medicalHandHolding', label: 'Medical Counselling Team Hand-Holding', price: 24000, scope: '3 one-to-one treatment reviews' },
+  { key: 'progressTracking', label: 'Progress & Monitoring Tracking', price: 12000, scope: 'Monthly documentation in follow-ups' },
+  { key: 'sensoryGuidance', label: 'Sensory / Neurotouch Therapy Guidance', price: 10000, scope: '1 initial guidance; additional if indicated' },
+  { key: 'homeTherapyPlan', label: 'Customized Home Therapy Plan', price: 18000, scope: 'Written plan + integrated implementation guidance' },
+  { key: 'behaviourRoutinePlan', label: 'Behaviour / Routine Development Plan', price: 15000, scope: 'Written plan + integrated guidance' },
+  { key: 'familyCounselling', label: 'Family Counselling Sessions', price: 18000, scope: 'Up to 3 dedicated sessions, if required' },
+  { key: 'regularFollowUps', label: 'Regular Follow-ups', price: 30000, scope: '15-20 total; includes module reviews' },
+  { key: 'parentTraining', label: 'Parent Training / Home Implementation', price: 12000, scope: 'Integrated within scheduled sessions' },
+  { key: 'functionalSkills', label: 'Functional Skills / Independence Plan', price: 15000, scope: 'Written plan + integrated monitoring' },
+  { key: 'querySupport', label: 'Multiple Query Support & Resolution', price: 0, scope: 'Helpline 11 AM - 6 PM; Wednesdays & approved holidays closed' },
 ];
 const CUSTOM_PRICE_KEY = 'ayurvedicFormulations';
 

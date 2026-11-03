@@ -43,7 +43,8 @@ const Frame = ({ asPage, onClose, children }) => (asPage
 
 // only: section letters to show (e.g. ['C', 'E'] for the treatment-paper PCC); all when not given.
 const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly = false, asPage = false, recordUrl = '', only = null }) => {
-  const showSec = (letter) => !only || only.includes(letter);
+  // Sections A and B are no longer part of the record (older answers stay saved, not shown); C and E remain.
+  const showSec = (letter) => !['A', 'B'].includes(letter) && (!only || only.includes(letter));
   const [data, setData] = useState(null);
   const [record, setRecord] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -199,16 +200,18 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
           {showSec('C') && <section className="space-y-3">
             <SectionTitle letter="C">Customized treatment &amp; support components</SectionTitle>
             <div className="overflow-hidden rounded-lg border border-cardline">
-              <div className="grid grid-cols-[1fr_auto] gap-3 bg-[#56695D] px-4 py-2 text-xs font-semibold text-white">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 bg-[#56695D] px-4 py-2 text-xs font-semibold text-white md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
                 <label className="flex cursor-pointer items-center gap-3"><input type="checkbox" disabled={!editable} checked={allComponentsOn} onChange={toggleAllComponents} className="h-4 w-4 accent-white" title="Tick / untick all components" />Component <span className="font-normal text-white/70">({record.components.selected.length}/{defs.components.length} selected · tick the box to select all)</span></label>
+                <span className="hidden md:block">Delivery scope / session commitment</span>
                 <span className="w-36 text-right">Value (Rs.)</span>
               </div>
               {defs.components.map((component) => {
                 const active = record.components.selected.includes(component.key);
                 const custom = component.key === defs.customPriceKey;
                 return (
-                  <div key={component.key} className={`grid grid-cols-[1fr_auto] items-center gap-3 border-t border-cardline px-4 py-2.5 ${active ? 'bg-sage/10' : 'bg-white/50'}`}>
-                    <label className="flex cursor-pointer items-center gap-3 text-sm text-charcoal"><input type="checkbox" disabled={!editable} checked={active} onChange={() => toggleComponent(component.key)} className="h-4 w-4 accent-sage" />{component.label}</label>
+                  <div key={component.key} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-cardline px-4 py-2.5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto] ${active ? 'bg-sage/10' : 'bg-white/50'}`}>
+                    <label className="flex cursor-pointer items-center gap-3 text-sm text-charcoal"><input type="checkbox" disabled={!editable} checked={active} onChange={() => toggleComponent(component.key)} className="h-4 w-4 accent-sage" /><span>{component.label}{component.scope && <span className="block text-xs text-charcoal/60 md:hidden">{component.scope}</span>}</span></label>
+                    <span className="hidden text-sm text-charcoal/75 md:block">{component.scope || ''}</span>
                     <div className="w-36 text-right text-sm font-semibold text-charcoal">
                       {custom
                         ? <input disabled={!editable || !active} inputMode="decimal" value={record.components.ayurvedicPrice} onChange={(event) => change((next) => { next.components.ayurvedicPrice = event.target.value; return next; })} placeholder={active ? 'Enter price' : 'Fill after selecting'} className={`${inputClass} text-right`} />
