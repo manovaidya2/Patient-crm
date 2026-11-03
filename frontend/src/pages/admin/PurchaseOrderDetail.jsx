@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -24,6 +24,8 @@ import { ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { CASE_CATEGORIES } from '../../constants/patientCategories.js';
 import { AGE_BANDS, PO_STATUS, ageBandFor, ageBandLabel, supplyKeyOf } from '../../constants/supplyPlans.js';
 import SupplyChips from '../../components/medicine/SupplyChips.jsx';
+// Loaded only when the PO created step is opened (it pulls in the whole post-counselling form).
+const PoPostCounselling = lazy(() => import('./PoPostCounselling.jsx'));
 
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const day = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -817,6 +819,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
           {show('final') && canFinalCheck && <FinalCheckPanel po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
           {show('handover') && showHandover && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
+          {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}
           {show('patient') && <Section title="Patient" icon={UserRound}>
             <Row label="Name" value={po.patientName} />
             <Row label="Patient ID" value={po.patientCode} />

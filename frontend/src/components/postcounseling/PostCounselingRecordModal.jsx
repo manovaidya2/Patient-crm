@@ -35,7 +35,13 @@ const calculate = (record, defs) => {
   return { reference, approved, concession: Math.max(reference - approved, 0), tooHigh: approved > reference };
 };
 
-const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false }) => {
+// asPage + recordUrl: the same record drawn as a read-only page (the PO page links here for In Transit).
+// Kept outside the component so typing in the form never remounts it.
+const Frame = ({ asPage, onClose, children }) => (asPage
+  ? <div className="rounded-[14px] border border-[#E8DFCB] bg-offwhite-100 p-4 sm:p-6"><h1 className="mb-4 text-xl font-bold text-charcoal">Post-counselling record</h1>{children}</div>
+  : <Modal open onClose={onClose} title="Post-counselling record" className="max-w-5xl">{children}</Modal>);
+
+const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly = false, asPage = false, recordUrl = '' }) => {
   const [data, setData] = useState(null);
   const [record, setRecord] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -48,15 +54,16 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
   const [deciding, setDeciding] = useState(false);
   const [result, setResult] = useState(null);
 
+  const patient = given && data?.patient ? { ...given, patientName: given.patientName || data.patient.patientName, patientId: given.patientId || data.patient.patientId } : given;
   useEffect(() => {
-    if (!patient) return undefined;
+    if (!given) return undefined;
     let live = true;
     setData(null); setRecord(null); setError(''); setNotice(''); setSaved(false); setStep('record'); setDialog(false); setResult(null);
-    api.get(`/post-counseling/patients/${patient.id}/record`, { skipCache: true })
+    api.get(recordUrl || `/post-counseling/patients/${given.id}/record`, { skipCache: true })
       .then((response) => { if (!live) return; setData(response.data); setRecord(response.data.record); setSaved(response.data.saved); })
       .catch((err) => live && setError(err.response?.data?.message || 'Could not load the record'));
     return () => { live = false; };
-  }, [patient]);
+  }, [given, recordUrl]);
 
   const defs = data?.definitions;
   const totals = useMemo(() => (record && defs ? calculate(record, defs) : { reference: 0, approved: 0 }), [record, defs]);
@@ -112,7 +119,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
   if (!patient) return null;
 
   return (
-    <Modal open onClose={onClose} title="Post-counselling record" className="max-w-5xl">
+    <Frame asPage={asPage} onClose={onClose}>
       {!record && !error && <p className="py-10 text-center text-sm text-charcoal/55">Loading...</p>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {record && defs && step === 'purchase' && !readOnly && (
@@ -261,7 +268,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
 
           <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-cardline bg-offwhite-100 pt-3">
             {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
-            <Button variant="outline" onClick={onClose}>Close</Button>
+            {onClose && <Button variant="outline" onClick={onClose}>{asPage ? 'Back' : 'Close'}</Button>}
             {editable && <Button onClick={save} disabled={busy}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
             {saved && !readOnly && data.canEdit && !data.outcome && (
               <>
@@ -283,7 +290,7 @@ const PostCounselingRecordModal = ({ patient, onClose, onSaved, readOnly = false
           <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDialog(false)} disabled={deciding}>Cancel</Button><Button onClick={markNotPurchased} disabled={deciding}>{deciding ? 'Moving...' : 'Move to Package Not Bought'}</Button></div>
         </div>
       </Modal>
-    </Modal>
+    </Frame>
   );
 };
 

@@ -88,6 +88,22 @@ const getRecord = asyncHandler(async (req, res) => {
   res.json({ success: true, ...view(entry, canEdit, await existingOf(entry)) });
 });
 
+// @route GET /api/purchase-orders/:id/post-counselling
+// The filled post-counselling record (sections A to E, registration, PO paper) behind a converted PO, read-only,
+// so In Transit and the other PO teams see exactly what the Post Counselor filled.
+const getRecordForPo = asyncHandler(async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!mongoose.Types.ObjectId.isValid(id) || id.length !== 24) throw fail('Purchase order not found', 404);
+  const PurchaseOrder = require('../models/PurchaseOrder');
+  const po = await PurchaseOrder.findById(id).select('poNumber patient source').lean();
+  if (!po) throw fail('Purchase order not found', 404);
+  // The conversion writes the PO number into the record's PO paper; older rows are found by the converted patient.
+  let entry = po.poNumber ? await Management.findOne({ 'postCounseling.purchase.values.poNo': po.poNumber }) : null;
+  if (!entry && po.patient) entry = await Management.findOne({ 'postCounseling.outcome.patient': po.patient, 'postCounseling.savedAt': { $ne: null } }).sort({ 'postCounseling.outcome.at': -1 });
+  if (!entry?.postCounseling?.savedAt) throw fail('No post-counselling record was filled for this purchase order', 404);
+  res.json({ success: true, id: String(entry._id), poNumber: po.poNumber, ...view(entry, false, await existingOf(entry)) });
+});
+
 // @route PUT /api/post-counseling/patients/:id/record
 const saveRecord = asyncHandler(async (req, res) => {
   const { entry, canEdit } = await loadAccessible(req);
@@ -333,4 +349,4 @@ const listDone = asyncHandler(async (req, res) => {
   res.json({ success: true, patients });
 });
 
-module.exports = { getRecord, saveRecord, savePurchase, setVisitPhase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone };
+module.exports = { getRecord, getRecordForPo, saveRecord, savePurchase, setVisitPhase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone };

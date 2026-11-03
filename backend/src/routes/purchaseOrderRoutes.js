@@ -18,6 +18,7 @@ router.get('/form', authorize(...PO_CREATE_ROLES), getPurchaseOrderForm);
 router.post('/upload', authorize(...PO_CREATE_ROLES), uploadPaymentScreenshot.array('screenshot', 10), uploadPaperFiles);
 router.post('/', authorize(...PO_CREATE_ROLES), createPurchaseOrder);
 router.get('/:id', authorize(...PO_VIEW_ROLES), getPurchaseOrder);
+router.get('/:id/post-counselling', authorize(...PO_VIEW_ROLES), require('../controllers/postCounselingRecordController').getRecordForPo);
 router.patch('/:id', authorize(...PO_CREATE_ROLES), poFiles, updatePurchaseOrder);
 router.post('/:id/payments', authorize(...PO_CREATE_ROLES), poFiles, addPurchaseOrderPayment);
 router.post('/:id/verify-details', authorize(...PO_VERIFY_ROLES), verifyDetails);
