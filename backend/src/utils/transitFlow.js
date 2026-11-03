@@ -97,6 +97,7 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   const pccName = patient.assignedDoctor?.name ? `${patient.assignedDoctor.name}${pccAssigned ? '' : ' (already on the patient record - confirm or change)'}` : '';
   const lastCall = calls[0];
   const shippedMode = SHIPPED_MODES.includes(mode);
+  const pccStep = { key: 'pcc', group: 'treatment', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(stage.medicineExplainDate), action: 'assign_pcc', by: t.assignedByName, at: iso(t.assignedAt), text: pccName };
   const connected = calls.some((c) => c.outcome === 'connected');
   // Older cases scheduled before this step existed count it as done.
   const callsDone = Boolean(t.callsDoneAt || t.fulfilmentSetAt || dispatched || delivered);
@@ -109,17 +110,19 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
     { key: 'made', group: 'medicine', label: 'Final check pending', done: made, waitText: 'Medicine Department is preparing the order', by: request?.madeByName, at: iso(request?.madeAt) },
     // In Transit calls the patient until a call connects and marks it done, then schedules self pickup or porter / courier.
     { key: 'calls', group: 'contact', label: 'Call for delivery schedule', done: callsDone, action: connected ? 'finish_calls' : 'log_call', by: t.callsDoneByName, at: iso(t.callsDoneAt), text: lastCall ? `Last call: ${lastCall.outcome.replace('_', ' ')}` : '', waitText: connected ? 'The call connected: mark the call done to schedule the delivery' : 'Call the patient until the call connects' },
-    { key: 'scheduled', group: 'contact', label: 'Expected delivery date', done: plan.done, action: 'schedule_delivery', by: t.fulfilmentSetByName, at: iso(t.fulfilmentSetAt), text: plan.text, waitText: 'Choose self pickup or porter / courier and the day' },
+    { key: 'scheduled', group: 'contact', label: 'Schedule delivery', done: plan.done, action: 'schedule_delivery', by: t.fulfilmentSetByName, at: iso(t.fulfilmentSetAt), text: plan.text, waitText: 'Choose self pickup or porter / courier and the day' },
+    // Self pickup: the explanation date and the PCC come before the payment and the handover.
+    ...(mode === 'pickup' ? [pccStep] : []),
     { key: 'payment', group: 'handover', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0, action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
     { key: 'released', group: 'handover', label: 'Release by Medicine Dept', done: released, waitText: 'Medicine Department releases the parcel once the full payment is verified', by: t.financialReleasedByName || request?.sentToCourierByName, at: iso(t.financialReleasedAt || request?.sentToCourierAt) },
     {
-      key: 'handover', group: 'handover', label: mode === 'pickup' ? 'Hand over at clinic' : shippedMode ? 'Dispatch courier' : 'Hand over / dispatch',
+      key: 'handover', group: 'handover', label: mode === 'pickup' ? 'Handover' : shippedMode ? 'Dispatch courier' : 'Hand over / dispatch',
       done: mode === 'pickup' ? delivered : dispatched, action: mode === 'pickup' ? 'confirm_received' : shippedMode ? 'dispatch' : null,
       by: mode === 'pickup' ? courier.deliveredByName : courier.dispatchedByName, at: iso(mode === 'pickup' ? courier.deliveredAt : courier.dispatchedAt),
       text: mode === 'pickup' ? courier.receivedByName : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: mode ? '' : 'Schedule the delivery first',
     },
   ];
-  steps.push({ key: 'pcc', group: 'treatment', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(stage.medicineExplainDate), action: 'assign_pcc', by: t.assignedByName, at: iso(t.assignedAt), text: pccName });
+  if (mode !== 'pickup') steps.push(pccStep);
   if (!mode || shippedMode) steps.push({ key: 'received', group: 'handover', label: 'Confirm receipt from patient', done: delivered, action: shippedMode ? 'confirm_received' : null, by: courier.deliveredByName, at: iso(courier.deliveredAt), text: courier.receivedByName });
   steps.push(
     { key: 'explained', group: 'treatment', label: 'Explain medicine', done: Boolean(t.explanationCompletedAt), waitText: 'The assigned PCC completes the explanation on the Medicine Explanations page', by: t.explanationCompletedByName, at: iso(t.explanationCompletedAt), text: stage.medicineExplainDate ? `Scheduled ${shortDay(stage.medicineExplainDate)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '' },

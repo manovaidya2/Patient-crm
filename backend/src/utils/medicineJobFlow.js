@@ -193,3 +193,4 @@ function jobSummary(jobDoc) {
 }
 
 module.exports = { STAGES, STAGE_INDEX, isOldFlow, stageRoles, buildJobView, jobSummary, urgency };
+

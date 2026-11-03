@@ -540,14 +540,15 @@ function trackWork(key, item) {
   switch (key) {
     case 'calls': return item.callsDone?.done ? {} : item.hasConnectedCall ? { action: 'finish_calls' } : { action: 'log_call' };
     case 'scheduled': return shipped ? { wait: 'The medicine has already left; the schedule is final.' } : !item.callsDone?.done ? { wait: 'Finish the "Call for delivery schedule" step first.' } : { action: 'schedule_delivery' };
-    case 'fullpay': if (!item.mode) return { wait: 'Set the expected delivery date first (step "Expected delivery date").' }; return {};
+    case 'fullpay': if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' }; return {};
     case 'handover':
-      if (!item.mode) return { wait: 'Set the expected delivery date first (step "Expected delivery date").' };
+      if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' };
       if (!released && !shipped && !delivered) return { wait: 'Waiting for Medicine Department to release the parcel. Follow it on the Medicine Dept track.' };
       if (!paid) return { wait: 'The full payment must be verified before the handover.' };
       return item.mode === 'pickup' ? (delivered ? {} : { action: 'confirm_received' }) : (shipped ? {} : { action: 'dispatch' });
     case 'received': return !shipped ? { wait: 'Dispatch the medicine first.' } : delivered ? {} : { action: 'confirm_received' };
-    case 'pcc': return item.explanation.completedAt ? {} : !(item.courier && ['dispatched', 'delivered'].includes(item.courier.status)) ? { wait: 'Dispatch / hand over the medicine first (the step before this one).' } : { action: 'assign_pcc' };
+    // Self pickup fixes the explanation before the payment and handover; porter / courier after the dispatch.
+    case 'pcc': return item.explanation.completedAt ? {} : !item.mode ? { wait: 'Schedule the delivery first (step "Schedule delivery").' } : item.mode !== 'pickup' && !(item.courier && ['dispatched', 'delivered'].includes(item.courier.status)) ? { wait: 'Dispatch the medicine first (the step before this one).' } : { action: 'assign_pcc' };
     case 'explained': return item.explanation.completedAt ? {} : { wait: 'The assigned PCC completes the explanation on the Medicine Explanations page.' };
     default: return {};
   }
@@ -577,7 +578,10 @@ function HandoverPanel({ po, step, onChanged }) {
   const shipped = courier && courier.status !== 'pending';
   const open = !item.activated && !item.onHold && !item.removed;
   const focus = step && TRACK_STEPS.includes(step.key) ? step : null;
-  const work = focus && focus.state !== 'done' ? trackWork(focus.key, item) : {};
+  // The delivery schedule (date, self pickup or porter / courier) can still be changed until the handover / dispatch.
+  const handedOver = Boolean(courier) && ['dispatched', 'delivered'].includes(courier.status);
+  const reschedule = focus?.key === 'scheduled' && focus.state === 'done' && !handedOver;
+  const work = reschedule ? { action: 'schedule_delivery' } : focus && focus.state !== 'done' ? trackWork(focus.key, item) : {};
   const next = !open ? null : focus ? work.action || null : HANDOVER_ACTIONS.includes(item.nextAction) ? item.nextAction : null;
   return (
     <Section title={focus ? focus.label : 'Handover & treatment start'} icon={Truck} action={open && !focus && <button type="button" className={smallLink} onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={13} />Hold</button>}>
@@ -611,6 +615,7 @@ function HandoverPanel({ po, step, onChanged }) {
 
         {next ? (
           <div className="rounded-xl border-2 border-sage/40 bg-sage/5 p-3">
+            {reschedule && <p className="mb-2 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900"><b>Change the schedule:</b> the date or self pickup / porter / courier can be changed until the medicine is handed over or dispatched.</p>}
             {PCC_FORMS.includes(next) ? <AssignPccForm item={item} onDone={done} /> : <ActionForm key={`${item.key}-${next}`} formKey={formKeyFor(next, item)} item={item} onDone={done} />}
           </div>
         ) : open && focus ? (work.wait && <p className="flex gap-2 rounded-lg bg-[#FBF7ED] px-3 py-2 text-sm text-charcoal/75"><Clock3 size={15} className="mt-0.5 shrink-0 text-sage" />{work.wait}</p>)
@@ -832,7 +837,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             </Section>
           )}
           {show('final') && canFinalCheck && <FinalCheckPanel po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
-          {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current') && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
+          {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current' || (selectedStep?.key === 'scheduled' && !['dispatched', 'delivered'].includes(po.handover?.courier?.status))) && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}
           {show('patient') && <Section title="Patient" icon={UserRound}>
             <Row label="Name" value={po.patientName} />

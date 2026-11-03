@@ -65,8 +65,11 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
 
 // ---- purchase order --------------------------------------------------------------------------------------------
 
-// Timeline order; reverting a step reverts every later done step first.
+// Timeline order; reverting a step reverts every later done step first. Self pickup fixes the explanation & PCC before
+// the payment and the handover.
 const PO_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'fullpay', 'released', 'handover', 'pcc', 'received', 'explained', 'started'];
+const PICKUP_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'pcc', 'fullpay', 'released', 'handover', 'received', 'explained', 'started'];
+const orderOf = (steps = []) => { const at = (k) => steps.findIndex((s) => s.key === k); return at('pcc') >= 0 && at('fullpay') >= 0 && at('pcc') < at('fullpay') ? PICKUP_REVERT_ORDER : PO_REVERT_ORDER; };
 
 const courierOf = (request) => { if (!request.courier) request.courier = {}; return request.courier; };
 const toPending = (payment, snapshot) => { snapshot.push(take(payment, ['_id', 'approvalStatus', 'approvedAt', 'approvedByName'])); payment.approvalStatus = 'pending'; payment.approvedAt = null; payment.approvedByName = ''; };
@@ -193,13 +196,14 @@ const PO_REVERTS = {
 
 // Reverts `stepKey` and every later step that is done, latest first. `steps` is the PO view's step list.
 async function revertPoFrom(stepKey, ctx) {
-  const index = PO_REVERT_ORDER.indexOf(stepKey);
+  const order = orderOf(ctx.steps);
+  const index = order.indexOf(stepKey);
   if (index < 0) fail(stepKey === 'created' ? 'The PO itself cannot be reverted; reject or cancel it instead' : 'This step cannot be reverted');
   const done = new Set((ctx.steps || []).filter((s) => s.done).map((s) => s.key));
   if (!done.has(stepKey)) fail('This step is not done yet');
   if (['requested', 'accepted', 'ready', 'released', 'handover', 'received', 'explained', 'started'].some((k) => done.has(k)) && !ctx.request) fail('The medicine request of this PO was not found');
   const reverted = []; const snapshot = {};
-  for (const key of PO_REVERT_ORDER.slice(index).filter((k) => done.has(k)).reverse()) {
+  for (const key of order.slice(index).filter((k) => done.has(k)).reverse()) {
     // eslint-disable-next-line no-await-in-loop
     const part = await PO_REVERTS[key](ctx);
     if (part) { snapshot[key] = part; reverted.push(key); }

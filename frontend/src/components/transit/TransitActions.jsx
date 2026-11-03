@@ -34,7 +34,7 @@ export const FORMS = {
   },
   confirm_mode: { title: 'Patient confirmed delivery mode', note: 'Porter / courier: full payment is confirmed before sending. Self pickup: schedule the visit next.', button: 'Confirm', fields: [['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])], ['note', 'Note', 'text']] },
   // Step 1 of the handover: the calls are logged above; once one connects, In Transit marks the step done.
-  finish_calls: { title: 'Call for delivery schedule', note: 'The call with the patient has connected. Mark it done to move to "Expected delivery date".', button: 'Call done - go to next step', fields: [] },
+  finish_calls: { title: 'Call for delivery schedule', note: 'The call with the patient has connected. Mark it done to move to "Schedule delivery".', button: 'Call done - go to next step', fields: [] },
   // Step 2: only the delivery schedule. Self pickup goes to the Self Pickup Schedule page, porter / courier to the
   // Porter / Courier Schedule page.
   schedule_delivery: {

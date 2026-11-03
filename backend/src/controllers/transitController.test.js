@@ -111,8 +111,9 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   assert.ok(!stage.medicineExplainDate, 'the explanation date is not part of the delivery schedule');
   assert.equal(item.pcc.assigned, false);
   assert.equal(item.steps.find((s) => s.key === 'scheduled').state, 'done');
-  assert.equal(item.step.key, 'payment', 'the balance comes next');
-  assert.equal(item.nextAction, 'add_payment');
+  // Self pickup: the explanation date and the PCC come next, before the payment and the handover.
+  assert.equal(item.step.key, 'pcc');
+  assert.equal(item.nextAction, 'assign_pcc');
   // The medicine explanation date and the PCC are their own step.
   await assert.rejects(() => act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) }), /explanation date/);
   item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id), explanationAt: workDay(), explanationMode: 'clinic' });
@@ -121,6 +122,7 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   assert.equal(item.pcc.assigned, true);
   assert.equal(String(patient.assignedDoctor), String(doctor._id));
   assert.equal(item.steps.find((s) => s.key === 'pcc').state, 'done');
+  assert.equal(item.step.key, 'payment', 'the balance comes next');
   // Switching to porter / courier replaces the pickup plan; the PCC can be changed any time before the explanation.
   // Only the estimated date: porter or courier, its name and the address come at dispatch.
   await assert.rejects(() => act(patient, { action: 'schedule_delivery', deliveryType: 'shipped' }), /estimated delivery date/);
@@ -142,6 +144,8 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   await assert.rejects(() => act(patient, { action: 'dispatch', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]), /porter or courier/);
   item = await act(patient, { action: 'dispatch', sendBy: 'courier', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]);
   assert.equal(item.mode, 'courier');
+  // Once dispatched, the date and the mode are final.
+  await assert.rejects(() => act(patient, { action: 'schedule_delivery', deliveryType: 'pickup', visitAt: future() }), /cannot change now/);
   assert.equal(item.step.key, 'received');
   // The explanation waits for the receipt.
   await assert.rejects(() => invoke(completeExplanation, patient, { completedAt: now(), notes: 'Too early' }, doctor), /receipt/);

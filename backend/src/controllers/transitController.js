@@ -233,7 +233,8 @@ const ACTIONS = {
     if (!(stage.transit.calls || []).some((c) => c.outcome === 'connected')) fail('Log a connected call with the patient first');
     if (!stage.transit.callsDoneAt && !stage.transit.fulfilmentSetAt) fail('Mark the delivery schedule call done first');
     const courier = request ? courierOf(request) : {};
-    if (['dispatched', 'delivered'].includes(courier.status) && stage.transit.fulfilmentMode !== mode) fail('The medicine has already left; the mode cannot change now');
+    // The date and the mode can change until the handover / dispatch; after that the schedule is final.
+    if (['dispatched', 'delivered'].includes(courier.status)) fail('The medicine has already been handed over / dispatched; the schedule cannot change now');
     const withExplanation = Boolean(body.explanationAt || body.assistantDoctorId);
     const explanationAt = withExplanation ? parseDate(body.explanationAt, 'medicine explanation date and time') : null;
     assertWorkingDay(explanationAt);

@@ -47,7 +47,7 @@ const doneKeys = (c) => stepsOf(c).filter((s) => s.done).map((s) => s.key);
 
 test('the finished case has every step done', () => {
   const c = finishedCase();
-  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'fullpay', 'handover', 'pcc', 'explained', 'started']);
+  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'pcc', 'fullpay', 'handover', 'explained', 'started'], 'self pickup: explanation & PCC before the payment and handover');
 });
 
 test('reverting "Medicine ready" undoes everything after it, keeps preparation, and records what was cleared', async () => {
@@ -55,7 +55,7 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   const returned = [];
   const ctx = { ...c, steps: stepsOf(c), returnStock: async (line) => returned.push(line.code), reason: 'Wrong parcel', user, now: new Date() };
   const { reverted, snapshot } = await revertPoFrom('ready', ctx);
-  assert.deepEqual(reverted, ['started', 'pcc', 'handover', 'released', 'fullpay', 'scheduled', 'ready']);
+  assert.deepEqual(reverted, ['started', 'handover', 'released', 'fullpay', 'pcc', 'scheduled', 'ready']);
   assert.equal(c.request.status, 'in_process');
   assert.equal(c.request.courier.status, 'pending');
   assert.equal(c.stage.transit.activatedAt, null);

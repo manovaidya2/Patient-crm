@@ -117,6 +117,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const callsDone = (transitOwner && Boolean(t.callsDoneAt || t.fulfilmentSetAt)) || dispatched || delivered;
   // The job waits on In Transit's final check (its packing is done).
   const finalDue = Boolean(job) && job.status === 'open' && !job.hold?.active && (job.currentStage || 0) === STAGE_INDEX.final;
+  const pccStep = { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(explanationAt), at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' };
   const steps = [
     { key: 'created', group: 'verification', label: 'Create PO', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
     {
@@ -154,14 +155,17 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
       waitText: connected ? 'The call connected: In Transit marks the call done to schedule the delivery' : 'In Transit calls the patient until the call connects',
     },
     {
-      key: 'scheduled', group: 'handover', branch: 'transit', label: 'Expected delivery date', done: Boolean(mode) && (Boolean(planDate) || dispatched),
+      key: 'scheduled', group: 'handover', branch: 'transit', label: 'Schedule delivery', done: Boolean(mode) && (Boolean(planDate) || dispatched),
       at: iso(transitOwner ? t.fulfilmentSetAt : null), by: transitOwner ? t.fulfilmentSetByName : '',
       text: [MODE_LABEL[mode], planDate ? `${selfPickup ? 'pickup' : 'dispatch'} ${shortDay(planDate)}` : ''].filter(Boolean).join(' · '),
       waitText: 'In Transit chooses self pickup or porter / courier and the day',
     },
+    // Self pickup: the explanation date and the PCC are fixed before the payment and the handover.
+    ...(selfPickup ? [pccStep] : []),
     { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : `In Transit collects the balance of Rs ${pay.remaining} and verifies it` },
-    { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Hand over at clinic' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
-    { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(explanationAt), at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' },
+    { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Handover' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
+    // Porter / courier: after the dispatch.
+    ...(selfPickup ? [] : [pccStep]),
     ...(selfPickup ? [] : [{ key: 'received', group: 'handover', branch: 'transit', label: 'Confirm receipt from patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
     { key: 'explained', group: 'treatment', branch: 'transit', label: 'Explain medicine', done: transitOwner && Boolean(t.explanationCompletedAt), at: iso(transitOwner ? t.explanationCompletedAt : null), by: transitOwner ? t.explanationCompletedByName : '', text: explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
     { key: 'started', group: 'treatment', branch: 'transit', label: 'Start treatment', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? t.activatedAt : null), by: transitOwner ? t.activatedByName : '' },
