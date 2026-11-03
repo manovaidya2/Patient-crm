@@ -71,8 +71,12 @@ const COLLECTORS = {
   },
   async '/admin/courier'() {
     const { courierHandovers } = require('./purchaseOrderController');
-    const MODE = { pickup: 'Self pickup', porter: 'Porter', courier: 'Courier' };
-    return (await courierHandovers()).filter((r) => r.section === 'pending').map((r) => item('/admin/courier', r.poId, r.patientName, `${r.poNumber} · ${MODE[r.mode] || r.mode} · ${r.medicine.label}`, r.expectedAt, `/admin/purchase-orders/${r.poId}`));
+    const MODE = { pickup: 'Self pickup', porter: 'Porter', courier: 'Courier', shipped: 'Porter / Courier' };
+    return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode !== 'pickup').map((r) => item('/admin/courier', r.poId, r.patientName, `${r.poNumber} · ${MODE[r.mode] || r.mode} · ${r.medicine.label}`, r.expectedAt, `/admin/purchase-orders/${r.poId}`));
+  },
+  async '/admin/self-pickup-schedule'() {
+    const { courierHandovers } = require('./purchaseOrderController');
+    return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode === 'pickup').map((r) => item('/admin/self-pickup-schedule', r.poId, r.patientName, `${r.poNumber} · Self pickup · ${r.medicine.label}`, r.expectedAt, `/admin/purchase-orders/${r.poId}`));
   },
   async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status]); },
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },

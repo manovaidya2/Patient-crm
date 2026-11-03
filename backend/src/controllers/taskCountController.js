@@ -23,6 +23,7 @@ const PAGES = {
   '/admin/accounts/consultations': [ADMIN, DOCTOR, ROLES.RECEPTIONIST, MANAGER],
   '/admin/accounts/refunds': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
   '/admin/courier': [ADMIN, IN_TRANSIT, MANAGER],
+  '/admin/self-pickup-schedule': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-jobs': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-made': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
@@ -89,10 +90,15 @@ const COUNTERS = {
     ]);
     return rows[0]?.n || 0;
   },
-  // Released medicine still to be dispatched or confirmed delivered.
+  // Porter / courier scheduled, still to be dispatched or confirmed delivered.
   async '/admin/courier'() {
     const { courierHandovers } = require('./purchaseOrderController');
-    return (await courierHandovers()).filter((r) => r.section === 'pending').length;
+    return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode !== 'pickup').length;
+  },
+  // Self pickups scheduled, still to be collected.
+  async '/admin/self-pickup-schedule'() {
+    const { courierHandovers } = require('./purchaseOrderController');
+    return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode === 'pickup').length;
   },
   // Requests to accept or to make.
   async '/admin/medicine-requests'() { return countRequests(['requested', 'in_process']); },

@@ -157,25 +157,27 @@ const updateSalesReceipt = asyncHandler(async (req, res) => {
   const target = await loadTarget(req);
   if (target.sheet !== 'sales' || !(isAdminLike(req.user) || req.user.role === ROLES.SALES_TEAM) || !target.writable) fail('Sales payment can no longer be edited', 403);
   if (!idValid(req.params.receiptId)) fail('Invalid receipt');
-  const amount = Number(req.body.amount);
+  const split = req.body.paymentMode === 'split' ? require('../utils/splitPayment').resolveSplit(req.body.splits) : null;
+  const amount = split ? split.amount : Number(req.body.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) fail('Enter a valid advance amount');
   if (target.owner.consultationFee != null && amount > target.owner.consultationFee) fail('Advance cannot be greater than the consultation fee');
   const dateText = String(req.body.date || '');
   const date = new Date(`${dateText}T12:00:00.000Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== dateText) fail('Enter a valid payment date');
   if (dateText > new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })) fail('Payment date cannot be in the future');
-  if (!['cash', 'online'].includes(req.body.paymentMode)) fail('Select a payment mode');
+  if (!['cash', 'online', 'split'].includes(req.body.paymentMode)) fail('Select a payment mode');
   const paymentMode = req.body.paymentMode;
-  const reference = String(req.body.reference || '').trim();
-  const cashReceivedByName = String(req.body.cashReceivedByName || '').trim();
+  const reference = String(split ? split.utr.slice(0, 200) : req.body.reference || '').trim();
+  const cashReceivedByName = String(split ? split.receivedBy.slice(0, 200) : req.body.cashReceivedByName || '').trim();
   const notes = String(req.body.notes || '').trim();
   const files = req.body.files;
   if (reference.length > 200 || cashReceivedByName.length > 200 || notes.length > 2000) fail('Payment detail is too long');
   if (!Array.isArray(files) || files.length > 5 || files.some((file) => !/^\/uploads\/[a-zA-Z0-9/_\-.]+$/.test(String(file?.url || '')))) fail('Select valid payment proofs');
   if (paymentMode === 'online' && (!reference || !files.length)) fail('Online payment needs UTR/reference and payment proof');
+  if (split?.needsProof && !files.length) fail('Attach the payment proof of the online part');
   if (paymentMode === 'cash' && !cashReceivedByName) fail('Enter who received the cash payment');
   let bank = null;
-  if (paymentMode === 'online' && req.body.bank) {
+  if (paymentMode !== 'cash' && req.body.bank) {
     if (!idValid(req.body.bank)) fail('Select a valid bank');
     bank = await Bank.findOne({ _id: req.body.bank, isActive: true });
     if (!bank) fail('Select an active bank');
@@ -187,8 +189,9 @@ const updateSalesReceipt = asyncHandler(async (req, res) => {
     collectionStage: 'advance', status: 'pending',
   }, { $set: {
     amount, date, paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '',
-    reference: paymentMode === 'online' ? reference : '',
-    cashReceivedByName: paymentMode === 'cash' ? cashReceivedByName : '',
+    reference: paymentMode !== 'cash' ? reference : '',
+    cashReceivedByName: paymentMode !== 'online' ? cashReceivedByName : '',
+    splits: split ? split.splits : [],
     notes, files: files.map((file) => ({ url: String(file.url), fileName: String(file.fileName || 'Payment proof').slice(0, 255) })),
     editedByName: req.user.name, editedAt: new Date(),
   } }, { new: true, runValidators: true });

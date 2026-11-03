@@ -12,6 +12,18 @@ import { ROLES, isAdminLike } from '../../constants/roles.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
+import PoPostCounselling from './PoPostCounselling.jsx';
+
+// Collapsed by default: the record is long and each card would otherwise load it.
+function PcRecord({ poId }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="mt-3 rounded-[10px] bg-white/70 p-3 ring-1 ring-[#EFE3CF]" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="cursor-pointer text-sm font-bold text-charcoal">Post-counselling record (sections A to E)</summary>
+      {open && <div className="mt-3"><PoPostCounselling poId={poId} /></div>}
+    </details>
+  );
+}
 
 const input = 'w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm';
 const when = (value) => (value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-');
@@ -143,6 +155,8 @@ export default function MedicineExplanations() {
                         </div>
                         <PatientFile documents={item.patientDocuments || []} className="ring-1 ring-[#EFE3CF]" />
                       </div>
+                      {/* The post-counselling record behind this PO (sections A to E), as In Transit sees it. Loaded when opened. */}
+                      {item.poId && item.poFromConversion && <PcRecord poId={item.poId} />}
                       {!item.explanation.completedAt && (
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-[11.5px] text-charcoal/60">{canComplete ? 'Explain the doses and chits, then complete - this starts the treatment.' : text}</p>

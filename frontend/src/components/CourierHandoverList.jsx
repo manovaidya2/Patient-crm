@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bike, CalendarClock, ExternalLink, Inbox, RefreshCw, Store, Truck } from 'lucide-react';
 import useApiQuery from '../api/useApiQuery.js';
+import useLiveEvent from '../api/useLiveEvent.js';
 import Button from './ui/Button.jsx';
 import { PageHeader } from './ui/Layout.jsx';
 import { CompactAttachments } from './ui/Attachments.jsx';
 import { DelayTable } from './medicine/MedicineDelay.jsx';
 
-const MODE = { pickup: { label: 'Self pickup', icon: Store }, porter: { label: 'Porter', icon: Bike }, courier: { label: 'Courier', icon: Truck } };
+const MODE = { pickup: { label: 'Self pickup', icon: Store }, porter: { label: 'Porter', icon: Bike }, courier: { label: 'Courier', icon: Truck }, shipped: { label: 'Porter / Courier', icon: Truck } };
 const money = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const when = (value) => (value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const dayStart = (value) => { const d = new Date(value); d.setHours(0, 0, 0, 0); return d; };
@@ -24,16 +25,22 @@ const Row = ({ label, value }) => (value ? <p className="text-[12.5px]"><span cl
 // Courier Requests (to send) and Delivered Couriers, both read from the PO / In Transit timeline: a medicine shows up
 // here once In Transit has scheduled it (courier, porter or self pickup with the expected date) and moves to delivered
 // by itself when it is dispatched or collected. Dispatch / receipt are done on the PO timeline.
-export default function CourierHandoverList({ section, title, subtitle, emptyText }) {
-  const { data, loading, error, refresh } = useApiQuery('/courier/handovers', { params: { section } });
+// mode: 'pickup' (Self Pickup Schedule) or 'shipped' (Porter / Courier Schedule); empty lists both.
+// received: true / false keeps only delivered / on-the-way rows (the delivered section holds both).
+export default function CourierHandoverList({ section, mode: deliveryKind = '', received, title, subtitle, emptyText, tabs = null }) {
+  const { data, loading, error, refresh } = useApiQuery('/courier/handovers', { params: deliveryKind ? { section, mode: deliveryKind } : { section } });
+  // Every In Transit step (call, schedule, dispatch, receipt, PCC, explanation) updates the list here.
+  useLiveEvent('transit:changed', () => refresh());
+  useLiveEvent('medicine-job:changed', () => refresh());
   const [search, setSearch] = useState('');
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (data?.rows || []).filter((r) => !q || [r.patientName, r.patientCode, r.poNumber, r.patientPhone, r.courier?.tracking].some((v) => String(v || '').toLowerCase().includes(q)));
-  }, [data, search]);
+    return (data?.rows || []).filter((r) => received === undefined || Boolean(r.received) === received).filter((r) => !q || [r.patientName, r.patientCode, r.poNumber, r.patientPhone, r.courier?.tracking].some((v) => String(v || '').toLowerCase().includes(q)));
+  }, [data, search, received]);
   return (
     <div className="space-y-4">
-      <PageHeader icon={Truck} title={title} subtitle={subtitle} actions={<Button variant="outline" size="sm" onClick={refresh} aria-label="Refresh"><RefreshCw size={15} />Refresh</Button>} />
+      <PageHeader icon={deliveryKind === 'pickup' ? Store : Truck} title={title} subtitle={subtitle} actions={<Button variant="outline" size="sm" onClick={refresh} aria-label="Refresh"><RefreshCw size={15} />Refresh</Button>} />
+      {tabs}
       <input className="w-full max-w-md rounded-lg border border-cardline bg-white px-3 py-2 text-sm" placeholder="Search patient, ID, PO, phone or tracking" value={search} onChange={(e) => setSearch(e.target.value)} />
       {error && <p role="alert" className="text-sm text-red-700">{error.response?.data?.message || 'Could not load'}</p>}
       {loading && !data ? <p className="text-sm text-charcoal/60">Loading...</p> : !rows.length ? (
@@ -57,7 +64,7 @@ export default function CourierHandoverList({ section, title, subtitle, emptyTex
                 <div className="min-w-0 space-y-0.5">
                   <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-charcoal"><Icon size={16} className="text-sage" />{mode.label}{due && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${dueTone}`}>{due}</span>}</p>
                   {section === 'pending' ? <>
-                    <Row label={r.mode === 'pickup' ? 'Expected pickup' : 'Expected dispatch'} value={when(r.expectedAt)} />
+                    <Row label={r.mode === 'pickup' ? 'Estimated self pickup' : 'Estimated delivery'} value={when(r.expectedAt)} />
                     {r.mode !== 'pickup' && <Row label={r.mode === 'porter' ? 'Porter' : 'Courier'} value={r.plannedCourier} />}
                     {r.mode !== 'pickup' && <Row label="Address" value={r.plannedAddress} />}
                     <Row label="Note" value={r.planNote} />
@@ -78,7 +85,7 @@ export default function CourierHandoverList({ section, title, subtitle, emptyTex
                   {r.delay && <DelayTable delay={r.delay} className="mt-2" />}
                 </div>
                 <div className="flex flex-col items-start gap-2 lg:items-end">
-                  {section === 'pending' && r.nextStep && <p className="max-w-[240px] text-xs text-charcoal/65 lg:text-right"><CalendarClock size={13} className="mr-1 inline text-sage" /><b className="text-charcoal">{r.nextStep.label}</b>{r.nextStep.waitText ? `: ${r.nextStep.waitText}` : ''}</p>}
+                  {r.nextStep && <p className={`max-w-[240px] text-xs lg:text-right ${r.nextStep.done ? 'font-semibold text-[#1F6B41]' : 'text-charcoal/65'}`}><CalendarClock size={13} className="mr-1 inline text-sage" />{r.nextStep.done ? 'All steps done: ' : 'Now: '}<b className="text-charcoal">{r.nextStep.label}</b>{r.nextStep.waitText ? `: ${r.nextStep.waitText}` : ''}</p>}
                   <Link to={`/admin/purchase-orders/${r.poId}`}><Button size="sm"><ExternalLink size={14} />{section === 'pending' ? 'Open PO timeline' : 'View on PO'}</Button></Link>
                 </div>
               </article>

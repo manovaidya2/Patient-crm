@@ -1,5 +1,5 @@
 const express = require('express');
-const { listTransit, getTransitCase, listStaff, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation } = require('../controllers/transitController');
+const { listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation } = require('../controllers/transitController');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const { uploadTransitFile } = require('../middleware/fileUploads');
@@ -12,6 +12,7 @@ router.get('/reminders', authorize(ROLES.ADMIN, ROLES.IN_TRANSIT, ROLES.ASSISTAN
 router.get('/explanations', authorize(ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR), listExplanations);
 router.post('/:patientId/:number/complete-explanation', authorize(ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR), completeExplanation);
 router.get('/staff', authorize(...TRANSIT_ROLES), listStaff);
+router.get('/staff/:id/calendar', authorize(...TRANSIT_ROLES), getPccCalendar);
 router.get('/', authorize(...TRANSIT_ROLES), listTransit);
 router.get('/:patientId/:number', authorize(...TRANSIT_ROLES), getTransitCase);
 router.delete('/:patientId/:number', authorize(ROLES.ADMIN), removeFromTransit);

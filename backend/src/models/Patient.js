@@ -90,6 +90,11 @@ const paymentEntrySchema = new mongoose.Schema(
       default: [],
     },
     receivedBy: { type: String, trim: true, default: '' },
+    // paymentMode "split": the parts of this one payment (online / cash / card), same day; utr / receivedBy hold them joined.
+    splits: {
+      type: [{ _id: false, mode: { type: String, enum: ['online', 'cash', 'card'] }, amount: { type: Number, min: 0, default: 0 }, utr: { type: String, trim: true, default: '' }, receivedBy: { type: String, trim: true, default: '' } }],
+      default: [],
+    },
     notes: { type: String, trim: true, default: '', maxlength: 2000 },
     screenshotUrl: { type: String, default: null },
     screenshotFiles: {
@@ -237,9 +242,13 @@ const transitSchema = new mongoose.Schema(
     financialReleasedAt: { type: Date, default: null },
     financialReleasedByName: { type: String, trim: true, default: '' },
     financialReleaseNote: { type: String, trim: true, default: '' },
-    fulfilmentMode: { type: String, enum: ['', 'courier', 'pickup', 'porter'], default: '' },
+    // shipped: porter / courier scheduled, which one is picked at dispatch.
+    fulfilmentMode: { type: String, enum: ['', 'courier', 'pickup', 'porter', 'shipped'], default: '' },
     fulfilmentSetAt: { type: Date, default: null },
     fulfilmentSetByName: { type: String, trim: true, default: '' },
+    // Step 1 of the handover: In Transit marks the delivery schedule call done once a call connects.
+    callsDoneAt: { type: Date, default: null },
+    callsDoneByName: { type: String, trim: true, default: '' },
     pickupScheduledAt: { type: Date, default: null },
     pickupNote: { type: String, trim: true, default: '' },
     pickupScheduledByName: { type: String, trim: true, default: '' },

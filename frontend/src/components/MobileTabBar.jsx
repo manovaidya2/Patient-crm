@@ -19,7 +19,7 @@ const PREFERRED = {
 };
 const SHORT = {
   '/admin/patients': 'Patients', '/admin/purchase-orders': 'POs', '/admin/patient-approvals': 'Approvals', '/admin/followups': 'Follow-ups',
-  '/admin/post-counseling-patients': 'Post couns.', '/admin/package-not-bought': 'Not bought', '/admin/courier': 'Courier',
+  '/admin/post-counseling-patients': 'Post couns.', '/admin/package-not-bought': 'Not bought', '/admin/courier': 'Courier', '/admin/self-pickup-schedule': 'Pickup',
   '/admin/medicine-jobs': 'Queue', '/admin/stocks': 'Stocks', '/admin/medicine-explanations': 'Explain', '/admin/family-sessions': 'Family',
   '/admin/appointment-management': 'Appointments', '/admin/accounts/consultations': 'Ledger',
   '/admin/medicine-requests': 'Requests', '/admin/receptionist-checklist': 'Checklist', '/admin/enquiries': 'Enquiries', '/admin/knowledge-library': 'Library', '/admin/payments': 'Payments',

@@ -95,6 +95,20 @@ const getTransitCase = asyncHandler(async (req, res) => {
 
 // @desc    People who can be assigned when treatment starts
 // @route   GET /api/transit/staff
+const { assertWorkingDay, pccEvents, OFF_WEEKDAYS, AFTERNOON_WEEKDAYS, AFTERNOON_FROM_HOUR } = require('../utils/pccCalendar');
+// @desc    A PCC's calendar (follow-ups, family sessions, medicine explanations) and their days off
+// @route   GET /api/transit/staff/:id/calendar?from=YYYY-MM-DD&days=28
+const getPccCalendar = asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(String(req.params.id))) fail('Invalid PCC');
+  const pcc = await User.findOne({ _id: req.params.id, role: ROLES.ASSISTANT_DOCTOR }).select('name').lean();
+  if (!pcc) fail('PCC not found', 404);
+  const fromText = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || '')) ? req.query.from : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 28, 1), 62);
+  const from = new Date(`${fromText}T00:00:00.000+05:30`);
+  const to = new Date(from.getTime() + days * 86400000);
+  res.json({ success: true, pcc: { id: String(pcc._id), name: pcc.name }, from: fromText, days, offWeekdays: OFF_WEEKDAYS, afternoonWeekdays: AFTERNOON_WEEKDAYS, afternoonFromHour: AFTERNOON_FROM_HOUR, events: await pccEvents(pcc._id, from, to) });
+});
+
 const listStaff = asyncHandler(async (req, res) => {
   const users = await User.find({ role: { $in: [ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR] }, isActive: { $ne: false } })
     .select('name role').sort({ name: 1 }).lean();
@@ -167,6 +181,15 @@ const ACTIONS = {
     stage.transit.calls.push({ at: now, outcome, notes, nextCallAt, byName: req.user.name });
     return `Call: ${outcome.replace('_', ' ')} - ${notes}`;
   },
+  // Step 1: the delivery schedule call. In Transit keeps logging calls until one connects, then marks it done and the
+  // case moves to "Delivery scheduled".
+  finish_calls({ stage, req, now }) {
+    const t = stage.transit;
+    if (!(t.calls || []).some((c) => c.outcome === 'connected')) fail('Log a connected call with the patient first');
+    if (t.callsDoneAt) fail('The delivery schedule call is already marked done', 409);
+    Object.assign(t, { callsDoneAt: now, callsDoneByName: req.user.name });
+    return 'Delivery schedule call done';
+  },
   confirm_mode({ stage, request, body, req, now }) {
     const { mode } = body;
     if (!MODE_LABEL[mode]) fail('Choose self pickup, porter or courier');
@@ -178,52 +201,61 @@ const ACTIONS = {
   },
   async add_payment({ patient, stage, request, body, req }) {
     const paymentMode = body.paymentMode;
-    if (!['cash', 'online'].includes(paymentMode)) fail('Select cash or online');
+    if (!['cash', 'online', 'split'].includes(paymentMode)) fail('Select cash, online or split');
+    // Paid partly online / cash / card the same day: one payment of the total.
+    const split = paymentMode === 'split' ? require('../utils/splitPayment').resolveSplit(body.splits) : null;
     // Several same-day transfers (UTRs) make up one payment: its amount is their total.
     const utrs = resolveUtrs({ entries: paymentMode === 'online' ? parseUtrEntries(body.utrEntries) : [], amount: Number(body.amount), utr: body.utr, transactionId: body.transactionId });
-    const amount = Number(utrs.amount);
+    const amount = split ? split.amount : Number(utrs.amount);
     if (!Number.isFinite(amount) || amount <= 0) fail('Enter a valid payment amount');
     const files = fileItems(req);
-    if (paymentMode === 'online' && !files.length) fail('Payment proof is required for an online payment');
-    const utr = paymentMode === 'online' ? required(utrs.utr, 'UTR / reference', 1000) : '';
-    const receivedBy = paymentMode === 'cash' ? required(body.receivedBy, 'Cash received by', 120) : '';
+    if ((paymentMode === 'online' || split?.needsProof) && !files.length) fail('Payment proof is required for an online payment');
+    const utr = paymentMode === 'online' ? required(utrs.utr, 'UTR / reference', 1000) : split ? split.utr : '';
+    const receivedBy = paymentMode === 'cash' ? required(body.receivedBy, 'Cash received by', 120) : split ? split.receivedBy : '';
     stage.payments.push({
       amount, date: body.date ? parseDate(body.date, 'payment date') : new Date(), paymentMode, utr, receivedBy,
-      transactionId: paymentMode === 'online' ? clean(utrs.transactionId, 1000) : '', utrEntries: paymentMode === 'online' ? utrs.utrEntries : [],
+      transactionId: paymentMode === 'online' ? clean(utrs.transactionId, 1000) : '', utrEntries: paymentMode === 'online' ? utrs.utrEntries : [], splits: split ? split.splits : [],
       notes: clean(body.notes, 2000), screenshotUrl: files[0]?.url || null, screenshotFiles: files,
       recordedByName: req.user.name, recordedBy: req.user._id, approvalStatus: 'pending',
     });
     // It pays for the medicine In Transit is handling: goes on that request's PO.
     const po = poOfRequest(await phasePurchaseOrders(patient._id, stage.number), request);
     if (po) await linkPaymentToPo(po._id, stage.payments[stage.payments.length - 1]._id);
-    return `Payment added: Rs ${amount} via ${paymentMode}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers)` : ''} - pending accounts approval`;
+    return `Payment added: Rs ${amount} via ${split ? `split (${require('../utils/splitPayment').splitText(split)})` : paymentMode}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers)` : ''} - pending accounts approval`;
   },
-  // How the patient gets the medicine (self pickup / porter / courier) with its date, the medicine explanation date and
-  // the PCC who explains it - fixed on the call with the patient. One action, so nothing is half planned.
+  // Step 2: only the estimated date - self pickup (the day the patient comes) or porter / courier (the day it goes).
+  // Porter or courier, its name and the address are filled at dispatch.
+  // The case then shows on the Self Pickup Schedule or the Porter / Courier Schedule page. The medicine explanation date
+  // and the PCC are fixed at the "Medicine explanation & PCC scheduled" step (older clients may still send them here).
   async schedule_delivery({ patient, stage, request, body, req, now }) {
-    const { mode } = body;
-    if (!MODE_LABEL[mode]) fail('Choose self pickup, porter or courier');
+    const mode = body.deliveryType === 'pickup' ? 'pickup' : body.deliveryType === 'shipped' ? (['porter', 'courier'].includes(body.mode) ? body.mode : 'shipped') : body.mode;
+    if (!MODE_LABEL[mode]) fail('Choose self pickup or porter / courier');
     if (!(stage.transit.calls || []).some((c) => c.outcome === 'connected')) fail('Log a connected call with the patient first');
+    if (!stage.transit.callsDoneAt && !stage.transit.fulfilmentSetAt) fail('Mark the delivery schedule call done first');
     const courier = request ? courierOf(request) : {};
     if (['dispatched', 'delivered'].includes(courier.status) && stage.transit.fulfilmentMode !== mode) fail('The medicine has already left; the mode cannot change now');
-    const explanationAt = parseDate(body.explanationAt, 'medicine explanation date and time');
+    const withExplanation = Boolean(body.explanationAt || body.assistantDoctorId);
+    const explanationAt = withExplanation ? parseDate(body.explanationAt, 'medicine explanation date and time') : null;
+    assertWorkingDay(explanationAt);
     const explanationMode = ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : 'phone';
-    const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC');
-    if (!doctor) fail('Select the PCC (Patient Care Coordinator) who explains the medicine');
+    const doctor = withExplanation ? await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC') : null;
+    if (withExplanation && !doctor) fail('Select the PCC (Patient Care Coordinator) who explains the medicine');
     const t = stage.transit;
+    if (!t.callsDoneAt) Object.assign(t, { callsDoneAt: now, callsDoneByName: req.user.name });
     Object.assign(t, { fulfilmentMode: mode, fulfilmentSetAt: now, fulfilmentSetByName: req.user.name });
     let plan;
     if (mode === 'pickup') {
-      const visitAt = parseDate(body.visitAt, 'pickup date and time');
+      const visitAt = parseDate(body.visitAt, 'estimated self pickup date');
       Object.assign(t, { pickupScheduledAt: visitAt, pickupNote: clean(body.note, 300), pickupScheduledByName: req.user.name, dispatchScheduledAt: null });
       plan = `self pickup ${visitAt.toISOString()}`;
     } else {
       if (['dispatched', 'delivered'].includes(courier.status)) { plan = `${MODE_LABEL[mode]} already sent`; } else {
-        const at = parseDate(body.dispatchAt, 'planned dispatch date');
-        Object.assign(t, { dispatchScheduledAt: at, plannedCourier: required(body.courierPartner, 'Courier / porter', 120), plannedAddress: required(body.address, 'Delivery address', 500), deliveryPlanNote: clean(body.note, 500), pickupScheduledAt: null, pickupNote: '' });
-        plan = `${MODE_LABEL[mode]} dispatch ${at.toISOString()} via ${t.plannedCourier}`;
+        const at = parseDate(body.dispatchAt, 'estimated delivery date');
+        Object.assign(t, { dispatchScheduledAt: at, plannedCourier: clean(body.courierPartner, 120), plannedAddress: clean(body.address, 500), deliveryPlanNote: clean(body.note, 500), pickupScheduledAt: null, pickupNote: '' });
+        plan = `${MODE_LABEL[mode]} estimated ${at.toISOString()}${t.plannedCourier ? ` via ${t.plannedCourier}` : ''}`;
       }
     }
+    if (!withExplanation) return `Delivery scheduled: ${plan}`;
     setPcc({ patient, stage, doctor, explanationAt, req, now });
     stage.medicineExplainDate = explanationAt;
     Object.assign(t, { explanationScheduledAt: now, explanationScheduledByName: req.user.name, explanationMode });
@@ -242,10 +274,13 @@ const ACTIONS = {
     Object.assign(stage.transit, { dispatchScheduledAt: at, plannedCourier: required(body.courierPartner, 'Courier / porter', 120), plannedAddress: required(body.address, 'Delivery address', 500), deliveryPlanNote: clean(body.note, 500) });
     return `Dispatch planned for ${at.toISOString()} by ${req.user.name}`;
   },
+  // Step 11: on the day, porter or courier is picked (when only "porter / courier" was scheduled) with the delivery details.
   async dispatch({ patient, stage, request, body, req, now }) {
     needRequest(request);
-    const mode = stage.transit.fulfilmentMode;
+    let mode = stage.transit.fulfilmentMode;
     if (!SHIPPED_MODES.includes(mode)) fail('Delivery mode must be porter or courier');
+    if (['porter', 'courier'].includes(body.sendBy)) mode = body.sendBy;
+    if (mode === 'shipped') fail('Choose porter or courier');
     if (!stage.transit.dispatchScheduledAt) fail('Schedule dispatch first');
     if (request.status !== 'sent_to_courier') fail('Medicine Department must release the medicine first');
     if (['dispatched', 'delivered'].includes(courierOf(request).status)) fail('This medicine has already been dispatched');
@@ -258,6 +293,7 @@ const ACTIONS = {
     if (mode === 'courier' && !files.length && !existing.length) fail('Package photo is required for courier');
     const partner = mode === 'porter' ? `Porter - ${required(body.porterName, 'Porter name', 100)}` : required(body.courierPartner, 'Courier partner', 120);
     const tracking = mode === 'porter' ? [clean(body.porterPhone, 30), clean(body.trackingNumber, 100)].filter(Boolean).join(' / ') : required(body.trackingNumber, 'Tracking number', 120);
+    stage.transit.fulfilmentMode = mode;
     Object.assign(request, {
       status: 'sent_to_courier', sentToCourierAt: request.sentToCourierAt || now, sentToCourierByName: request.sentToCourierByName || req.user.name,
       courier: {
@@ -302,6 +338,8 @@ const ACTIONS = {
   async assign_pcc({ patient, stage, body, req, now }) {
     if (stage.transit.explanationCompletedAt) fail('Explanation is already completed', 409);
     const explanationAt = body.explanationAt ? parseDate(body.explanationAt, 'medicine explanation date and time') : stage.medicineExplainDate;
+    // A newly picked date may not fall on the PCCs' day off (Wednesday).
+    if (body.explanationAt) assertWorkingDay(explanationAt);
     if (!explanationAt) fail('Set the medicine explanation date and time');
     const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC');
     const counselor = await staffMember(body.postCounselorId, ROLES.POST_COUNSELOR, 'post counselor');
@@ -357,6 +395,7 @@ const runAction = asyncHandler(async (req, res) => {
   logActivity(patient, req.user, stage.number, summary);
   await respondWithCase(res, patient, stage.number);
   await notePoEvent(stage, req.user, summary);
+  require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
 });
 
 // Every In Transit action is also noted on the purchase order of the phase's current medicine request, so the PO
@@ -416,7 +455,12 @@ const listExplanations = asyncHandler(async (req, res) => {
   const MedicineJob = require('../models/MedicineJob');
   const jobs = items.length && mongoose.connection.readyState === 1 ? await MedicineJob.find({ patient: { $in: items.map((i) => i.patientId) } }).select('patient phase requestId photos').lean() : [];
   const docsOf = new Map(await Promise.all([...new Set(items.map((i) => i.patientId))].map(async (id) => [id, await patientDocuments(patients.find((p) => String(p._id) === id))])));
+  // The PO of each medicine, so the PCC can open the post-counselling record behind it.
+  const poNumbers = [...new Set(items.map((i) => i.medicine?.poNumber).filter(Boolean))];
+  const pos = poNumbers.length && mongoose.connection.readyState === 1 ? await PurchaseOrder.find({ poNumber: { $in: poNumbers } }).select('poNumber source').lean() : [];
   items = items.map((item) => {
+    const po = pos.find((p) => p.poNumber === item.medicine?.poNumber);
+    item = { ...item, poId: po ? String(po._id) : null, poFromConversion: po?.source === 'conversion' };
     const job = jobs.find((j) => String(j.patient) === item.patientId && j.phase === item.stage && j.requestId === item.medicine?.requestId);
     return { ...item, treatmentPapers: { overview: job?.photos?.overview || [], paperSets: job?.photos?.paperSets || [], papers: job?.photos?.papers || [] }, patientDocuments: docsOf.get(item.patientId) || [] };
   });
@@ -448,6 +492,7 @@ const completeExplanation = asyncHandler(async (req, res) => {
   logActivity(patient, req.user, stage.number, summary);
   await respondWithCase(res, patient, stage.number);
   await notePoEvent(stage, req.user, summary);
+  require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
 });
 
 const getTransitReminders = asyncHandler(async (req, res) => {
@@ -480,4 +525,4 @@ const getTransitReminders = asyncHandler(async (req, res) => {
   res.json({ success: true, count: reminders.length, reminders });
 });
 
-module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation };
+module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation };

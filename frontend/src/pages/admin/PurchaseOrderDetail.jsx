@@ -14,6 +14,8 @@ import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { PoPipelineBoxes, PoStepStrip, PoTimeline, medicineTrack, poDateTime } from '../../components/purchaseOrders/PoPipeline.jsx';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
+import SplitRows, { emptySplitRows, splitTotal, splitsPayload, splitHasOnline } from '../../components/payments/SplitRows.jsx';
+import ProofPicker from '../../components/ui/ProofPicker.jsx';
 import { ActionForm, AssignPccForm, CALL, FORMS, MODE, formKeyFor, sendAction } from '../../components/transit/TransitActions.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
@@ -35,7 +37,7 @@ const CREATE_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNS
 const TRANSIT_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.IN_TRANSIT];
 const MED_STATUS = { requested: 'Waiting for Medicine Dept', in_process: 'Being prepared', made: 'Medicine ready', sent_to_courier: 'Released', cancelled: 'Cancelled' };
 // Transit steps that belong to handover / treatment start (order and medicine steps live on the PO itself).
-const HANDOVER_ACTIONS = ['schedule_delivery', 'dispatch', 'confirm_received', 'assign_pcc', 'confirm_mode', 'schedule_visit', 'schedule_dispatch', 'start_treatment', 'log_call'];
+const HANDOVER_ACTIONS = ['finish_calls', 'schedule_delivery', 'dispatch', 'confirm_received', 'assign_pcc', 'confirm_mode', 'schedule_visit', 'schedule_dispatch', 'start_treatment', 'log_call'];
 const PCC_FORMS = ['assign_pcc', 'start_treatment'];
 
 const Section = ({ title, icon: Icon, action, children, className = '' }) => (
@@ -56,9 +58,10 @@ const STEP_SECTIONS = {
   requested: ['medicine'],
   accepted: ['medicine', 'job'],
   ready: ['final', 'medicine', 'job'],
+  calls: ['handover'],
   scheduled: ['handover'],
-  fullpay: ['payments', 'handover'],
-  released: ['job', 'handover'],
+  fullpay: ['payments'],
+  released: ['job'],
   handover: ['handover'],
   received: ['handover'],
   pcc: ['handover'],
@@ -93,11 +96,11 @@ function doneItems(step, po) {
       po.medicineReadyDate ? { text: `Medicine expected by ${day(po.medicineReadyDate)}`, sub: 'Fixed by post counselling' } : null,
     ];
   } else if (step.key === 'details') {
-    items = po.status === 'rejected' ? events(['PO rejected']) : [...ticked(po.detailsChecks, 'details'), po.approvalStatus === 'approved' ? { text: 'Patient approved' } : null, ...events(['PO details verified'])];
+    items = po.status === 'rejected' ? events(['PO rejected']) : [...ticked(po.detailsChecks, 'details'), po.approvalStatus === 'approved' ? { text: 'Patient approved' } : null, ...events(['PO details verify'])];
   } else if (step.key === 'payment') {
     items = [
       ...ticked(po.paymentChecks, 'payment'),
-      ...po.payments.filter((p) => p.status === 'approved').map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.approvedByName && `verified by ${p.approvedByName}`) })),
+      ...po.payments.filter((p) => p.status === 'approved').map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'split' ? p.modeLabel : p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.approvedByName && `verified by ${p.approvedByName}`) })),
       ...events(['Payment verified']),
     ];
   } else if (step.key === 'requested' && med) {
@@ -127,7 +130,7 @@ function doneItems(step, po) {
       { text: `Done by ${step.jobStage.doneByName || 'Medicine Department'}`, sub: poDateTime(step.jobStage.doneAt) },
       step.key === 'ready' && med?.medicineImages?.length ? { text: `${med.medicineImages.length} medicine photo${med.medicineImages.length === 1 ? '' : 's'} added` } : null,
     ];
-  } else if (po.handover && ['scheduled', 'pcc', 'fullpay', 'handover', 'received', 'explained', 'started'].includes(step.key)) {
+  } else if (po.handover && ['calls', 'scheduled', 'pcc', 'fullpay', 'handover', 'received', 'explained', 'started'].includes(step.key)) {
     items = handoverItems(step, po, line);
   } else if (step.key === 'ready' && med?.medicineImages?.length) {
     items = [{ text: 'Medicine ready', sub: line(step.by && `by ${step.by}`, poDateTime(step.at)) }, { text: `${med.medicineImages.length} medicine photo${med.medicineImages.length === 1 ? '' : 's'} added` }];
@@ -137,34 +140,35 @@ function doneItems(step, po) {
 }
 
 // In Transit's handover steps as they were filled: each form field with its value (and the photos).
-const MODE_NAME = { pickup: 'Self pickup', porter: 'Porter', courier: 'Courier' };
+const MODE_NAME = { pickup: 'Self pickup', porter: 'Porter', courier: 'Courier', shipped: 'Porter / Courier' };
 const CALL_NAME = { connected: 'Connected', not_reachable: 'Not reachable', busy: 'Busy', call_back: 'Call back later', wrong_number: 'Wrong number' };
 function handoverItems(step, po, line) {
   const h = po.handover;
   const c = h.courier;
   const field = (label, value, sub) => (value ? { text: `${label}: ${value}`, sub } : null);
   switch (step.key) {
+    case 'calls': return [
+      ...(h.calls || []).map((c) => ({ text: `Call: ${CALL_NAME[c.outcome] || c.outcome}`, sub: line(c.notes, c.byName && `by ${c.byName}`, poDateTime(c.at)) })),
+      h.callsDoneAt ? { text: 'Delivery schedule call marked done', sub: line(h.callsDoneByName && `by ${h.callsDoneByName}`, poDateTime(h.callsDoneAt)) } : null,
+    ];
     case 'scheduled': return [
-      h.lastConnectedCall ? { text: `Call with the patient: ${CALL_NAME[h.lastConnectedCall.outcome] || h.lastConnectedCall.outcome}`, sub: line(h.lastConnectedCall.notes, h.lastConnectedCall.byName && `by ${h.lastConnectedCall.byName}`, poDateTime(h.lastConnectedCall.at)) } : null,
       field('How the patient gets the medicine', MODE_NAME[h.mode]),
-      h.mode === 'pickup' ? field('Self pickup date & time', poDateTime(h.pickupAt)) : field('Dispatch date & time', poDateTime(h.dispatchAt)),
+      h.mode === 'pickup' ? field('Estimated self pickup date', poDateTime(h.pickupAt)) : field('Estimated delivery date', poDateTime(h.dispatchAt)),
       h.mode !== 'pickup' ? field('Courier / porter', h.plannedCourier) : null,
       h.mode !== 'pickup' ? field('Delivery address', h.plannedAddress) : null,
-      field('Medicine explanation date & time', poDateTime(h.explanationAt)),
-      field('Explanation mode', h.explanationMode && h.explanationMode[0].toUpperCase() + h.explanationMode.slice(1)),
-      field('PCC who explains', h.pcc.name),
       field('Note', h.mode === 'pickup' ? h.pickupNote : h.planNote),
       { text: 'Schedule saved', sub: line(h.setByName && `by ${h.setByName}`, poDateTime(h.setAt)) },
     ];
     case 'pcc': return [
       field('PCC (Patient Care Coordinator)', h.pcc.name || step.text),
-      field('Explains on', poDateTime(h.explanationAt), h.explanationMode),
+      field('Medicine explanation date & time', poDateTime(h.explanationAt)),
+      field('Explanation mode', h.explanationMode && h.explanationMode[0].toUpperCase() + h.explanationMode.slice(1)),
       { text: 'Assigned', sub: line(h.pcc.byName && `by ${h.pcc.byName}`, poDateTime(h.pcc.at)) },
       h.pcc.ackAt ? { text: 'Seen by the PCC', sub: line(h.pcc.ackByName, poDateTime(h.pcc.ackAt)) } : null,
     ];
     case 'fullpay': return [
       { text: `PO value ${money(po.poPayment.totalAmount)} · verified paid ${money(po.poPayment.amountPaid)} · balance ${money(po.poPayment.remaining)}` },
-      ...h.approvedPayments.map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.recordedByName && `added by ${p.recordedByName}`, p.approvedByName && `verified by ${p.approvedByName}`), files: p.files })),
+      ...h.approvedPayments.map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'split' ? p.modeLabel : p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.recordedByName && `added by ${p.recordedByName}`, p.approvedByName && `verified by ${p.approvedByName}`), files: p.files })),
     ];
     case 'handover': return h.mode === 'pickup' ? [
       field('Collected by', c.receivedByName), field('Phone', c.receiverPhone), field('Collected on', poDateTime(c.deliveredAt)), field('Note', c.notes),
@@ -315,7 +319,7 @@ function VerifyPanel({ po, onDone }) {
     setBusy(true); setError('');
     try {
       const { data } = await api.post(`/purchase-orders/${po.id}/verify-${step}`, { checks: checksFor.map(([, label]) => label) });
-      onDone(data.purchaseOrder, step === 'details' ? 'PO details verified. Now verify the payment.' : `Payment verified and added to Phase ${po.phase} payments. You can request the medicine now.`);
+      onDone(data.purchaseOrder, step === 'details' ? 'PO details verify. Now verify the payment.' : `Payment verified and added to Phase ${po.phase} payments. You can request the medicine now.`);
     } catch (err) { setError(err.response?.data?.message || 'Could not verify'); } finally { setBusy(false); }
   };
   const allChecked = checksFor.every(([key]) => checks[key]);
@@ -465,6 +469,8 @@ function AddPaymentModal({ po, open, onClose, onDone }) {
   const [values, setValues] = useState({ paymentAmount: '', paymentMode: 'online', paymentDate: inputDay(new Date()), utr: '', receivedBy: '', paymentNotes: '' });
   const [utrRows, setUtrRows] = useState([emptyUtrRow()]);
   const multiUtr = values.paymentMode === 'online' && isMultiUtr(utrRows);
+  const [splitRows, setSplitRows] = useState(emptySplitRows);
+  const split = values.paymentMode === 'split';
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -474,7 +480,7 @@ function AddPaymentModal({ po, open, onClose, onDone }) {
     try {
       const body = new FormData();
       const first = utrRows[0] || {};
-      const send = { ...values, ...(values.paymentMode === 'online' ? { utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: utrEntriesPayload(utrRows) } : {}), ...(multiUtr ? { paymentAmount: String(utrTotal(utrRows)) } : {}) };
+      const send = { ...values, ...(values.paymentMode === 'online' ? { utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: utrEntriesPayload(utrRows) } : {}), ...(multiUtr ? { paymentAmount: String(utrTotal(utrRows)) } : {}), ...(split ? { paymentAmount: String(splitTotal(splitRows)), splits: splitsPayload(splitRows) } : {}) };
       Object.entries(send).forEach(([key, value]) => { if (value) body.append(key, value); });
       files.forEach((file) => body.append('screenshot', file));
       const { data } = await api.post(`/purchase-orders/${po.id}/payments`, body);
@@ -486,13 +492,14 @@ function AddPaymentModal({ po, open, onClose, onDone }) {
       <form onSubmit={submit} className="space-y-3">
         <ErrorText>{error}</ErrorText>
         <div className="grid gap-3 sm:grid-cols-2">
-          <FieldLabel label={multiUtr ? 'Amount (total of UTRs)' : 'Amount (Rs)'} required><input className={poInput} required={!multiUtr} disabled={multiUtr} inputMode="decimal" value={multiUtr ? utrTotal(utrRows) : values.paymentAmount} onChange={(e) => set('paymentAmount', e.target.value)} /></FieldLabel>
-          <div><p className="mb-1 text-sm font-medium text-charcoal">Mode</p><div className="flex gap-1.5"><Chip active={values.paymentMode === 'online'} onClick={() => set('paymentMode', 'online')}>Online</Chip><Chip active={values.paymentMode === 'cash'} onClick={() => set('paymentMode', 'cash')}>Cash</Chip></div></div>
+          <FieldLabel label={multiUtr ? 'Amount (total of UTRs)' : split ? 'Amount (total of the parts)' : 'Amount (Rs)'} required><input className={poInput} required={!multiUtr && !split} disabled={multiUtr || split} inputMode="decimal" value={multiUtr ? utrTotal(utrRows) : split ? splitTotal(splitRows) : values.paymentAmount} onChange={(e) => set('paymentAmount', e.target.value)} /></FieldLabel>
+          <div><p className="mb-1 text-sm font-medium text-charcoal">Mode</p><div className="flex flex-wrap gap-1.5"><Chip active={values.paymentMode === 'online'} onClick={() => set('paymentMode', 'online')}>Online</Chip><Chip active={values.paymentMode === 'cash'} onClick={() => set('paymentMode', 'cash')}>Cash</Chip><Chip active={split} onClick={() => set('paymentMode', 'split')}>Split</Chip></div></div>
           <FieldLabel label="Payment date"><input className={poInput} type="date" value={values.paymentDate} onChange={(e) => set('paymentDate', e.target.value)} /></FieldLabel>
-          {values.paymentMode === 'online'
+          {split ? <div className="sm:col-span-2"><p className="mb-1 text-xs text-charcoal/60">Paid the same day in parts (online / cash / card): saved as one payment of the total.</p><SplitRows idPrefix="po-split" rows={splitRows} onChange={setSplitRows} /></div>
+            : values.paymentMode === 'online'
             ? <div className="sm:col-span-2"><UtrRows idPrefix="po-utr" utrLabel="UTR / reference" rows={utrRows} onChange={setUtrRows} /></div>
             : <FieldLabel label="Cash received by" required><input className={poInput} required value={values.receivedBy} onChange={(e) => set('receivedBy', e.target.value)} /></FieldLabel>}
-          {values.paymentMode === 'online' && <FieldLabel label="Payment screenshot" required className="sm:col-span-2"><input className={`${poInput} text-xs`} type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles([...e.target.files])} /></FieldLabel>}
+          {(values.paymentMode === 'online' || split) && <ProofPicker className="sm:col-span-2" label={split ? 'Payment screenshot / card slip' : 'Payment screenshot'} required={!split || splitHasOnline(splitRows)} files={files} setFiles={setFiles} />}
           <FieldLabel label="Note" className="sm:col-span-2"><input className={poInput} value={values.paymentNotes} onChange={(e) => set('paymentNotes', e.target.value)} /></FieldLabel>
         </div>
         <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save payment'}</Button></div>
@@ -531,20 +538,21 @@ function trackWork(key, item) {
   const released = item.medicine?.status === 'sent_to_courier';
   const paid = item.payment.remaining <= 0 && !item.payment.pendingCount;
   switch (key) {
-    case 'scheduled': return shipped ? { wait: 'The medicine has already left; the schedule is final.' } : { action: 'schedule_delivery' };
-    case 'fullpay': return {};
+    case 'calls': return item.callsDone?.done ? {} : item.hasConnectedCall ? { action: 'finish_calls' } : { action: 'log_call' };
+    case 'scheduled': return shipped ? { wait: 'The medicine has already left; the schedule is final.' } : !item.callsDone?.done ? { wait: 'Finish the "Call for delivery schedule" step first.' } : { action: 'schedule_delivery' };
+    case 'fullpay': if (!item.mode) return { wait: 'Set the expected delivery date first (step "Expected delivery date").' }; return {};
     case 'handover':
-      if (!item.mode) return { wait: 'Schedule the delivery first (step "Delivery & explanation scheduled").' };
+      if (!item.mode) return { wait: 'Set the expected delivery date first (step "Expected delivery date").' };
       if (!released && !shipped && !delivered) return { wait: 'Waiting for Medicine Department to release the parcel. Follow it on the Medicine Dept track.' };
       if (!paid) return { wait: 'The full payment must be verified before the handover.' };
       return item.mode === 'pickup' ? (delivered ? {} : { action: 'confirm_received' }) : (shipped ? {} : { action: 'dispatch' });
     case 'received': return !shipped ? { wait: 'Dispatch the medicine first.' } : delivered ? {} : { action: 'confirm_received' };
-    case 'pcc': return item.explanation.completedAt ? {} : { action: 'assign_pcc' };
+    case 'pcc': return item.explanation.completedAt ? {} : !(item.courier && ['dispatched', 'delivered'].includes(item.courier.status)) ? { wait: 'Dispatch / hand over the medicine first (the step before this one).' } : { action: 'assign_pcc' };
     case 'explained': return item.explanation.completedAt ? {} : { wait: 'The assigned PCC completes the explanation on the Medicine Explanations page.' };
     default: return {};
   }
 }
-const TRACK_STEPS = ['scheduled', 'fullpay', 'handover', 'received', 'pcc', 'explained', 'started'];
+const TRACK_STEPS = ['calls', 'scheduled', 'fullpay', 'handover', 'pcc', 'received', 'explained', 'started'];
 
 // Handover and treatment start of this PO's medicine: calls, delivery mode, pickup or dispatch, receipt, explanation.
 // `step`: the In Transit step chosen on the timeline - its own form shows, whatever step the case is on.
@@ -572,20 +580,20 @@ function HandoverPanel({ po, step, onChanged }) {
   const work = focus && focus.state !== 'done' ? trackWork(focus.key, item) : {};
   const next = !open ? null : focus ? work.action || null : HANDOVER_ACTIONS.includes(item.nextAction) ? item.nextAction : null;
   return (
-    <Section title="Handover & treatment start" icon={Truck} action={open && <button type="button" className={smallLink} onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={13} />Hold</button>}>
+    <Section title={focus ? focus.label : 'Handover & treatment start'} icon={Truck} action={open && !focus && <button type="button" className={smallLink} onClick={() => setHoldOpen((v) => !v)}><PauseCircle size={13} />Hold</button>}>
       <div className="space-y-3">
         <ErrorText>{error}</ErrorText>
         {holdOpen && <div className="flex flex-wrap gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><input className={`${poInput} flex-1`} placeholder="Exception / reason for hold" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} /><Button size="sm" disabled={!holdReason.trim()} onClick={() => act('hold', { reason: holdReason })}>Put on hold</Button></div>}
         {item.onHold && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><span><b>On hold:</b> {item.hold?.reason} ({item.hold?.by})</span><Button size="sm" onClick={() => act('resume')}><PlayCircle size={14} />Resume</Button></div>}
         {item.activated && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />Treatment started {poDateTime(item.explanation.completedAt)}{item.explanation.completedBy ? ` by ${item.explanation.completedBy}` : ''}</p>}
-        {item.alerts.filter((a) => !a.text.startsWith('On hold')).map((a) => <p key={a.text} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${a.type === 'danger' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : a.type === 'warning' ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}`}><AlertTriangle size={15} />{a.text}</p>)}
+        {!focus && item.alerts.filter((a) => !a.text.startsWith('On hold')).map((a) => <p key={a.text} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${a.type === 'danger' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : a.type === 'warning' ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}`}><AlertTriangle size={15} />{a.text}</p>)}
 
         {/* The call with the patient comes first: the schedule below is fixed on a connected call. */}
-        {open && <div className="flex flex-wrap gap-2">
+        {open && (!focus || focus.key === 'calls') && <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => setQuick('log_call')}><PhoneCall size={14} />Log call</Button>
-          {item.pcc?.assigned && !item.explanation.completedAt && focus?.key !== 'pcc' && <Button size="sm" variant="outline" onClick={() => setQuick('assign_pcc')}><Stethoscope size={14} />Change PCC</Button>}
+          {item.pcc?.assigned && !item.explanation.completedAt && !focus && <Button size="sm" variant="outline" onClick={() => setQuick('assign_pcc')}><Stethoscope size={14} />Change PCC</Button>}
         </div>}
-        <div>
+        {(!focus || focus.key === 'calls') && <div>
           <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">Calls with the patient</p>
           {item.calls.length ? (
             <ol className="relative space-y-2 border-l border-cardline pl-4">
@@ -599,7 +607,7 @@ function HandoverPanel({ po, step, onChanged }) {
               ))}
             </ol>
           ) : <p className="text-sm text-charcoal/50">No calls yet.</p>}
-        </div>
+        </div>}
 
         {next ? (
           <div className="rounded-xl border-2 border-sage/40 bg-sage/5 p-3">
@@ -611,17 +619,17 @@ function HandoverPanel({ po, step, onChanged }) {
           : <>The medicine is with Medicine Department. You can already log calls with the patient; the delivery and explanation schedule, payment and handover follow once it is released.</>}</p>}
 
 
-        <div className="grid gap-x-6 sm:grid-cols-2">
-          <Row label="Delivery mode" value={MODE[item.mode]?.label || 'Not confirmed'} />
-          <Row label="Pickup visit" value={poDateTime(item.visit.at)} />
-          <Row label="Planned dispatch" value={poDateTime(item.deliveryPlan?.at)} />
+        {!focus && <><div className="grid gap-x-6 sm:grid-cols-2">
+          <Row label="Delivery mode" value={MODE_NAME[item.mode] || 'Not confirmed'} />
+          <Row label="Estimated self pickup" value={poDateTime(item.visit.at)} />
+          <Row label="Estimated delivery" value={poDateTime(item.deliveryPlan?.at)} />
           <Row label="Planned carrier" value={item.deliveryPlan?.courier} />
           <Row label={item.mode === 'porter' ? 'Porter' : 'Courier'} value={shipped ? [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / ') : ''} />
           <Row label="Received by" value={courier?.receivedByName ? `${courier.receivedByName}, ${poDateTime(courier.deliveredAt)}` : ''} />
           <Row label="Medicine explanation" value={item.explanation.at ? `${poDateTime(item.explanation.at)}${item.explanation.mode ? ` (${item.explanation.mode})` : ''}${item.explanation.ackAt ? ' · seen by PCC' : ''}` : ''} />
           <Row label="PCC" value={item.assignments.assistantDoctor?.name ? `${item.assignments.assistantDoctor.name}${item.pcc?.assigned ? ` (assigned ${poDateTime(item.pcc.at)} by ${item.pcc.byName})` : ' (on the patient record - confirm or change at the PCC step)'}` : ''} />
         </div>
-        {shipped && <><CompactAttachments files={courier.packageImages} label="Package" /><CompactAttachments files={courier.deliveryProofImages} label="Delivery proof" /></>}
+        {shipped && <><CompactAttachments files={courier.packageImages} label="Package" /><CompactAttachments files={courier.deliveryProofImages} label="Delivery proof" /></>}</>}
 
       </div>
       <Modal open={Boolean(quick)} onClose={() => setQuick(null)} title={quick ? (PCC_FORMS.includes(quick) ? 'Assign PCC (Patient Care Coordinator)' : FORMS[formKeyFor(quick, item)]?.title) : ''} className="max-w-lg">
@@ -796,7 +804,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
                 {(po.phasePendingPayments || []).map((p) => (
                   <div key={p.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
                     <div className="min-w-0">
-                      <p className="font-semibold text-charcoal">{money(p.amount)} <span className="font-normal text-charcoal/60">{p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`}</span></p>
+                      <p className="font-semibold text-charcoal">{money(p.amount)} <span className="font-normal text-charcoal/60">{p.mode === 'split' ? p.modeLabel : p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`}</span></p>
                       <p className="text-xs text-charcoal/55">{[day(p.date), p.bank, p.recordedByName && `added by ${p.recordedByName}`, p.onThisPo ? 'on this PO' : 'phase payment (not on this PO)'].filter(Boolean).join(' · ')}</p>
                       {p.notes && <p className="text-xs text-charcoal/60">{p.notes}</p>}
                       <CompactAttachments files={p.files} label="Payment proof" />
@@ -818,7 +826,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           )}
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
           {show('final') && canFinalCheck && <FinalCheckPanel po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
-          {show('handover') && showHandover && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
+          {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current') && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}
           {show('patient') && <Section title="Patient" icon={UserRound}>
             <Row label="Name" value={po.patientName} />
@@ -863,7 +871,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
                 {po.payments.map((p) => (
                   <li key={p.id} className="flex items-start justify-between gap-2 px-3 py-2 text-sm">
                     <div className="min-w-0">
-                      <p className="font-semibold text-charcoal">{money(p.amount)} <span className="font-normal text-charcoal/55">{p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}${p.transactionId ? ` · Txn ${p.transactionId}` : ''}`}</span></p>
+                      <p className="font-semibold text-charcoal">{money(p.amount)} <span className="font-normal text-charcoal/55">{p.mode === 'split' ? p.modeLabel : p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}${p.transactionId ? ` · Txn ${p.transactionId}` : ''}`}</span></p>
                       <p className="text-xs text-charcoal/50">{day(p.date)}{p.bank ? ` · ${p.bank}` : ''}{p.recordedByName ? ` · by ${p.recordedByName}` : ''}{p.approvedByName ? ` · verified by ${p.approvedByName}` : ''}</p>
                       {p.notes && <p className="text-xs text-charcoal/55">{p.notes}</p>}
                       <CompactAttachments files={p.files} label="Payment proof" />

@@ -1,3 +1,5 @@
+import SplitRows, { emptySplitRows, splitTotal, splitsPayload, splitHasOnline } from '../../components/payments/SplitRows.jsx';
+import ProofPicker from '../../components/ui/ProofPicker.jsx';
 import { useEffect, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -44,6 +46,8 @@ function ReceiptForm({ onClose, onSaved }) {
   const [patient, setPatient] = useState(null);
   const [banks, setBanks] = useState([]);
   const [form, setForm] = useState({ patientName: '', amount: '', date: localDay(), paymentMode: 'cash', bank: '', reference: '', notes: '' });
+  const [splitRows, setSplitRows] = useState(emptySplitRows);
+  const split = form.paymentMode === 'split';
   const [files, setFiles] = useState([]);
   const [key] = useState(() => crypto.randomUUID());
   const [saving, setSaving] = useState(false);
@@ -53,10 +57,12 @@ function ReceiptForm({ onClose, onSaved }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!appointment) { setError('Select the appointment for this receipt'); return; }
+    if (split && splitHasOnline(splitRows) && !files.length) { setError('Attach the payment proof of the online part'); return; }
     setSaving(true); setError('');
     try {
       const body = new FormData();
-      Object.entries(form).forEach(([name, value]) => body.append(name, value));
+      // Split: one receipt of the total, with its parts (online / cash / card).
+      Object.entries(split ? { ...form, amount: String(splitTotal(splitRows)), splits: splitsPayload(splitRows) } : form).forEach(([name, value]) => body.append(name, value));
       body.append('appointment', appointment._id); body.append('patient', patient?._id || ''); body.append('submissionKey', key);
       files.forEach((file) => body.append('proof', file));
       await api.post('/accounts/consultation-receipts', body); onSaved();
@@ -68,14 +74,14 @@ function ReceiptForm({ onClose, onSaved }) {
       <Label title="Appointment reference *"><ReferencePicker type="appointments" value={appointment} onChange={setAppointment} /></Label>
       <Label title="Linked patient (optional)"><ReferencePicker type="patients" value={patient} onChange={setPatient} /></Label>
       <Label title="Patient / visitor name *"><input className={field} required maxLength={200} value={patient?.patientName || form.patientName} readOnly={Boolean(patient)} onChange={change('patientName')} /></Label>
-      <Label title="Received amount *"><input className={field} required type="number" min="0.01" step="0.01" max="100000000" value={form.amount} onChange={change('amount')} /></Label>
+      <Label title="Received amount *"><input className={field} required={!split} disabled={split} type="number" min="0.01" step="0.01" max="100000000" value={split ? splitTotal(splitRows) : form.amount} onChange={change('amount')} /></Label>
       <Label title="Payment date *"><input className={field} required type="date" max={localDay()} value={form.date} onChange={change('date')} /></Label>
-      <Label title="Payment mode"><select className={field} value={form.paymentMode} onChange={change('paymentMode')}><option value="cash">Cash</option><option value="online">Online</option></select></Label>
-      {form.paymentMode === 'online' && <Label title="Bank (optional)"><select className={field} value={form.bank} onChange={change('bank')}><option value="">Unassigned bank</option>{banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.displayName || bank.name}</option>)}</select></Label>}
-      <Label title="UTR / reference (optional)"><input className={field} maxLength={200} value={form.reference} onChange={change('reference')} /></Label>
+      <Label title="Payment mode"><select className={field} value={form.paymentMode} onChange={change('paymentMode')}><option value="cash">Cash</option><option value="online">Online</option><option value="split">Split (online + cash + card)</option></select></Label>
+      {form.paymentMode !== 'cash' && <Label title="Bank (optional)"><select className={field} value={form.bank} onChange={change('bank')}><option value="">Unassigned bank</option>{banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.displayName || bank.name}</option>)}</select></Label>}
+      {split ? <div className="sm:col-span-2"><SplitRows idPrefix="ledger-split" rows={splitRows} onChange={setSplitRows} /></div> : <Label title="UTR / reference (optional)"><input className={field} maxLength={200} value={form.reference} onChange={change('reference')} /></Label>}
     </div>
     <Label title="Notes"><textarea className={field} rows={2} maxLength={2000} value={form.notes} onChange={change('notes')} /></Label>
-    <Label title="Payment proofs (up to 5, 10 MB each)"><input className={`${field} text-xs`} type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => { const list = Array.from(e.target.files || []); if (list.length > 5 || list.some((file) => file.size > 10 * 1024 * 1024)) { setError('Choose up to 5 files, each under 10 MB'); e.target.value = ''; setFiles([]); } else { setFiles(list); setError(''); } }} /></Label>
+    <ProofPicker label="Payment proofs (up to 5, 10 MB each)" files={files} setFiles={setFiles} />
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}><Plus size={15} />{saving ? 'Saving...' : 'Record payment'}</Button></div>
   </form></Modal>;
@@ -180,7 +186,7 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
       <tbody className="divide-y divide-cardline bg-white/40">{loading || error || !data.rows.length ? <tr><td colSpan={8} className="p-8 text-center">{loading ? 'Loading ledger...' : error ? 'Unable to display ledger' : 'No payments match these filters'}</td></tr> : data.rows.map((row) => <tr key={`${row.kind}-${row._id}`} className="hover:bg-white/70">
         <td className="whitespace-nowrap px-3 py-3">{dateLabel(row.date)}</td><td className="max-w-64 px-3 py-3"><button className="text-left font-semibold hover:text-sage" onClick={() => open(row)}>{row.patientName}</button><p className="mt-1 text-xs text-charcoal/70">{row.patientCode || row.patientNumber || row.appointmentCode || '-'}</p>{row.patientId && <button className="mt-1 text-xs font-semibold text-sage underline" onClick={() => { setUrl({ patientId: row.patientId }); setPage(1); setPeriod('all'); }}>Patient ledger</button>}</td>
         <td className="px-3 py-3 capitalize">{row.kind}{row.stage && <p className="text-xs">Phase {row.stage}</p>}</td><td className="whitespace-nowrap px-3 py-3 font-semibold tabular-nums">{money(row.amount)}{row.refunded > 0 && <p className="text-xs font-normal text-red-700">Refunded {money(row.refunded)}</p>}</td><td className="px-3 py-3"><Status value={row.status} /></td>
-        <td className="max-w-48 break-words px-3 py-3"><span className="capitalize">{row.paymentMode}</span><p className="text-xs text-charcoal/70">{row.bankName || (row.paymentMode === 'online' ? 'Unassigned bank' : '')}</p></td><td className="px-3 py-3 text-xs">{row.recordedByName || '-'}</td><td className="px-3 py-3"><button aria-label={`View payment for ${row.patientName}`} title="View payment" onClick={() => open(row)} className="rounded border border-cardline p-2 text-sage"><Eye size={16} /></button></td>
+        <td className="max-w-48 break-words px-3 py-3"><span className="capitalize">{row.paymentMode}</span>{(row.splits || []).length > 0 && <p className="text-xs text-charcoal/70">{row.splits.map((p) => `${p.mode[0].toUpperCase()}${p.mode.slice(1)} Rs ${Number(p.amount || 0).toLocaleString('en-IN')}`).join(' + ')}</p>}<p className="text-xs text-charcoal/70">{row.bankName || (row.paymentMode === 'online' ? 'Unassigned bank' : '')}</p></td><td className="px-3 py-3 text-xs">{row.recordedByName || '-'}</td><td className="px-3 py-3"><button aria-label={`View payment for ${row.patientName}`} title="View payment" onClick={() => open(row)} className="rounded border border-cardline p-2 text-sage"><Eye size={16} /></button></td>
       </tr>)}</tbody></table></div>
     <footer className="flex items-center justify-between text-xs"><span>Page {page} of {data.pages || 1}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((old) => old - 1)} aria-label="Previous page"><ChevronLeft size={15} /></Button><Button size="sm" variant="outline" disabled={page >= data.pages || loading} onClick={() => setPage((old) => old + 1)} aria-label="Next page"><ChevronRight size={15} /></Button></div></footer>
     {adding && <ReceiptForm onClose={() => setAdding(false)} onSaved={() => { setAdding(false); setPeriod('all'); setStatus('all'); setSearch(''); setUrl({}); setPage(1); setReload((old) => old + 1); }} />}

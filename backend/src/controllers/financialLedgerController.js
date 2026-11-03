@@ -72,6 +72,7 @@ const ledgerPipeline = (kind = 'all') => [
     transactionId: { $ifNull: ['$stages.payments.transactionId', ''] },
     utr: { $ifNull: ['$stages.payments.utr', ''] },
     utrEntries: { $ifNull: ['$stages.payments.utrEntries', []] },
+    splits: { $ifNull: ['$stages.payments.splits', []] },
     reference: { $ifNull: ['$stages.payments.utr', ''] },
     notes: '$stages.payments.notes', recordedByName: '$stages.payments.recordedByName',
     receivedBy: '$stages.payments.receivedBy', editedByName: '$stages.payments.editedByName', editedAt: '$stages.payments.editedAt',
@@ -87,7 +88,7 @@ const ledgerPipeline = (kind = 'all') => [
     { $lookup: { from: Patient.collection.name, localField: 'patient', foreignField: '_id', as: 'linkedPatient', pipeline: [{ $project: { approvalStatus: 1 } }] } },
     { $project: { patientId: '$patient', patientName: 1, patientCode: 1, appointmentCode: 1, appointment: 1,
       patientApproval: { $ifNull: [{ $arrayElemAt: ['$linkedPatient.approvalStatus', 0] }, 'unlinked'] },
-      kind: { $literal: 'consultation' }, collectionStage: 1, amount: 1, date: 1, status: 1, paymentMode: 1, bankName: 1,
+      kind: { $literal: 'consultation' }, collectionStage: 1, amount: 1, date: 1, status: 1, paymentMode: 1, splits: 1, bankName: 1,
       reference: 1, notes: 1, files: 1, recordedByName: 1, editedByName: 1, editedAt: 1, approvedByName: 1, approvedAt: 1,
       cancelledAt: 1, cancelledByName: 1, cancellationReason: 1, createdAt: 1, refunded: { $literal: 0 }, refunds: { $literal: [] } } },
   ] } }]),
@@ -151,17 +152,19 @@ const createReceipt = asyncHandler(async (req, res) => {
     if (!/^[\w:-]{16,140}$/.test(body.submissionKey || '')) throw badRequest('Missing submission reference');
     const existing = await Receipt.findOne({ submissionKey: body.submissionKey, ...(importedFrom ? {} : { recordedBy: req.user._id }) });
     if (existing) return res.json({ receipt: existing });
-    const amount = Number(body.amount);
+    const split = body.paymentMode === 'split' ? require('../utils/splitPayment').resolveSplit(body.splits) : null;
+    const amount = split ? split.amount : Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) throw badRequest('Enter a positive amount with up to two decimal places');
     const date = day(body.date);
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     if (body.date > today) throw badRequest('Payment date cannot be in the future');
-    if (!['cash', 'online'].includes(body.paymentMode)) throw badRequest('Select a payment mode');
-    const reference = String(body.reference || '').trim();
-    const cashReceivedByName = String(body.cashReceivedByName || '').trim();
+    if (!['cash', 'online', 'split'].includes(body.paymentMode)) throw badRequest('Select a payment mode');
+    const reference = String(split ? split.utr.slice(0, 200) : body.reference || '').trim();
+    const cashReceivedByName = String(split ? split.receivedBy.slice(0, 200) : body.cashReceivedByName || '').trim();
     if (reference.length > 200 || cashReceivedByName.length > 200) throw badRequest('Payment detail is too long');
     if (target && !body.legacyColumnId && body.paymentMode === 'online' && (!reference || !(req.files || []).length)) throw badRequest('Online payment needs UTR/reference and payment proof');
     if (target && !body.legacyColumnId && body.paymentMode === 'cash' && !cashReceivedByName) throw badRequest('Enter who received the cash payment');
+    if (split?.needsProof && !(req.files || []).length) throw badRequest('Attach the payment proof of the online part');
     const appointment = target?.row || await Appointment.findById(body.appointment).select('appointmentCode sourceAppointment');
     if (!appointment) throw badRequest('Appointment no longer exists');
     const source = !target && appointment.sourceAppointment ? await Sales.findById(appointment.sourceAppointment).select('consultationAccount') : null;
@@ -176,7 +179,7 @@ const createReceipt = asyncHandler(async (req, res) => {
       if (!patient) throw badRequest('Patient ID not found. Check the ID or leave it empty for a visitor.');
     }
     let bank = null;
-    if (body.bank && body.paymentMode === 'online') {
+    if (body.bank && body.paymentMode !== 'cash') {
       if (!validId(body.bank)) throw badRequest('Invalid bank');
       bank = await Bank.findOne({ _id: body.bank, isActive: true });
       if (!bank) throw badRequest('Select an active bank');
@@ -188,7 +191,7 @@ const createReceipt = asyncHandler(async (req, res) => {
       salesAppointment: salesAccount, collectionStage: body.legacyColumnId ? (body.legacySource === 'sales' ? 'advance' : 'reception') : target?.sheet === 'sales' ? 'advance' : 'reception', importedFrom,
       patient: patient?._id || null, patientName, patientCode: patient?.patientCode || '', amount, date,
       paymentMode: body.paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '',
-      reference: body.paymentMode === 'online' ? reference : '', cashReceivedByName: body.paymentMode === 'cash' ? cashReceivedByName : '',
+      reference: body.paymentMode !== 'cash' ? reference : '', cashReceivedByName: body.paymentMode !== 'online' ? cashReceivedByName : '', splits: split ? split.splits : [],
       notes: body.notes || '', submissionKey: body.submissionKey,
       recordedBy: req.user._id, recordedByName: req.user.name,
       files: [...(legacyProof ? [legacyProof] : []), ...(req.files || []).map((file) => ({ url: `/uploads/consultation-fees/${file.filename}`, fileName: file.originalname }))],

@@ -317,7 +317,7 @@ async function main() {
         }
         if (name === 'po-detail') {
           // A done step lists what was done in it, in green.
-          await page.evaluate(() => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.innerText.trim().startsWith('PO details verified')).click());
+          await page.evaluate(() => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.innerText.trim().startsWith('PO details verify')).click());
           await page.waitForFunction(() => /done in this step/i.test(document.body.innerText), { timeout: 15000 });
           await page.screenshot({ path: path.join(output, `po-step-done-${width}.png`), fullPage: false });
           if (width >= 1280) {

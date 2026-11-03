@@ -66,7 +66,7 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
 // ---- purchase order --------------------------------------------------------------------------------------------
 
 // Timeline order; reverting a step reverts every later done step first.
-const PO_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'scheduled', 'fullpay', 'released', 'handover', 'received', 'pcc', 'explained', 'started'];
+const PO_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'fullpay', 'released', 'handover', 'pcc', 'received', 'explained', 'started'];
 
 const courierOf = (request) => { if (!request.courier) request.courier = {}; return request.courier; };
 const toPending = (payment, snapshot) => { snapshot.push(take(payment, ['_id', 'approvalStatus', 'approvedAt', 'approvedByName'])); payment.approvalStatus = 'pending'; payment.approvedAt = null; payment.approvedByName = ''; };
@@ -84,10 +84,20 @@ const PO_REVERTS = {
     return snapshot;
   },
   async started(ctx) { return PO_REVERTS.explained(ctx); },
+  // The PCC step also holds the medicine explanation date.
   async pcc({ stage }) {
     const t = stage.transit;
-    if (!t?.assignedAt && !t?.explanationDoctor) return null;
-    const keys = ['assignedAt', 'assignedByName', 'explanationDoctor', 'explanationAckAt', 'explanationAckByName'];
+    if (!t?.assignedAt && !t?.explanationDoctor && !stage.medicineExplainDate) return null;
+    const keys = ['assignedAt', 'assignedByName', 'explanationDoctor', 'explanationAckAt', 'explanationAckByName', 'explanationScheduledAt', 'explanationScheduledByName', 'explanationMode'];
+    const snapshot = { transit: take(t || {}, keys), stage: take(stage, ['medicineExplainDate']) };
+    if (t) clear(t, keys);
+    stage.medicineExplainDate = null;
+    return snapshot;
+  },
+  async calls({ stage }) {
+    const t = stage.transit;
+    if (!t?.callsDoneAt) return null;
+    const keys = ['callsDoneAt', 'callsDoneByName'];
     const snapshot = { transit: take(t, keys) };
     clear(t, keys);
     return snapshot;
@@ -132,11 +142,10 @@ const PO_REVERTS = {
   },
   async scheduled({ stage }) {
     const t = stage.transit;
-    if (!t?.fulfilmentMode && !stage.medicineExplainDate) return null;
-    const keys = ['fulfilmentMode', 'fulfilmentSetAt', 'fulfilmentSetByName', 'pickupScheduledAt', 'pickupNote', 'pickupScheduledByName', 'dispatchScheduledAt', 'plannedCourier', 'plannedAddress', 'deliveryPlanNote', 'explanationScheduledAt', 'explanationScheduledByName', 'explanationMode', 'explanationAckAt', 'explanationAckByName'];
-    const snapshot = { transit: take(t, keys), stage: take(stage, ['medicineExplainDate']) };
+    if (!t?.fulfilmentMode) return null;
+    const keys = ['fulfilmentMode', 'fulfilmentSetAt', 'fulfilmentSetByName', 'pickupScheduledAt', 'pickupNote', 'pickupScheduledByName', 'dispatchScheduledAt', 'plannedCourier', 'plannedAddress', 'deliveryPlanNote'];
+    const snapshot = { transit: take(t, keys) };
     clear(t, keys);
-    stage.medicineExplainDate = null;
     return snapshot;
   },
   async ready(ctx) {

@@ -8,7 +8,7 @@ const PAY_STATUS = { approved: ['Verified', 'bg-emerald-100 text-emerald-800'], 
 
 function PaymentLine({ pay }) {
   const [label, tone] = PAY_STATUS[pay.approvalStatus] || PAY_STATUS.approved;
-  const how = pay.paymentMode === 'cash' ? `Cash${pay.receivedBy ? ` - ${pay.receivedBy}` : ''}` : `${pay.paymentModeLabel || 'Online'}${pay.utr ? ` - UTR ${pay.utr}` : ''}`;
+  const how = pay.paymentMode === 'split' ? pay.paymentModeLabel : pay.paymentMode === 'cash' ? `Cash${pay.receivedBy ? ` - ${pay.receivedBy}` : ''}` : `${pay.paymentModeLabel || 'Online'}${pay.utr ? ` - UTR ${pay.utr}` : ''}`;
   return (
     <li className="flex items-start justify-between gap-2 py-1.5 text-sm">
       <span className="min-w-0">

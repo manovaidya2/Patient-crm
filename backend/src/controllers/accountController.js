@@ -125,7 +125,8 @@ const listBankPaymentSummary = async ({ from, to } = {}) => {
           if (refund.status === 'settled') refundSummary.settled += Number(refund.amount || 0);
         });
         if ((payment.approvalStatus || 'approved') !== 'approved') return;
-        if (payment.paymentMode !== 'online') return;
+        const bankAmount = require('../utils/splitPayment').bankAmountOf(payment);
+        if (!bankAmount) return;
         const date = payment.date ? new Date(payment.date) : null;
         if (from && to && (!date || date < from || date >= to)) return;
         const key = payment.payToBank ? String(payment.payToBank) : 'unassigned';
@@ -135,7 +136,7 @@ const listBankPaymentSummary = async ({ from, to } = {}) => {
           amount: 0,
           count: 0,
         };
-        row.amount += Number(payment.amount || 0);
+        row.amount += bankAmount;
         row.count += 1;
         rows.set(key, row);
       });

@@ -13,6 +13,7 @@ const purchase = require('../utils/purchaseOrderRecord');
 const { assertPurchaseComplete, withBankName, paymentFromPaper } = require('../utils/convertPatient');
 const { createWithPoNumber } = require('../utils/poNumber');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
+const { resolveSplit, modeLabelOf } = require('../utils/splitPayment');
 const { buildPoView, STAGE_KEYS, isPendingStage, findRequest } = require('../utils/purchaseOrderFlow');
 
 const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -91,15 +92,17 @@ const respond = async (res, po, patient, status = 200) => {
 // Validates the payment typed on a PO form. Returns null when no payment was entered.
 const paymentFromBody = async (body, files, user, poNumber) => {
   const mode = body.paymentMode;
+  // Paid partly online / cash / card the same day: one payment, its amount is the total of the parts.
+  const split = mode === 'split' && (body.splits || body.paymentAmount) ? resolveSplit(body.splits) : null;
   // Several same-day transfers (UTRs) make up one payment: its amount is their total.
   const utrs = resolveUtrs({ entries: mode === 'online' ? parseUtrEntries(body.utrEntries) : [], amount: null, utr: body.utr, transactionId: body.transactionId });
-  const amount = utrs.utrEntries.length ? utrs.amount : amountOf(body.paymentAmount, 'payment amount');
+  const amount = split ? split.amount : utrs.utrEntries.length ? utrs.amount : amountOf(body.paymentAmount, 'payment amount');
   if (!amount) return null;
-  if (!['cash', 'online'].includes(mode)) fail('Select cash or online for the payment');
+  if (!['cash', 'online', 'split'].includes(mode)) fail('Select cash, online or split for the payment');
   let bank = { payToBank: null, payToBankName: '' };
-  if (mode === 'online') {
-    if (!clean(utrs.utr, 120) && !utrs.utrEntries.length) fail('Enter the UTR / reference of the online payment');
-    if (!files.length) fail('Attach the payment screenshot');
+  if (mode === 'online' || split) {
+    if (!split && !clean(utrs.utr, 120) && !utrs.utrEntries.length) fail('Enter the UTR / reference of the online payment');
+    if (split ? split.needsProof && !files.length : !files.length) fail(split ? 'Attach the payment screenshot of the online part' : 'Attach the payment screenshot');
     const bankId = clean(body.payToBank, 24);
     if (bankId) {
       if (!mongoose.Types.ObjectId.isValid(bankId)) fail('Select a valid bank');
@@ -107,16 +110,17 @@ const paymentFromBody = async (body, files, user, poNumber) => {
       if (!found) fail('Select an active bank');
       bank = { payToBank: found._id, payToBankName: found.displayName || found.name };
     }
-  } else if (!clean(body.receivedBy, 120)) fail('Enter who received the cash');
+  } else if (mode === 'cash' && !clean(body.receivedBy, 120)) fail('Enter who received the cash');
   const items = fileItems(files);
   return {
     _id: new mongoose.Types.ObjectId(),
     amount, date: parseDay(body.paymentDate, 'payment date') || new Date(), paymentMode: mode,
     ...bank,
-    utr: mode === 'online' ? clean(utrs.utr, 1000) : '',
+    utr: mode === 'online' ? clean(utrs.utr, 1000) : split ? split.utr : '',
     transactionId: mode === 'online' ? clean(utrs.transactionId, 1000) : '',
     utrEntries: mode === 'online' ? utrs.utrEntries : [],
-    receivedBy: mode === 'cash' ? clean(body.receivedBy, 120) : '',
+    receivedBy: mode === 'cash' ? clean(body.receivedBy, 120) : split ? split.receivedBy : '',
+    splits: split ? split.splits : [],
     notes: [`PO ${poNumber}`, longText(body.paymentNotes, 1500)].filter(Boolean).join(' | '),
     screenshotUrl: items[0]?.url || null, screenshotFiles: items,
     recordedByName: user.name, recordedBy: user._id || null, approvalStatus: 'pending',
@@ -147,6 +151,12 @@ const buildPoViews = async (filter, { includeHandover = false } = {}) => {
 // Courier Requests / Delivered Couriers: every PO whose medicine In Transit has scheduled (courier, porter or self
 // pickup with its expected date), read from the PO's In Transit timeline. It is "to send" until it is dispatched or
 // collected, then it is under "delivered" (on the way until the patient's receipt is confirmed).
+// The In Transit step the case is on now (or "Treatment started" once all are done).
+const transitNowOf = (v) => {
+  const now = v.steps.find((s) => s.branch === 'transit' && s.state === 'current');
+  if (now) return { key: now.key, label: now.label, waitText: now.waitText || '' };
+  return v.steps.some((s) => s.key === 'started' && s.done) ? { key: 'started', label: 'Treatment started', waitText: '', done: true } : null;
+};
 const MED_LABEL = { requested: 'Waiting for Medicine Dept', in_process: 'Being prepared', made: 'Medicine ready', sent_to_courier: 'Released by Medicine Dept' };
 const courierHandovers = async () => {
   const views = await loadPoViews({ status: 'verified', medicineRequestId: { $nin: ['', null] } }, { includeHandover: true });
@@ -155,7 +165,7 @@ const courierHandovers = async () => {
     poId: v.id, poNumber: v.poNumber, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, patientPhone: v.patientPhone, phase: v.phase, supplyLabel: v.supplyLabel,
     section: 'delivered', received: v.courier.status === 'delivered', mode: v.courier.deliveryMode === 'self' ? 'pickup' : v.courier.deliveryMode || 'courier', expectedAt: null,
     medicine: { status: v.medicine.status, label: MED_LABEL[v.medicine.status] || v.medicine.status, readyByDate: v.medicine.readyByDate, requestedAt: v.medicine.requestedAt },
-    payment: v.poPayment, nextStep: null, delay: v.delay,
+    payment: v.poPayment, nextStep: transitNowOf(v), delay: v.delay,
     courier: { status: v.courier.status, partner: v.courier.courierPartner, tracking: v.courier.trackingNumber, receivedByName: v.courier.receivedByName, deliveredAt: v.courier.deliveredAt, dispatchedAt: v.courier.dispatchedAt, packageImages: [], deliveryProofImages: [] },
   }));
   return [...earlier, ...views.filter((v) => v.isPhaseCurrentRequest && v.handover?.mode && v.medicine && v.medicine.status !== 'cancelled'
@@ -164,7 +174,7 @@ const courierHandovers = async () => {
       const h = v.handover;
       const pickup = h.mode === 'pickup';
       const sent = pickup ? h.courier.status === 'delivered' : ['dispatched', 'delivered'].includes(h.courier.status);
-      const transitNow = v.steps.find((s) => s.branch === 'transit' && s.state === 'current');
+      const transitNow = transitNowOf(v);
       return {
         poId: v.id, poNumber: v.poNumber, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, patientPhone: v.patientPhone, phase: v.phase, supplyLabel: v.supplyLabel,
         section: sent ? 'delivered' : 'pending', received: h.courier.status === 'delivered',
@@ -172,16 +182,19 @@ const courierHandovers = async () => {
         scheduledByName: h.setByName, scheduledAt: h.setAt, explanationAt: h.explanationAt, explanationMode: h.explanationMode, pcc: h.pcc.name,
         medicine: { status: v.medicine.status, label: MED_LABEL[v.medicine.status] || v.medicine.status, readyByDate: v.medicine.readyByDate, requestedAt: v.medicine.requestedAt },
         payment: v.poPayment,
-        nextStep: transitNow ? { label: transitNow.label, waitText: transitNow.waitText || '' } : null,
+        nextStep: transitNow,
         delay: v.delay, courier: h.courier,
       };
     })].sort((a, b) => new Date(a.expectedAt || 0) - new Date(b.expectedAt || 0));
 };
 
-// @route GET /api/courier/handovers?section=pending|delivered
+// Self Pickup Schedule lists the pickups, Porter / Courier Schedule the rest.
+const byDelivery = (kind) => (r) => (kind === 'pickup' ? r.mode === 'pickup' : kind === 'shipped' ? r.mode !== 'pickup' : true);
+
+// @route GET /api/courier/handovers?section=pending|delivered&mode=pickup|shipped
 const listCourierHandovers = asyncHandler(async (req, res) => {
   const section = req.query.section === 'delivered' ? 'delivered' : 'pending';
-  const rows = (await courierHandovers()).filter((r) => r.section === section);
+  const rows = (await courierHandovers()).filter((r) => r.section === section).filter(byDelivery(req.query.mode));
   if (section === 'delivered') rows.sort((a, b) => new Date(b.courier.deliveredAt || b.courier.dispatchedAt || 0) - new Date(a.courier.deliveredAt || a.courier.dispatchedAt || 0));
   res.json({ success: true, count: rows.length, rows });
 });
@@ -354,7 +367,7 @@ const addPurchaseOrderPayment = asyncHandler(async (req, res) => {
   stageOf(patient, po.phase).payments.push(payment);
   po.paymentIds.push(payment._id);
   event(po, req.user, 'Payment added', `Rs ${payment.amount} via ${payment.paymentMode} - pending verification`);
-  logActivity(patient, req.user, `Payment added for Phase ${po.phase}`, `${payment.amount} via ${payment.paymentMode === 'cash' ? 'Cash' : 'Online'} — PO ${po.poNumber}, pending accounts approval`);
+  logActivity(patient, req.user, `Payment added for Phase ${po.phase}`, `${payment.amount} via ${modeLabelOf(payment)} — PO ${po.poNumber}, pending accounts approval`);
   await patient.save();
   await po.save();
   await respond(res, po, patient, 201);
@@ -374,7 +387,7 @@ const verifyDetails = asyncHandler(async (req, res) => {
     logActivity(patient, req.user, 'Patient approved', `Cleared with purchase order ${po.poNumber}`);
   }
   Object.assign(po, { detailsVerifiedAt: now, detailsVerifiedByName: req.user.name, detailsChecks: checksOf(req.body) });
-  event(po, req.user, 'PO details verified', clean(req.body?.note, 300));
+  event(po, req.user, 'PO details verify', clean(req.body?.note, 300));
   logActivity(patient, req.user, `Purchase order details verified for Phase ${po.phase}`, po.poNumber);
   await patient.save();
   await po.save();
@@ -397,7 +410,7 @@ const verifyPayment = asyncHandler(async (req, res) => {
   for (const payment of stage.payments) {
     if (ids.has(String(payment._id)) && payment.approvalStatus === 'pending') {
       Object.assign(payment, { approvalStatus: 'approved', approvedByName: req.user.name, approvedAt: now });
-      logActivity(patient, req.user, `Payment approved for Phase ${po.phase}`, `${payment.amount} via ${payment.paymentMode === 'cash' ? 'Cash' : 'Online'} — PO ${po.poNumber}`);
+      logActivity(patient, req.user, `Payment approved for Phase ${po.phase}`, `${payment.amount} via ${modeLabelOf(payment)} — PO ${po.poNumber}`);
       approved += 1;
       amount += Number(payment.amount || 0);
     }

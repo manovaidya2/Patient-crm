@@ -3,8 +3,10 @@
 const { SUPPLY_OPTIONS, AGE_BANDS, CUSTOM_PICK_LABEL, customOption, supplyOptionByLabel, ageBandFor } = require('../constants/supplyPlans');
 const { applyParts } = require('./paymentParts');
 const { parseUtrEntries, resolveUtrs } = require('./utrEntries');
+const { parseSplits, resolveSplit } = require('./splitPayment');
 
-const MODES = ['Cash', 'Online', 'Card (+3%)', 'EMI', 'Other'];
+// Split: paid the same day partly online / cash / card (one payment of the total, utils/splitPayment).
+const MODES = ['Cash', 'Online', 'Card (+3%)', 'Split', 'EMI', 'Other'];
 const PLANS = ['Full', '2 Parts', '3 Parts', 'Other Approved'];
 const EMI_STATUSES = ['Approved', 'Pending', 'Declined'];
 const CARD_RATE = 0.03;
@@ -15,10 +17,12 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const SECTION_F = [
   { key: 'mode', label: 'Mode', type: 'single', options: MODES },
   { key: 'amountReceivedNow', label: 'Amount received now (Rs)', type: 'money' },
-  { key: 'utrReference', label: 'UTR / payment / tracking reference', type: 'text', hideFor: ['Cash'] },
-  { key: 'transactionId', label: 'Transaction ID', type: 'text', hideFor: ['Cash'] },
+  // Split: each part (online / cash / card) with its amount; the amount received now is their total.
+  { key: 'splits', label: 'Split parts', type: 'splits', onlyFor: ['Split'], wide: true },
+  { key: 'utrReference', label: 'UTR / payment / tracking reference', type: 'text', hideFor: ['Cash', 'Split'] },
+  { key: 'transactionId', label: 'Transaction ID', type: 'text', hideFor: ['Cash', 'Split'] },
   // Several same-day transfers: each UTR with its amount; the amount received now is their total.
-  { key: 'utrEntries', label: 'UTRs (several transfers)', type: 'utrs', hideFor: ['Cash'] },
+  { key: 'utrEntries', label: 'UTRs (several transfers)', type: 'utrs', hideFor: ['Cash', 'Split'] },
   { key: 'payToBank', label: 'Paid to bank', type: 'bank', hideFor: ['Cash'] },
   { key: 'screenshots', label: 'Payment screenshots', type: 'files', hideFor: ['Cash'], wide: true },
   { key: 'cashHandedTo', label: 'Cash handed to', type: 'text', onlyFor: ['Cash'] },
@@ -141,7 +145,7 @@ const cleanPurchase = (raw = {}, approvedFee) => {
     else if (field.type === 'single') values[field.key] = field.options.includes(value) || (field.key === 'supplyOrder' && supplyOptionByLabel(value)?.custom) ? value : '';
     else if (field.type === 'money') values[field.key] = money(value, field.label);
     else if (field.type === 'due' || field.type === 'dueNote') continue; // worked out after the loop
-    else if (field.type === 'utrs') continue; // worked out after the loop
+    else if (field.type === 'utrs' || field.type === 'splits') continue; // worked out after the loop
     else if (field.type === 'ageGroup') continue; // worked out from the age after the loop
     else if (field.type === 'bank') {
       const id = text(value, 24);
@@ -167,6 +171,11 @@ const cleanPurchase = (raw = {}, approvedFee) => {
     const utrs = resolveUtrs({ entries: parseUtrEntries(raw?.utrEntries), amount: values.amountReceivedNow, utr: values.utrReference, transactionId: values.transactionId });
     values.utrEntries = utrs.utrEntries;
     if (utrs.utrEntries.length) { values.utrReference = utrs.utr.slice(0, 1000); values.transactionId = utrs.transactionId.slice(0, 1000); values.amountReceivedNow = utrs.amount; }
+  }
+  values.splits = [];
+  if (values.mode === 'Split' && parseSplits(raw?.splits).length) {
+    const split = resolveSplit(raw.splits);
+    Object.assign(values, { splits: split.splits, amountReceivedNow: split.amount, utrReference: split.utr.slice(0, 1000), transactionId: '', utrEntries: [] });
   }
   if (values.mode === 'Cash') { values.utrReference = ''; values.transactionId = ''; values.payToBank = ''; values.screenshots = []; values.utrEntries = []; }
   else { values.cashHandedTo = ''; values.cashReceiver = ''; }

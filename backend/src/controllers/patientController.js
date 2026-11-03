@@ -192,8 +192,10 @@ const withLegacyFile = (files = [], url, fileName) => {
 
 const sameValue = (left, right) => String(left ?? '') === String(right ?? '');
 
+const { resolveSplit, splitText, bankAmountOf, modeLabelOf } = require('../utils/splitPayment');
+// A split payment's online / card parts go to the bank chosen for it.
 const resolvePayToBank = async (paymentMode, bankId) => {
-  if (paymentMode !== PAYMENT_MODES.ONLINE) return { payToBank: null, payToBankName: '' };
+  if (![PAYMENT_MODES.ONLINE, PAYMENT_MODES.SPLIT].includes(paymentMode)) return { payToBank: null, payToBankName: '' };
   const normalizedBankId = String(bankId || '').trim();
   if (!normalizedBankId) return { payToBank: null, payToBankName: '' };
   const bank = await BankAccount.findOne({ _id: normalizedBankId, isActive: true }).lean();
@@ -613,7 +615,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
           createdAt: pay.createdAt || pay.date,
           updatedAt: pay.updatedAt || pay.createdAt || pay.date,
           paymentMode: pay.paymentMode || PAYMENT_MODES.ONLINE,
-          paymentModeLabel: PAYMENT_MODE_LABELS[pay.paymentMode || PAYMENT_MODES.ONLINE],
+          paymentModeLabel: modeLabelOf(pay),
+          splits: pay.splits || [],
           payToBank: pay.payToBank || null,
           payToBankName: pay.payToBankName || '',
           utr: pay.utr || '',
@@ -870,7 +873,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     .select(
       'patientName patientCode currentStage assignedDoctor assignedPsychologist createdAt '
       + 'stages.number stages.totalAmount stages.payments.amount stages.payments.date stages.payments.createdAt '
-      + 'stages.payments.paymentMode stages.payments.payToBank stages.payments.payToBankName stages.payments.approvalStatus '
+      + 'stages.payments.paymentMode stages.payments.splits stages.payments.payToBank stages.payments.payToBankName stages.payments.approvalStatus '
       + 'stages.packageName stages.postCounselor stages.medicineNextConnectDate stages.medicineConnectDone stages.medicineNextConnectNote '
       + 'stages.medicineRequest.requestId stages.medicineRequest.status stages.medicineRequest.requestedAt '
       + 'stages.medicineRequest.inProcessAt stages.medicineRequest.madeAt stages.medicineRequest.sentToCourierAt '
@@ -986,7 +989,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
           .reduce((sum, payment) => sum + netPaymentAmount(payment), 0);
         (stage.payments || [])
           .filter(isApprovedPayment)
-          .filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE)
+          .filter((payment) => bankAmountOf(payment) > 0)
           .forEach((payment) => {
             const paidDate = payment.date ? new Date(payment.date) : null;
             if (bankFrom && (!paidDate || paidDate < bankFrom || paidDate >= bankTo)) return;
@@ -997,7 +1000,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
               amount: 0,
               count: 0,
             };
-            row.amount += Number(payment.amount || 0);
+            row.amount += bankAmountOf(payment);
             row.count += 1;
             bankSummaryRows.set(key, row);
           });
@@ -1334,7 +1337,9 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
           addedAt,
           updatedAt,
           paymentMode: payment.paymentMode,
-          paymentModeLabel: PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode,
+          paymentModeLabel: modeLabelOf(payment),
+          splits: payment.splits || [],
+          bankAmount: bankAmountOf(payment),
           payToBank: payment.payToBank || null,
           payToBankName: payment.payToBankName || '',
           utr: payment.utr || '',
@@ -1360,7 +1365,7 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
   // list always sees every bank's totals for the selected range, regardless of bankId.
   const bankSummaryMap = new Map();
   payments
-    .filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE)
+    .filter((payment) => payment.bankAmount > 0)
     .forEach((payment) => {
       const key = payment.payToBank ? String(payment.payToBank) : 'unassigned';
       const current = bankSummaryMap.get(key) || {
@@ -1369,20 +1374,21 @@ const getPaymentsLedger = asyncHandler(async (req, res) => {
         amount: 0,
         count: 0,
       };
-      current.amount += Number(payment.amount || 0);
+      current.amount += payment.bankAmount;
       current.count += 1;
       bankSummaryMap.set(key, current);
     });
 
   const scopedPayments = bankId
-    ? payments.filter((payment) => payment.paymentMode === PAYMENT_MODES.ONLINE
+    ? payments.filter((payment) => payment.bankAmount > 0
       && (payment.payToBank ? String(payment.payToBank) : 'unassigned') === bankId)
     : payments;
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 2000);
   const total = scopedPayments.length;
-  const totalAmount = scopedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  // For one bank only what reached that bank (a split payment's online / card parts).
+  const totalAmount = scopedPayments.reduce((sum, payment) => sum + (bankId ? payment.bankAmount : payment.amount), 0);
   const totalRefunded = scopedPayments.reduce((sum, payment) => sum + payment.refundedAmount, 0);
   const paginatedPayments = scopedPayments.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
@@ -1708,7 +1714,8 @@ const pendingPaymentsOf = (patient) => {
         amount: payment.amount,
         date: payment.date,
         paymentMode: payment.paymentMode,
-        paymentModeLabel: PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode,
+        paymentModeLabel: modeLabelOf(payment),
+        splits: payment.splits || [],
         payToBankName: payment.payToBankName || '',
         utr: payment.utr || '',
         transactionId: payment.transactionId || '',
@@ -2228,8 +2235,9 @@ const addStagePayment = asyncHandler(async (req, res) => {
   }
 
   const isOnline = (req.body.paymentMode || PAYMENT_MODES.ONLINE) === PAYMENT_MODES.ONLINE;
+  const split = req.body.paymentMode === PAYMENT_MODES.SPLIT ? resolveSplit(req.body.splits) : null;
   const utrs = resolveUtrs({ entries: isOnline ? parseUtrEntries(req.body.utrEntries) : [], amount: Number(req.body.amount), utr: req.body.utr, transactionId: req.body.transactionId });
-  const amountNum = Number(utrs.amount);
+  const amountNum = split ? split.amount : Number(utrs.amount);
   if (!amountNum || amountNum <= 0) {
     return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
   }
@@ -2272,10 +2280,11 @@ const addStagePayment = asyncHandler(async (req, res) => {
     paymentMode,
     payToBank: bank.payToBank,
     payToBankName: bank.payToBankName,
-    utr: paymentMode === PAYMENT_MODES.ONLINE ? utrs.utr : '',
+    utr: paymentMode === PAYMENT_MODES.ONLINE ? utrs.utr : split ? split.utr : '',
     transactionId: paymentMode === PAYMENT_MODES.ONLINE ? utrs.transactionId : '',
     utrEntries: paymentMode === PAYMENT_MODES.ONLINE ? utrs.utrEntries : [],
-    receivedBy: paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '',
+    receivedBy: paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : split ? split.receivedBy : '',
+    splits: split ? split.splits : [],
     notes: String(req.body.notes || '').trim(),
     screenshotUrl: screenshotFiles[0]?.url || null,
     screenshotFiles,
@@ -2287,7 +2296,7 @@ const addStagePayment = asyncHandler(async (req, res) => {
     patient,
     req.user,
     `Payment added for Phase ${stageNum}${forPo ? ` (${forPo.poNumber})` : ''}`,
-    `${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers: ${utrs.utr})` : ''} — pending accounts approval${req.body.notes ? ` | Note: ${String(req.body.notes).trim()}` : ''}`
+    `${amountNum} via ${split ? `split: ${splitText(split)}` : PAYMENT_MODE_LABELS[paymentMode]}${utrs.utrEntries.length ? ` (${utrs.utrEntries.length} transfers: ${utrs.utr})` : ''} — pending accounts approval${req.body.notes ? ` | Note: ${String(req.body.notes).trim()}` : ''}`
   );
 
   await patient.save();
@@ -2326,8 +2335,9 @@ const updateStagePayment = asyncHandler(async (req, res) => {
   }
 
   const editOnline = (req.body.paymentMode || PAYMENT_MODES.ONLINE) === PAYMENT_MODES.ONLINE;
+  const editSplit = req.body.paymentMode === PAYMENT_MODES.SPLIT ? resolveSplit(req.body.splits) : null;
   const editUtrs = resolveUtrs({ entries: editOnline ? parseUtrEntries(req.body.utrEntries) : [], amount: Number(req.body.amount), utr: req.body.utr, transactionId: req.body.transactionId });
-  const amountNum = Number(editUtrs.amount);
+  const amountNum = editSplit ? editSplit.amount : Number(editUtrs.amount);
   if (!amountNum || amountNum <= 0) {
     return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
   }
@@ -2337,17 +2347,18 @@ const updateStagePayment = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: `Payment mode must be one of: ${ALL_PAYMENT_MODES.join(', ')}` });
   }
 
-  const previousSummary = `${payment.amount || 0} via ${PAYMENT_MODE_LABELS[payment.paymentMode] || payment.paymentMode}${payment.notes ? ` | Note: ${payment.notes}` : ''}`;
+  const previousSummary = `${payment.amount || 0} via ${modeLabelOf(payment)}${payment.notes ? ` | Note: ${payment.notes}` : ''}`;
   payment.amount = amountNum;
   payment.date = req.body.date || payment.date || new Date();
   payment.paymentMode = paymentMode;
   const bank = await resolvePayToBank(paymentMode, req.body.payToBank);
   payment.payToBank = bank.payToBank;
   payment.payToBankName = bank.payToBankName;
-  payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.utr : '';
+  payment.utr = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.utr : editSplit ? editSplit.utr : '';
   payment.transactionId = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.transactionId : '';
   payment.utrEntries = paymentMode === PAYMENT_MODES.ONLINE ? editUtrs.utrEntries : [];
-  payment.receivedBy = paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : '';
+  payment.receivedBy = paymentMode === PAYMENT_MODES.CASH ? req.body.receivedBy || '' : editSplit ? editSplit.receivedBy : '';
+  payment.splits = editSplit ? editSplit.splits : [];
   payment.notes = String(req.body.notes || '').trim();
   payment.editedByName = req.user.name;
   payment.editedAt = new Date();
@@ -2361,7 +2372,7 @@ const updateStagePayment = asyncHandler(async (req, res) => {
     patient,
     req.user,
     `Payment edited for Phase ${stageNum}`,
-    `From ${previousSummary} to ${amountNum} via ${PAYMENT_MODE_LABELS[paymentMode]}${payment.notes ? ` | Note: ${payment.notes}` : ''}`
+    `From ${previousSummary} to ${amountNum} via ${editSplit ? `split: ${splitText(editSplit)}` : PAYMENT_MODE_LABELS[paymentMode]}${payment.notes ? ` | Note: ${payment.notes}` : ''}`
   );
 
   await patient.save();

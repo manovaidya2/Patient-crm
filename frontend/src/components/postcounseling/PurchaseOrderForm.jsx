@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Check, FileText, Paperclip, X } from 'lucide-react';
+import { Camera, Check, FileText, Paperclip, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import { workOutDues } from '../../utils/paymentParts.js';
 import UtrRows, { isMultiUtr, utrTotal } from '../payments/UtrRows.jsx';
+import SplitRows, { splitRowsFrom, splitTotal } from '../payments/SplitRows.jsx';
 import { CUSTOM_PICK_LABEL, ageBandFor, ageBandLabel, isCustomSupplyLabel } from '../../constants/supplyPlans.js';
 
 const inputClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm text-charcoal placeholder:text-charcoal/35 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20 disabled:opacity-60';
@@ -90,6 +91,12 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
                 <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={uploadFiles(field.key)} />
               </label>
             )}
+            {editable && (
+              <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-semibold text-sage hover:border-sage/60">
+                <Camera size={14} />Take photo
+                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={uploading} onChange={uploadFiles(field.key)} />
+              </label>
+            )}
             {files.length > 0 ? (
               <ul className="flex flex-wrap gap-2">
                 {files.map((file) => (
@@ -105,6 +112,12 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
         </div>
       );
     }
+    // Split: the parts (online / cash / card); the amount received now is their total.
+    if (field.type === 'splits') {
+      const rows = (values.splits || []).length && 'ref' in values.splits[0] ? values.splits : splitRowsFrom({ splits: values.splits });
+      return <div key={field.key} className="md:col-span-2"><p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}</p>{editable ? <SplitRows idPrefix="paper-split" rows={rows} onChange={(next) => { onChange('splits', next); onChange('amountReceivedNow', String(splitTotal(next))); }} /> : <p className="text-sm text-charcoal">{rows.map((r) => `${r.mode} ${rupees(r.amount)}${r.ref ? ` (${r.ref})` : ''}`).join(' + ')}</p>}</div>;
+    }
+    if (field.key === 'amountReceivedNow' && values.mode === 'Split') return <div key={field.key} className={wrap}><Auto label={`${field.label} (total of the parts)`} value={rupees(values.amountReceivedNow)} /></div>;
     // The UTR field shows all transfers; Transaction ID sits inside each transfer row.
     if (field.key === 'utrReference') return <div key={field.key} className="md:col-span-2"><UtrRows idPrefix="paper-utr" utrLabel={field.label} rows={utrRows} onChange={setUtrRows} disabled={!editable} /></div>;
     if (field.key === 'transactionId' || field.type === 'utrs') return null;

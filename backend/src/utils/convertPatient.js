@@ -56,6 +56,7 @@ const paymentFromPaper = (values, { cardCharge = 0, user }) => {
   const received = Number(values.amountReceivedNow || 0);
   if (!(received > 0)) return null;
   const cash = values.mode === 'Cash';
+  const split = values.mode === 'Split' && Array.isArray(values.splits) && values.splits.length ? values.splits : null;
   const notes = [
     `Mode: ${values.mode || 'Not set'}`, values.mode === 'Card (+3%)' ? `3% card charge Rs ${cardCharge || 0}` : '',
     values.poNo ? `PO ${values.poNo}` : '', values.paymentTime ? `Time ${values.paymentTime}` : '',
@@ -65,9 +66,10 @@ const paymentFromPaper = (values, { cardCharge = 0, user }) => {
   const paidOn = values.paymentDate || values.poDate;
   return {
     _id: new mongoose.Types.ObjectId(),
-    amount: received, date: paidOn ? new Date(`${paidOn}T12:00:00.000Z`) : new Date(), paymentMode: cash ? 'cash' : 'online',
+    amount: received, date: paidOn ? new Date(`${paidOn}T12:00:00.000Z`) : new Date(), paymentMode: cash ? 'cash' : split ? 'split' : 'online',
     payToBank: !cash && values.payToBank ? values.payToBank : null, payToBankName: cash ? '' : text(values.payToBankName),
-    utr: cash ? '' : text(values.utrReference, 1000), transactionId: cash ? '' : text(values.transactionId, 1000), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : '',
+    utr: cash ? '' : text(values.utrReference, 1000), transactionId: cash ? '' : text(values.transactionId, 1000), receivedBy: cash ? text(values.cashReceiver || values.cashHandedTo) : split ? [...new Set(split.map((s) => s.receivedBy).filter(Boolean))].join(', ') : '',
+    splits: split || [],
     utrEntries: cash ? [] : (Array.isArray(values.utrEntries) ? values.utrEntries : []),
     screenshotUrl: screenshots[0]?.url || null, screenshotFiles: screenshots,
     notes, recordedByName: user.name, recordedBy: user._id || null, approvalStatus: 'pending',

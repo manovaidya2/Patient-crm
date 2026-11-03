@@ -230,7 +230,7 @@ test('the pipeline follows the medicine request and courier records', () => {
   const stage = patient.stages[0];
   stage.medicineRequests = [{ requestId: 'r1', status: 'sent_to_courier', requestedAt: new Date(), inProcessAt: new Date(), madeAt: new Date(), sentToCourierAt: new Date(), courier: { status: 'delivered', deliveryMode: 'courier', dispatchedAt: new Date(), deliveredAt: new Date() } }];
   const view = buildPoView({ _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1234', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() }, patient);
-  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'fullpay', 'handover', 'received']);
+  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'fullpay', 'handover', 'received']);
   assert.equal(view.stageKey, 'treatment');
   assert.equal(view.suggestedAgeBand, '4-12');
 });
@@ -244,12 +244,16 @@ test('after the medicine is accepted the timeline runs in two tracks, each with 
   const po = { _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() };
   let view = buildPoView(po, patient);
   const now = () => view.steps.filter((s) => s.state === 'current').map((s) => s.key);
-  assert.deepEqual(now(), ['ready', 'scheduled'], 'Medicine Dept prepares while In Transit schedules');
-  assert.deepEqual(view.steps.filter((s) => s.branch).map((s) => `${s.branch}:${s.key}`), ['medicine:ready', 'medicine:released', 'transit:scheduled', 'transit:pcc', 'transit:fullpay', 'transit:handover', 'transit:received', 'transit:explained', 'transit:started']);
+  assert.deepEqual(now(), ['ready', 'calls'], 'Medicine Dept prepares while In Transit calls the patient');
+  assert.deepEqual(view.steps.filter((s) => s.branch).map((s) => `${s.branch}:${s.key}`), ['medicine:ready', 'medicine:released', 'transit:calls', 'transit:scheduled', 'transit:fullpay', 'transit:handover', 'transit:pcc', 'transit:received', 'transit:explained', 'transit:started']);
   assert.ok(view.actionBy.includes('medicine_department') && view.actionBy.includes('in_transit'), 'both teams have work');
-  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).key, 'scheduled');
+  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).key, 'calls');
+  // A connected call marked done moves In Transit to "Delivery scheduled".
+  stage.transit = { calls: [{ at: new Date(), outcome: 'connected', notes: 'ok' }], callsDoneAt: new Date() };
+  view = buildPoView(po, patient);
+  assert.deepEqual(now(), ['ready', 'scheduled']);
   // In Transit's handover waits for the release; nobody is asked to act on it yet.
-  stage.transit = { fulfilmentMode: 'courier', dispatchScheduledAt: new Date(), assignedAt: new Date() };
+  stage.transit = { callsDoneAt: new Date(), fulfilmentMode: 'courier', dispatchScheduledAt: new Date(), assignedAt: new Date() };
   stage.medicineExplainDate = new Date();
   stage.payments = [{ amount: 10000, approvalStatus: 'approved' }];
   view = buildPoView(po, patient);
@@ -260,7 +264,7 @@ test('after the medicine is accepted the timeline runs in two tracks, each with 
   view = buildPoView(po, patient, { job: { status: 'open', currentStage: 11 } });
   assert.deepEqual(now(), ['ready', 'handover']);
   assert.ok(view.actionBy.includes('in_transit') && !view.actionBy.includes('medicine_department'));
-  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).label, 'Final check - medicine ready');
+  assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).label, 'Final check pending');
   // Before the medicine is accepted there is one "now" step.
   stage.medicineRequests[0].status = 'requested';
   view = buildPoView(po, patient);

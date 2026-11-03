@@ -47,7 +47,7 @@ const doneKeys = (c) => stepsOf(c).filter((s) => s.done).map((s) => s.key);
 
 test('the finished case has every step done', () => {
   const c = finishedCase();
-  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'scheduled', 'pcc', 'fullpay', 'handover', 'explained', 'started']);
+  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'fullpay', 'handover', 'pcc', 'explained', 'started']);
 });
 
 test('reverting "Medicine ready" undoes everything after it, keeps preparation, and records what was cleared', async () => {
@@ -80,7 +80,7 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   assert.match(stepsOf(c).find((s) => s.key === 'ready').waitText, /In Transit confirms/);
 });
 
-test('reverting "PO details verified" takes the whole case back: request cancelled, job cancelled, stock returned, payments pending', async () => {
+test('reverting "PO details verify" takes the whole case back: request cancelled, job cancelled, stock returned, payments pending', async () => {
   const c = finishedCase();
   const returned = [];
   const ctx = { ...c, steps: stepsOf(c), returnStock: async (line) => returned.push(line.code), reason: 'Wrong patient', user, now: new Date() };

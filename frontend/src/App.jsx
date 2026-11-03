@@ -31,6 +31,7 @@ const MedicineMade = lazy(() => import('./pages/admin/MedicineMade.jsx'));
 const MedicineInventory = lazy(() => import('./pages/admin/MedicineInventory.jsx'));
 const ClinicInventory = lazy(() => import('./pages/admin/ClinicInventory.jsx'));
 const CourierRequests = lazy(() => import('./pages/admin/CourierRequests.jsx'));
+const SelfPickupSchedule = lazy(() => import('./pages/admin/SelfPickupSchedule.jsx'));
 const PurchaseOrders = lazy(() => import('./pages/admin/PurchaseOrders.jsx'));
 const MedicineJobs = lazy(() => import('./pages/admin/MedicineJobs.jsx'));
 const MedicineJobPage = lazy(() => import('./pages/admin/MedicineJob.jsx'));
@@ -289,6 +290,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="self-pickup-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><SelfPickupSchedule /></ProtectedRoute>} />
         <Route
           path="courier-delivered"
           element={

@@ -48,7 +48,7 @@ const dispatchDelayInput = ({ stage = null, request = null } = {}) => {
   const t = stage?.transit || {};
   const courier = request?.courier || {};
   if (t.fulfilmentMode === 'pickup') return { dispatchExpected: t.pickupScheduledAt, dispatchedAt: courier.status === 'delivered' ? courier.deliveredAt : null, dispatchLabel: 'Self pickup' };
-  return { dispatchExpected: t.dispatchScheduledAt, dispatchedAt: ['dispatched', 'delivered'].includes(courier.status) ? courier.dispatchedAt : null, dispatchLabel: t.fulfilmentMode === 'porter' ? 'Porter dispatch' : 'Courier dispatch' };
+  return { dispatchExpected: t.dispatchScheduledAt, dispatchedAt: ['dispatched', 'delivered'].includes(courier.status) ? courier.dispatchedAt : null, dispatchLabel: t.fulfilmentMode === 'porter' ? 'Porter dispatch' : t.fulfilmentMode === 'shipped' ? 'Porter / courier dispatch' : 'Courier dispatch' };
 };
 
 // Delays for a medicine request: when it was made, when it reached In Transit, and when it was dispatched.

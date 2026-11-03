@@ -19,6 +19,7 @@ const paperValue = (field, value, values) => {
   if (value === undefined || value === null || value === '' || value === false) return '';
   if (field.type === 'check') return 'Yes';
   if (field.type === 'utrs') return Array.isArray(value) && value.length ? value.map((row) => `${row.utr || row.transactionId || '-'} (Rs ${Number(row.amount || 0).toLocaleString('en-IN')})`).join(', ') : '';
+  if (field.type === 'splits') return Array.isArray(value) && value.length ? require('./splitPayment').splitText({ splits: value }) : '';
   if (field.type === 'money') return `Rs ${Number(value).toLocaleString('en-IN')}`;
   // Worked-out dues are amounts; older papers may hold text typed in the old due box.
   if (field.type === 'due') return Number.isFinite(Number(value)) ? `Rs ${Number(value).toLocaleString('en-IN')}` : String(value);
@@ -76,6 +77,8 @@ const formatPayment = (p) => ({
   utr: p.utr || '',
   transactionId: p.transactionId || '',
   receivedBy: p.receivedBy || '',
+  splits: p.splits || [],
+  modeLabel: require('./splitPayment').modeLabelOf(p),
   bank: p.payToBankName || '',
   notes: p.notes || '',
   recordedByName: p.recordedByName || '',
@@ -107,48 +110,61 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const explanationAt = transitOwner ? stage.medicineExplainDate : null;
   const pccName = transitOwner ? (patient.assignedDoctor?.name || '') : '';
   const pccAssigned = transitOwner && Boolean(t.assignedAt || t.explanationDoctor);
+  const transitCalls = transitOwner ? [...(t.calls || [])].sort((a, b) => new Date(b.at) - new Date(a.at)) : [];
+  const lastCall = transitCalls[0];
+  const connected = transitCalls.some((c) => c.outcome === 'connected');
+  // Older cases scheduled before the call step existed count it as done.
+  const callsDone = (transitOwner && Boolean(t.callsDoneAt || t.fulfilmentSetAt)) || dispatched || delivered;
   // The job waits on In Transit's final check (its packing is done).
   const finalDue = Boolean(job) && job.status === 'open' && !job.hold?.active && (job.currentStage || 0) === STAGE_INDEX.final;
   const steps = [
-    { key: 'created', group: 'verification', label: 'PO created', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
+    { key: 'created', group: 'verification', label: 'Create PO', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
     {
-      key: 'details', group: 'verification', label: po.status === 'rejected' ? 'PO rejected' : 'PO details verified',
+      key: 'details', group: 'verification', label: po.status === 'rejected' ? 'PO sent back' : 'Verify PO details',
       done: detailsVerified(po), failed: po.status === 'rejected' || po.status === 'cancelled',
       at: iso(po.status === 'rejected' ? po.rejectedAt : (po.detailsVerifiedAt || po.verifiedAt)), by: po.status === 'rejected' ? po.rejectedByName : (po.detailsVerifiedByName || po.verifiedByName),
       text: po.status === 'rejected' ? po.rejectReason : '', waitText: 'In Transit checks the PO paper and patient details',
     },
     {
-      key: 'payment', group: 'verification', label: 'Payment verified',
+      key: 'payment', group: 'verification', label: 'Verify payment',
       done: po.status === 'verified',
       at: iso(po.paymentVerifiedAt || po.verifiedAt), by: po.paymentVerifiedByName || po.verifiedByName,
       text: linked.count ? `${linked.approvedCount} verified / ${linked.pendingCount} pending | Rs ${linked.verifiedAmount} in Phase ${po.phase} payments` : 'No payment on this PO',
       waitText: linked.count ? 'In Transit matches the payment proof and verifies it' : 'In Transit confirms there is no payment on this PO',
     },
-    { key: 'requested', group: 'medicine', label: 'Medicine requested', done: Boolean(request), failed: status === 'cancelled', at: iso(request?.requestedAt), by: request?.requestedByName, text: status === 'cancelled' ? `Cancelled: ${request.cancelReason || ''}` : [supplyLabel(po.supplyPlan, po.supplyPart), AGE_BANDS[po.ageBand]].filter(Boolean).join(' | '), waitText: 'In Transit sends the request to Medicine Department' },
-    { key: 'accepted', group: 'medicine', label: 'Accepted by Medicine Dept', done: accepted, returned: !accepted && Boolean(job?.returned?.at), at: iso(!accepted && job?.returned?.at ? job.returned.at : request?.inProcessAt), by: !accepted && job?.returned?.at ? job.returned.byName : request?.inProcessByName, text: !accepted && job?.returned?.at ? `Sent back to In Transit: ${job.returned.reason}` : request?.readyByDate ? `Ready by ${new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}` : '', waitText: 'Waiting for Medicine Department' },
+    { key: 'requested', group: 'medicine', label: 'Medicine request', done: Boolean(request), failed: status === 'cancelled', at: iso(request?.requestedAt), by: request?.requestedByName, text: status === 'cancelled' ? `Cancelled: ${request.cancelReason || ''}` : [supplyLabel(po.supplyPlan, po.supplyPart), AGE_BANDS[po.ageBand]].filter(Boolean).join(' | '), waitText: 'In Transit sends the request to Medicine Department' },
+    { key: 'accepted', group: 'medicine', label: 'To be accepted by Medicine Dept', done: accepted, returned: !accepted && Boolean(job?.returned?.at), at: iso(!accepted && job?.returned?.at ? job.returned.at : request?.inProcessAt), by: !accepted && job?.returned?.at ? job.returned.byName : request?.inProcessByName, text: !accepted && job?.returned?.at ? `Sent back to In Transit: ${job.returned.reason}` : request?.readyByDate ? `Ready by ${new Date(request.readyByDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}` : '', waitText: 'Waiting for Medicine Department' },
     // Medicine Department's track: the medicine is prepared and packed (fulfilment steps 2-11), In Transit confirms the
     // final check of the packed parcel (step 12, `finalDue`: In Transit's turn), then it is released once the full
     // payment is verified.
     {
-      key: 'ready', group: 'medicine', branch: 'medicine', label: 'Final check - medicine ready', done: made, at: iso(made ? request?.madeAt : null), by: made ? (request?.lastMedicineCheckedByName || request?.madeByName) : '', finalDue,
+      key: 'ready', group: 'medicine', branch: 'medicine', label: 'Final check pending', done: made, at: iso(made ? request?.madeAt : null), by: made ? (request?.lastMedicineCheckedByName || request?.madeByName) : '', finalDue,
       waitText: finalDue ? 'In Transit confirms the final check of the packed parcel (fulfilment step 12)'
         : job?.hold?.active ? `Sent back / on hold: ${job.hold.reason} - Medicine Department fixes it and resumes` : 'Medicine Department is preparing and packing the medicine',
     },
-    { key: 'released', group: 'medicine', branch: 'medicine', label: 'Released by Medicine Dept', done: released, at: iso(request?.sentToCourierAt), by: request?.sentToCourierByName, waitText: 'Medicine Department releases the parcel once the full payment is verified' },
-    // In Transit's track, worked while the medicine is prepared: call the patient, fix the delivery and explanation
-    // dates, collect the balance; once released hand over, assign the PCC; the PCC explains and treatment starts.
+    { key: 'released', group: 'medicine', branch: 'medicine', label: 'Release by Medicine Dept', done: released, at: iso(request?.sentToCourierAt), by: request?.sentToCourierByName, waitText: 'Medicine Department releases the parcel once the full payment is verified' },
+    // In Transit's track, worked while the medicine is prepared: call the patient until the call connects, schedule
+    // the delivery (self pickup or porter / courier, only the day), collect the balance; on the day hand over / dispatch
+    // with the delivery details; fix the explanation date and the PCC; confirm the receipt; the PCC explains and
+    // treatment starts.
     {
-      key: 'scheduled', group: 'handover', branch: 'transit', label: 'Delivery & explanation scheduled', done: Boolean(mode) && (Boolean(planDate) || dispatched) && Boolean(explanationAt),
-      at: iso(transitOwner ? t.fulfilmentSetAt : null), by: transitOwner ? t.fulfilmentSetByName : '',
-      text: [MODE_LABEL[mode], planDate ? `${selfPickup ? 'pickup' : 'dispatch'} ${shortDay(planDate)}` : '', explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '),
-      waitText: 'In Transit calls the patient, fixes self pickup / courier date and the medicine explanation date',
+      key: 'calls', group: 'handover', branch: 'transit', label: 'Call for delivery schedule', done: callsDone,
+      at: iso(transitOwner ? t.callsDoneAt : null), by: transitOwner ? t.callsDoneByName : '',
+      text: lastCall ? `Last call: ${lastCall.outcome.replace('_', ' ')}${transitOwner && t.calls?.length > 1 ? ` (${t.calls.length} calls)` : ''}` : '',
+      waitText: connected ? 'The call connected: In Transit marks the call done to schedule the delivery' : 'In Transit calls the patient until the call connects',
     },
-    { key: 'pcc', group: 'treatment', branch: 'transit', label: 'PCC assigned', done: pccAssigned, at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: pccName, waitText: 'In Transit picks the PCC with the delivery schedule' },
-    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Full payment verified', done: pay.remaining <= 0 && pay.pendingCount === 0, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : `In Transit collects the balance of Rs ${pay.remaining} and verifies it` },
-    { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Collected at clinic' : 'Dispatched', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
-    ...(selfPickup ? [] : [{ key: 'received', group: 'handover', branch: 'transit', label: 'Received by patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
-    { key: 'explained', group: 'treatment', branch: 'transit', label: 'Medicine explained', done: transitOwner && Boolean(t.explanationCompletedAt), at: iso(transitOwner ? t.explanationCompletedAt : null), by: transitOwner ? t.explanationCompletedByName : '', text: explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
-    { key: 'started', group: 'treatment', branch: 'transit', label: 'Treatment started', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? t.activatedAt : null), by: transitOwner ? t.activatedByName : '' },
+    {
+      key: 'scheduled', group: 'handover', branch: 'transit', label: 'Expected delivery date', done: Boolean(mode) && (Boolean(planDate) || dispatched),
+      at: iso(transitOwner ? t.fulfilmentSetAt : null), by: transitOwner ? t.fulfilmentSetByName : '',
+      text: [MODE_LABEL[mode], planDate ? `${selfPickup ? 'pickup' : 'dispatch'} ${shortDay(planDate)}` : ''].filter(Boolean).join(' · '),
+      waitText: 'In Transit chooses self pickup or porter / courier and the day',
+    },
+    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : `In Transit collects the balance of Rs ${pay.remaining} and verifies it` },
+    { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Hand over at clinic' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
+    { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(explanationAt), at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' },
+    ...(selfPickup ? [] : [{ key: 'received', group: 'handover', branch: 'transit', label: 'Confirm receipt from patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
+    { key: 'explained', group: 'treatment', branch: 'transit', label: 'Explain medicine', done: transitOwner && Boolean(t.explanationCompletedAt), at: iso(transitOwner ? t.explanationCompletedAt : null), by: transitOwner ? t.explanationCompletedByName : '', text: explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
+    { key: 'started', group: 'treatment', branch: 'transit', label: 'Start treatment', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? t.activatedAt : null), by: transitOwner ? t.activatedByName : '' },
   ];
   // One step is "now" until the medicine is accepted; from there each track has its own "now" step.
   const trunkOpen = steps.find((s) => !s.branch && !s.done);
@@ -172,6 +188,8 @@ function handoverRecord({ t, stage, courier, patient, poPayments }) {
     dispatchAt: iso(t.dispatchScheduledAt), plannedCourier: t.plannedCourier || '', plannedAddress: t.plannedAddress || '', planNote: t.deliveryPlanNote || '',
     explanationAt: iso(stage.medicineExplainDate), explanationMode: t.explanationMode || '',
     lastConnectedCall: [...calls].reverse().find((c) => c.outcome === 'connected') || null,
+    calls: [...calls].reverse(),
+    callsDoneAt: iso(t.callsDoneAt), callsDoneByName: t.callsDoneByName || '',
     pcc: { name: patient.assignedDoctor?.name || '', at: iso(t.assignedAt), byName: t.assignedByName || '', ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },
     approvedPayments: poPayments.filter((p) => (p.approvalStatus || 'approved') === 'approved').map(formatPayment),
     courier: {
@@ -212,7 +230,7 @@ function actionByOf(po, stepKey, canRequest, step = null) {
     case 'ready': return step?.finalDue ? TRANSIT : MED;
     case 'accepted': return step?.returned ? TRANSIT : MED;
     case 'released': return MED;
-    case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;
+    case 'calls': case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;
     case 'explained': return ['admin', 'assistant_doctor'];
     default: return [];
   }
@@ -352,7 +370,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     revertOrder: PO_REVERT_ORDER,
     steps,
     groups,
-    step: current_ ? { key: current_.key, label: current_.label, waitText: current_.waitText || '', state: current_.state } : { key: 'started', label: 'Treatment started', state: 'done' },
+    step: current_ ? { key: current_.key, label: current_.label, waitText: current_.waitText || '', state: current_.state } : { key: 'started', label: 'Start treatment', state: 'done' },
     progress: Math.round((steps.filter((s) => s.state === 'done').length / steps.length) * 100),
     ...(includeHandover && !includeEvents ? { handover: transitOwner ? handoverRecord({ t, stage, courier, patient, poPayments }) : null } : {}),
     ...(includeEvents ? { events: [...(po.events || [])].reverse().map((e) => ({ ...plain(e), at: iso(e.at) })), paper: paperView(po.paperValues), handover: transitOwner ? handoverRecord({ t, stage, courier, patient, poPayments }) : null, medicineJob: job ? require('./medicineJobFlow').jobSummary(job) : null } : {}),

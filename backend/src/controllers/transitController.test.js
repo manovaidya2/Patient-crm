@@ -9,6 +9,8 @@ afterEach(() => mock.restoreAll());
 const user = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
 const now = () => new Date();
 const future = () => new Date(Date.now() + 86400000);
+// A time the PCCs take bookings (off on Wednesday; Saturday, Sunday and Tuesday only from 2 pm).
+const workDay = (start = Date.now() + 86400000) => { let d = new Date(start); while (require('../utils/pccCalendar').slotProblem(d)) d = new Date(d.getTime() + 3600000); return d; };
 const file = { filename: 'test.png', originalname: 'proof.png' };
 test('patient saves detect concurrent changes rather than overwriting payment/release state', () => {
   assert.equal(Patient.schema.options.optimisticConcurrency, true);
@@ -81,31 +83,49 @@ test('dispatch can be scheduled during preparation, but requires release and ful
   await assert.rejects(() => act(patient, body), /already been dispatched/);
 });
 
-test('after "ready": one call fixes delivery, explanation and the PCC; handover after release; the PCC completes it', async () => {
+test('after "ready": calls until connected, then the delivery schedule, then the explanation & PCC; handover after release; the PCC completes it', async () => {
   const { patient, stage } = makePatient(500);
   await request(patient);
   made(stage);
   const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Dr Asha', role: 'assistant_doctor' };
   const other = { _id: new mongoose.Types.ObjectId(), name: 'Dr Neha', role: 'assistant_doctor' };
   mock.method(User, 'findOne', (query) => ({ select: () => ({ lean: async () => ([doctor, other].find((p) => String(p._id) === String(query._id) && p.role === query.role)) }) }));
-  const schedule = { action: 'schedule_delivery', mode: 'pickup', visitAt: future(), explanationAt: future(), explanationMode: 'clinic', assistantDoctorId: String(doctor._id) };
+  const schedule = { action: 'schedule_delivery', deliveryType: 'pickup', visitAt: future() };
   await assert.rejects(() => act(patient, schedule), /connected call/);
-  await act(patient, { action: 'log_call', outcome: 'not_reachable', notes: 'No answer', nextCallAt: future() });
-  await act(patient, { action: 'log_call', outcome: 'connected', notes: 'Will collect on Friday' });
-  await assert.rejects(() => act(patient, { ...schedule, explanationAt: '' }), /explanation date/);
-  await assert.rejects(() => act(patient, { ...schedule, assistantDoctorId: '' }), /Select the PCC/);
-  let item = await act(patient, schedule);
+  // Step 1: call until it connects, then mark the call done.
+  let item = await act(patient, { action: 'log_call', outcome: 'not_reachable', notes: 'No answer', nextCallAt: future() });
+  assert.equal(item.step.key, 'calls');
+  assert.equal(item.nextAction, 'log_call');
+  await assert.rejects(() => act(patient, { action: 'finish_calls' }), /connected call/);
+  item = await act(patient, { action: 'log_call', outcome: 'connected', notes: 'Will collect on Friday' });
+  assert.equal(item.nextAction, 'finish_calls');
+  await assert.rejects(() => act(patient, schedule), /delivery schedule call done/);
+  item = await act(patient, { action: 'finish_calls' });
+  assert.equal(item.steps.find((s) => s.key === 'calls').state, 'done');
+  assert.equal(item.step.key, 'scheduled');
+  // Step 2: only the delivery schedule (self pickup or porter / courier with the day).
+  await assert.rejects(() => act(patient, { ...schedule, deliveryType: 'shipped' }), /estimated delivery date/);
+  item = await act(patient, schedule);
   assert.equal(item.mode, 'pickup');
-  assert.ok(stage.transit.pickupScheduledAt && stage.medicineExplainDate && stage.transit.explanationScheduledAt);
-  assert.equal(stage.transit.explanationMode, 'clinic');
-  // The PCC is assigned with the schedule; the explanation request reaches them now.
-  assert.equal(item.pcc.assigned, true);
-  assert.equal(String(patient.assignedDoctor), String(doctor._id));
+  assert.ok(stage.transit.pickupScheduledAt);
+  assert.ok(!stage.medicineExplainDate, 'the explanation date is not part of the delivery schedule');
+  assert.equal(item.pcc.assigned, false);
   assert.equal(item.steps.find((s) => s.key === 'scheduled').state, 'done');
   assert.equal(item.step.key, 'payment', 'the balance comes next');
   assert.equal(item.nextAction, 'add_payment');
-  // Switching to courier replaces the pickup plan; the PCC can be changed any time before the explanation.
-  item = await act(patient, { action: 'schedule_delivery', mode: 'courier', dispatchAt: future(), courierPartner: 'DTDC', address: 'Delhi', explanationAt: future(), assistantDoctorId: String(doctor._id) });
+  // The medicine explanation date and the PCC are their own step.
+  await assert.rejects(() => act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) }), /explanation date/);
+  item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id), explanationAt: workDay(), explanationMode: 'clinic' });
+  assert.ok(stage.medicineExplainDate && stage.transit.explanationScheduledAt);
+  assert.equal(stage.transit.explanationMode, 'clinic');
+  assert.equal(item.pcc.assigned, true);
+  assert.equal(String(patient.assignedDoctor), String(doctor._id));
+  assert.equal(item.steps.find((s) => s.key === 'pcc').state, 'done');
+  // Switching to porter / courier replaces the pickup plan; the PCC can be changed any time before the explanation.
+  // Only the estimated date: porter or courier, its name and the address come at dispatch.
+  await assert.rejects(() => act(patient, { action: 'schedule_delivery', deliveryType: 'shipped' }), /estimated delivery date/);
+  item = await act(patient, { action: 'schedule_delivery', deliveryType: 'shipped', dispatchAt: future() });
+  assert.equal(item.mode, 'shipped');
   assert.equal(stage.transit.pickupScheduledAt, null);
   assert.ok(stage.transit.dispatchScheduledAt);
   assert.equal(item.steps.some((s) => s.key === 'received'), true);
@@ -114,12 +134,14 @@ test('after "ready": one call fixes delivery, explanation and the PCC; handover 
   item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) });
   // Handover only after Medicine Department release (the parcel is packed there).
   stage.payments.push({ amount: 500, approvalStatus: 'approved' });
-  await assert.rejects(() => act(patient, { action: 'dispatch', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]), /release/);
+  await assert.rejects(() => act(patient, { action: 'dispatch', sendBy: 'courier', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]), /release/);
   release(stage);
   item = buildTransitCase(patient, stage);
   assert.equal(item.step.key, 'handover');
   assert.equal(item.nextAction, 'dispatch');
-  item = await act(patient, { action: 'dispatch', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]);
+  await assert.rejects(() => act(patient, { action: 'dispatch', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]), /porter or courier/);
+  item = await act(patient, { action: 'dispatch', sendBy: 'courier', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]);
+  assert.equal(item.mode, 'courier');
   assert.equal(item.step.key, 'received');
   // The explanation waits for the receipt.
   await assert.rejects(() => invoke(completeExplanation, patient, { completedAt: now(), notes: 'Too early' }, doctor), /receipt/);
@@ -143,7 +165,7 @@ test('self pickup requires schedule, release and full payment, then assigned doc
   const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Doctor', role: 'assistant_doctor' };
   const counselor = { _id: new mongoose.Types.ObjectId(), name: 'Counselor', role: 'post_counselor' };
   mock.method(User, 'findOne', query => ({ select: () => ({ lean: async () => [doctor, counselor].find(p => String(p._id) === String(query._id) && p.role === query.role) }) }));
-  const item = await act(patient, { action: 'start_treatment', explanationAt: now(), assistantDoctorId: String(doctor._id), postCounselorId: String(counselor._id) });
+  const item = await act(patient, { action: 'start_treatment', explanationAt: workDay(Date.now()), assistantDoctorId: String(doctor._id), postCounselorId: String(counselor._id) });
   assert.equal(item.activated, false);
   assert.equal(item.step.key, 'explained');
   await assert.rejects(() => invoke(completeExplanation, patient, { completedAt: now(), notes: 'Done' }, { ...doctor, _id: new mongoose.Types.ObjectId() }), e => e.statusCode === 403);

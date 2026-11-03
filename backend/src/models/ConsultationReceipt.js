@@ -11,7 +11,12 @@ const schema = new mongoose.Schema({
   patientCode: { type: String, default: '' },
   amount: { type: Number, required: true, min: 0.01 },
   date: { type: Date, required: true, index: true },
-  paymentMode: { type: String, enum: ['cash', 'online'], required: true },
+  // split: paid the same day partly online / cash / card (utils/splitPayment); reference / cashReceivedByName hold the parts joined.
+  paymentMode: { type: String, enum: ['cash', 'online', 'split'], required: true },
+  splits: {
+    type: [{ _id: false, mode: { type: String, enum: ['online', 'cash', 'card'] }, amount: { type: Number, min: 0, default: 0 }, utr: { type: String, trim: true, default: '' }, receivedBy: { type: String, trim: true, default: '' } }],
+    default: [],
+  },
   cashReceivedByName: { type: String, trim: true, maxlength: 200, default: '' },
   bank: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount', default: null },
   bankName: { type: String, default: '' },

@@ -205,8 +205,8 @@ const poContext = asyncHandler(async (req, res) => {
     : med.status === 'requested' ? { role: ROLES.MEDICINE_DEPARTMENT, queryType: 'request_not_accepted' }
     : med.status === 'in_process' ? { role: ROLES.MEDICINE_DEPARTMENT, queryType: late > 0 ? 'medicine_not_ready' : 'other' }
     : med.status === 'made' ? { role: ROLES.MEDICINE_DEPARTMENT, queryType: 'release_pending' }
-    : open.includes('Medicine explained') ? { role: ROLES.ASSISTANT_DOCTOR, queryType: 'explanation_pending' }
-    : open.includes('Treatment started') ? { role: ROLES.ASSISTANT_DOCTOR, queryType: 'treatment_start' }
+    : open.includes('Explain medicine') ? { role: ROLES.ASSISTANT_DOCTOR, queryType: 'explanation_pending' }
+    : open.includes('Start treatment') ? { role: ROLES.ASSISTANT_DOCTOR, queryType: 'treatment_start' }
     : { role: ROLES.MEDICINE_DEPARTMENT, queryType: 'other' };
   res.json({
     success: true,

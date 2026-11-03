@@ -6,6 +6,7 @@ import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurcha
 import PhasePoPayments from '../../components/purchaseOrders/PhasePoPayments.jsx';
 import PaymentCancelAlerts from '../../components/payments/PaymentCancelAlerts.jsx';
 import SessionOutcomeModal, { OUTCOME_LABELS } from '../../components/patients/SessionOutcomeModal.jsx';
+import SplitRows, { emptySplitRows, splitTotal, splitsPayload, splitRowsFrom } from '../../components/payments/SplitRows.jsx';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload, utrRowsFrom } from '../../components/payments/UtrRows.jsx';
 import api from '../../api/axios.js';
 import Card from '../../components/ui/Card.jsx';
@@ -214,6 +215,7 @@ const FileLinks = ({ files = [], fallbackUrl, fallbackName = 'View file', label 
 const emptyPaymentForm = {
   amount: '',
   utrRows: [emptyUtrRow()],
+  splitRows: emptySplitRows(),
   date: new Date().toISOString().slice(0, 10),
   paymentMode: PAYMENT_MODES.ONLINE,
   payToBank: '',
@@ -254,16 +256,17 @@ const AddPaymentField = ({ onAdd, extra = null, trigger = null }) => {
   const multiUtr = form.paymentMode === PAYMENT_MODES.ONLINE && isMultiUtr(form.utrRows);
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const amt = multiUtr ? utrTotal(form.utrRows) : Number(form.amount);
+    const isSplit = form.paymentMode === PAYMENT_MODES.SPLIT;
+    const amt = isSplit ? splitTotal(form.splitRows) : multiUtr ? utrTotal(form.utrRows) : Number(form.amount);
     if (!amt || amt <= 0) {
-      setError(multiUtr ? 'Enter the amount of each UTR' : 'Enter a valid amount');
+      setError(isSplit ? 'Enter the amount of each part' : multiUtr ? 'Enter the amount of each UTR' : 'Enter a valid amount');
       return;
     }
     setSaving(true);
     setError('');
     try {
       const first = form.utrRows[0] || {};
-      await onAdd({ ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', files, ...(extra || {}) });
+      await onAdd({ ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', splits: isSplit ? splitsPayload(form.splitRows) : '', files, ...(extra || {}) });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not add payment');
@@ -295,10 +298,10 @@ const AddPaymentField = ({ onAdd, extra = null, trigger = null }) => {
               id="paymentAmount"
               type="number"
               min="0"
-              label={multiUtr ? 'Amount (total of UTRs)' : 'Amount'}
+              label={form.paymentMode === PAYMENT_MODES.SPLIT ? 'Amount (total of the parts)' : multiUtr ? 'Amount (total of UTRs)' : 'Amount'}
               placeholder="0"
-              value={multiUtr ? utrTotal(form.utrRows) : form.amount}
-              disabled={multiUtr}
+              value={form.paymentMode === PAYMENT_MODES.SPLIT ? splitTotal(form.splitRows) : multiUtr ? utrTotal(form.utrRows) : form.amount}
+              disabled={multiUtr || form.paymentMode === PAYMENT_MODES.SPLIT}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
             <Input
@@ -329,7 +332,7 @@ const AddPaymentField = ({ onAdd, extra = null, trigger = null }) => {
             </div>
           </div>
 
-          {form.paymentMode === PAYMENT_MODES.ONLINE ? (
+          {form.paymentMode !== PAYMENT_MODES.CASH ? (
             <>
               <div>
                 <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank (optional)</label>
@@ -342,7 +345,9 @@ const AddPaymentField = ({ onAdd, extra = null, trigger = null }) => {
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
-              <UtrRows idPrefix="utr" rows={form.utrRows} onChange={(utrRows) => setForm({ ...form, utrRows })} />
+              {form.paymentMode === PAYMENT_MODES.SPLIT
+                ? <SplitRows idPrefix="split" rows={form.splitRows} onChange={(splitRows) => setForm({ ...form, splitRows })} />
+                : <UtrRows idPrefix="utr" rows={form.utrRows} onChange={(utrRows) => setForm({ ...form, utrRows })} />}
             </>
           ) : (
             <Input
@@ -446,6 +451,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
       utr: payment.utr || '',
       transactionId: payment.transactionId || '',
       utrRows: utrRowsFrom(payment),
+      splitRows: splitRowsFrom(payment),
       receivedBy: payment.receivedBy || '',
       notes: payment.notes || '',
     });
@@ -457,16 +463,17 @@ const EditPaymentButton = ({ payment, onSave }) => {
   const multiUtr = form.paymentMode === PAYMENT_MODES.ONLINE && isMultiUtr(form.utrRows);
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const amt = multiUtr ? utrTotal(form.utrRows) : Number(form.amount);
+    const isSplit = form.paymentMode === PAYMENT_MODES.SPLIT;
+    const amt = isSplit ? splitTotal(form.splitRows) : multiUtr ? utrTotal(form.utrRows) : Number(form.amount);
     if (!amt || amt <= 0) {
-      setError(multiUtr ? 'Enter the amount of each UTR' : 'Enter a valid amount');
+      setError(isSplit ? 'Enter the amount of each part' : multiUtr ? 'Enter the amount of each UTR' : 'Enter a valid amount');
       return;
     }
     setSaving(true);
     setError('');
     try {
       const first = form.utrRows?.[0] || {};
-      await onSave(payment.id, { ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', files });
+      await onSave(payment.id, { ...form, amount: amt, utr: first.utr || '', transactionId: first.transactionId || '', utrEntries: multiUtr ? utrEntriesPayload(form.utrRows) : '', splits: isSplit ? splitsPayload(form.splitRows) : '', files });
       setModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not update payment');
@@ -494,10 +501,10 @@ const EditPaymentButton = ({ payment, onSave }) => {
               id={`editPaymentAmount-${payment.id}`}
               type="number"
               min="0"
-              label={multiUtr ? 'Amount (total of UTRs)' : 'Amount'}
+              label={form.paymentMode === PAYMENT_MODES.SPLIT ? 'Amount (total of the parts)' : multiUtr ? 'Amount (total of UTRs)' : 'Amount'}
               placeholder="0"
-              value={multiUtr ? utrTotal(form.utrRows) : form.amount}
-              disabled={multiUtr}
+              value={form.paymentMode === PAYMENT_MODES.SPLIT ? splitTotal(form.splitRows) : multiUtr ? utrTotal(form.utrRows) : form.amount}
+              disabled={multiUtr || form.paymentMode === PAYMENT_MODES.SPLIT}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
             <Input
@@ -528,7 +535,7 @@ const EditPaymentButton = ({ payment, onSave }) => {
             </div>
           </div>
 
-          {form.paymentMode === PAYMENT_MODES.ONLINE ? (
+          {form.paymentMode !== PAYMENT_MODES.CASH ? (
             <>
               <div>
                 <label className="block text-sm font-medium text-charcoal mb-1.5">Pay to Bank (optional)</label>
@@ -541,7 +548,9 @@ const EditPaymentButton = ({ payment, onSave }) => {
                   {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.displayName || bank.name}</option>)}
                 </select>
               </div>
-              <UtrRows idPrefix="editUtr" rows={form.utrRows} onChange={(utrRows) => setForm({ ...form, utrRows })} />
+              {form.paymentMode === PAYMENT_MODES.SPLIT
+                ? <SplitRows idPrefix="editSplit" rows={form.splitRows} onChange={(splitRows) => setForm({ ...form, splitRows })} />
+                : <UtrRows idPrefix="editUtr" rows={form.utrRows} onChange={(utrRows) => setForm({ ...form, utrRows })} />}
             </>
           ) : (
             <Input
@@ -2717,6 +2726,9 @@ const PatientDetails = () => {
       formData.append('utr', payload.utr || '');
       formData.append('transactionId', payload.transactionId || '');
       if (payload.utrEntries) formData.append('utrEntries', payload.utrEntries);
+    } else if (payload.paymentMode === PAYMENT_MODES.SPLIT) {
+      formData.append('payToBank', payload.payToBank || '');
+      formData.append('splits', payload.splits || '[]');
     } else {
       formData.append('receivedBy', payload.receivedBy || '');
     }
@@ -2738,6 +2750,9 @@ const PatientDetails = () => {
       formData.append('transactionId', payload.transactionId || '');
       // Always sent on edit so going back to one UTR clears the old list.
       formData.append('utrEntries', payload.utrEntries || '[]');
+    } else if (payload.paymentMode === PAYMENT_MODES.SPLIT) {
+      formData.append('payToBank', payload.payToBank || '');
+      formData.append('splits', payload.splits || '[]');
     } else {
       formData.append('receivedBy', payload.receivedBy || '');
     }

@@ -64,7 +64,7 @@ const STAGES = [
     purpose: 'Secure bundle, bubble wrap, tested box, tape, logo and recipient label. Parents / Courier slip faces outward.',
     checks: ['Doctor PASS; medicine photo and every paper page accepted', 'Parents / Courier information slip on the correct outward side', 'Bottles and droppers upright, leak-safe cushioning; pouches and papers protected', 'Box size tested for this kit; voids filled; no movement', 'Tape, logo stickers and recipient label applied'],
     fields: [{ key: 'boxCode', label: 'Box used', type: 'select', required: true, options: ['BX-55 (5x5)', 'BX-L 8x10', 'BX-L 9x10', 'BX-L 10x10', 'Other'] }, { key: 'weight', label: 'Parcel weight (kg)', type: 'number', step: 'any', required: true }, { key: 'materials', label: 'Materials used / wastage', type: 'text' }] },
-  { key: 'final', n: 11, label: 'Final check - medicine ready', hi: 'अंतिम जाँच', roles: TRANSIT, sop: 'SOP S8',
+  { key: 'final', n: 11, label: 'Final check pending', hi: 'अंतिम जाँच', roles: TRANSIT, sop: 'SOP S8',
     purpose: 'In Transit checks the packed parcel against the job before it goes out. PASS marks the medicine READY (not released).',
     checks: ['Patient, prescription and supply part match', 'Bottle, dropper and packet counts reconciled; lids and seals intact', 'Medicine papers: same patient name and code on each; first / repeat set complete', 'Medicine photo and every dose-paper page linked and accepted', 'Outer box intact, correct size, logo; recipient details verified'],
     fields: [{ key: 'remarks', label: 'Remarks', type: 'textarea' }] },

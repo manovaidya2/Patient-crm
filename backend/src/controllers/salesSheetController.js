@@ -41,21 +41,23 @@ const consultationFee = (raw) => {
   return amount;
 };
 const advancePayment = (raw, fee) => {
-  if (!raw?.amount && raw?.amount !== 0) return null;
-  const amount = Number(raw.amount);
+  const split = raw?.paymentMode === 'split' ? require('../utils/splitPayment').resolveSplit(raw.splits) : null;
+  if (!split && !raw?.amount && raw?.amount !== 0) return null;
+  const amount = split ? split.amount : Number(raw.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
     const error = new Error('Enter a valid advance amount'); error.statusCode = 400; throw error;
   }
   if (fee === null) { const error = new Error('Set the total consultation fee before adding an advance'); error.statusCode = 400; throw error; }
   if (amount > fee) { const error = new Error('Advance cannot be greater than the total consultation fee'); error.statusCode = 400; throw error; }
   if (!validDate(raw.date)) { const error = new Error('Enter a valid payment date'); error.statusCode = 400; throw error; }
-  const paymentMode = raw.paymentMode === 'online' ? 'online' : 'cash';
-  const reference = String(raw.reference || '').trim().slice(0, 200);
-  const cashReceivedByName = String(raw.cashReceivedByName || '').trim().slice(0, 200);
+  const paymentMode = split ? 'split' : raw.paymentMode === 'online' ? 'online' : 'cash';
+  const reference = String(split ? split.utr : raw.reference || '').trim().slice(0, 200);
+  const cashReceivedByName = String(split ? split.receivedBy : raw.cashReceivedByName || '').trim().slice(0, 200);
   const files = Array.isArray(raw.files) ? raw.files.filter((file) => /^\/uploads\/[a-zA-Z0-9/_\-.]+$/.test(String(file?.url || ''))).slice(0, 5).map((file) => ({ url: String(file.url), fileName: String(file.fileName || 'Payment proof').slice(0, 255) })) : [];
   if (paymentMode === 'online' && (!reference || !files.length)) { const error = new Error('Online payment needs UTR/reference and a payment proof'); error.statusCode = 400; throw error; }
+  if (split?.needsProof && !files.length) { const error = new Error('Attach the payment proof of the online part'); error.statusCode = 400; throw error; }
   if (paymentMode === 'cash' && !cashReceivedByName) { const error = new Error('Enter who received the cash payment'); error.statusCode = 400; throw error; }
-  return { amount, date: new Date(`${raw.date}T12:00:00.000Z`), paymentMode, bank: paymentMode === 'online' ? String(raw.bank || '') : '', reference, cashReceivedByName, files, notes: String(raw.notes || '').trim().slice(0, 2000) };
+  return { amount, date: new Date(`${raw.date}T12:00:00.000Z`), paymentMode, bank: paymentMode !== 'cash' ? String(raw.bank || '') : '', reference, cashReceivedByName, splits: split ? split.splits : [], files, notes: String(raw.notes || '').trim().slice(0, 2000) };
 };
 const OPTION_TYPES = ['select', 'multi_select'];
 const COLUMN_TYPES = ['text', 'number', 'phone', 'date', 'time', ...OPTION_TYPES, 'textarea', 'checkbox', 'file'];
@@ -633,7 +635,7 @@ const createManagedAppointment = asyncHandler(async (req, res) => {
     if (payment) {
       const nameColumn = await SalesSheetColumn.findOne({ isActive: true, label: { $regex: /^(patient name|name)$/i } }).lean();
       const patientName = String(nameColumn ? salesValues[String(nameColumn._id)] : '').trim() || `Appointment ${row.appointmentCode}`;
-      await ConsultationReceipt.create({ appointment: row._id, collectionStage: 'reception', appointmentCode: row.appointmentCode, patientName, amount: payment.amount, date: payment.date, paymentMode: payment.paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '', reference: payment.reference, cashReceivedByName: payment.cashReceivedByName, files: payment.files, notes: payment.notes, recordedBy: req.user._id, recordedByName: req.user.name, submissionKey: `appointment-payment:${row._id}` });
+      await ConsultationReceipt.create({ appointment: row._id, collectionStage: 'reception', appointmentCode: row.appointmentCode, patientName, amount: payment.amount, date: payment.date, paymentMode: payment.paymentMode, splits: payment.splits, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '', reference: payment.reference, cashReceivedByName: payment.cashReceivedByName, files: payment.files, notes: payment.notes, recordedBy: req.user._id, recordedByName: req.user.name, submissionKey: `appointment-payment:${row._id}` });
     }
   } catch (error) {
     await row.deleteOne();
@@ -686,7 +688,7 @@ const createAppointment = asyncHandler(async (req, res) => {
     if (advance) {
       const nameColumn = await SalesSheetColumn.findOne({ isActive: true, label: { $regex: /^(patient name|name)$/i } }).lean();
       const patientName = String(nameColumn ? values[String(nameColumn._id)] : '').trim() || `Appointment ${row.appointmentCode}`;
-      await ConsultationReceipt.create({ salesAppointment: row._id, collectionStage: 'advance', appointmentCode: row.appointmentCode, patientName, amount: advance.amount, date: advance.date, paymentMode: advance.paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '', reference: advance.reference, cashReceivedByName: advance.cashReceivedByName, files: advance.files, notes: advance.notes, recordedBy: req.user._id, recordedByName: req.user.name, submissionKey: `appointment-advance:${row._id}` });
+      await ConsultationReceipt.create({ salesAppointment: row._id, collectionStage: 'advance', appointmentCode: row.appointmentCode, patientName, amount: advance.amount, date: advance.date, paymentMode: advance.paymentMode, splits: advance.splits, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '', reference: advance.reference, cashReceivedByName: advance.cashReceivedByName, files: advance.files, notes: advance.notes, recordedBy: req.user._id, recordedByName: req.user.name, submissionKey: `appointment-advance:${row._id}` });
     }
   } catch (error) {
     await row.deleteOne();
