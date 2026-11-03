@@ -623,287 +623,6 @@ const EditPaymentButton = ({ payment, onSave }) => {
   );
 };
 
-const RecordFileField = ({ fileUrl, fileName, pageCount = 0, updatedAt, onUpload, canUpload = true }) => {
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState('');
-  const inputId = 'stageRecordFile';
-  const cameraInputId = 'stageRecordCamera';
-
-  const handleFileChange = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    setUploading(true);
-    setError('');
-    try {
-      await onUpload(files);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Could not scan records');
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
-  };
-
-  return (
-    <div className="bg-offwhite-100 p-4">
-      <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Patient Records</p>
-      {canUpload && (
-        <input
-          type="file"
-          id={inputId}
-          accept="image/jpeg,image/png"
-          multiple
-          onChange={handleFileChange}
-          disabled={uploading}
-          className="hidden"
-        />
-      )}
-      {canUpload && (
-        <input
-          type="file"
-          id={cameraInputId}
-          accept="image/jpeg,image/png"
-          capture="environment"
-          multiple
-          onChange={handleFileChange}
-          disabled={uploading}
-          className="hidden"
-        />
-      )}
-      {roomFiles.length > 0 && (
-        <div className="mt-1.5 space-y-1.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/45">Records Room</p>
-          {roomFiles.map((file) => (
-            <div key={file.id}>
-              <a href={`${SERVER_BASE}${file.pdfUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
-                <FileText size={13} className="shrink-0" />
-                <span className="truncate">{file.pdfName}</span>
-              </a>
-              <p className="text-[11px] font-semibold text-charcoal/55">
-                {file.pdfPageCount ? `${file.pdfPageCount} page${file.pdfPageCount === 1 ? '' : 's'}` : 'PDF'}
-                {file.fileNumber ? ` | File ${file.fileNumber}` : ''}
-                {file.shelfNumber ? ` | Shelf ${file.shelfNumber}` : ''}
-                {file.appointmentId ? ` | ${file.appointmentId}` : ''}
-                {file.pdfUpdatedAt ? ` | Updated ${formatDate(file.pdfUpdatedAt)}` : ''}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-      {fileUrl ? (
-        <div className="mt-1">
-          <a href={`${SERVER_BASE}${fileUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
-            <FileText size={13} className="shrink-0" />
-            <span className="truncate">{fileName || 'Scanned record PDF'}</span>
-          </a>
-          <p className="mt-1 text-[11px] font-semibold text-charcoal/55">
-            {pageCount ? `${pageCount} scanned page${pageCount === 1 ? '' : 's'}` : 'Scanned PDF'}
-            {updatedAt ? ` | Updated ${formatDate(updatedAt)}` : ''}
-          </p>
-        </div>
-      ) : (
-        <label
-          htmlFor={inputId}
-          className={`mt-1 items-center gap-1 text-sm font-bold text-sage hover:text-sage cursor-pointer ${canUpload ? 'flex' : 'hidden'}`}
-        >
-          <Plus size={14} /> {uploading ? 'Uploading…' : 'Upload'}
-        </label>
-      )}
-      {canUpload && (
-        <label
-          htmlFor={cameraInputId}
-          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-sage hover:text-sage cursor-pointer"
-        >
-          <Paperclip size={12} /> Camera
-        </label>
-      )}
-      {error && <p className="mt-1 text-[10px] text-[#8C3B2E]">{error}</p>}
-    </div>
-  );
-};
-
-const ScannedRecordFileField = ({
-  roomFiles = [],
-  fileUrl,
-  fileName,
-  pageCount = 0,
-  updatedAt,
-  scanFiles = [],
-  onUpload,
-  onDeleteScan,
-  canUpload = true,
-  canDelete = false,
-}) => {
-  const [uploading, setUploading] = useState(false);
-  const [deletingScanId, setDeletingScanId] = useState('');
-  const [error, setError] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const inputId = 'stageRecordScanImages';
-  const cameraInputId = 'stageRecordScanCamera';
-
-  const handleFileChange = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    setUploading(true);
-    setError('');
-    try {
-      await onUpload(files);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Could not scan records');
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
-  };
-
-  const handleDeleteScan = async (scan) => {
-    const scanId = scan?._id || scan?.id;
-    if (!scanId || !onDeleteScan) return;
-    const confirmed = window.confirm('Delete this scanned page and rebuild the PDF?');
-    if (!confirmed) return;
-    setDeletingScanId(scanId);
-    setError('');
-    try {
-      await onDeleteScan(scanId);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Could not delete scanned page');
-    } finally {
-      setDeletingScanId('');
-    }
-  };
-
-  return (
-    <div className="bg-offwhite-100 p-4">
-      <p className="text-[11px] uppercase tracking-wide font-semibold text-charcoal/55">Patient Records</p>
-      {canUpload && (
-        <>
-          <input
-            type="file"
-            id={inputId}
-            accept="image/jpeg,image/png"
-            multiple
-            onChange={handleFileChange}
-            disabled={uploading}
-            className="hidden"
-          />
-          <input
-            type="file"
-            id={cameraInputId}
-            accept="image/jpeg,image/png"
-            capture="environment"
-            multiple
-            onChange={handleFileChange}
-            disabled={uploading}
-            className="hidden"
-          />
-        </>
-      )}
-      {roomFiles.length > 0 && (
-        <div className="mt-1.5 space-y-1.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal/45">Records Room</p>
-          {roomFiles.map((file) => (
-            <div key={file.id}>
-              <a href={`${SERVER_BASE}${file.pdfUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
-                <FileText size={13} className="shrink-0" />
-                <span className="truncate">{file.pdfName}</span>
-              </a>
-              <p className="text-[11px] font-semibold text-charcoal/55">
-                {file.pdfPageCount ? `${file.pdfPageCount} page${file.pdfPageCount === 1 ? '' : 's'}` : 'PDF'}
-                {file.fileNumber ? ` | File ${file.fileNumber}` : ''}
-                {file.shelfNumber ? ` | Shelf ${file.shelfNumber}` : ''}
-                {file.appointmentId ? ` | ${file.appointmentId}` : ''}
-                {file.pdfUpdatedAt ? ` | Updated ${formatDate(file.pdfUpdatedAt)}` : ''}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-      {fileUrl ? (
-        <div className="mt-1">
-          <a href={`${SERVER_BASE}${fileUrl}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-sm font-bold text-sage hover:text-charcoal">
-            <FileText size={13} className="shrink-0" />
-            <span className="truncate">{fileName || 'Scanned record PDF'}</span>
-          </a>
-          <p className="mt-1 text-[11px] font-semibold text-charcoal/55">
-            {pageCount ? `${pageCount} scanned page${pageCount === 1 ? '' : 's'}` : 'Scanned PDF'}
-            {updatedAt ? ` | Updated ${formatDate(updatedAt)}` : ''}
-          </p>
-        </div>
-      ) : (
-        !roomFiles.length && <p className="mt-1 text-sm font-bold italic text-charcoal/35">No scanned PDF yet</p>
-      )}
-      {(canUpload || !!scanFiles.length) && (
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          className="mt-2 inline-flex items-center gap-1 rounded-md border border-cardline bg-offwhite-200 px-2 py-1 text-[11px] font-semibold text-sage hover:text-charcoal"
-        >
-          <Paperclip size={12} /> Manage pages
-        </button>
-      )}
-      {error && <p className="mt-1 text-[10px] text-[#8C3B2E]">{error}</p>}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Patient Record Pages" className="max-w-lg">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-cardline bg-offwhite-200 p-3">
-            <p className="text-sm font-bold text-charcoal">{pageCount || scanFiles.length} scanned page{(pageCount || scanFiles.length) === 1 ? '' : 's'}</p>
-            {updatedAt && <p className="mt-1 text-xs text-charcoal/55">Updated {formatDate(updatedAt)}</p>}
-          </div>
-          {!!scanFiles.length ? (
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-              {scanFiles.map((scan, index) => {
-                const scanId = scan?._id || scan?.id || `${scan?.url || 'scan'}-${index}`;
-                return (
-                  <div key={scanId} className="flex items-center justify-between gap-3 rounded-lg border border-cardline bg-offwhite-100 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-charcoal">Page {index + 1}</p>
-                      <p className="truncate text-xs text-charcoal/55">
-                        {scan?.uploadedAt ? formatDate(scan.uploadedAt) : 'Date not added'}
-                        {scan?.uploadedByName ? ` | ${scan.uploadedByName}` : ''}
-                      </p>
-                    </div>
-                    {canDelete && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteScan(scan)}
-                        disabled={deletingScanId === scanId}
-                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8C3B2E] hover:bg-[#8C3B2E]/10 disabled:opacity-50"
-                        title="Delete scanned page"
-                      >
-                        <X size={15} />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-cardline bg-offwhite-200 p-4 text-center text-sm text-charcoal/55">
-              No scanned pages added yet.
-            </div>
-          )}
-          {canUpload && (
-            <div className="flex flex-wrap gap-2">
-              <label
-                htmlFor={inputId}
-                className="inline-flex items-center gap-1 rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-semibold text-sage hover:text-charcoal cursor-pointer"
-              >
-                <Paperclip size={14} /> {uploading ? 'Scanning...' : 'Add images'}
-              </label>
-              <label
-                htmlFor={cameraInputId}
-                className="inline-flex items-center gap-1 rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm font-semibold text-sage hover:text-charcoal cursor-pointer"
-              >
-                <Paperclip size={14} /> Camera
-              </label>
-            </div>
-          )}
-          {canUpload && <p className="text-xs text-charcoal/45">New images append to the same PDF.</p>}
-        </div>
-      </Modal>
-    </div>
-  );
-};
-
 const HeaderEditButton = ({ label, value, onSave, readOnly = false, type = 'text', options = [] }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value || '');
@@ -2836,20 +2555,6 @@ const PatientDetails = () => {
     }
   };
 
-  const handleUploadRecord = async (files) => {
-    const formData = new FormData();
-    (Array.isArray(files) ? files : [files]).forEach((file) => {
-      formData.append('record', file);
-    });
-    const { data } = await api.post(`/patients/${id}/stages/${activeStageTab}/record`, formData);
-    setPatient(data.patient);
-  };
-
-  const handleDeleteRecordScan = async (scanId) => {
-    const { data } = await api.delete(`/patients/${id}/stages/${activeStageTab}/record-scans/${scanId}`);
-    setPatient(data.patient);
-  };
-
   const handleRequestMedicine = async ({ medicines, notes, files = [], requestId, createNew = false }) => {
     const formData = new FormData();
     formData.append('medicines', medicines);
@@ -3201,6 +2906,13 @@ const PatientDetails = () => {
           <div className="grid gap-2.5 border-t border-[#F0E8D8] bg-[#FCFAF5] p-3 sm:p-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
             {[
               ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers, ''],
+              // The patient's file from the Records Room, up here where everyone sees it (it used to sit inside the phase).
+              ['Patient file (Records Room)', recordRoomFiles.length ? (
+                <span className="block">
+                  {recordRoomFiles.map((file) => <a key={file.id} href={`${SERVER_BASE}${file.pdfUrl}`} target="_blank" rel="noreferrer" title={file.pdfName} className="block truncate text-sage hover:text-charcoal hover:underline">{file.pdfName}</a>)}
+                  <span className="block truncate text-[11px] font-semibold text-charcoal/55">{recordRoomFiles.map((file) => [file.pdfPageCount ? `${file.pdfPageCount} pages` : 'PDF', file.pdfUpdatedAt ? `updated ${formatDate(file.pdfUpdatedAt)}` : ''].filter(Boolean).join(' · ')).join(' | ')}</span>
+                </span>
+              ) : <span className="text-sm font-semibold italic text-charcoal/40">Not scanned yet</span>, FileText, ''],
               ['PCC', patient.assignedDoctor?.name || 'Not assigned', UserRound, ''],
               ['Paid (verified)', formatMoney(stageTotals.paid), IndianRupee, 'green'],
               ['Balance', formatMoney(stageTotals.left), Clock, stageTotals.left > 0 ? 'orange' : ''],
@@ -3599,18 +3311,6 @@ const PatientDetails = () => {
                       <p className="mt-1 text-sm font-bold italic text-charcoal/35">Read only</p>
                     </div>
                   )}
-                  <ScannedRecordFileField
-                    roomFiles={recordRoomFiles}
-                    fileUrl={activeStage.recordFileUrl}
-                    fileName={activeStage.recordFileName}
-                    pageCount={activeStage.recordPdfPageCount}
-                    updatedAt={activeStage.recordPdfUpdatedAt}
-                    scanFiles={activeStage.recordScanFiles || []}
-                    onUpload={handleUploadRecord}
-                    onDeleteScan={handleDeleteRecordScan}
-                    canUpload={canEditPatientRecords}
-                    canDelete={canEditPatientRecords}
-                  />
                 </div>
                 <PhasePoPayments
                   stage={activeStage}
