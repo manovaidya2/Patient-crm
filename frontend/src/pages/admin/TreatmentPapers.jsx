@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BellRing, Check, ChevronDown, ExternalLink, FileText, Inbox, RefreshCw, Save } from 'lucide-react';
+import { BellRing, Check, ChevronDown, ExternalLink, FileText, Inbox, RefreshCw } from 'lucide-react';
 import { DosePaperUpload } from '../../components/medicine/DosePapers.jsx';
 import PoPostCounselling from './PoPostCounselling.jsx';
 import api from '../../api/axios.js';
@@ -12,36 +12,13 @@ import { isAdminLike } from '../../constants/roles.js';
 
 // Make Treatment Paper: fulfilment step 9. Every kit that passed the quality check waits here for its treatment papers,
 // made by the PCC the admin chooses (the setting at the top, admin only). Opening a row opens the job's step 9.
+const pad = (n) => String(n).padStart(2, '0');
+const localNow = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
 const when = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 
-function PccSetting({ onSaved }) {
-  const [data, setData] = useState(null);
-  const [pick, setPick] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  useEffect(() => { api.get('/treatment-papers/setting', { skipCache: true }).then(({ data: d }) => { setData(d); setPick(d.pcc?.id || ''); }).catch(() => setMsg('Could not load the setting')); }, []);
-  const save = async () => {
-    setBusy(true); setMsg('');
-    try { const { data: d } = await api.put('/treatment-papers/setting', { pccId: pick }); setData((o) => ({ ...o, pcc: d.pcc })); setMsg('Saved.'); onSaved(); }
-    catch (err) { setMsg(err.response?.data?.message || 'Could not save'); } finally { setBusy(false); }
-  };
-  if (!data) return null;
-  return (
-    <div className="flex flex-wrap items-end gap-3 rounded-[14px] border border-[#E8DFCB] bg-white p-4">
-      <label className="min-w-[240px] flex-1 space-y-1 text-sm font-medium text-charcoal">
-        <span>Admin setting: which PCC makes the treatment papers</span>
-        <select className="w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm" value={pick} onChange={(e) => setPick(e.target.value)}>
-          <option value="">Any PCC (not chosen)</option>
-          {data.pccs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </label>
-      <Button onClick={save} disabled={busy || pick === (data.pcc?.id || '')}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>
-      {msg && <span className="text-sm font-semibold text-sage">{msg}</span>}
-    </div>
-  );
-}
-
+// Only section C (treatment & support components) of the post-counselling record is needed to make the papers.
+const ONLY_C = ['C'];
 // Step 9 done right here: the post-counselling record to read, then each paper by name with its pages (camera or
 // upload), the checklist, Done. It shows as done in the fulfilment job at once.
 function PaperWork({ row, onDone }) {
@@ -51,6 +28,8 @@ function PaperWork({ row, onDone }) {
   const [files, setFiles] = useState({});
   const [removed, setRemoved] = useState([]);
   const [notes, setNotes] = useState('');
+  // When the papers were handed to the Medicine Department (now by default; can be set earlier).
+  const [givenAt, setGivenAt] = useState(localNow());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -67,7 +46,8 @@ function PaperWork({ row, onDone }) {
     try {
       const body = new FormData();
       body.append('checks', JSON.stringify(stage.checks.map((_, i) => Boolean(checks[i]))));
-      body.append('fields', '{}');
+      if (!givenAt) { setError('Write when the papers were given to the Medicine Department'); setBusy(false); return; }
+      body.append('fields', JSON.stringify({ givenAt: new Date(givenAt).toISOString() }));
       body.append('notes', notes);
       body.append('papers', JSON.stringify(rows.map((r, slot) => ({ name: r.name.trim(), slot }))));
       body.append('removePapers', JSON.stringify(removed));
@@ -78,9 +58,9 @@ function PaperWork({ row, onDone }) {
   };
   return (
     <div className="mt-3 space-y-4 border-t border-cardline pt-4">
-      {/* The post-counselling record exactly as it went from the Post Counselor to In Transit and the Medicine Department. */}
+      {/* Section C of the post-counselling record: the components and their session commitments. */}
       {row.purchaseOrderId
-        ? <PoPostCounselling poId={row.purchaseOrderId} />
+        ? <PoPostCounselling poId={row.purchaseOrderId} only={ONLY_C} />
         : <p className="rounded-lg bg-[#FBF7ED] px-3 py-2 text-sm text-charcoal/70">This kit has no purchase order, so there is no post-counselling record to show.</p>}
       {!open ? <p className="rounded-lg bg-[#FBF7ED] px-3 py-2 text-sm text-charcoal/70">{job.hold ? `On hold: ${job.hold.reason}` : 'This kit is not at the treatment papers step any more.'}</p> : <>
         <div>
@@ -91,6 +71,7 @@ function PaperWork({ row, onDone }) {
           <p className="text-[11px] font-bold uppercase tracking-wide text-charcoal/55">Checklist · {stage.checks.filter((_, i) => checks[i]).length} of {stage.checks.length} ticked</p>
           {stage.checks.map((c, i) => <label key={i} className="flex items-start gap-2 rounded-lg border border-cardline bg-white/70 px-3 py-2 text-sm"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-sage" checked={Boolean(checks[i])} onChange={(e) => setChecks((o) => ({ ...o, [i]: e.target.checked }))} />{c}</label>)}
         </div>
+        <label className="block max-w-xs space-y-1 text-sm font-medium text-charcoal"><span>Papers given to the Medicine Department at <span className="text-red-700">*</span></span><input type="datetime-local" max={localNow()} className="w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm" value={givenAt} onChange={(e) => setGivenAt(e.target.value)} /></label>
         <label className="block space-y-1 text-sm font-medium text-charcoal"><span>Notes</span><input className="w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <Button onClick={submit} disabled={busy || !allChecked}><Check size={15} />{busy ? 'Saving...' : 'Done - treatment papers made'}</Button>
@@ -117,8 +98,8 @@ export default function TreatmentPapers() {
   return (
     <div className="space-y-4">
       <PageHeader icon={FileText} title="Make Treatment Paper" subtitle="Fulfilment step 9: the kit passed the quality check; make its treatment papers (each paper by name, every page). The doctor checks them next." actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw size={15} />Refresh</Button>} />
-      {isAdminLike(user) && <PccSetting onSaved={load} />}
-      {data && !data.mine && <p className="rounded-lg bg-[#FBF7ED] px-4 py-3 text-sm text-charcoal/75">Treatment papers are made by <b>{data.pcc?.name}</b> (chosen by the admin).</p>}
+      {data && isAdminLike(user) && <p className={`rounded-lg px-4 py-3 text-sm ${data.pcc ? 'bg-[#FBF7ED] text-charcoal/75' : 'bg-[#FFF1E6] font-semibold text-[#C2410C]'}`}>{data.pcc ? <>Treatment papers are made by <b>{data.pcc.name}</b>.</> : 'No PCC is chosen yet: no PCC gets these requests.'} <Link to="/admin/settings" className="font-semibold text-sage hover:underline">Change in Settings</Link></p>}
+      {data && !data.mine && <p className="rounded-lg bg-[#FBF7ED] px-4 py-3 text-sm text-charcoal/75">{data.pcc ? <>Treatment papers are made by <b>{data.pcc.name}</b> (chosen by the admin).</> : 'The admin has not chosen who makes the treatment papers yet.'}</p>}
       {data?.mine && data.pcc && !isAdminLike(user) && <p className="text-sm text-charcoal/65">You make the treatment papers (chosen by the admin).</p>}
       <div className="flex flex-wrap gap-2">
         {[['pending', 'To make'], ['done', 'Made']].map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} className={`rounded-full border px-4 py-1.5 text-sm font-semibold ${view === key ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/70 hover:border-sage/60'}`}>{label}</button>)}

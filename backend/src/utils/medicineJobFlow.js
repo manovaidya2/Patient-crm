@@ -63,8 +63,8 @@ const STAGES = [
   // Department waits (locked) and can ring the PCC's alarm. Papers are added by name with every page.
   { key: 'photos', n: 9, label: 'Make treatment papers', hi: 'ट्रीटमेंट पेपर बनाना', roles: PCC, sop: 'SOP S6',
     purpose: 'The PCC chosen by the admin makes this kit\'s treatment papers (medicine paper, diet plan ...) from the doctor\'s formulation and adds each one with its name and every page. The doctor checks them in the next step.',
-    checks: ['Every paper for this supply is made, with the patient name and ID on it', 'Doses and timings on the papers match the formulation from the doctor', 'Every page of every paper added and readable'],
-    fields: [] },
+    checks: ['Every paper for this supply is made, with the patient name and ID on it', 'Doses and timings on the papers match the formulation from the doctor', 'Every page of every paper added and readable', 'Papers given to the Medicine Department'],
+    fields: [{ key: 'givenAt', label: 'Papers given to the Medicine Department at', type: 'datetime', required: true }] },
   { key: 'doctor', n: 10, label: 'Doctor verification', hi: 'डॉक्टर सत्यापन', roles: DOC, sop: 'SOP S5',
     purpose: 'The doctor checks the open kit against the prescription and verifies steps 7, 8 and 9 (Packing-1, the quality check and the medicine dose papers, shown below): patient, supply part, every medicine, dose, counts, packaging and papers.',
     checks: ['Packing-1 (step 7), quality check (step 8) and the dose papers (step 9) checked below', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],

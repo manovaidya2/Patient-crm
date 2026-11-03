@@ -13,7 +13,8 @@ const { AGE_BANDS, supplyLabel } = require('../constants/supplyPlans');
 const KEY = 'treatmentPaperPcc';
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 
-// The PCC the admin chose: { id, name } or null (then any PCC may make the papers).
+// The PCC the admin chose in Settings ("Who will make treatment paper"): { id, name }, or null when none is chosen yet
+// (then no PCC gets the requests; only the admin sees them).
 const getPaperPcc = async () => {
   const doc = await InventorySetting.findOne({ key: KEY }).lean();
   return doc?.value?.id ? { id: String(doc.value.id), name: doc.value.name || '' } : null;
@@ -22,10 +23,16 @@ const getPaperPcc = async () => {
 const assertPaperPcc = async (user) => {
   if (user.role !== ROLES.ASSISTANT_DOCTOR) return;
   const pcc = await getPaperPcc();
-  if (pcc && pcc.id !== String(user._id)) fail(`Treatment papers are made by ${pcc.name} (chosen by the admin)`, 403);
+  if (!pcc) fail('The admin has not chosen who makes the treatment papers yet (Settings)', 403);
+  if (pcc.id !== String(user._id)) fail(`Treatment papers are made by ${pcc.name} (chosen by the admin)`, 403);
 };
 // Whether this user sees the Make Treatment Paper requests.
-const isPaperMaker = async (user) => isAdminLike(user) || (user.role === ROLES.ASSISTANT_DOCTOR && (!(await getPaperPcc()) || (await getPaperPcc()).id === String(user._id)));
+const isPaperMaker = async (user) => {
+  if (isAdminLike(user)) return true;
+  if (user.role !== ROLES.ASSISTANT_DOCTOR) return false;
+  const pcc = await getPaperPcc();
+  return Boolean(pcc) && pcc.id === String(user._id);
+};
 
 // @route GET /api/treatment-papers/setting
 const getSetting = asyncHandler(async (req, res) => {

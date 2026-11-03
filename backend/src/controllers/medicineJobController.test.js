@@ -171,12 +171,15 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   assert.equal(v.currentKey, 'photos');
   mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
   await assert.rejects(complete(id, 'photos', {}, { files: {} }), /done by/);
-  await assert.rejects(complete(id, 'photos', {}, { files: {} }, otherPcc), /made by Aditi/);
-  await assert.rejects(complete(id, 'photos', {}, { files: {} }, pcc), /Add the treatment papers/);
+  await assert.rejects(complete(id, 'photos', { givenAt: new Date().toISOString() }, { files: {} }, otherPcc), /made by Aditi/);
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }, pcc), /given to the Medicine Department at is required/);
+  const given = { givenAt: new Date().toISOString() };
+  await assert.rejects(complete(id, 'photos', { givenAt: new Date(Date.now() + 86400000).toISOString() }, { files: {} }, pcc), /cannot be in the future/);
+  await assert.rejects(complete(id, 'photos', given, { files: {} }, pcc), /Add the treatment papers/);
   // Papers are named on the page; each needs its pages.
-  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: '', slot: 0 }]) }, pcc), /name of each paper/);
-  await assert.rejects(complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]) }, pcc), /Upload the pages of "Diet Plan"/);
-  v = (await complete(id, 'photos', {}, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { paper_0: [file, file, file], paper_1: [file] } }, pcc)).job;
+  await assert.rejects(complete(id, 'photos', given, { papers: JSON.stringify([{ name: '', slot: 0 }]) }, pcc), /name of each paper/);
+  await assert.rejects(complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]) }, pcc), /Upload the pages of "Diet Plan"/);
+  v = (await complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { paper_0: [file, file, file], paper_1: [file] } }, pcc)).job;
   assert.deepEqual(v.photos.paperSets.map((p) => p.name), ['Medicine Paper', 'Diet Plan']);
   assert.equal(v.photos.paperSets[0].files.length, 3, 'every page of a paper is kept');
   // Step 10, doctor only, verifies 7, 8 and 9; a HOLD sends the kit back to Packing-1 and those steps are done again.
@@ -191,7 +194,7 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   v = (await complete(id, 'pack1', {}, { files: {} }, med2)).job;
   v = (await complete(id, 'qc', { result: 'PASS' }, {}, transit)).job;
   // Redone after the HOLD: the photo and the papers uploaded before stay unless new ones come.
-  v = (await complete(id, 'photos', {}, { files: {} }, pcc)).job;
+  v = (await complete(id, 'photos', { givenAt: new Date().toISOString() }, { files: {} }, pcc)).job;
   assert.equal(v.photos.paperSets[0].files.length, 3);
   assert.equal(v.photos.overview.length, 1);
   v = (await complete(id, 'doctor', { result: 'PASS' }, {}, doctor)).job;

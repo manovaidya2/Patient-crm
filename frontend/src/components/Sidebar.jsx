@@ -146,6 +146,7 @@ export const navItems = [
   
   { to: '/admin/team', icon: UsersRound, label: 'Team Members', adminOnly: true, group: 'admin' },
   { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true, group: 'admin' },
+  { to: '/admin/settings', icon: Settings, label: 'Settings', adminOnly: true, group: 'admin' },
   { to: '/admin/payment-settings', icon: Settings, label: 'Payment Settings', adminOnly: true, group: 'admin' },
   { to: '/sales', icon: Table2, label: 'Sales Appointment Sheet', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
   { to: '/admin/chatgpt', icon: Bot, label: 'CRM Assistant', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'admin' },

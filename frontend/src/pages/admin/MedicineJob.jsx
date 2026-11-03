@@ -20,6 +20,9 @@ import { DosePaperUpload, DosePapersView } from '../../components/medicine/DoseP
 import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const pad2 = (n) => String(n).padStart(2, '0');
+// Now as a datetime-local value (the latest a past moment can be).
+const localNow = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
 const dateTime = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 const inputDay = (v) => (v ? new Date(v).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '');
 const money = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
@@ -70,6 +73,7 @@ const InfoRow = ({ label, value, sub }) => (value === '' || value == null ? null
 const FIELD_LABEL = { shortageAccepted: 'Shortage request raised (stock was short)', readyByDate: 'Medicine will be ready by', formulaRef: 'Doctor approval / formula reference', exceptions: 'Patient-specific changes', batchRefs: 'Batch / lot references used', batchNo: 'Preparation batch / job reference', preparerName: 'Prepared by (operator)', unitLog: 'Per-unit fill log reference', kitLocation: 'Kit tray / location' };
 const fieldText = (field, value) => {
   if (value === true) return 'Yes';
+  if (field?.type === 'datetime') return dateTime(value) || String(value);
   if (field?.type === 'date' || /^\d{4}-\d{2}-\d{2}/.test(String(value))) return day(value) || String(value);
   return String(value);
 };
@@ -228,7 +232,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     try {
       const body = new FormData();
       body.append('checks', JSON.stringify(stage.checks.map((_, i) => Boolean(checks[i]))));
-      body.append('fields', JSON.stringify(fields));
+      // A date and time typed in the browser goes as an exact moment.
+      body.append('fields', JSON.stringify(Object.fromEntries(Object.entries(fields).map(([k, val]) => [k, stage.fields.find((x) => x.key === k)?.type === 'datetime' && val ? new Date(val).toISOString() : val]))));
       body.append('notes', notes);
       if (stage.key === 'prepare') body.append('consumption', JSON.stringify(job.consumption.map((c) => ({ code: c.code, actual: consumption[c.code] === undefined || consumption[c.code] === '' ? null : Number(consumption[c.code]) }))));
       if (stage.key === 'photos') { body.append('papers', JSON.stringify(paperRows.map((r, slot) => ({ name: r.name.trim(), slot })))); body.append('removePapers', JSON.stringify(removedPapers)); }
@@ -250,6 +255,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     const set = (value) => setFields((old) => ({ ...old, [f.key]: value }));
     if (f.type === 'select') return <FieldLabel key={f.key} label={f.label} required={f.required}><select className={poInput} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct}><option value="">Select</option>{f.options.map((o) => <option key={o} value={o}>{o}</option>)}</select></FieldLabel>;
     if (f.type === 'textarea') return <FieldLabel key={f.key} label={f.label} required={f.required} className="sm:col-span-2"><textarea className={poInput} rows={2} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct} /></FieldLabel>;
+    if (f.type === 'datetime') return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type="datetime-local" max={localNow()} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct} /></FieldLabel>;
     const fixed = f.key === 'readyByDate' && Boolean(job.readyByDate) && !isAdminLike(user);
     return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} {...(f.type === 'number' ? { min: 0, step: f.step || 'any', inputMode: 'decimal' } : {})} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct || fixed} />{fixed && <FixedNote />}</FieldLabel>;
   };

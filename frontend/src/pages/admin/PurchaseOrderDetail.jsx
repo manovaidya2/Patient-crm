@@ -230,6 +230,56 @@ function StepHeader({ step, total, onAll, onRevert, po }) {
 
 // Fulfilment step 12, confirmed by In Transit on the Medicine Dept track: the packed parcel checked against the job.
 // Done here, the medicine is ready (Medicine Department then releases it once the full payment is verified).
+// Fulfilment step 8, In Transit's: the open kit is checked here (checklist, PASS / HOLD, findings). HOLD puts the job on
+// hold for the Medicine Department to correct; they resume it and In Transit checks again.
+function QualityCheckPanel({ po, onDone }) {
+  const stage = po.medicineJob.stages.find((s) => s.key === 'qc');
+  const [ticks, setTicks] = useState(() => stage.checks.map(() => false));
+  const [result, setResult] = useState('');
+  const [findings, setFindings] = useState('');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const all = ticks.every(Boolean);
+  const submit = async () => {
+    if (result === 'HOLD' && !findings.trim()) { setError('Write what has to be corrected in Findings'); return; }
+    setBusy(true); setError('');
+    try {
+      const body = new FormData();
+      body.append('checks', JSON.stringify(ticks));
+      body.append('fields', JSON.stringify({ result, findings }));
+      body.append('notes', notes);
+      await api.post(`/medicine-jobs/${po.medicineJob.id}/stages/qc`, body);
+      await onDone(result === 'PASS' ? 'Quality check passed: the kit goes on to the treatment papers.' : 'Quality check on HOLD: sent back to the Medicine Department to correct.');
+    } catch (err) { setError(err.response?.data?.message || 'Could not save the quality check'); } finally { setBusy(false); }
+  };
+  return (
+    <Section title={`${stage.n} · ${stage.label}`} icon={ShieldCheck} action={<Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className={smallLink}><ExternalLink size={13} />Open in fulfilment</Link>} className="border-2 border-[#FDBA74]">
+      <div className="space-y-3">
+        <p className="text-sm text-charcoal/70">{stage.purpose}</p>
+        <div className="rounded-lg border border-cardline bg-white/70 px-3 py-2"><p className="mb-1.5 text-sm font-semibold text-charcoal">Photo of the open kit (Packing-1)</p><DosePapersView job={po.medicineJob} /></div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-charcoal/50">Checklist · {ticks.filter(Boolean).length} of {ticks.length} ticked</p>
+        <div className="space-y-1.5">
+          {stage.checks.map((check, i) => (
+            <label key={check} className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm ${ticks[i] ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-[#E8DFCB] bg-[#FBF7ED] text-charcoal'}`}>
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#2F8F5B]" checked={ticks[i]} onChange={(e) => setTicks((list) => list.map((v, n) => (n === i ? e.target.checked : v)))} />
+              <span>{check}</span>
+            </label>
+          ))}
+        </div>
+        <div>
+          <p className="mb-1.5 text-sm font-semibold text-charcoal">QC result<span className="text-red-700"> *</span></p>
+          <div className="flex gap-2"><Chip active={result === 'PASS'} onClick={() => setResult('PASS')}>PASS</Chip><Chip active={result === 'HOLD'} onClick={() => setResult('HOLD')}>HOLD - send back</Chip></div>
+        </div>
+        <FieldLabel label={result === 'HOLD' ? 'Findings / deviations (what to correct)' : 'Findings / deviations'} required={result === 'HOLD'}><textarea className={poInput} rows={2} value={findings} onChange={(e) => setFindings(e.target.value)} /></FieldLabel>
+        <FieldLabel label="Notes"><input className={poInput} value={notes} onChange={(e) => setNotes(e.target.value)} /></FieldLabel>
+        <ErrorText>{error}</ErrorText>
+        <Button disabled={busy || !all || !result} onClick={submit}><Check size={15} />{busy ? 'Saving...' : result === 'HOLD' ? 'Save - HOLD' : 'Save quality check'}</Button>
+      </div>
+    </Section>
+  );
+}
+
 function FinalCheckPanel({ po, onDone }) {
   const stage = po.medicineJob.stages.find((s) => s.key === 'final');
   const [ticks, setTicks] = useState(() => stage.checks.map(() => false));
@@ -830,12 +880,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             </Section>
           )}
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
-          {TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (
-            <Section title="Quality check is yours (fulfilment step 8)" icon={ShieldCheck} className="border-2 border-[#FDBA74]">
-              <p className="mb-2 text-sm text-charcoal/75">The Medicine Department has packed the open kit (Packing-1). Check it and PASS or HOLD it on the fulfilment job.</p>
-              <Link to={`/admin/medicine-jobs/${po.medicineJob.id}`}><Button size="sm"><ExternalLink size={14} />Open quality check</Button></Link>
-            </Section>
-          )}
+          {show('final') && TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (selected === 'all' || selected === 'job:qc' || selected === currentKey) && <QualityCheckPanel key={po.medicineJob.id} po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
           {show('final') && canFinalCheck && <FinalCheckPanel po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
           {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current' || (selectedStep?.key === 'scheduled' && !['dispatched', 'delivered'].includes(po.handover?.courier?.status))) && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}

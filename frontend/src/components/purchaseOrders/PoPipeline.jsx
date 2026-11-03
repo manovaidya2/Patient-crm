@@ -69,13 +69,15 @@ export function PoProgressBar({ steps = [] }) {
 // PO's own "ready" and "released" steps. A job stage that is a PO step ("Final check" = Medicine ready, "Release" =
 // Released) selects that PO step; the others select "job:<stage key>".
 const JOB_TO_PO_STEP = { final: 'ready', release: 'released' };
+const OWNER = { in_transit: 'In Transit', assistant_doctor: 'The PCC', doctor: 'The doctor', medicine_department: 'Medicine Department' };
+const ownerText = (roles = []) => `${OWNER[roles.find((r) => r !== 'admin')] || 'Medicine Department'} is on this step`;
 export function medicineTrack(steps = [], job = null) {
   if (!job?.stages?.length) return steps.filter((step) => step.branch === 'medicine');
   return job.stages.filter((stage) => stage.key !== 'accept').map((stage) => {
     const poStep = steps.find((step) => step.key === JOB_TO_PO_STEP[stage.key]);
     return poStep
       ? { ...poStep, n: stage.n, label: stage.label, jobStage: stage }
-      : { key: `job:${stage.key}`, n: stage.n, label: stage.label, state: stage.state, by: stage.doneByName, at: stage.doneAt, waitText: 'Medicine Department is on this step', jobStage: stage };
+      : { key: `job:${stage.key}`, n: stage.n, label: stage.label, state: stage.state, by: stage.doneByName, at: stage.doneAt, waitText: ownerText(stage.roles), jobStage: stage };
   });
 }
 

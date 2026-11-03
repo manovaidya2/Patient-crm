@@ -8,7 +8,7 @@ const { phaseAge } = require('./phaseAge');
 const { medicineDelays, fixedReadyDate, dispatchDelayInput, readyDateFromPostCounselling } = require('./medicineDelay');
 const { PO_REVERT_ORDER } = require('./revertFlow');
 const { paymentsOfPo, poPaymentSummary } = require('./poPayment');
-const { STAGE_INDEX } = require('./medicineJobFlow');
+const { STAGE_INDEX, STAGES: JOB_STAGES } = require('./medicineJobFlow');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
@@ -117,6 +117,8 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const callsDone = (transitOwner && Boolean(t.callsDoneAt || t.fulfilmentSetAt)) || dispatched || delivered;
   // The job waits on In Transit's final check (its packing is done).
   const finalDue = Boolean(job) && job.status === 'open' && !job.hold?.active && (job.currentStage || 0) === STAGE_INDEX.final;
+  // Whose turn the open fulfilment step is (the doctor's formulation, In Transit's quality check, the PCC's papers ...).
+  const jobRoles = job && job.status === 'open' && !job.hold?.active ? JOB_STAGES[job.currentStage || 0]?.roles || null : null;
   const pccStep = { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(explanationAt), at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' };
   const steps = [
     { key: 'created', group: 'verification', label: 'Create PO', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
@@ -139,7 +141,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
     // final check of the packed parcel (step 12, `finalDue`: In Transit's turn), then it is released once the full
     // payment is verified.
     {
-      key: 'ready', group: 'medicine', branch: 'medicine', label: 'Final check pending', done: made, at: iso(made ? request?.madeAt : null), by: made ? (request?.lastMedicineCheckedByName || request?.madeByName) : '', finalDue,
+      key: 'ready', group: 'medicine', branch: 'medicine', label: 'Final check pending', jobRoles, done: made, at: iso(made ? request?.madeAt : null), by: made ? (request?.lastMedicineCheckedByName || request?.madeByName) : '', finalDue,
       waitText: finalDue ? 'In Transit confirms the final check of the packed parcel (fulfilment step 12)'
         : job?.hold?.active ? `Sent back / on hold: ${job.hold.reason} - Medicine Department fixes it and resumes` : 'Medicine Department is preparing and packing the medicine',
     },
@@ -231,7 +233,7 @@ function actionByOf(po, stepKey, canRequest, step = null) {
     case 'details': case 'payment': return VERIFY;
     // Also when blocked (patient approval, payment): clearing the blocker is In Transit's work too.
     case 'requested': return VERIFY;
-    case 'ready': return step?.finalDue ? TRANSIT : MED;
+    case 'ready': return step?.finalDue ? TRANSIT : step?.jobRoles?.length ? step.jobRoles : MED;
     case 'accepted': return step?.returned ? TRANSIT : MED;
     case 'released': return MED;
     case 'calls': case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;

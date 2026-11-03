@@ -288,12 +288,17 @@ const completeStage = asyncHandler(async (req, res) => {
     if (f.required && (v === undefined || v === null || String(v).trim() === '')) fail(`${f.label} is required`);
     if (f.type === 'select' && v && !f.options.includes(v)) fail(`Select a valid ${f.label.toLowerCase()}`);
     if (f.type === 'number' && v !== undefined && v !== '' && !Number.isFinite(Number(v))) fail(`Enter a valid ${f.label.toLowerCase()}`);
+    if (f.type === 'datetime' && v) {
+      const at = new Date(v);
+      if (Number.isNaN(at.getTime())) fail(`Enter a valid ${f.label.toLowerCase()}`);
+      if (at.getTime() > Date.now() + 5 * 60000) fail(`${f.label} cannot be in the future`);
+    }
   }
   const notes = clean(body.notes, 2000);
   const { patient, stage: phaseEntry, request } = await loadPatientAndRequest(job);
   const now = new Date();
   const record = { key: stage.key, doneAt: now, doneByName: req.user.name, doneByRole: req.user.role, checks: stage.checks.map(() => true), fields: {}, notes };
-  stage.fields.forEach((f) => { record.fields[f.key] = f.type === 'number' ? Number(fields[f.key]) : clean(fields[f.key], f.type === 'textarea' ? 2000 : 300); });
+  stage.fields.forEach((f) => { record.fields[f.key] = f.type === 'number' ? Number(fields[f.key]) : f.type === 'datetime' ? (fields[f.key] ? new Date(fields[f.key]).toISOString() : '') : clean(fields[f.key], f.type === 'textarea' ? 2000 : 300); });
   let detail = '';
 
   if (stage.key === 'accept' && job.returned?.at) fail('This request was sent back to In Transit. It can be accepted once In Transit corrects it', 409);
@@ -572,16 +577,16 @@ const ringTransit = asyncHandler(async (req, res) => {
   const key = STAGES[job.currentStage || 0]?.key;
   if (job.status !== 'open' || !RING_STAGE_KEYS.includes(key)) fail('This job is not waiting on In Transit or the PCC', 409);
   const note = clean(req.body?.note, 300);
+  const paperPcc = key === 'photos' ? await require('./treatmentPaperController').getPaperPcc() : null;
+  if (key === 'photos' && !paperPcc) fail('The admin has not chosen who makes the treatment papers yet (Settings)', 409);
   job.transitAlarm = { at: new Date(), byName: req.user.name, note, stageKey: key };
   const forPcc = key === 'photos';
   event(job, req.user, forPcc ? 'Alarm rung for the PCC' : 'Alarm rung for In Transit', `${STAGES[job.currentStage].label}${note ? ` - ${note}` : ''}`);
   await job.save();
   const io = req.app?.get?.('io');
   if (forPcc) {
-    // To the PCC the admin chose (every PCC when none is chosen).
-    const pcc = await require('./treatmentPaperController').getPaperPcc();
-    if (pcc) io?.to(`enquiry:user:${pcc.id}`).emit('pcc:alarm', { id: String(job._id) });
-    else io?.emit('pcc:alarm', { id: String(job._id) });
+    // Only to the PCC the admin chose.
+    io?.to(`enquiry:user:${paperPcc.id}`).emit('pcc:alarm', { id: String(job._id) });
   } else io?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('transit:alarm', { id: String(job._id) });
   return respond(res, job);
 });
