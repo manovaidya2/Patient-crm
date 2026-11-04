@@ -6,6 +6,9 @@ const { uploadCourierImage } = require('../middleware/fileUploads');
 
 const router = express.Router();
 
+// Medicines made but not delivered yet, with why ("Ready, Not Delivered"): In Transit, and the Doctor / Manager / Admin to watch it.
+router.get('/ready-not-delivered', protect, authorize(ROLES.ADMIN, ROLES.IN_TRANSIT, ROLES.DOCTOR), require('../controllers/purchaseOrderController').listReadyNotDelivered);
+
 router.use(protect, authorize(ROLES.ADMIN, ROLES.IN_TRANSIT));
 
 router.get('/requests', listCourierRequests);

@@ -189,6 +189,13 @@ const ACTIONS = {
   },
   // Step 1: the delivery schedule call. In Transit keeps logging calls until one connects, then marks it done and the
   // case moves to "Delivery scheduled".
+  // "Why is it stuck": In Transit's note on a ready medicine not delivered yet (empty clears it).
+  stuck_note({ stage, body, req, now }) {
+    const note = String(body.note || '').trim();
+    if (note.length > 1000) fail('Keep the note under 1000 characters');
+    Object.assign(stage.transit, { stuckNote: note, stuckNoteAt: note ? now : null, stuckNoteByName: note ? req.user.name : '' });
+    return note ? `Not delivered yet - reason: ${note}` : 'Not-delivered reason cleared';
+  },
   finish_calls({ stage, req, now }) {
     const t = stage.transit;
     if (!(t.calls || []).some((c) => c.outcome === 'connected')) fail('Log a connected call with the patient first');
@@ -420,7 +427,7 @@ const runAction = asyncHandler(async (req, res) => {
   const { patient, stage } = await loadStage(req);
   if (stage.transit.removedAt) fail('This case was removed from In Transit');
   if (stage.transit.activatedAt) fail('Treatment has already started for this phase');
-  if (stage.transit.holdActive && action !== 'resume') fail('This case is on hold. Resume it first');
+  if (stage.transit.holdActive && !['resume', 'stuck_note'].includes(action)) fail('This case is on hold. Resume it first');
   const summary = await ACTIONS[action]({ patient, stage, request: pickRequest(stage), body: req.body, req, now: new Date() });
   logActivity(patient, req.user, stage.number, summary);
   await respondWithCase(res, patient, stage.number);

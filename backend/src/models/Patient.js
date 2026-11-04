@@ -306,6 +306,10 @@ const transitSchema = new mongoose.Schema(
     removedAt: { type: Date, default: null },
     removedByName: { type: String, trim: true, default: '' },
     removedReason: { type: String, trim: true, default: '' },
+    // Why the ready medicine is not delivered yet, in In Transit's words (Ready, Not Delivered page).
+    stuckNote: { type: String, trim: true, default: '', maxlength: 1000 },
+    stuckNoteAt: { type: Date, default: null },
+    stuckNoteByName: { type: String, trim: true, default: '' },
     holdActive: { type: Boolean, default: false },
     holdReason: { type: String, trim: true, default: '' },
     holdAt: { type: Date, default: null },

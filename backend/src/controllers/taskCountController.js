@@ -25,6 +25,7 @@ const PAGES = {
   '/admin/courier': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/self-pickup-schedule': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/transit-follow-ups': [ADMIN, IN_TRANSIT, MANAGER],
+  '/admin/ready-not-delivered': [ADMIN, IN_TRANSIT, MANAGER, DOCTOR],
   '/admin/treatment-papers': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/final-check': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
@@ -98,6 +99,11 @@ const COUNTERS = {
     const { listFollowUps } = require('./transitController');
     const data = await callHandler(listFollowUps, user, { status: 'open' });
     return (data.rows || []).filter((r) => r.status !== 'upcoming').length;
+  },
+  // Medicines made but not delivered yet.
+  async '/admin/ready-not-delivered'() {
+    const { readyNotDelivered } = require('./purchaseOrderController');
+    return (await readyNotDelivered()).length;
   },
   // Porter / courier scheduled, still to be dispatched or confirmed delivered.
   async '/admin/courier'() {

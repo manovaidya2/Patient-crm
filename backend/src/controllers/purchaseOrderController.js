@@ -189,6 +189,51 @@ const courierHandovers = async () => {
     })].sort((a, b) => new Date(a.expectedAt || 0) - new Date(b.expectedAt || 0));
 };
 
+// ---- "Ready, Not Delivered": medicines made (doctor's final verification passed) that have not reached the patient yet,
+// with every reason it is held: release, the call, the schedule, payment / PO paper, the dispatch, the receipt, a late
+// follow-up, a passed schedule date, a hold - plus In Transit's own note.
+const DAY_MS = 86400000;
+const istDayOf = (v) => new Date(v).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+const daysSince = (v, now = new Date()) => (v ? Math.max(0, Math.round((Date.parse(istDayOf(now)) - Date.parse(istDayOf(v))) / DAY_MS)) : null);
+const readyNotDelivered = async (now = new Date()) => {
+  const views = await loadPoViews({ status: 'verified', medicineRequestId: { $nin: ['', null] } }, { includeHandover: true });
+  return views.filter((v) => v.isPhaseCurrentRequest && v.medicine && ['made', 'sent_to_courier'].includes(v.medicine.status) && v.courier?.status !== 'delivered' && !v.phaseRemoved)
+    .map((v) => {
+      const h = v.handover || {};
+      const step = (key) => v.steps.find((s) => s.key === key);
+      const open = (key) => { const s = step(key); return s && s.state !== 'done' ? s : null; };
+      const dispatched = v.courier?.status === 'dispatched';
+      const pickup = h.mode === 'pickup';
+      const plannedAt = pickup ? h.pickupAt : h.dispatchAt;
+      const reasons = [];
+      if (v.phaseHold) reasons.push({ tone: 'danger', text: 'On hold' });
+      if (open('released')) reasons.push({ tone: 'warning', text: 'Not released by Medicine Department yet', detail: open('released').waitText });
+      if (open('calls')) reasons.push({ tone: 'warning', text: 'Delivery schedule call not done', detail: open('calls').text || open('calls').waitText });
+      (v.callFollowUps || []).filter((f) => f.overdue).forEach((f) => reasons.push({ tone: f.lateDays ? 'danger' : 'warning', text: `Follow-up call due (${f.label})${f.lateDays ? ` - ${f.lateDays} day${f.lateDays === 1 ? '' : 's'} late` : ''}` }));
+      if (open('scheduled')) reasons.push({ tone: 'warning', text: 'Delivery not scheduled' });
+      const pay = v.poPayment || {};
+      if (pay.pendingCount) reasons.push({ tone: 'warning', text: `${pay.pendingCount} payment${pay.pendingCount === 1 ? '' : 's'} waiting for verification` });
+      else if (open('fullpay')) reasons.push({ tone: 'warning', text: /PO paper/.test(open('fullpay').waitText || '') ? 'PO paper not signed by patient' : 'No payment verified yet', detail: `Paid Rs ${pay.amountPaid || 0} of Rs ${pay.totalAmount || 0}` });
+      if (!dispatched && plannedAt && new Date(plannedAt) < now && istDayOf(plannedAt) !== istDayOf(now)) reasons.push({ tone: 'danger', text: `${pickup ? 'Pickup' : 'Dispatch'} date passed ${daysSince(plannedAt, now)} day${daysSince(plannedAt, now) === 1 ? '' : 's'} ago`, detail: istDayOf(plannedAt) });
+      if (dispatched) reasons.push({ tone: 'info', text: `On the way since ${istDayOf(v.courier.dispatchedAt || now)} - receipt not confirmed`, detail: [v.courier.courierPartner, v.courier.trackingNumber].filter(Boolean).join(' / ') });
+      else if (!reasons.length && open('handover')) reasons.push({ tone: 'warning', text: pickup ? 'Waiting for the patient to collect' : 'Ready to dispatch' });
+      const madeAt = v.medicine.madeAt;
+      return {
+        poId: v.id, poNumber: v.poNumber, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, patientPhone: v.patientPhone, phase: v.phase, supplyLabel: v.supplyLabel,
+        madeAt, releasedAt: v.medicine.releasedAt, waitingDays: daysSince(madeAt, now),
+        state: dispatched ? 'on_the_way' : v.medicine.status === 'made' ? 'not_released' : 'not_sent',
+        mode: h.mode || '', plannedAt, nextStep: transitNowOf(v), reasons, note: h.stuckNote || null,
+        payment: pay,
+      };
+    })
+    .sort((a, b) => (b.waitingDays ?? 0) - (a.waitingDays ?? 0));
+};
+// @route GET /api/courier/ready-not-delivered
+const listReadyNotDelivered = asyncHandler(async (req, res) => {
+  const rows = await readyNotDelivered();
+  res.json({ success: true, count: rows.length, rows });
+});
+
 // Self Pickup Schedule lists the pickups, Porter / Courier Schedule the rest.
 const byDelivery = (kind) => (r) => (kind === 'pickup' ? r.mode === 'pickup' : kind === 'shipped' ? r.mode !== 'pickup' : true);
 
@@ -746,7 +791,7 @@ const activatePhase = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
-module.exports = {
+module.exports = { readyNotDelivered, listReadyNotDelivered,
   courierHandovers, listCourierHandovers,
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   loadPoViews, revertStep, deletePurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,

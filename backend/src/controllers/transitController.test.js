@@ -252,3 +252,14 @@ test('deadline reminders go to In Transit and Medicine; explanation list and rem
   assert.equal((await invoke(listExplanations, patient, {}, doctor)).items.length, 1);
   assert.equal((await invoke(listExplanations, patient, {}, { ...doctor, _id: new mongoose.Types.ObjectId() })).items.length, 0);
 });
+
+test('In Transit writes (and clears) why a ready medicine is not delivered yet, even on hold', async () => {
+  const { patient, stage } = makePatient();
+  await act(patient, { action: 'stuck_note', note: 'Patient out of town till 15 Nov' });
+  assert.equal(stage.transit.stuckNote, 'Patient out of town till 15 Nov');
+  assert.equal(stage.transit.stuckNoteByName, 'Transit');
+  stage.transit.holdActive = true;
+  await act(patient, { action: 'stuck_note', note: '' });
+  assert.equal(stage.transit.stuckNote, '');
+  assert.equal(stage.transit.stuckNoteAt, null);
+});

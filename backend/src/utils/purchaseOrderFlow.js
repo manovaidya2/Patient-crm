@@ -202,6 +202,7 @@ function handoverRecord({ t, stage, courier, patient, poPayments }) {
   const calls = (t.calls || []).map((c) => ({ at: iso(c.at), outcome: c.outcome || '', notes: c.notes || '', byName: c.byName || '' }));
   return {
     mode: t.fulfilmentMode || '',
+    stuckNote: t.stuckNote ? { text: t.stuckNote, at: iso(t.stuckNoteAt), byName: t.stuckNoteByName || '' } : null,
     setAt: iso(t.fulfilmentSetAt), setByName: t.fulfilmentSetByName || '',
     pickupAt: iso(t.pickupScheduledAt), pickupNote: t.pickupNote || '',
     dispatchAt: iso(t.dispatchScheduledAt), plannedCourier: t.plannedCourier || '', plannedAddress: t.plannedAddress || '', planNote: t.deliveryPlanNote || '',
@@ -376,6 +377,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
       readyBySetByName: req.readyBySetByName || '',
       requestedAt: iso(req.requestedAt),
       requestedByName: req.requestedByName || '',
+      madeAt: iso(req.madeAt), releasedAt: iso(req.sentToCourierAt),
       prescriptionFiles: [...(req.prescriptionFiles || []), ...(req.prescriptionUrl && !(req.prescriptionFiles || []).some((f) => f.url === req.prescriptionUrl) ? [{ url: req.prescriptionUrl, fileName: req.prescriptionFileName || 'Prescription' }] : [])],
       medicineImages: req.medicineImages || [],
       cancelReason: req.cancelReason || '',

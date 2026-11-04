@@ -12,6 +12,7 @@ export const PAGES = {
   '/admin/self-pickup-schedule': ['Self Pickup Schedule', 'Patients coming to collect medicine'],
   '/admin/courier': ['Porter / Courier Schedule', 'Parcels to dispatch / deliver'],
   '/admin/transit-follow-ups': ['In Transit Follow-ups', 'Follow-up calls due or late'],
+  '/admin/ready-not-delivered': ['Ready, Not Delivered', 'Medicines made but not delivered yet'],
   '/admin/medicine-requests': ['Medicine Requests', 'Requests to accept / make'],
   '/admin/medicine-jobs': ['Fulfilment Queue', 'Fulfilment steps waiting on you'],
   '/admin/medicine-made': ['Medicine Made', 'Made, waiting for release'],
