@@ -190,6 +190,14 @@ const ACTIONS = {
     Object.assign(t, { callsDoneAt: now, callsDoneByName: req.user.name });
     return 'Delivery schedule call done';
   },
+  // "Verify full payment" also needs this tick: the PO paper is signed by the patient.
+  po_paper_signed({ stage, request, body, req, now }) {
+    const courier = request ? courierOf(request) : {};
+    if (['dispatched', 'delivered'].includes(courier.status)) fail('The medicine has already been handed over / dispatched');
+    const signed = body.signed === true || body.signed === 'true';
+    Object.assign(stage.transit, signed ? { poPaperSignedAt: now, poPaperSignedByName: req.user.name } : { poPaperSignedAt: null, poPaperSignedByName: '' });
+    return signed ? 'PO paper signed by the patient' : 'PO paper signed: tick removed';
+  },
   confirm_mode({ stage, request, body, req, now }) {
     const { mode } = body;
     if (!MODE_LABEL[mode]) fail('Choose self pickup, porter or courier');
@@ -287,6 +295,7 @@ const ACTIONS = {
     if (['dispatched', 'delivered'].includes(courierOf(request).status)) fail('This medicine has already been dispatched');
     const pay = await paymentForRequest(patient, stage, request);
     if (pay.remaining > 0 || pay.pendingCount) fail('Full payment of this PO must be approved before sending the medicine');
+    if (!stage.transit.poPaperSignedAt) fail('Tick "PO paper signed by patient" at Verify full payment first');
     if (!isMade(request)) fail('The medicine is not ready yet');
     const files = fileItems(req);
     const courier = courierOf(request);
@@ -317,6 +326,7 @@ const ACTIONS = {
     if (request.status !== 'sent_to_courier') fail('Medicine Department must release the medicine first');
     const pay = await paymentForRequest(patient, stage, request);
     if (pay.remaining > 0 || pay.pendingCount) fail('Full payment of this PO must be approved before handover');
+    if (mode === 'pickup' && !stage.transit.poPaperSignedAt) fail('Tick "PO paper signed by patient" at Verify full payment first');
     if (courier.status === 'delivered') fail('Receipt already recorded');
     const receivedByName = required(body.receivedByName, 'Received by', 120);
     const proof = files.length ? { deliveryProofUrl: files[0].url, deliveryProofFileName: files[0].fileName, deliveryProofImages: [...(courier.deliveryProofImages || []), ...files] } : {};

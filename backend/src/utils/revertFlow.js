@@ -139,9 +139,11 @@ const PO_REVERTS = {
     const since = po.paymentVerifiedAt ? new Date(po.paymentVerifiedAt).getTime() : 0;
     const linked = new Set((po.paymentIds || []).map(String));
     const later = (stage.payments || []).filter((p) => (p.approvalStatus || 'approved') === 'approved' && !linked.has(String(p._id)) && p.approvedAt && new Date(p.approvedAt).getTime() > since);
-    if (!later.length) return null;
+    const signed = Boolean(stage.transit?.poPaperSignedAt);
+    if (!later.length && !signed) return null;
     const snapshot = { payments: [] };
     later.forEach((p) => toPending(p, snapshot.payments));
+    if (signed) { snapshot.transit = take(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName']); clear(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName']); }
     return snapshot;
   },
   async scheduled({ stage }) {

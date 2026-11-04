@@ -168,6 +168,7 @@ function handoverItems(step, po, line) {
     ];
     case 'fullpay': return [
       { text: `PO value ${money(po.poPayment.totalAmount)} · verified paid ${money(po.poPayment.amountPaid)} · balance ${money(po.poPayment.remaining)}` },
+      h.poPaperSignedAt ? { text: 'PO paper signed by patient', sub: line(h.poPaperSignedByName && `ticked by ${h.poPaperSignedByName}`, poDateTime(h.poPaperSignedAt)) } : null,
       ...h.approvedPayments.map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'split' ? p.modeLabel : p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.recordedByName && `added by ${p.recordedByName}`, p.approvedByName && `verified by ${p.approvedByName}`), files: p.files })),
     ];
     case 'handover': return h.mode === 'pickup' ? [
@@ -277,6 +278,34 @@ function QualityCheckPanel({ po, onDone }) {
         <Button disabled={busy || !all || !result} onClick={submit}><Check size={15} />{busy ? 'Saving...' : result === 'HOLD' ? 'Save - HOLD' : 'Save quality check'}</Button>
       </div>
     </Section>
+  );
+}
+
+// Required at "Verify full payment" with the payment: the PO paper is signed by the patient (In Transit ticks it).
+function PoSignedTick({ po, onDone }) {
+  const role = useAuth().user?.role;
+  const signedAt = po.handover?.poPaperSignedAt;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const canTick = TRANSIT_ROLES.includes(role);
+  const toggle = async (signed) => {
+    setBusy(true); setError('');
+    try {
+      const body = new FormData();
+      body.append('action', 'po_paper_signed');
+      body.append('signed', String(signed));
+      await api.patch(`/transit/${po.patientId}/${po.phase}`, body);
+      await onDone(signed ? 'PO paper signed by the patient: ticked.' : 'Tick removed.');
+    } catch (err) { setError(err.response?.data?.message || 'Could not save'); } finally { setBusy(false); }
+  };
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${signedAt ? 'border-emerald-200 bg-emerald-50' : 'border-[#FDBA74] bg-[#FFF7ED]'}`}>
+      <label className="flex cursor-pointer items-start gap-2.5 text-sm font-semibold text-charcoal">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#2F8F5B]" checked={Boolean(signedAt)} disabled={busy || !canTick} onChange={(e) => toggle(e.target.checked)} />
+        <span>PO paper signed by patient<span className="text-red-700"> *</span>{signedAt ? <span className="block text-xs font-normal text-emerald-800">Ticked by {po.handover.poPaperSignedByName} · {poDateTime(signedAt)}</span> : <span className="block text-xs font-normal text-charcoal/60">Required with the full payment before the handover / dispatch.</span>}</span>
+      </label>
+      <ErrorText>{error}</ErrorText>
+    </div>
   );
 }
 
@@ -534,6 +563,7 @@ function trackWork(key, item) {
     case 'scheduled': return shipped ? { wait: 'The medicine has already left; the schedule is final.' } : !item.callsDone?.done ? { wait: 'Finish the "Call for delivery schedule" step first.' } : { action: 'schedule_delivery' };
     case 'fullpay': if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' }; return {};
     case 'handover':
+      if (!(item.poPaperSigned?.done)) return { wait: 'Tick "PO paper signed by patient" at Verify full payment first.' };
       if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' };
       if (!released && !shipped && !delivered) return { wait: 'Waiting for Medicine Department to release the parcel. Follow it on the Medicine Dept track.' };
       if (!paid) return { wait: 'The full payment must be verified before the handover.' };
@@ -810,6 +840,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
                     </div>}
                   </div>
                 ))}
+                <PoSignedTick po={po} onDone={async (message) => { await load(); setNotice(message); }} />
                 {Number(po.poPayment.remaining) > 0 && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#FFF1E6] px-3 py-2 text-sm">
                     <span className="font-semibold text-[#C2410C]">Balance {money(po.poPayment.remaining)} on this PO still to collect{(po.phasePendingPayments || []).length ? ' after the pending ones' : ''}.</span>

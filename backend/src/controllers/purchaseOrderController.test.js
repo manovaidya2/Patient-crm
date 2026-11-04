@@ -253,7 +253,7 @@ test('after the medicine is accepted the timeline runs in two tracks, each with 
   view = buildPoView(po, patient);
   assert.deepEqual(now(), ['ready', 'scheduled']);
   // In Transit's handover waits for the release; nobody is asked to act on it yet.
-  stage.transit = { callsDoneAt: new Date(), fulfilmentMode: 'courier', dispatchScheduledAt: new Date(), assignedAt: new Date() };
+  stage.transit = { callsDoneAt: new Date(), fulfilmentMode: 'courier', dispatchScheduledAt: new Date(), assignedAt: new Date(), poPaperSignedAt: new Date() };
   stage.medicineExplainDate = new Date();
   stage.payments = [{ amount: 10000, approvalStatus: 'approved' }];
   view = buildPoView(po, patient);

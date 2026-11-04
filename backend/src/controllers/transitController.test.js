@@ -79,7 +79,16 @@ test('dispatch can be scheduled during preparation, but requires release and ful
   await act(patient, { action: 'add_payment', amount: 500, paymentMode: 'online', utr: 'UTR1' }, [file]);
   await assert.rejects(() => act(patient, body), /Full payment/);
   stage.payments[1].approvalStatus = 'approved';
+  // "Verify full payment" also needs the PO paper signed by the patient.
+  await assert.rejects(() => act(patient, body), /PO paper signed by patient/);
+  let signed = await act(patient, { action: 'po_paper_signed', signed: 'true' });
+  assert.ok(signed.poPaperSigned.done && stage.transit.poPaperSignedAt);
+  assert.equal(signed.steps.find((s) => s.key === 'payment').state, 'done');
+  signed = await act(patient, { action: 'po_paper_signed', signed: 'false' });
+  assert.equal(signed.steps.find((s) => s.key === 'payment').state === 'done', false, 'without the tick the step is not done');
+  await act(patient, { action: 'po_paper_signed', signed: 'true' });
   assert.equal((await act(patient, body)).courier.status, 'dispatched');
+  await assert.rejects(() => act(patient, { action: 'po_paper_signed', signed: 'false' }), /already been handed over/);
   await assert.rejects(() => act(patient, body), /already been dispatched/);
 });
 
@@ -136,6 +145,7 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) });
   // Handover only after Medicine Department release (the parcel is packed there).
   stage.payments.push({ amount: 500, approvalStatus: 'approved' });
+  await act(patient, { action: 'po_paper_signed', signed: 'true' });
   await assert.rejects(() => act(patient, { action: 'dispatch', sendBy: 'courier', courierPartner: 'DTDC', trackingNumber: 'T1', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' }, [file]), /release/);
   release(stage);
   item = buildTransitCase(patient, stage);
@@ -165,6 +175,8 @@ test('self pickup requires schedule, release and full payment, then assigned doc
   made(stage);
   await assert.rejects(() => act(patient, { action: 'confirm_received', receivedByName: 'Parent' }), /release/);
   release(stage);
+  await assert.rejects(() => act(patient, { action: 'confirm_received', receivedByName: 'Parent', receivedAt: now() }), /PO paper signed by patient/);
+  await act(patient, { action: 'po_paper_signed', signed: 'true' });
   await act(patient, { action: 'confirm_received', receivedByName: 'Parent', receivedAt: now() });
   const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Doctor', role: 'assistant_doctor' };
   const counselor = { _id: new mongoose.Types.ObjectId(), name: 'Counselor', role: 'post_counselor' };

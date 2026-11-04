@@ -113,7 +113,7 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
     { key: 'scheduled', group: 'contact', label: 'Schedule delivery', done: plan.done, action: 'schedule_delivery', by: t.fulfilmentSetByName, at: iso(t.fulfilmentSetAt), text: plan.text, waitText: 'Choose self pickup or porter / courier and the day' },
     // Self pickup: the explanation date and the PCC come before the payment and the handover.
     ...(mode === 'pickup' ? [pccStep] : []),
-    { key: 'payment', group: 'handover', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0, action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
+    { key: 'payment', group: 'handover', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0 && (Boolean(t.poPaperSignedAt) || dispatched || delivered), action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
     { key: 'released', group: 'handover', label: 'Release by Medicine Dept', done: released, waitText: 'Medicine Department releases the parcel once the full payment is verified', by: t.financialReleasedByName || request?.sentToCourierByName, at: iso(t.financialReleasedAt || request?.sentToCourierAt) },
     {
       key: 'handover', group: 'handover', label: mode === 'pickup' ? 'Handover' : shippedMode ? 'Dispatch courier' : 'Hand over / dispatch',
@@ -245,6 +245,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
       receivedByName: courier.receivedByName || '', deliveredAt: iso(courier.deliveredAt), dispatchedAt: iso(courier.dispatchedAt), notes: courier.notes || '',
     } : null,
     visit: { at: iso(t.pickupScheduledAt), note: t.pickupNote || '' },
+    poPaperSigned: { done: Boolean(t.poPaperSignedAt) || ['dispatched', 'delivered'].includes(courier.status), at: iso(t.poPaperSignedAt), byName: t.poPaperSignedByName || '' },
     callsDone: { done: Boolean(t.callsDoneAt || t.fulfilmentSetAt || ['dispatched', 'delivered'].includes(courier.status)), at: iso(t.callsDoneAt), byName: t.callsDoneByName || '' },
     hasConnectedCall: calls.some((c) => c.outcome === 'connected'),
     plan: planOf(stage, t, mode, courier),

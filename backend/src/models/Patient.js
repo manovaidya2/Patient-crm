@@ -249,6 +249,9 @@ const transitSchema = new mongoose.Schema(
     // Step 1 of the handover: In Transit marks the delivery schedule call done once a call connects.
     callsDoneAt: { type: Date, default: null },
     callsDoneByName: { type: String, trim: true, default: '' },
+    // "Verify full payment": In Transit ticks that the PO paper is signed by the patient (required with the payment).
+    poPaperSignedAt: { type: Date, default: null },
+    poPaperSignedByName: { type: String, trim: true, default: '' },
     pickupScheduledAt: { type: Date, default: null },
     pickupNote: { type: String, trim: true, default: '' },
     pickupScheduledByName: { type: String, trim: true, default: '' },
