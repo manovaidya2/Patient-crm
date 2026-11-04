@@ -28,7 +28,7 @@ const DepartmentLibrary = ({ department }) => {
   const navigate = useNavigate();
   const { categoryId } = useParams();
   const isAdmin = user?.role === ROLES.ADMIN; // deleting stays Admin-only
-  const canManage = isAdminLike(user);
+  const canManage = user?.role === ROLES.ADMIN;
   const isCategoryPage = Boolean(categoryId);
   const [search, setSearch] = useState('');
   const [categories, setCategories] = useStaleState(`knowledge-categories:${department}`, []);

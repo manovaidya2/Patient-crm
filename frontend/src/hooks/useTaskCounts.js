@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../api/axios.js';
+import { getSocket } from '../api/socket.js';
 
 // Open work per page for the signed-in role (GET /tasks/counts), shared by the sidebar badges and the
 // "Your pending work" strip: one request every 30 seconds however many places show it.
@@ -25,7 +26,11 @@ export default function useTaskCounts(refreshKey) {
   useEffect(() => {
     listeners.add(setValue);
     if (!timer) timer = window.setInterval(refreshTaskCounts, 30000);
+    // Live: a save that changes pending work refreshes the badges at once (not only every 30 seconds).
+    const socket = getSocket();
+    socket.on('tasks:changed', refreshTaskCounts);
     return () => {
+      socket.off('tasks:changed', refreshTaskCounts);
       listeners.delete(setValue);
       if (!listeners.size && timer) { window.clearInterval(timer); timer = null; counts = {}; }
     };

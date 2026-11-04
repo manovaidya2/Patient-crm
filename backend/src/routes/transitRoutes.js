@@ -16,7 +16,7 @@ router.get('/staff/:id/calendar', authorize(...TRANSIT_ROLES), getPccCalendar);
 router.get('/', authorize(...TRANSIT_ROLES), listTransit);
 router.get('/:patientId/:number', authorize(...TRANSIT_ROLES), getTransitCase);
 router.delete('/:patientId/:number', authorize(ROLES.ADMIN), removeFromTransit);
-router.post('/:patientId/:number/restore', authorize(ROLES.ADMIN), restoreToTransit);
+router.post('/:patientId/:number/restore', authorize(ROLES.ADMIN, ROLES.MANAGER), restoreToTransit);
 router.post('/:patientId/:number/ack-explanation', authorize(ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR), ackExplanation);
 router.patch('/:patientId/:number', authorize(...TRANSIT_ROLES), uploadTransitFile.array('files', 10), runAction);
 

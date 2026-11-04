@@ -36,7 +36,7 @@ const PostCounselingPatients = () => {
   const [notGivenPatient, setNotGivenPatient] = useState(null);
   const canMoveNotGiven = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR].includes(user?.role);
   // Admin / Manager: a patient sent to the wrong Post Counselor goes to another one.
-  const canReassign = isAdminLike(user);
+  const canReassign = user?.role === ROLES.ADMIN;
   const [moveTarget, setMoveTarget] = useState(null);
   const [counselors, setCounselors] = useState([]);
   const [moveTo, setMoveTo] = useState('');

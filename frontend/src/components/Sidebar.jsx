@@ -77,7 +77,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
-import { HR_ACCESS_ROLES, ROLES, isAdminLike } from '../constants/roles.js';
+import { HR_ACCESS_ROLES, ROLES, isAdminLike, roleAllowed } from '../constants/roles.js';
 import api from '../api/axios.js';
 import BrandLogo from './BrandLogo.jsx';
 
@@ -87,17 +87,15 @@ const ROLE_FIRST_PAGES = {
 };
 
 // The Manager sees every page the Admin sees.
-export const canSeeNavItem = (item, role) => {
-  const asRole = isAdminLike(role) ? ROLES.ADMIN : role;
-  return (!item.adminOnly || asRole === ROLES.ADMIN) && (!item.roles || item.roles.includes(role) || item.roles.includes(asRole)) && !item.hiddenFor?.includes(role);
-};
+// The Manager sees the pages of the departments they cover (not the Admin-only ones).
+export const canSeeNavItem = (item, role) => (!item.adminOnly || role === ROLES.ADMIN) && (!item.roles || roleAllowed(item.roles, role)) && !item.hiddenFor?.includes(role);
 
 export const navItems = [
   // Every role's open work in one list (the orange counts, item by item).
   { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/team-pending', icon: Users, label: 'Team pending', roles: [ROLES.ADMIN, ROLES.MANAGER] },
   { to: '/admin', icon: LayoutDashboard, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
-  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST] },
+  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST], hiddenFor: [ROLES.MANAGER] }, // the Manager has Control Room on the same page
   { to: '/admin/hr', type: 'hr', roles: HR_ACCESS_ROLES },
   { to: '/admin/appointment-management', icon: CalendarCheck, label: 'Appointment Management', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM], group: 'reception' },
   { to: '/admin/receptionist-checklist', icon: ListChecks, label: 'Reception Checklist', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },

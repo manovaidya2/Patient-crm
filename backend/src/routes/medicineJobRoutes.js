@@ -21,7 +21,7 @@ router.post('/:id/stages/:key', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.
 router.post('/:id/hold', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), holdJob);
 router.post('/:id/return', authorize(...JOB_ROLES), returnToTransit);
 router.post('/:id/ring-transit', authorize(ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN), ringTransit);
-router.post('/:id/revert', authorize(ROLES.ADMIN), revertJob);
+router.post('/:id/revert', authorize(ROLES.ADMIN, ROLES.MANAGER), revertJob);
 router.post('/:id/resume', authorize(...JOB_ROLES), resumeJob);
 
 module.exports = router;

@@ -45,13 +45,15 @@ export const ROLE_LABELS = {
   [ROLES.HR]: 'HR',
 };
 
-// The Manager works like the Admin everywhere, except deleting anything and reading other people's private Team Chat.
+// The Manager covers five departments (In Transit, Reception, PCC, Sales Team, Medicine Department): their work, edits,
+// cancellations and notifications, never deleting. Inside those pages the Manager acts like the Admin.
 export const ADMIN_LIKE_ROLES = [ROLES.ADMIN, ROLES.MANAGER];
+export const MANAGER_DEPARTMENTS = [ROLES.IN_TRANSIT, ROLES.RECEPTIONIST, ROLES.ASSISTANT_DOCTOR, ROLES.SALES_TEAM, ROLES.MEDICINE_DEPARTMENT];
 export const isAdminLike = (userOrRole) => ADMIN_LIKE_ROLES.includes(typeof userOrRole === 'string' ? userOrRole : userOrRole?.role);
-// True when `roles` lets this user act; a list that names the Admin also lets the Manager act.
+// True when `roles` lets this user act. The Manager acts where one of their departments may.
 export const roleAllowed = (roles = [], userOrRole) => {
   const role = typeof userOrRole === 'string' ? userOrRole : userOrRole?.role;
-  return roles.includes(role) || (isAdminLike(role) && roles.includes(ROLES.ADMIN));
+  return roles.includes(role) || (role === ROLES.MANAGER && roles.some((r) => MANAGER_DEPARTMENTS.includes(r)));
 };
 
 // Roles that can open All Patients / Patient Details (the PCC is scoped to assigned patients by the backend)
@@ -59,7 +61,7 @@ export const PATIENT_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUN
 export const ADMIN_LAYOUT_ROLES = [...PATIENT_ACCESS_ROLES, ROLES.MEDICINE_DEPARTMENT, ROLES.DIGITAL_MARKETING, ROLES.SALES_TEAM, ROLES.HR];
 export const HR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.HR];
 export const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
-export const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role) || isAdminLike(role);
+export const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 // Deleting HR records stays with the Admin and the Doctor (not the Manager).
 export const canHrDelete = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 

@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { ROLES, getDefaultRoute, isAdminLike } from '../constants/roles.js';
+import { ROLES, getDefaultRoute, isAdminLike, roleAllowed } from '../constants/roles.js';
 
 const ProtectedRoute = ({ children, role, roles }) => {
   const { user, loading } = useAuth();
@@ -21,7 +21,7 @@ const ProtectedRoute = ({ children, role, roles }) => {
   const allowedRoles = roles || (role ? [role] : null);
 
   // The Manager can open every page the Admin can.
-  const allowed = !allowedRoles || allowedRoles.includes(user.role) || (isAdminLike(user) && allowedRoles.includes(ROLES.ADMIN));
+  const allowed = !allowedRoles || roleAllowed(allowedRoles, user);
 
   if (!allowed) {
     return <Navigate to={getDefaultRoute(user.role)} replace />;

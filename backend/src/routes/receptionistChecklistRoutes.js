@@ -12,8 +12,8 @@ router.get('/summary', controller.getSummary);
 router.put('/records', authorize(ROLES.RECEPTIONIST), controller.saveRecord);
 router.put('/review', authorize(ROLES.ADMIN, ROLES.DOCTOR), controller.reviewRecord);
 router.put('/day-review', authorize(ROLES.ADMIN, ROLES.DOCTOR), controller.reviewDay);
-router.post('/items', authorize(ROLES.ADMIN), controller.createItem);
-router.patch('/items/:id', authorize(ROLES.ADMIN), controller.updateItem);
+router.post('/items', authorize(ROLES.ADMIN, ROLES.MANAGER), controller.createItem);
+router.patch('/items/:id', authorize(ROLES.ADMIN, ROLES.MANAGER), controller.updateItem);
 router.delete('/items/:id', authorize(ROLES.ADMIN), controller.deleteItem);
 
 module.exports = router;

@@ -29,7 +29,7 @@ router.patch('/:id/plan', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), updatePl
 router.post('/:id/medicine-request', authorize(...PO_VERIFY_ROLES), uploadPrescription.array('prescription', 10), requestMedicine);
 router.patch('/:id/medicine-request', authorize(...PO_VERIFY_ROLES), updateMedicineRequest);
 router.post('/:id/activate-phase', authorize(...PO_VERIFY_ROLES), activatePhase);
-router.post('/:id/revert', authorize(ROLES.ADMIN), revertStep);
+router.post('/:id/revert', authorize(ROLES.ADMIN, ROLES.MANAGER), revertStep);
 router.delete('/:id', authorize(ROLES.ADMIN), deletePurchaseOrder);
 
 module.exports = router;

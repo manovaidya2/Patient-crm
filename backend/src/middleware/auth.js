@@ -46,9 +46,11 @@ const protect = async (req, res, next) => {
   }
 };
 
-// Restricts a route to specific roles, e.g. authorize('admin'). The Manager passes wherever the Admin does,
-// except a DELETE (deleting stays with the Admin only).
-const managerPasses = (req, roles) => req.user?.role === 'manager' && roles.includes('admin') && req.method !== 'DELETE';
+// Restricts a route to specific roles, e.g. authorize('admin'). The Manager passes where the route is open to one of the
+// departments the Manager covers (In Transit, Reception, PCC, Sales Team, Medicine Department), never on a DELETE.
+// A route open to the Admin only stays the Admin's (settings, HR, configuration) unless it names the Manager.
+const { MANAGER_DEPARTMENTS } = require('../constants/roles');
+const managerPasses = (req, roles) => req.user?.role === 'manager' && req.method !== 'DELETE' && roles.some((r) => MANAGER_DEPARTMENTS.includes(r));
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.user || !(roles.includes(req.user.role) || managerPasses(req, roles))) {

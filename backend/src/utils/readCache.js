@@ -43,6 +43,9 @@ const cached = (key, fn, { ttl = TTL, fresh = false } = {}) => {
 // Saves that come in a burst (one form, several requests) start a single refresh, at most one every SETTLE ms.
 const SETTLE = 2000;
 let lastRefreshAt = 0;
+// Told when a refresh after a write is done (server.js: every open page reloads its reminders and badges, live).
+const refreshedListeners = [];
+const onCacheRefreshed = (fn) => { refreshedListeners.push(fn); };
 const clearReadCache = () => {
   version += 1;
   if (refreshing) return;
@@ -54,7 +57,7 @@ const clearReadCache = () => {
       if (store.get(key) !== entry || entry.version === version) continue;
       try { const next = fetchInto(key, entry.fn); await next.value; if (store.get(key) === entry) store.set(key, next); } catch { /* the next read retries */ }
     }
-  })().finally(() => { refreshing = null; });
+  })().finally(() => { refreshing = null; refreshedListeners.forEach((fn) => { try { fn(); } catch { /* a listener never breaks the cache */ } }); });
 };
 
 // Writes that never change a pending list (chat messages, logins, HR, the library) leave the cache alone.
@@ -70,4 +73,4 @@ const clearOnWrite = (req, res, next) => {
 // Tests only.
 const resetReadCache = () => { store.clear(); version = 0; };
 
-module.exports = { cached, clearReadCache, clearOnWrite, resetReadCache };
+module.exports = { cached, clearReadCache, clearOnWrite, resetReadCache, onCacheRefreshed };

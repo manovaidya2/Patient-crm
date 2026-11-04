@@ -6,6 +6,19 @@ import useLiveEvent from '../api/useLiveEvent.js';
 import { PAGES } from './PendingWork.jsx';
 
 import { BUCKETS, bucketOf, when } from '../utils/taskTiming.js';
+import { playChime } from '../utils/chime.js';
+
+// The reminder sound, shared by the bells (mobile and desktop): one ding per reminder - every pending one when the page
+// opens, every new one the moment it arrives (live), and all pending ones again every 30 minutes while any is left.
+const REPEAT_MS = 30 * 60 * 1000;
+let seenKeys = null;
+let lastRemindAt = 0;
+const soundFor = (keys) => {
+  const newOnes = seenKeys === null ? keys.length : keys.filter((k) => !seenKeys.has(k)).length;
+  const repeat = keys.length > 0 && Date.now() - lastRemindAt >= REPEAT_MS;
+  seenKeys = new Set(keys);
+  if (repeat) { lastRemindAt = Date.now(); playChime(keys.length); } else if (newOnes > 0) { lastRemindAt = Date.now(); playChime(newOnes); }
+};
 
 // The signed-in person's own pending reminders (everything My Day lists for them), as a small panel that opens from
 // the bell at the top right and closes on a click outside. The count on the bell is the number of items.
@@ -21,6 +34,8 @@ export default function ReminderBell({ dark = false }) {
     try { const { data: d } = await api.get('/tasks/my-day', { skipCache: true }); setData(d); } catch { /* the bell just shows nothing new */ } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
+  // Any save that changes someone's pending work (the server says so once its lists are fresh): reload at once.
+  useLiveEvent('tasks:changed', load);
   useLiveEvent('team-chat:changed', load);
   useLiveEvent('medicine-job:changed', load);
   useEffect(() => {
@@ -34,6 +49,7 @@ export default function ReminderBell({ dark = false }) {
   const total = (data?.sections || []).reduce((n, s) => n + (s.count || 0), 0);
   const grouped = BUCKETS.map(([key, label, tone]) => [key, label, tone, items.filter((i) => bucketOf(i) === key)]).filter(([, , , list]) => list.length);
   const urgent = items.some((i) => bucketOf(i) === 'overdue');
+  useEffect(() => { if (data) soundFor(items.map((i) => i.key)); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div ref={box} className="relative z-40">
       <button type="button" aria-label={`Reminders${total ? `, ${total} pending` : ''}`} aria-expanded={open} title="My reminders" onClick={() => { setOpen((v) => !v); if (!open) load(); }}

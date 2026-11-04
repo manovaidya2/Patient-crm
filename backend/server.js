@@ -64,6 +64,8 @@ const io = new Server(server, {
   },
 });
 app.set('io', io);
+// After any save that changes pending work, every open page reloads its reminders and badges at once (live, no refresh).
+require('./src/utils/readCache').onCacheRefreshed(() => io.emit('tasks:changed'));
 registerSalesSheetSocket(io);
 
 app.use(

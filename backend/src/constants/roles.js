@@ -40,7 +40,7 @@ const GENERAL_CRM_ROLES = ALL_ROLES.filter((role) => role !== ROLES.HR);
 const HR_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.HR];
 const HR_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 // The Manager gets the same HR access (kept out of the list itself, which also guards HR deletes).
-const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role) || role === ROLES.MANAGER;
+const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 
 // Roles that can open All Patients / Patient Details and see every patient, same as Admin.
 const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.IN_TRANSIT];
@@ -54,6 +54,9 @@ const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, R
 // The Manager works like the Admin everywhere (sees and fills every role's work), except deleting anything and
 // reading other people's private Team Chat - those stay with the Admin only.
 const ADMIN_LIKE_ROLES = [ROLES.ADMIN, ROLES.MANAGER];
+// The departments the Manager covers: anything their staff can do (and correct or cancel), the Manager can do too,
+// with their notifications and pending work. Nothing that belongs only to the Admin (settings, HR, deleting).
+const MANAGER_DEPARTMENTS = [ROLES.IN_TRANSIT, ROLES.RECEPTIONIST, ROLES.ASSISTANT_DOCTOR, ROLES.SALES_TEAM, ROLES.MEDICINE_DEPARTMENT];
 const isAdminLike = (userOrRole) => ADMIN_LIKE_ROLES.includes(typeof userOrRole === 'string' ? userOrRole : userOrRole?.role);
 
 const ROLE_LABELS = {
@@ -88,4 +91,5 @@ module.exports = {
   ASSIGN_DOCTOR_ROLES,
   ADMIN_LIKE_ROLES,
   isAdminLike,
+  MANAGER_DEPARTMENTS,
 };
