@@ -75,6 +75,8 @@ const getForm = asyncHandler(async (req, res) => {
     notComingAt: target.source?.notComingAt || null,
     notComingByName: target.source?.notComingByName || '',
     createdByName: target.row.createdByName || '',
+    bookedByRole: target.row.bookedByRole || '',
+    bookingNote: target.row.bookingNote || '',
     callTarget: target.sheet === 'management' ? {
       id: target.source?._id || target.row._id,
       sheet: target.source ? 'sales' : 'management',

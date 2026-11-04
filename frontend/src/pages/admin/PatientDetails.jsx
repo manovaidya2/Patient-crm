@@ -3,6 +3,7 @@ import useStaleState from '../../hooks/useStaleState.js';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
+import BookNextAppointment from '../../components/patients/BookNextAppointment.jsx';
 import MedicineSupplyByPo from '../../components/purchaseOrders/MedicineSupplyByPo.jsx';
 import PhasePoPayments from '../../components/purchaseOrders/PhasePoPayments.jsx';
 import PaymentCancelAlerts from '../../components/payments/PaymentCancelAlerts.jsx';
@@ -2366,6 +2367,16 @@ const PatientDetails = () => {
   const canMakeBills = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR], user);
   const isPostCounselor = user?.role === ROLES.POST_COUNSELOR;
   const canEditStageDetails = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR], user);
+  // Marking a phase Not started / In progress / Completed, right in the Care team list.
+  const canSetPhaseStatus = canEditStageDetails || roleAllowed([ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER], user);
+  const [phaseStatusError, setPhaseStatusError] = useState('');
+  const setPhaseStatus = async (stage, status) => {
+    if (status === stage.status) return;
+    if (status === 'completed' && !window.confirm(`Mark ${STAGE_LABELS[stage.number]} as completed?`)) return;
+    setPhaseStatusError('');
+    try { const { data } = await api.patch(`/patients/${id}/stages/${stage.number}`, { status }); setPatient(data.patient); }
+    catch (err) { setPhaseStatusError(err.response?.data?.message || 'Phase status could not be changed'); }
+  };
   const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
   const canEditPatientIdentity = roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
   const canEditPatientRecords = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
@@ -2825,6 +2836,8 @@ const PatientDetails = () => {
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 {patient.number && <a href={`tel:${patient.number}`} className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><PhoneOutgoing size={14} />Call</a>}
                 {patient.number && <a href={`https://wa.me/91${String(patient.number).replace(/\D/g, '').slice(-10)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><MessageSquareText size={14} />WhatsApp</a>}
+                {/* Book the patient's next visit (PCC / Manager / Admin), like Reception's direct appointment. */}
+                {roleAllowed([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], user) && <BookNextAppointment patientId={id} compact />}
                 {patient.canToggleActive && patient.isActive && (
                   <button
                     type="button"
@@ -2993,25 +3006,34 @@ const PatientDetails = () => {
           </div>
           <div className="mt-3 border-t border-[#F0E8D8] pt-3">
             <p className="mb-1 px-2 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60">Treatment phases</p>
+            {phaseStatusError && <p role="alert" className="mx-2 mb-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700">{phaseStatusError}</p>}
             <ol>
               {(patient.stages || []).map((stage) => {
                 const current = stage.number === patient.currentStage;
                 const started = Number(stage.totalAmount || 0) > 0 || (stage.status && stage.status !== 'not_started');
                 const request = [...(stage.medicineRequests || [])].reverse().find((r) => r.status && r.status !== 'cancelled');
                 return (
-                  <li key={stage.number}>
-                    <button type="button" onClick={() => { setActiveStageTab(stage.number); openTab('phases'); }} className="grid w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-[#FBF7ED]">
+                  <li key={stage.number} className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => { setActiveStageTab(stage.number); openTab('phases'); }} className={`grid min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-[#FBF7ED] ${canSetPhaseStatus ? 'grid-cols-[28px_minmax(0,1fr)]' : 'grid-cols-[28px_minmax(0,1fr)_auto]'}`}>
                       <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-extrabold ${current ? 'border-2 border-[#FDBA74] bg-[#FFF1E6] text-[#C2410C]' : started ? 'bg-[#E6F2EA] text-[#1F6B41]' : 'bg-[#F3EEE2] text-charcoal/45'}`}>{stage.number}</span>
                       <span className="min-w-0">
                         <span className={`block truncate text-[13px] ${started || current ? 'font-bold text-charcoal' : 'text-charcoal/55'}`}>{STAGE_LABELS[stage.number]}{stage.packageName ? ` · ${stage.packageName}` : ''}</span>
                         <span className="block truncate text-[11.5px] text-charcoal/55">{[stage.purchaseOrder && `PO ${stage.purchaseOrder}`, request?.statusLabel && `medicine ${request.statusLabel}`, Number(stage.totalAmount || 0) > 0 && `${formatMoney(stage.amountPaid)} / ${formatMoney(stage.totalAmount)}`].filter(Boolean).join(' · ') || 'Not started'}</span>
                       </span>
-                      <Badge tone={current ? 'orange' : started ? 'green' : 'default'}>{stage.statusLabel || (started ? 'Started' : 'Not started')}</Badge>
+                      {!canSetPhaseStatus && <Badge tone={current ? 'orange' : started ? 'green' : 'default'}>{stage.statusLabel || (started ? 'Started' : 'Not started')}</Badge>}
                     </button>
+                    {canSetPhaseStatus && (
+                      <select aria-label={`${STAGE_LABELS[stage.number]} status`} value={stage.status || 'not_started'} onChange={(e) => setPhaseStatus(stage, e.target.value)}
+                        className={`mr-1 shrink-0 cursor-pointer rounded-full border px-2 py-1 text-[11px] font-bold focus:outline-none focus:ring-2 focus:ring-sage/30 ${stage.status === 'completed' ? 'border-[#A7D3B8] bg-[#E6F2EA] text-[#1F6B41]' : stage.status === 'in_progress' ? 'border-[#FDBA74] bg-[#FFF1E6] text-[#C2410C]' : 'border-[#E8DFCB] bg-[#F3EEE2] text-charcoal/65'}`}>
+                        {STAGE_STATUS_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    )}
                   </li>
                 );
               })}
             </ol>
+            {/* Right under the phases: the PCC books the patient's next visit (like Reception's direct appointment). */}
+            {roleAllowed([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], user) && <div className="mt-2 overflow-hidden rounded-xl border border-[#EFE3CF]"><BookNextAppointment patientId={id} /></div>}
           </div>
         </section>
         </div>

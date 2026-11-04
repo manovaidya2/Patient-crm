@@ -2080,9 +2080,10 @@ const updatePatientStage = asyncHandler(async (req, res) => {
       'medicineNextConnectDate', 'medicineNextConnectNote', 'medicineTakenDate',
       'medicineFullyGiven', 'medicineConnectDone',
     ]);
+    // Both can also mark a phase Not started / In progress / Completed (Care team list on Patient Details).
     const allowedFields = req.user.role === ROLES.MANAGER
-      ? new Set(['patientHistoryBy', 'consultationDate', 'age'])
-      : req.user.role === ROLES.ASSISTANT_DOCTOR ? medicineFields : null;
+      ? new Set(['patientHistoryBy', 'consultationDate', 'age', 'status'])
+      : req.user.role === ROLES.ASSISTANT_DOCTOR ? new Set([...medicineFields, 'status']) : null;
     if (!allowedFields || !Object.keys(req.body).length ||
         Object.keys(req.body).some((key) => !allowedFields.has(key))) {
       return res.status(403).json({ success: false, message: 'You can only edit patient history by and medicine supply details for this phase' });

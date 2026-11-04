@@ -88,6 +88,9 @@ const schema = new mongoose.Schema({
   appointmentCode: { type: String, trim: true, default: '' },
   // Reception token of the day: given when the patient is first marked Arrived / Online, in that order, from 11.
   tokenNumber: { type: Number, default: null },
+  // Booked by the PCC (after a phase was completed) instead of Reception / Sales, with a note for reception.
+  bookedByRole: { type: String, trim: true, default: '' },
+  bookingNote: { type: String, trim: true, default: '', maxlength: 1000 },
   tokenDate: { type: String, trim: true, default: '' },
   // Set when Reception moves a direct entry to another date
   rescheduleNote: { type: String, trim: true, default: '', maxlength: 1000 },

@@ -15,7 +15,7 @@ const { dateRoom } = require('../realtime/salesSheetSocket');
 const { isManagementColumnRequired } = require('../utils/appointmentColumnRules');
 const { RECEPTION_IDS } = require('../utils/receptionFlow');
 const { isFixedSalesColumn, isFixedReceptionColumn, fixedMessage, showWhenOf } = require('../utils/fixedColumns');
-const { applyExistingPatient } = require('../utils/existingPatient');
+const { applyExistingPatient, PATIENT_TYPE_ID, EXISTING_PATIENT_ID_FIELD, EXISTING, phaseInUse } = require('../utils/existingPatient');
 const fieldsAreFixed = (res) => res.status(403).json({ success: false, message: fixedMessage });
 
 const emitColumnsChanged = (req) => req.app.get('io')?.to('sales-sheet').emit('sales-sheet:columns-changed');
@@ -658,6 +658,77 @@ const updateCallStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, appointment: serializeRow(row, req.user) });
 });
 
+// ---- Next appointment of an existing patient, booked by the PCC (or admin / manager) at any time (the team cannot
+// always tell when the last phase finished, so it is not tied to the phase status):
+// the same direct appointment Reception adds, as an Existing patient with the old Patient ID, the patient's details
+// filled in from the record. It shows on Reception's Appointment Management for that date.
+const BOOKING = {
+  leadType: '6ab7ba37bf916b34dfda213e', caseCategory: '6ab7b471bf916b34dfda0863', mode: '6ab7b494bf916b34dfda0875', timeTold: '6ab7b4ccbf916b34dfda08ab',
+  patientName: '6ab7b2adbf916b34dfd9f5f7', age: '6ab7b2b6bf916b34dfd9f609', gender: '6ab7b2e2bf916b34dfd9f643', guardianName: '6ab7b2fdbf916b34dfd9f66b',
+  primaryMobile: '6ab7b33fbf916b34dfd9f6c2', alternateMobile: '6ab7b34ebf916b34dfd9f6d4', city: '6ab7b3d5bf916b34dfda083f', state: '6ab7b3e7bf916b34dfda0851',
+};
+const CASE_FROM_CATEGORY = { mental_health: 'Mental Health', autism_adhd: 'Autism + ADHD' };
+const BOOKING_MODES = ['Clinic Visit', 'Online'];
+const LEAD_TYPES = ['B2C', 'B2B'];
+const CASE_CATEGORIES = ['Autism', 'ADHD', 'Autism + ADHD', 'Mental Health', 'Other'];
+const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+const bookingContext = async (req) => {
+  const Patient = require('../models/Patient');
+  const patient = await Patient.findById(req.params.id).select('patientName patientCode age gender guardianName number alternateNumber city state category isActive assignedDoctor stages.number stages.status stages.purchaseOrder stages.packageName stages.totalAmount stages.payments stages.poPaper').lean();
+  if (!patient) throw Object.assign(new Error('Patient not found'), { statusCode: 404 });
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR && String(patient.assignedDoctor || '') !== String(req.user._id)) throw Object.assign(new Error('This patient is not assigned to you'), { statusCode: 403 });
+  const used = (patient.stages || []).filter(phaseInUse).sort((a, b) => a.number - b.number);
+  const latest = used[used.length - 1] || null;
+  const reason = patient.isActive === false ? 'This patient is closed.'
+    : !patient.patientCode ? 'This patient has no Patient ID yet.'
+      : '';
+  const upcoming = patient.patientCode ? await AppointmentManagementEntry.find({ [`salesValues.${EXISTING_PATIENT_ID_FIELD}`]: patient.patientCode, appointmentDate: { $gte: istToday() } })
+    .select('appointmentCode appointmentDate createdByName bookedByRole').sort({ appointmentDate: 1 }).lean() : [];
+  return { patient, latest, reason, upcoming };
+};
+// @route GET /api/patients/:id/book-appointment
+const getAppointmentBooking = asyncHandler(async (req, res) => {
+  const { patient, latest, reason, upcoming } = await bookingContext(req);
+  res.json({
+    success: true, allowed: !reason, reason,
+    // Where the patient stands, shown next to the button: the latest phase bought and its status.
+    latestPhase: latest ? { number: latest.number, status: latest.status || 'not_started' } : null,
+    defaults: { caseCategory: CASE_FROM_CATEGORY[patient.category] || '', leadType: 'B2C', mode: 'Clinic Visit' },
+    options: { modes: BOOKING_MODES, leadTypes: LEAD_TYPES, caseCategories: CASE_CATEGORIES },
+    upcoming: upcoming.map((row) => ({ id: String(row._id), appointmentCode: row.appointmentCode, appointmentDate: row.appointmentDate, bookedBy: row.createdByName || '' })),
+  });
+});
+// @route POST /api/patients/:id/book-appointment  { appointmentDate, time?, mode, leadType, caseCategory, note? }
+const bookAppointmentForPatient = asyncHandler(async (req, res) => {
+  const { patient, reason } = await bookingContext(req);
+  if (reason) return res.status(400).json({ success: false, message: reason });
+  const date = String(req.body.appointmentDate || '');
+  if (!validDate(date)) return res.status(400).json({ success: false, message: 'Choose the appointment date' });
+  if (date < istToday()) return res.status(400).json({ success: false, message: 'The appointment date cannot be in the past' });
+  const time = String(req.body.time || '').trim();
+  if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return res.status(400).json({ success: false, message: 'Enter a valid time' });
+  const mode = BOOKING_MODES.includes(req.body.mode) ? req.body.mode : '';
+  const leadType = LEAD_TYPES.includes(req.body.leadType) ? req.body.leadType : '';
+  const caseCategory = CASE_CATEGORIES.includes(req.body.caseCategory) ? req.body.caseCategory : '';
+  if (!mode || !leadType || !caseCategory) return res.status(400).json({ success: false, message: 'Choose the mode, lead type and case category' });
+  const note = String(req.body.note || '').trim();
+  if (note.length > 1000) return res.status(400).json({ success: false, message: 'Keep the note under 1000 characters' });
+  const salesValues = await cleanValues({
+    [PATIENT_TYPE_ID]: EXISTING, [EXISTING_PATIENT_ID_FIELD]: patient.patientCode,
+    [BOOKING.patientName]: patient.patientName, [BOOKING.age]: String(patient.age ?? ''), [BOOKING.gender]: patient.gender || '',
+    [BOOKING.guardianName]: patient.guardianName || '', [BOOKING.primaryMobile]: String(patient.number || ''), [BOOKING.alternateMobile]: String(patient.alternateNumber || ''),
+    [BOOKING.city]: patient.city || '', [BOOKING.state]: patient.state || '',
+    [BOOKING.caseCategory]: caseCategory, [BOOKING.leadType]: leadType, [BOOKING.mode]: mode, [BOOKING.timeTold]: time,
+  }, true, { skipCalls: true });
+  const row = await AppointmentManagementEntry.create({
+    appointmentDate: date, appointmentCode: createAppointmentCode(), entryAt: new Date(), consultationFee: null, salesValues, values: {},
+    bookedByRole: req.user.role, bookingNote: note, createdBy: req.user._id, createdByName: req.user.name,
+  });
+  await recordAudit(req, { sheet: 'management', rowId: row._id, appointmentCode: row.appointmentCode, action: 'Appointment booked by PCC', details: `${patient.patientName} (${patient.patientCode}) on ${date}${time ? ` at ${time}` : ''}${note ? ` | ${note}` : ''}` });
+  emitDateChanged(req, date);
+  res.status(201).json({ success: true, appointment: { id: String(row._id), appointmentCode: row.appointmentCode, appointmentDate: date } });
+});
+
 const createManagedAppointment = asyncHandler(async (req, res) => {
   if (!validDate(req.body.appointmentDate)) return res.status(400).json({ success: false, message: 'Valid appointment date is required' });
   // Added directly at reception (not from Sales): one form without the call steps, so call fields are not required.
@@ -773,4 +844,4 @@ const deleteAppointment = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { editCall, editManagementCall, listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, uploadConsultationFeeProof, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, cancelAcceptance, rescheduleAppointment, rescheduleManagedAppointment, markNotComing, clearNotComing, logCall, listCalls, logSalesCall, listSalesCalls, logManagementCall, listManagementCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { getAppointmentBooking, bookAppointmentForPatient, editCall, editManagementCall, listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, uploadConsultationFeeProof, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, cancelAcceptance, rescheduleAppointment, rescheduleManagedAppointment, markNotComing, clearNotComing, logCall, listCalls, logSalesCall, listSalesCalls, logManagementCall, listManagementCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
