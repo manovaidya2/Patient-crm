@@ -3,6 +3,7 @@ import useStaleState from '../../hooks/useStaleState.js';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
+import MedicineSupplyByPo from '../../components/purchaseOrders/MedicineSupplyByPo.jsx';
 import PhasePoPayments from '../../components/purchaseOrders/PhasePoPayments.jsx';
 import PaymentCancelAlerts from '../../components/payments/PaymentCancelAlerts.jsx';
 import SessionOutcomeModal, { OUTCOME_LABELS } from '../../components/patients/SessionOutcomeModal.jsx';
@@ -2711,9 +2712,8 @@ const PatientDetails = () => {
   const patientRefunds = (patient?.stages || []).flatMap((stage) => stage.payments || []).flatMap((pay) => pay.refunds || []);
   const hasPendingRefund = patientRefunds.some((refund) => refund.status === 'initiated');
   const hasPaidRefund = patientRefunds.some((refund) => ['paid', 'settled'].includes(refund.status));
-  const activeMedicineConnectDue = activeStage
-    && !activeStage.medicineConnectDone
-    && isDateTodayOrPast(activeStage.medicineNextConnectDate);
+  // The typed medicine-connect reminder (next connect date) was retired: the supply is read PO by PO now.
+  const activeMedicineConnectDue = false;
   const activeStageAdviceRows = adviceRows.filter((row) => Number(row.stage) === Number(activeStageTab));
   const canRequestAdvice = roleAllowed([ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
   const postCounselorSelectOptions = [
@@ -3346,93 +3346,13 @@ const PatientDetails = () => {
                     <p className={`mt-0.5 text-xs ${activeMedicineConnectDue ? 'font-semibold text-[#B42318]' : 'text-charcoal/50'}`}>
                       {activeMedicineConnectDue
                         ? 'Medicine connect is due. Mark connected to clear the reminder.'
-                        : 'Track partial medicine, next connect date, and full supply status.'}
+                        : 'Every PO of this phase: the months of medicine it covers, when it reached the patient and was explained.'}
                     </p>
                   </div>
                   <PackageCheck size={18} className={activeMedicineConnectDue ? 'text-[#B42318]' : 'text-sage'} />
                 </div>
-                <div
-                  className={`grid grid-cols-1 sm:grid-cols-6 gap-px border-t ${
-                    activeMedicineConnectDue ? 'border-[#B42318]/25 bg-[#B42318]/20' : 'border-cardline bg-cardline'
-                  }`}
-                >
-                  <EditableField
-                    label="Medicine Months Given"
-                    type="number"
-                    value={activeStage.medicineMonthsGiven || ''}
-                    placeholder="0"
-                    onSave={(val) => saveStageField('medicineMonthsGiven', val)}
-                    readOnly={!canEditMedicineSupply}
-                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                  />
-                  <EditableField
-                    label="Medicine Explained Date"
-                    type="date"
-                    value={toDateInputValue(activeStage.medicineExplainDate)}
-                    placeholder="Not added"
-                    onSave={(val) => saveStageField('medicineExplainDate', val)}
-                    readOnly={!canEditMedicineSupply}
-                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                  />
-                  <EditableField
-                    label="Next Connect Date"
-                    type="date"
-                    value={toDateInputValue(activeStage.medicineNextConnectDate)}
-                    placeholder="Not added"
-                    onSave={(val) => saveStageField('medicineNextConnectDate', val)}
-                    readOnly={!canEditMedicineSupply}
-                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                  />
-                  <EditableField
-                    label="Full Medicine Taken Date"
-                    type="date"
-                    value={toDateInputValue(activeStage.medicineTakenDate)}
-                    placeholder="Not added"
-                    onSave={(val) => saveStageField('medicineTakenDate', val)}
-                    readOnly={!canEditMedicineSupply}
-                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                  />
-                  <EditableField
-                    label="Full Medicine Given"
-                    type="select"
-                    options={YES_NO_OPTIONS}
-                    value={String(Boolean(activeStage.medicineFullyGiven))}
-                    onSave={(val) => saveStageField('medicineFullyGiven', val)}
-                    readOnly={!canEditMedicineSupply}
-                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                  />
-                  <EditableField
-                    label="Connected"
-                    type="select"
-                    options={YES_NO_OPTIONS}
-                    value={String(Boolean(activeStage.medicineConnectDone))}
-                    onSave={(val) => saveStageField('medicineConnectDone', val)}
-                    readOnly={!canEditMedicineSupply}
-                    tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                  />
-                  <div className="sm:col-span-3">
-                    <EditableField
-                      label="Medicine Supply Note"
-                      type="textarea"
-                      value={activeStage.medicineSupplyNote || ''}
-                      placeholder="Write medicine given/not given details"
-                      onSave={(val) => saveStageField('medicineSupplyNote', val)}
-                      readOnly={!canEditMedicineSupply}
-                      tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                    />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <EditableField
-                      label="Reminder Note"
-                      type="textarea"
-                      value={activeStage.medicineNextConnectNote || ''}
-                      placeholder="Write the issue to remember"
-                      onSave={(val) => saveStageField('medicineNextConnectNote', val)}
-                      readOnly={!canEditMedicineSupply}
-                      tone={activeMedicineConnectDue ? 'danger' : 'default'}
-                    />
-                  </div>
-                </div>
+                {/* PO by PO, read from the purchase orders and their medicine (nothing typed here). */}
+                <MedicineSupplyByPo split={poSplit[activeStage.number]} />
               </div>
 
               {!canRequestMedicine && PO_TAB_ROLES.includes(user?.role) && (

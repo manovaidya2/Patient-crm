@@ -13,7 +13,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import { PoPipelineBoxes, PoStepStrip, PoTimeline, medicineTrack, poDateTime } from '../../components/purchaseOrders/PoPipeline.jsx';
 import useLiveEvent from '../../api/useLiveEvent.js';
-import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
+import CreatePurchaseOrderModal, { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import SplitRows, { emptySplitRows, splitTotal, splitsPayload, splitHasOnline } from '../../components/payments/SplitRows.jsx';
 import ProofPicker from '../../components/ui/ProofPicker.jsx';
 import { ActionForm, AssignPccForm, CALL, FORMS, MODE, formKeyFor, sendAction } from '../../components/transit/TransitActions.jsx';
@@ -168,7 +168,8 @@ function handoverItems(step, po, line) {
     ];
     case 'fullpay': return [
       { text: `PO value ${money(po.poPayment.totalAmount)} · verified paid ${money(po.poPayment.amountPaid)} · balance ${money(po.poPayment.remaining)}` },
-      h.poPaperSignedAt ? { text: 'PO paper signed by patient', sub: line(h.poPaperSignedByName && `ticked by ${h.poPaperSignedByName}`, poDateTime(h.poPaperSignedAt)) } : null,
+      h.poPaperSignedAt ? { text: 'PO paper signed by patient', sub: line(h.poPaperSignedByName && `saved by ${h.poPaperSignedByName}`, poDateTime(h.poPaperSignedAt)) } : null,
+      h.poPaperSignedNote ? { text: h.poPaperSignedNote } : null,
       ...h.approvedPayments.map((p) => ({ text: `${money(p.amount)} verified`, sub: line(p.mode === 'split' ? p.modeLabel : p.mode === 'cash' ? `Cash${p.receivedBy ? ` - ${p.receivedBy}` : ''}` : `Online${p.utr ? ` - UTR ${p.utr}` : ''}`, p.bank, day(p.date), p.recordedByName && `added by ${p.recordedByName}`, p.approvedByName && `verified by ${p.approvedByName}`), files: p.files })),
     ];
     case 'handover': return h.mode === 'pickup' ? [
@@ -281,30 +282,52 @@ function QualityCheckPanel({ po, onDone }) {
   );
 }
 
-// Required at "Verify full payment" with the payment: the PO paper is signed by the patient (In Transit ticks it).
+// Required at "Verify payment": the PO paper signed by the patient. Ticking only marks it; the step is saved with the
+// button, together with the payment as it stands then (payments can still be added first). The note saved says how many
+// months of medicine went for how much payment, and the balance left on this PO.
 function PoSignedTick({ po, onDone }) {
   const role = useAuth().user?.role;
   const signedAt = po.handover?.poPaperSignedAt;
+  const [ticked, setTicked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const canTick = TRANSIT_ROLES.includes(role);
-  const toggle = async (signed) => {
+  const pay = po.poPayment || {};
+  const pending = (po.phasePendingPayments || []).filter((p) => p.onThisPo).length || pay.pendingCount || 0;
+  const paidOk = !pending && (Number(pay.amountPaid || 0) > 0 || Number(pay.remaining || 0) <= 0);
+  const rs = (n) => `Rs ${Number(n || 0).toLocaleString('en-IN')}`;
+  const preview = `${po.supplyMonths ? `${po.supplyMonths} month${po.supplyMonths === 1 ? '' : 's'} of medicine (${po.supplyLabel})` : 'Medicine'} given for ${rs(pay.amountPaid)} paid of ${rs(pay.totalAmount)}; balance ${rs(pay.remaining)} on ${po.poNumber}`;
+  const save = async (signed) => {
     setBusy(true); setError('');
     try {
       const body = new FormData();
       body.append('action', 'po_paper_signed');
       body.append('signed', String(signed));
       await api.patch(`/transit/${po.patientId}/${po.phase}`, body);
-      await onDone(signed ? 'PO paper signed by the patient: ticked.' : 'Tick removed.');
+      setTicked(false);
+      await onDone(signed ? `Step saved: ${preview}.` : 'Tick removed.');
     } catch (err) { setError(err.response?.data?.message || 'Could not save'); } finally { setBusy(false); }
   };
-  return (
-    <div className={`rounded-lg border px-3 py-2 ${signedAt ? 'border-emerald-200 bg-emerald-50' : 'border-[#FDBA74] bg-[#FFF7ED]'}`}>
-      <label className="flex cursor-pointer items-start gap-2.5 text-sm font-semibold text-charcoal">
-        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#2F8F5B]" checked={Boolean(signedAt)} disabled={busy || !canTick} onChange={(e) => toggle(e.target.checked)} />
-        <span>PO paper signed by patient<span className="text-red-700"> *</span>{signedAt ? <span className="block text-xs font-normal text-emerald-800">Ticked by {po.handover.poPaperSignedByName} · {poDateTime(signedAt)}</span> : <span className="block text-xs font-normal text-charcoal/60">Required with the full payment before the handover / dispatch.</span>}</span>
-      </label>
+  if (signedAt) return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+      <p className="font-semibold text-emerald-900">PO paper signed by patient</p>
+      <p className="text-xs text-emerald-800">Saved by {po.handover.poPaperSignedByName} · {poDateTime(signedAt)}</p>
+      {po.handover.poPaperSignedNote && <p className="mt-1 text-xs font-semibold text-charcoal">{po.handover.poPaperSignedNote}</p>}
+      {canTick && <button type="button" disabled={busy} onClick={() => save(false)} className="mt-1 text-xs font-semibold text-[#8C3B2E] hover:underline">Remove the tick</button>}
       <ErrorText>{error}</ErrorText>
+    </div>
+  );
+  return (
+    <div className={`space-y-2 rounded-lg border px-3 py-2 ${ticked ? 'border-sage/50 bg-sage/5' : 'border-[#FDBA74] bg-[#FFF7ED]'}`}>
+      <label className="flex cursor-pointer items-start gap-2.5 text-sm font-semibold text-charcoal">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#2F8F5B]" checked={ticked} disabled={busy || !canTick} onChange={(e) => setTicked(e.target.checked)} />
+        <span>PO paper signed by patient<span className="text-red-700"> *</span><span className="block text-xs font-normal text-charcoal/60">Tick it, add any payment still to come, then save the step.</span></span>
+      </label>
+      <p className="rounded-md bg-white/70 px-2.5 py-1.5 text-xs text-charcoal"><b>Will be saved:</b> {preview}</p>
+      {pending > 0 && <p className="text-xs font-semibold text-[#C2410C]">Verify the pending payment{pending === 1 ? '' : 's'} first.</p>}
+      {!pending && !paidOk && <p className="text-xs font-semibold text-[#C2410C]">Add and verify a payment first.</p>}
+      <ErrorText>{error}</ErrorText>
+      {canTick && <Button size="sm" disabled={busy || !ticked || !paidOk} onClick={() => save(true)}><Check size={14} />{busy ? 'Saving...' : 'Save step with this payment'}</Button>}
     </div>
   );
 }
@@ -557,16 +580,17 @@ function trackWork(key, item) {
   const shipped = Boolean(courier) && ['dispatched', 'delivered'].includes(courier.status);
   const delivered = courier?.status === 'delivered';
   const released = item.medicine?.status === 'sent_to_courier';
-  const paid = item.payment.remaining <= 0 && !item.payment.pendingCount;
+  // A verified payment and none pending is enough; a balance can be collected on a next PO.
+  const paid = !item.payment.pendingCount && (item.payment.amountPaid > 0 || item.payment.remaining <= 0);
   switch (key) {
     case 'calls': return item.callsDone?.done ? {} : item.hasConnectedCall ? { action: 'finish_calls' } : { action: 'log_call' };
     case 'scheduled': return shipped ? { wait: 'The medicine has already left; the schedule is final.' } : !item.callsDone?.done ? { wait: 'Finish the "Call for delivery schedule" step first.' } : { action: 'schedule_delivery' };
     case 'fullpay': if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' }; return {};
     case 'handover':
-      if (!(item.poPaperSigned?.done)) return { wait: 'Tick "PO paper signed by patient" at Verify full payment first.' };
+      if (!(item.poPaperSigned?.done)) return { wait: 'Tick "PO paper signed by patient" at Verify payment first.' };
       if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' };
       if (!released && !shipped && !delivered) return { wait: 'Waiting for Medicine Department to release the parcel. Follow it on the Medicine Dept track.' };
-      if (!paid) return { wait: 'The full payment must be verified before the handover.' };
+      if (!paid) return { wait: 'Verify the payment (none pending) before the handover.' };
       return item.mode === 'pickup' ? (delivered ? {} : { action: 'confirm_received' }) : (shipped ? {} : { action: 'dispatch' });
     case 'received': return !shipped ? { wait: 'Dispatch the medicine first.' } : delivered ? {} : { action: 'confirm_received' };
     // Self pickup fixes the explanation before the payment and handover; porter / courier after the dispatch.
@@ -675,6 +699,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [payOpen, setPayOpen] = useState(false);
+  const [balancePoOpen, setBalancePoOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   // Admin undo of a timeline step (and every later one), with a reason.
   const [revert, setRevert] = useState(null);
@@ -783,7 +808,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
       <header className="flex flex-wrap items-center gap-3 rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-3.5 sm:px-[18px]">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9EFE9] font-display text-[11px] font-extrabold text-sage" aria-hidden="true">PO</span>
         <div className="min-w-0 flex-1 basis-[calc(100%-56px)] sm:basis-auto">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-[17px] font-bold text-charcoal">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}</div>
+          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-[17px] font-bold text-charcoal">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}{po.previousPo && <Link to={`/admin/purchase-orders/${po.previousPo.id}`} className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-bold text-sky-900 hover:underline">Balance of {po.previousPo.poNumber}</Link>}{po.carriedForward && <Link to={`/admin/purchase-orders/${po.carriedForward.id}`} className="rounded-full bg-violet-50 px-2.5 py-0.5 text-[11px] font-bold text-violet-900 hover:underline">Rs {Number(po.carriedForward.amount).toLocaleString('en-IN')} carried to {po.carriedForward.poNumber}</Link>}</div>
           <p className="mt-0.5 text-[12.5px] text-charcoal/65"><b className="text-charcoal">{po.patientName}</b> · {po.patientCode} · Phase {po.phase}{po.currentStage === po.phase ? ' (current)' : ` · current is Phase ${po.currentStage}`} · <b className="text-charcoal">{money(po.amount)}</b>{po.guardianName ? ` · ${po.guardianName}` : ''}</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -792,6 +817,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {po.patientPhone && <a href={`tel:${po.patientPhone}`}><Button size="sm" variant="outline"><Phone size={14} />{po.patientPhone}</Button></a>}
           {showPatientLink && <Link to={`/admin/patients/${po.patientId}`}><Button size="sm" variant="outline"><ExternalLink size={14} />Patient</Button></Link>}
           {canVerify && po.status === 'verified' && po.currentStage !== po.phase && <Button size="sm" variant="outline" onClick={activatePhase}><Layers size={14} />Make Phase {po.phase} current</Button>}
+          {canCreate && po.status === 'verified' && !po.carriedForward && Number(po.poPayment?.remaining) > 0 && <Button size="sm" variant="outline" onClick={() => setBalancePoOpen(true)} title="A new PO whose value is this PO's unpaid balance (e.g. the next months of medicine)"><Plus size={14} />New PO for the balance</Button>}
           {role === ROLES.ADMIN && <Button size="sm" variant="outline" className="border-[#8C3B2E]/40 text-[#8C3B2E] hover:bg-[#8C3B2E]/5" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }}><Trash2 size={14} />Delete PO</Button>}
         </div>
       </header>
@@ -843,7 +869,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
                 <PoSignedTick po={po} onDone={async (message) => { await load(); setNotice(message); }} />
                 {Number(po.poPayment.remaining) > 0 && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#FFF1E6] px-3 py-2 text-sm">
-                    <span className="font-semibold text-[#C2410C]">Balance {money(po.poPayment.remaining)} on this PO still to collect{(po.phasePendingPayments || []).length ? ' after the pending ones' : ''}.</span>
+                    <span className="font-semibold text-[#C2410C]">Balance {money(po.poPayment.remaining)} on this PO{(po.phasePendingPayments || []).length ? ' after the pending ones' : ''}. Not needed to send this medicine: it can be collected now or on a new PO made from this one (the next months).</span>
                     {canCreate && <Button size="sm" onClick={() => setPayOpen(true)}><Plus size={14} />Add payment</Button>}
                   </div>
                 )}
@@ -967,6 +993,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
         </div>
       </div>
       {planOpen && <PlanEditModal po={po} onClose={() => setPlanOpen(false)} onDone={done} />}
+      {balancePoOpen && <CreatePurchaseOrderModal open patient={{ id: po.patientId, patientName: po.patientName, currentStage: po.phase, isActive: true }} fromPoId={po.id} onClose={() => setBalancePoOpen(false)} onCreated={(created) => { setBalancePoOpen(false); navigate(`/admin/purchase-orders/${created.id}`); }} />}
       {payOpen && <AddPaymentModal po={po} open={payOpen} onClose={() => setPayOpen(false)} onDone={done} />}
       <Modal open={deleteOpen} onClose={() => !deleting && setDeleteOpen(false)} title={`Delete ${po.poNumber}`} className="max-w-lg">
         <div className="space-y-3">

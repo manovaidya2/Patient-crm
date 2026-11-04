@@ -275,12 +275,9 @@ const startOfToday = () => {
   return date;
 };
 
-const isMedicineConnectDue = (stage) => {
-  if (!stage?.medicineNextConnectDate || stage.medicineConnectDone) return false;
-  const connectDate = new Date(stage.medicineNextConnectDate);
-  connectDate.setHours(0, 0, 0, 0);
-  return connectDate <= startOfToday();
-};
+// The typed medicine-connect reminder (Patient Details > Medicine Supply) was retired: its fields are no longer on the
+// page, so an old date would remind for ever. The data stays saved.
+const isMedicineConnectDue = () => false;
 
 const canSeeMedicineConnectReminder = (user, patient, stage) => {
   if (user.role === ROLES.MANAGER) return true;
@@ -1488,23 +1485,49 @@ const addPoPaperImages = asyncHandler(async (req, res) => {
 // Each phase's purchase orders with their own payments (a phase can have several POs, each paid on its own) and the
 // payments that are on no PO, so Patient Details shows them apart instead of one merged "paid".
 const getPatientPurchaseOrders = asyncHandler(async (req, res) => {
-  const patient = await Patient.findById(req.params.id).select('approvalStatus isActive stages.number stages.totalAmount stages.payments assignedDoctor assignedPsychologist').lean();
+  const patient = await Patient.findById(req.params.id).select('approvalStatus isActive stages.number stages.totalAmount stages.payments stages.medicineRequest stages.medicineRequests stages.medicineExplainDate stages.transit assignedDoctor assignedPsychologist').lean();
   if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
   if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   const PurchaseOrder = require('../models/PurchaseOrder');
-  const pos = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount status source paymentIds medicineRequestId createdAt createdByName').sort({ createdAt: 1 }).lean();
+  const pos = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount status source paymentIds medicineRequestId createdAt createdByName supplyPlan supplyPart previousPoNumber carriedForwardToNumber carriedForwardAmount').sort({ createdAt: 1 }).lean();
+  const { supplyOption } = require('../constants/supplyPlans');
+  const { pickRequest } = require('../utils/transitFlow');
   const phases = {};
   for (const stage of patient.stages || []) {
     const phasePos = pos.filter((po) => po.phase === stage.number);
     if (!phasePos.length) continue;
     const onPo = new Set();
+    // Which months of the phase each PO's medicine covers, in order (cancelled / rejected POs send nothing).
+    let monthsSoFar = 0;
+    const requests = [...(stage.medicineRequests || []), ...(stage.medicineRequest?.status && stage.medicineRequest.status !== 'not_requested' ? [stage.medicineRequest] : [])];
+    const current = pickRequest(stage);
+    const t = stage.transit || {};
     const purchaseOrders = phasePos.map((po) => {
+      const option = supplyOption(po.supplyPlan, po.supplyPart);
+      const months = option?.months || 0;
+      const counts = months > 0 && !['rejected', 'cancelled'].includes(po.status);
+      const fromMonth = counts ? monthsSoFar + 1 : 0;
+      if (counts) monthsSoFar += months;
+      const request = requests.find((r) => String(r.purchaseOrderId || '') === String(po._id) || (po.medicineRequestId && (r.requestId || 'legacy') === po.medicineRequestId));
+      const courier = request?.courier || {};
+      const isCurrent = Boolean(request && current && (current.requestId || 'legacy') === (request.requestId || 'legacy'));
+      const medicine = request ? {
+        status: request.status, requestedAt: request.requestedAt || null, madeAt: request.madeAt || null, releasedAt: request.sentToCourierAt || null,
+        mode: courier.deliveryMode === 'self' ? 'pickup' : courier.deliveryMode || (isCurrent ? t.fulfilmentMode || '' : ''),
+        dispatchedAt: courier.dispatchedAt || null, deliveredAt: courier.deliveredAt || null, receivedByName: courier.receivedByName || '',
+        explanationDate: request.explanationDate || (isCurrent ? stage.medicineExplainDate || null : null),
+        explainedAt: request.explainedAt || (isCurrent ? t.explanationCompletedAt || null : null),
+        explainedByName: request.explainedByName || (isCurrent ? t.explanationCompletedByName || '' : ''),
+        supplyNote: request.supplyNote || (isCurrent ? t.poPaperSignedNote || '' : ''),
+      } : null;
       const mine = paymentsOfPo(stage, po, phasePos);
       mine.forEach((p) => onPo.add(String(p._id)));
       const pay = poPaymentSummary(stage, po, phasePos);
       return {
         id: String(po._id), poNumber: po.poNumber, amount: Number(po.amount || 0), status: po.status, source: po.source || '', createdAt: po.createdAt, createdByName: po.createdByName || '',
         medicineRequestId: po.medicineRequestId || '', paymentIds: mine.map((p) => String(p._id)),
+        supply: { label: option?.label || '', months, fromMonth, toMonth: counts ? monthsSoFar : 0 },
+        medicine, previousPoNumber: po.previousPoNumber || '', carriedForwardToNumber: po.carriedForwardToNumber || '', carriedForwardAmount: Number(po.carriedForwardAmount || 0),
         payment: { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, pendingAmount: pay.pendingAmount },
       };
     });

@@ -9,7 +9,7 @@ const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODE
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
-const { paymentForRequest, paymentForRequestFrom, phasePurchaseOrders, poOfRequest, linkPaymentToPo } = require('../utils/poPayment');
+const { paymentForRequest, paymentForRequestFrom, phasePurchaseOrders, poOfRequest, linkPaymentToPo, paymentCleared } = require('../utils/poPayment');
 // The case with the payment status of its medicine request's PO (other POs of the phase are paid on their own).
 const caseOf = async (patient, stage, now = new Date()) => buildTransitCase(patient, stage, now, { payment: await paymentForRequest(patient, stage, pickRequest(stage)) });
 
@@ -56,7 +56,7 @@ const listTransit = asyncHandler(async (req, res) => {
   const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).sort({ createdAt: -1 }).populate(POPULATE).lean();
   const now = new Date();
   const PurchaseOrderModel = require('../models/PurchaseOrder');
-  const allPos = mongoose.connection.readyState === 1 ? await PurchaseOrderModel.find({ patient: { $in: patients.map((p) => p._id) } }).select('patient phase poNumber amount paymentIds medicineRequestId status').lean() : [];
+  const allPos = mongoose.connection.readyState === 1 ? await PurchaseOrderModel.find({ patient: { $in: patients.map((p) => p._id) } }).select('patient phase poNumber amount paymentIds medicineRequestId status carriedForwardAmount').lean() : [];
   let items = patients.flatMap((patient) => (patient.stages || []).filter(isInTransit).map((stage) => buildTransitCase(patient, stage, now, { payment: paymentForRequestFrom(allPos.filter((o) => String(o.patient) === String(patient._id) && o.phase === stage.number), stage, pickRequest(stage)) })));
   const q = clean(req.query.q, 100).toLowerCase();
   if (q) items = items.filter((item) => [item.patientName, item.patientCode, item.purchaseOrder, item.patientPhone].some((v) => String(v || '').toLowerCase().includes(q)));
@@ -191,12 +191,25 @@ const ACTIONS = {
     return 'Delivery schedule call done';
   },
   // "Verify full payment" also needs this tick: the PO paper is signed by the patient.
-  po_paper_signed({ stage, request, body, req, now }) {
+  async po_paper_signed({ patient, stage, request, body, req, now }) {
     const courier = request ? courierOf(request) : {};
     if (['dispatched', 'delivered'].includes(courier.status)) fail('The medicine has already been handed over / dispatched');
     const signed = body.signed === true || body.signed === 'true';
-    Object.assign(stage.transit, signed ? { poPaperSignedAt: now, poPaperSignedByName: req.user.name } : { poPaperSignedAt: null, poPaperSignedByName: '' });
-    return signed ? 'PO paper signed by the patient' : 'PO paper signed: tick removed';
+    // The note saved with the tick: the months of medicine going, the payment it went for, the balance left on the PO.
+    let note = '';
+    if (signed && request) {
+      const phasePos = await phasePurchaseOrders(patient._id, stage.number);
+      const po = poOfRequest(phasePos, request);
+      const pay = await paymentForRequest(patient, stage, request);
+      if (!paymentCleared(pay)) fail(pay.pendingCount ? 'Verify the pending payment(s) of this PO first' : 'Add and verify a payment of this PO first');
+      const option = require('../constants/supplyPlans').supplyOption(po?.supplyPlan || request.supplyPlan, po?.supplyPart || request.supplyPart);
+      const rs = (n) => `Rs ${Number(n || 0).toLocaleString('en-IN')}`;
+      const what = option ? `${option.months} month${option.months === 1 ? '' : 's'} of medicine (${option.label})` : 'Medicine';
+      note = `${what} given for ${rs(pay.amountPaid)} paid of ${rs(pay.totalAmount)}; balance ${rs(pay.remaining)}${po ? ` on ${po.poNumber}` : ''}`;
+      request.supplyNote = note;
+    } else if (request) request.supplyNote = '';
+    Object.assign(stage.transit, signed ? { poPaperSignedAt: now, poPaperSignedByName: req.user.name, poPaperSignedNote: note } : { poPaperSignedAt: null, poPaperSignedByName: '', poPaperSignedNote: '' });
+    return signed ? `PO paper signed by the patient${note ? ` | ${note}` : ''}` : 'PO paper signed: tick removed';
   },
   confirm_mode({ stage, request, body, req, now }) {
     const { mode } = body;
@@ -294,8 +307,8 @@ const ACTIONS = {
     if (request.status !== 'sent_to_courier') fail('Medicine Department must release the medicine first');
     if (['dispatched', 'delivered'].includes(courierOf(request).status)) fail('This medicine has already been dispatched');
     const pay = await paymentForRequest(patient, stage, request);
-    if (pay.remaining > 0 || pay.pendingCount) fail('Full payment of this PO must be approved before sending the medicine');
-    if (!stage.transit.poPaperSignedAt) fail('Tick "PO paper signed by patient" at Verify full payment first');
+    if (!paymentCleared(pay)) fail(pay.pendingCount ? 'Verify the pending payment(s) of this PO before sending the medicine' : 'A verified payment of this PO is needed before sending the medicine');
+    if (!stage.transit.poPaperSignedAt) fail('Tick "PO paper signed by patient" at Verify payment first');
     if (!isMade(request)) fail('The medicine is not ready yet');
     const files = fileItems(req);
     const courier = courierOf(request);
@@ -325,8 +338,8 @@ const ACTIONS = {
     if (receivedAt > now) fail('Received time cannot be in the future');
     if (request.status !== 'sent_to_courier') fail('Medicine Department must release the medicine first');
     const pay = await paymentForRequest(patient, stage, request);
-    if (pay.remaining > 0 || pay.pendingCount) fail('Full payment of this PO must be approved before handover');
-    if (mode === 'pickup' && !stage.transit.poPaperSignedAt) fail('Tick "PO paper signed by patient" at Verify full payment first');
+    if (!paymentCleared(pay)) fail(pay.pendingCount ? 'Verify the pending payment(s) of this PO before handover' : 'A verified payment of this PO is needed before handover');
+    if (mode === 'pickup' && !stage.transit.poPaperSignedAt) fail('Tick "PO paper signed by patient" at Verify payment first');
     if (courier.status === 'delivered') fail('Receipt already recorded');
     const receivedByName = required(body.receivedByName, 'Received by', 120);
     const proof = files.length ? { deliveryProofUrl: files[0].url, deliveryProofFileName: files[0].fileName, deliveryProofImages: [...(courier.deliveryProofImages || []), ...files] } : {};
@@ -492,11 +505,12 @@ const completeExplanation = asyncHandler(async (req, res) => {
   const request = pickRequest(stage);
   if (!request || courierOf(request).status !== 'delivered') fail('Confirm medicine receipt before completing explanation');
   const pay = await paymentForRequest(patient, stage, request);
-  if (pay.remaining > 0 || pay.pendingCount) fail('Full payment of this PO must be approved');
+  if (!paymentCleared(pay)) fail('Verify the payment of this PO first');
   const completedAt = parseDate(req.body.completedAt, 'actual explanation completion time');
   if (completedAt > new Date() || completedAt < new Date(request.courier.deliveredAt)) fail('Completion time must be after medicine receipt and not in the future');
   const note = required(req.body.notes, 'Explanation notes', 2000);
   Object.assign(t, { explanationCompletedAt: completedAt, explanationCompletedByName: req.user.name, explainedByName: req.user.name, explanationNote: note, activatedAt: completedAt, activatedByName: req.user.name });
+  Object.assign(request, { explanationDate: stage.medicineExplainDate || null, explainedAt: completedAt, explainedByName: req.user.name });
   stage.status = 'in_progress';
   stage.date = completedAt;
   const summary = `Medicine explanation completed; treatment started | ${note}`;

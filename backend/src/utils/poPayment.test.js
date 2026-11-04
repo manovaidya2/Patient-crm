@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
-const { paymentsOfPo, poPaymentSummary, paymentForRequestFrom } = require('./poPayment');
+const { paymentsOfPo, poPaymentSummary, paymentForRequestFrom, paymentCleared } = require('./poPayment');
 
 const id = () => new mongoose.Types.ObjectId();
 
@@ -34,4 +34,20 @@ test('each PO of a phase is paid on its own; payments on no PO belong only to a 
   // A lone PO (older phases) also counts the payments on no PO; a PO without a value uses the phase total.
   assert.deepEqual(paymentsOfPo(stage, first, [first]).map((p) => p.amount), [5000, 39000, 3000, 700]);
   assert.equal(poPaymentSummary(stage, { ...first, amount: 0, paymentIds: [] }, []).totalAmount, 42000);
+});
+
+test('a balance carried to a new PO is no longer owed on the old one', () => {
+  const paid = { _id: new mongoose.Types.ObjectId(), amount: 10000, approvalStatus: 'approved' };
+  const stage = { payments: [paid] };
+  const po = { _id: new mongoose.Types.ObjectId(), amount: 40000, paymentIds: [paid._id] };
+  assert.equal(poPaymentSummary(stage, po, [po]).remaining, 30000);
+  const carried = { ...po, carriedForwardAmount: 30000 };
+  assert.equal(poPaymentSummary(stage, carried, [carried]).remaining, 0, 'the Rs 30,000 is owed on the new PO now');
+});
+
+test('medicine goes out on a verified part payment, never with a payment still pending', () => {
+  assert.equal(paymentCleared({ amountPaid: 10000, remaining: 30000, pendingCount: 0 }), true, 'balance can be collected on the next PO');
+  assert.equal(paymentCleared({ amountPaid: 10000, remaining: 30000, pendingCount: 1 }), false);
+  assert.equal(paymentCleared({ amountPaid: 0, remaining: 40000, pendingCount: 0 }), false, 'nothing paid yet');
+  assert.equal(paymentCleared({ amountPaid: 0, remaining: 0, pendingCount: 0 }), true, 'nothing owed');
 });

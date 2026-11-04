@@ -85,7 +85,7 @@ const STAGES = [
     fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }] },
   { key: 'release', n: 12, label: 'Release to In Transit', hi: 'रिलीज़', roles: MED, sop: 'SOP S8 · SOP 2',
     purpose: 'Hand the parcel to In Transit. Allowed only after full verified payment; the medicine stays in department custody until then.',
-    checks: ['Full payment verified by In Transit (checked automatically)', 'Parcel and package ID match this job', 'Receiving In Transit staff recorded'],
+    checks: ['Payment verified by In Transit (checked automatically; a balance may go to the next PO)', 'Parcel and package ID match this job', 'Receiving In Transit staff recorded'],
     fields: [] },
 ];
 // Numbered in order (1 ... 13).

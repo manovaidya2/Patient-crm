@@ -64,7 +64,9 @@ export default function MedicineExplanations() {
     if (item.onHold) return ['hold', 'On hold'];
     if (!item.pcc?.assigned) return ['wait', 'PCC not assigned yet'];
     if (item.courier?.status !== 'delivered') return ['wait', item.courier?.status === 'dispatched' ? 'Medicine on the way' : 'Awaiting medicine handover'];
-    if (item.payment?.remaining > 0 || item.payment?.pendingCount) return ['wait', 'Payment not complete'];
+    // The full PO value is not needed: no payment pending and some verified (a balance may go to the next PO).
+    if (item.payment?.pendingCount) return ['wait', 'Payment pending verification'];
+    if (!(item.payment?.amountPaid > 0 || item.payment?.remaining <= 0)) return ['wait', 'No payment verified yet'];
     return ['ready', 'Ready to explain'];
   };
   const tone = { done: 'inactive', hold: 'danger', wait: 'amber', ready: 'teal' };
@@ -135,6 +137,8 @@ export default function MedicineExplanations() {
                           <p className="mb-1 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/60"><Pill size={12} />Medicine to explain</p>
                           <Row label="PO" value={item.medicine?.poNumber} />
                           <Row label="Supply" value={item.medicine?.supplyLabel} />
+                          {/* What goes with this explanation: the months of medicine and the payment made for it. */}
+                          <Row label="Given for" value={item.medicine?.supplyNote || (item.payment ? `${item.medicine?.supplyMonths ? `${item.medicine.supplyMonths} month${item.medicine.supplyMonths === 1 ? '' : 's'} of medicine · ` : ''}paid Rs ${Number(item.payment.amountPaid || 0).toLocaleString('en-IN')} of Rs ${Number(item.payment.totalAmount || 0).toLocaleString('en-IN')}${item.payment.remaining > 0 ? ` · balance Rs ${Number(item.payment.remaining).toLocaleString('en-IN')}` : ''}` : '')} />
                           <Row label="Medicines" value={item.medicine?.medicines} />
                           <Row label="Notes" value={item.medicine?.notes} />
                           {item.medicine?.medicineImages?.length > 0 && <CompactAttachments files={item.medicine.medicineImages} label="Medicine photo" />}

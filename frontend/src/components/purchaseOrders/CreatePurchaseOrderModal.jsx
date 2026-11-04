@@ -53,10 +53,13 @@ function PatientPicker({ value, onChange }) {
 
 // New purchase order for an existing patient, on the same PO paper the post counselor fills at conversion:
 // payment collection (screenshots for online / receiver for cash), EMI, PO & consent and the PO paper image.
-export default function CreatePurchaseOrderModal({ open, onClose, onCreated, patient: fixedPatient = null }) {
+// fromPoId: open with that PO's balance already chosen ("New PO for the balance" on a PO page).
+export default function CreatePurchaseOrderModal({ open, onClose, onCreated, patient: fixedPatient = null, fromPoId: presetFrom = '' }) {
   const [patient, setPatient] = useState(fixedPatient);
   const [phase, setPhase] = useState(String(fixedPatient?.currentStage || 1));
   const [fee, setFee] = useState('');
+  // A new PO made from a previous PO: its value is that PO's unpaid balance (e.g. the rest of the months).
+  const [fromPoId, setFromPoId] = useState('');
   const [form, setForm] = useState(null);
   const [values, setValues] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -65,14 +68,19 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
 
   useEffect(() => {
     if (!open) return;
-    setPatient(fixedPatient); setPhase(String(fixedPatient?.currentStage || 1)); setFee(''); setError('');
+    setPatient(fixedPatient); setPhase(String(fixedPatient?.currentStage || 1)); setFee(''); setFromPoId(''); setError('');
   }, [open, fixedPatient]);
   // Load the prefilled paper whenever the patient changes (phase only changes the "ordered treatment" default).
   useEffect(() => {
     if (!open || !patient) { setForm(null); setValues(null); return; }
     let cancelled = false;
     api.get('/purchase-orders/form', { params: { patient: patient.id, phase }, skipCache: true })
-      .then(({ data }) => { if (!cancelled) { setForm(data); setValues(data.values); } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setForm(data); setValues(data.values);
+        const preset = presetFrom && (data.previous || []).find((p) => p.id === presetFrom);
+        if (preset) { setFromPoId(preset.id); setFee(String(preset.balance)); setPhase(String(preset.phase)); }
+      })
       .catch((err) => { if (!cancelled) setError(err.response?.data?.message || 'Could not open the PO form'); });
     return () => { cancelled = true; };
   }, [open, patient]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -81,7 +89,14 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
     setValues((current) => (current ? { ...current, orderedTreatment: String(current.orderedTreatment || '').replace(/Phase \d$/, `Phase ${value}`) } : current));
   };
 
-  const feeNumber = Number(String(fee).replace(/,/g, '')) || 0;
+  const previousOptions = form?.previous || [];
+  const fromPo = previousOptions.find((p) => p.id === fromPoId) || null;
+  const chooseFrom = (id) => {
+    setFromPoId(id);
+    const p = previousOptions.find((x) => x.id === id);
+    if (p) { setFee(String(p.balance)); choosePhase(String(p.phase)); }
+  };
+  const feeNumber = fromPo ? fromPo.balance : Number(String(fee).replace(/,/g, '')) || 0;
   const submit = async () => {
     if (!patient) { setError('Select the patient'); return; }
     if (!(feeNumber > 0)) { setError('Enter the PO value (approved fee)'); return; }
@@ -89,7 +104,7 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
     if (!values?.mode) { setError('Select the payment mode (section F)'); return; }
     setSaving(true); setError('');
     try {
-      const { data } = await api.post('/purchase-orders', { patientId: patient.id, phase, fee: feeNumber, purchase: values });
+      const { data } = await api.post('/purchase-orders', { patientId: patient.id, phase, fee: feeNumber, purchase: values, ...(fromPo ? { fromPoId: fromPo.id } : {}) });
       onCreated?.(data.purchaseOrder);
     } catch (err) { setError(err.response?.data?.message || 'Could not create the purchase order'); } finally { setSaving(false); }
   };
@@ -100,6 +115,15 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
         <p className="text-xs text-charcoal/60">Fill the PO paper as the patient signed it. The PO number (PO-xxxx) is generated on save, and the PO goes to In Transit to verify the paper and the payment.</p>
         {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
         {!fixedPatient && <FieldLabel label="Patient" required><PatientPicker value={patient} onChange={setPatient} /></FieldLabel>}
+        {patient && previousOptions.length > 0 && (
+          <FieldLabel label="Take the balance of a previous PO (optional)">
+            <select className={poInput} value={fromPoId} onChange={(e) => (e.target.value ? chooseFrom(e.target.value) : setFromPoId(''))}>
+              <option value="">No - a new PO value</option>
+              {previousOptions.map((p) => <option key={p.id} value={p.id}>{p.poNumber} · Phase {p.phase} · {p.supplyLabel || 'supply not set'} · paid Rs {Number(p.paid).toLocaleString('en-IN')} of Rs {Number(p.amount).toLocaleString('en-IN')} · balance Rs {Number(p.balance).toLocaleString('en-IN')}</option>)}
+            </select>
+            {fromPo && <span className="mt-1 block text-xs text-sky-900">This PO's value is the unpaid balance of {fromPo.poNumber}: Rs {Number(fromPo.balance).toLocaleString('en-IN')}. The balance moves here and is no longer owed on {fromPo.poNumber}.</span>}
+          </FieldLabel>
+        )}
         {patient && (
           <div className="grid gap-3 sm:grid-cols-2">
             <FieldLabel label="Phase" required>
@@ -107,7 +131,7 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
                 {STAGES.map((n) => <option key={n} value={n}>{STAGE_LABELS[n]}{Number(patient.currentStage) === n ? ' (current)' : ''}</option>)}
               </select>
             </FieldLabel>
-            <FieldLabel label="PO value / approved fee (Rs)" required><input className={poInput} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="e.g. 42000" /></FieldLabel>
+            <FieldLabel label={fromPo ? `PO value (balance of ${fromPo.poNumber})` : 'PO value / approved fee (Rs)'} required><input className={poInput} inputMode="decimal" value={fromPo ? String(fromPo.balance) : fee} disabled={Boolean(fromPo)} onChange={(e) => setFee(e.target.value)} placeholder="e.g. 42000" /></FieldLabel>
           </div>
         )}
         {patient && !values && !error && <p className="py-6 text-center text-sm text-charcoal/55">Opening the PO form...</p>}

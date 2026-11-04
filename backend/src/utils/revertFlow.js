@@ -143,7 +143,7 @@ const PO_REVERTS = {
     if (!later.length && !signed) return null;
     const snapshot = { payments: [] };
     later.forEach((p) => toPending(p, snapshot.payments));
-    if (signed) { snapshot.transit = take(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName']); clear(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName']); }
+    if (signed) { snapshot.transit = take(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote']); clear(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote']); }
     return snapshot;
   },
   async scheduled({ stage }) {

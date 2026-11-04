@@ -135,6 +135,12 @@ const medicineRequestSchema = new mongoose.Schema(
     // Requests raised from a purchase order carry the PO and the supply category (empty on older requests).
     purchaseOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', default: null },
     poNumber: { type: String, trim: true, default: '' },
+    // When this medicine was explained to the patient (kept per request, so every PO of the phase keeps its own).
+    explanationDate: { type: Date, default: null },
+    explainedAt: { type: Date, default: null },
+    explainedByName: { type: String, trim: true, default: '' },
+    // "6 months of medicine (Full 6 months) given for Rs 10,000 paid; balance Rs 30,000 on PO-5831" (at Verify payment).
+    supplyNote: { type: String, trim: true, default: '' },
     // Last correction by In Transit before Medicine Department accepted it.
     editedAt: { type: Date, default: null },
     editedByName: { type: String, trim: true, default: '' },
@@ -252,6 +258,8 @@ const transitSchema = new mongoose.Schema(
     // "Verify full payment": In Transit ticks that the PO paper is signed by the patient (required with the payment).
     poPaperSignedAt: { type: Date, default: null },
     poPaperSignedByName: { type: String, trim: true, default: '' },
+    // Saved with the tick: how many months of medicine went for how much payment, and what is left on the PO.
+    poPaperSignedNote: { type: String, trim: true, default: '' },
     pickupScheduledAt: { type: Date, default: null },
     pickupNote: { type: String, trim: true, default: '' },
     pickupScheduledByName: { type: String, trim: true, default: '' },

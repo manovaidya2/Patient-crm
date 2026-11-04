@@ -55,6 +55,14 @@ const purchaseOrderSchema = new mongoose.Schema(
     // The full PO paper as filled at conversion (post-counselling form), kept for reference.
     paperValues: { type: mongoose.Schema.Types.Mixed, default: null },
     paymentIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+    // A PO made "from a previous PO": its value is that PO's unpaid balance, carried here (e.g. the rest of the months).
+    previousPo: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', default: null },
+    previousPoNumber: { type: String, trim: true, default: '' },
+    // On the earlier PO: its balance moved to a newer PO (so it is no longer owed on this one).
+    carriedForwardTo: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', default: null },
+    carriedForwardToNumber: { type: String, trim: true, default: '' },
+    carriedForwardAmount: { type: Number, default: 0 },
+    carriedForwardAt: { type: Date, default: null },
     status: { type: String, enum: PO_STATUSES, default: 'pending', index: true },
     // In Transit verifies in two steps: first the PO paper / patient details, then the payment. Both done = 'verified'.
     detailsVerifiedAt: { type: Date, default: null },

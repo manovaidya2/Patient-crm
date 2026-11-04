@@ -17,7 +17,9 @@ const paymentsOfPo = (stage, po, phasePos = []) => {
 // Same shape as paymentSummary(stage), for one PO: its value against its own payments.
 const poPaymentSummary = (stage, po, phasePos = []) => {
   const alone = !others(po, phasePos).length;
-  const total = Number(po.amount) > 0 ? Number(po.amount) : alone ? Number(stage.totalAmount || 0) : 0;
+  const full = Number(po.amount) > 0 ? Number(po.amount) : alone ? Number(stage.totalAmount || 0) : 0;
+  // A balance carried to a newer PO is owed there, not here.
+  const total = Math.max(full - Number(po.carriedForwardAmount || 0), 0);
   return paymentSummary({ payments: paymentsOfPo(stage, po, phasePos), totalAmount: total });
 };
 
@@ -25,7 +27,7 @@ const poPaymentSummary = (stage, po, phasePos = []) => {
 const phasePurchaseOrders = async (patientId, phase) => {
   if (mongoose.connection.readyState !== 1) return [];
   const PurchaseOrder = require('../models/PurchaseOrder');
-  return PurchaseOrder.find({ patient: patientId, phase }).select('poNumber amount paymentIds medicineRequestId status').lean();
+  return PurchaseOrder.find({ patient: patientId, phase }).select('poNumber amount paymentIds medicineRequestId status carriedForwardAmount supplyPlan supplyPart').lean();
 };
 
 // The PO a medicine request was raised on.
@@ -46,4 +48,8 @@ const linkPaymentToPo = async (poId, paymentId) => {
   await PurchaseOrder.updateOne({ _id: poId }, { $addToSet: { paymentIds: paymentId } });
 };
 
-module.exports = { paymentsOfPo, poPaymentSummary, phasePurchaseOrders, poOfRequest, paymentForRequest, paymentForRequestFrom, linkPaymentToPo };
+// Whether the medicine of a PO may go out: no payment waiting for verification and some verified payment. The full PO
+// value is not needed: a balance left is collected later, e.g. on a new PO made from this one (the rest of the months).
+const paymentCleared = (pay) => Boolean(pay) && !pay.pendingCount && (Number(pay.amountPaid || 0) > 0 || Number(pay.remaining || 0) <= 0);
+
+module.exports = { paymentCleared, paymentsOfPo, poPaymentSummary, phasePurchaseOrders, poOfRequest, paymentForRequest, paymentForRequestFrom, linkPaymentToPo };

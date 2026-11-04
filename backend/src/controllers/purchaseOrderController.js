@@ -15,6 +15,7 @@ const { createWithPoNumber } = require('../utils/poNumber');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const { resolveSplit, modeLabelOf } = require('../utils/splitPayment');
 const { buildPoView, STAGE_KEYS, isPendingStage, findRequest } = require('../utils/purchaseOrderFlow');
+const { poPaymentSummary } = require('../utils/poPayment');
 
 const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 const PO_CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -234,6 +235,17 @@ const getPurchaseOrder = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
+// The patient's POs whose unpaid balance can start a new PO (not carried yet, verified, something still owed).
+const carryablePos = async (patient) => {
+  if (mongoose.connection.readyState !== 1) return [];
+  const pos = await PurchaseOrder.find({ patient: patient._id, status: 'verified', carriedForwardTo: null }).select('poNumber phase amount paymentIds supplyPlan supplyPart carriedForwardAmount createdAt').sort({ createdAt: -1 }).lean();
+  return pos.map((po) => {
+    const stage = (patient.stages || []).find((s) => s.number === po.phase) || {};
+    const pay = poPaymentSummary(stage, po, pos.filter((o) => o.phase === po.phase));
+    return { id: String(po._id), poNumber: po.poNumber, phase: po.phase, supplyLabel: supplyLabel(po.supplyPlan, po.supplyPart), amount: po.amount, paid: pay.amountPaid, pending: pay.pendingAmount || 0, balance: pay.remaining };
+  }).filter((p) => p.balance > 0);
+};
+
 // @route GET /api/purchase-orders/form?patient=&phase=
 // The PO paper (sections F, G, H) prefilled for a new purchase order of an existing patient.
 const getPurchaseOrderForm = asyncHandler(async (req, res) => {
@@ -247,7 +259,7 @@ const getPurchaseOrderForm = asyncHandler(async (req, res) => {
   };
   const values = purchase.defaults({ record: null, registration, counselorName: req.user.name, today });
   values.orderedTreatment = `${patient.category === 'mental_health' ? 'Mental Health' : 'Autism / ADHD'} / Phase ${phase}`;
-  res.json({ success: true, definitions: purchase.definitions(), values, contacts: registration, phase });
+  res.json({ success: true, definitions: purchase.definitions(), values, contacts: registration, phase, previous: await carryablePos(patient) });
 });
 
 // @route POST /api/purchase-orders/upload   (multipart: screenshot[]) - PO paper images and payment screenshots
@@ -267,7 +279,14 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
   if (patient.isActive === false) fail('This patient is closed. Reactivate the patient first');
   const phase = parseInt(body.phase, 10);
   if (!STAGES.includes(phase)) fail('Select the phase');
-  const fee = amountOf(body.fee, 'PO value / approved fee');
+  // From a previous PO: this PO's value is that PO's unpaid balance (taken here, not typed).
+  let previous = null;
+  if (body.fromPoId) {
+    if (!mongoose.Types.ObjectId.isValid(String(body.fromPoId))) fail('Select a valid previous PO');
+    previous = (await carryablePos(patient)).find((p) => p.id === String(body.fromPoId));
+    if (!previous) fail('That PO has no unpaid balance to carry (or it was carried already)');
+  }
+  const fee = previous ? previous.balance : amountOf(body.fee, 'PO value / approved fee');
   if (!(fee > 0)) fail('Enter the PO value (approved fee)');
   const cleaned = purchase.cleanPurchase(body.purchase, fee);
   assertPurchaseComplete(cleaned.values);
@@ -288,7 +307,8 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     phase, supplyPlan: supply.plan, supplyPart: supply.part, ageBand: ageBandByLabel(paper.ageGroup),
     packageName: clean(paper.orderedTreatment, 200), amount: fee, medicineReadyDate: readyBy, notes: longText(paper.paymentNotes),
     paperImages: paper.paperImages || [], status: 'pending', source: 'manual', createdByName: req.user.name, createdByRole: req.user.role,
-    events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
+    ...(previous ? { previousPo: previous.id, previousPoNumber: previous.poNumber } : {}),
+    events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${previous ? ` | balance of ${previous.poNumber}` : ''}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
   });
   try {
     const values = { ...paper, poNo: po.poNumber };
@@ -308,9 +328,16 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     if (!stage.poPaper) stage.poPaper = { values, totals: { ...cleaned.totals, approvedProgramFee: fee }, savedAt: new Date(), savedByName: req.user.name, source: 'purchase_order' };
     if (!stage.transit.enteredAt) stage.transit.enteredAt = new Date();
     if (readyBy && !stage.transit.expectedReadyDate) stage.transit.expectedReadyDate = readyBy;
-    logActivity(patient, req.user, `Purchase order created for Phase ${phase}`, `${po.poNumber} | ${supply.label} | Rs ${fee}`);
+    logActivity(patient, req.user, `Purchase order created for Phase ${phase}`, `${po.poNumber} | ${supply.label} | Rs ${fee}${previous ? ` | balance of ${previous.poNumber}` : ''}`);
     await patient.save();
     await po.save();
+    if (previous) {
+      // The balance now belongs to the new PO: the earlier one no longer owes it.
+      await PurchaseOrder.updateOne({ _id: previous.id, carriedForwardTo: null }, {
+        $set: { carriedForwardTo: po._id, carriedForwardToNumber: po.poNumber, carriedForwardAmount: fee, carriedForwardAt: new Date() },
+        $push: { events: { at: new Date(), action: 'Balance carried to a new PO', details: `Rs ${fee} to ${po.poNumber}`, byName: req.user.name, byRole: req.user.role } },
+      });
+    }
   } catch (error) {
     await PurchaseOrder.deleteOne({ _id: po._id }).catch(() => {});
     throw error;

@@ -113,7 +113,7 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
     { key: 'scheduled', group: 'contact', label: 'Schedule delivery', done: plan.done, action: 'schedule_delivery', by: t.fulfilmentSetByName, at: iso(t.fulfilmentSetAt), text: plan.text, waitText: 'Choose self pickup or porter / courier and the day' },
     // Self pickup: the explanation date and the PCC come before the payment and the handover.
     ...(mode === 'pickup' ? [pccStep] : []),
-    { key: 'payment', group: 'handover', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0 && (Boolean(t.poPaperSignedAt) || dispatched || delivered), action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
+    { key: 'payment', group: 'handover', label: 'Verify payment', done: !pay.pendingCount && (pay.amountPaid > 0 || pay.remaining <= 0) && (Boolean(t.poPaperSignedAt) || dispatched || delivered), action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
     { key: 'released', group: 'handover', label: 'Release by Medicine Dept', done: released, waitText: 'Medicine Department releases the parcel once the full payment is verified', by: t.financialReleasedByName || request?.sentToCourierByName, at: iso(t.financialReleasedAt || request?.sentToCourierAt) },
     {
       key: 'handover', group: 'handover', label: mode === 'pickup' ? 'Handover' : shippedMode ? 'Dispatch courier' : 'Hand over / dispatch',
@@ -216,6 +216,9 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
       status: request.status,
       poNumber: request.poNumber || '',
       supplyLabel: supplyLabel(request.supplyPlan, request.supplyPart),
+      // Months of medicine on this request and the note saved at Verify payment (months for how much payment).
+      supplyMonths: require('../constants/supplyPlans').supplyOption(request.supplyPlan, request.supplyPart)?.months || 0,
+      supplyNote: request.supplyNote || t.poPaperSignedNote || '',
       medicines: request.medicines || '',
       notes: request.notes || '',
       prescriptionFiles: request.prescriptionFiles || [],

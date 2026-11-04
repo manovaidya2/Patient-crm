@@ -216,9 +216,10 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   assert.equal(v.status, 'ready');
   assert.equal(stage.medicineRequests[0].status, 'made', 'In Transit sees the medicine as made');
   assert.equal(stage.medicineRequests[0].medicineImages.length, 1, 'Photo A becomes the medicine photo');
-  // Release is blocked until In Transit verifies the full payment.
-  await assert.rejects(complete(id, 'release', {}), /Full verified payment/);
-  stage.payments.push({ amount: 32000, approvalStatus: 'approved' });
+  // Release needs no pending payment; a verified part payment is enough (the balance can go to a next PO).
+  stage.payments.push({ amount: 5000, approvalStatus: 'pending' });
+  await assert.rejects(complete(id, 'release', {}), /Verify the pending payment/);
+  stage.payments[stage.payments.length - 1].approvalStatus = 'approved';
   v = (await complete(id, 'release', {})).job;
   assert.equal(v.status, 'released');
   assert.equal(stage.medicineRequests[0].status, 'sent_to_courier');

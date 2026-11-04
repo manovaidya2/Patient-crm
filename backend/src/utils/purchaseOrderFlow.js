@@ -2,12 +2,12 @@
 // "PO created" to "Treatment started". Nothing here is stored; every step is read from the records the other screens
 // already write (payments, medicine request, courier, phase transit), so all views agree.
 const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
-const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel } = require('../constants/supplyPlans');
+const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel, supplyOption } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
 const { phaseAge } = require('./phaseAge');
 const { medicineDelays, fixedReadyDate, dispatchDelayInput, readyDateFromPostCounselling } = require('./medicineDelay');
 const { PO_REVERT_ORDER } = require('./revertFlow');
-const { paymentsOfPo, poPaymentSummary } = require('./poPayment');
+const { paymentsOfPo, poPaymentSummary, paymentCleared } = require('./poPayment');
 const { STAGE_INDEX, STAGES: JOB_STAGES } = require('./medicineJobFlow');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
@@ -121,6 +121,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const pccAssigned = transitOwner && Boolean(t.assignedAt || t.explanationDoctor);
   // The PO paper signed by the patient (ticked at "Verify full payment"); a parcel already handed over counts as signed.
   const poSigned = (transitOwner && Boolean(t.poPaperSignedAt)) || dispatched || delivered;
+  const supplyMonths = supplyOption(po.supplyPlan, po.supplyPart)?.months || 0;
   const transitCalls = transitOwner ? [...(t.calls || [])].sort((a, b) => new Date(b.at) - new Date(a.at)) : [];
   const lastCall = transitCalls[0];
   const connected = transitCalls.some((c) => c.outcome === 'connected');
@@ -174,7 +175,8 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
     },
     // Self pickup: the explanation date and the PCC are fixed before the payment and the handover.
     ...(selfPickup ? [pccStep] : []),
-    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify full payment', done: pay.remaining <= 0 && pay.pendingCount === 0 && poSigned, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}${poSigned ? ' · PO paper signed' : ''}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : pay.remaining > 0 ? `In Transit collects the balance of Rs ${pay.remaining} and verifies it` : 'In Transit ticks "PO paper signed by patient"' },
+    // Verify payment: no payment pending and some verified (a balance may stay, to a next PO), plus the PO paper signed.
+    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify payment', done: paymentCleared(pay) && poSigned, text: `Verified Rs ${pay.amountPaid} of Rs ${pay.totalAmount}${pay.remaining > 0 ? ` · balance Rs ${pay.remaining}` : ''}${supplyMonths ? ` · ${supplyMonths} month${supplyMonths === 1 ? '' : 's'} of medicine` : ''}${poSigned ? ' · PO paper signed' : ''}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : !paymentCleared(pay) ? 'In Transit collects a payment and verifies it' : 'In Transit ticks "PO paper signed by patient"' },
     { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Handover' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
     // Porter / courier: after the dispatch.
     ...(selfPickup ? [] : [pccStep]),
@@ -206,7 +208,7 @@ function handoverRecord({ t, stage, courier, patient, poPayments }) {
     lastConnectedCall: [...calls].reverse().find((c) => c.outcome === 'connected') || null,
     calls: [...calls].reverse(),
     callsDoneAt: iso(t.callsDoneAt), callsDoneByName: t.callsDoneByName || '',
-    poPaperSignedAt: iso(t.poPaperSignedAt), poPaperSignedByName: t.poPaperSignedByName || '',
+    poPaperSignedAt: iso(t.poPaperSignedAt), poPaperSignedByName: t.poPaperSignedByName || '', poPaperSignedNote: t.poPaperSignedNote || '',
     pcc: { name: patient.assignedDoctor?.name || '', at: iso(t.assignedAt), byName: t.assignedByName || '', ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },
     approvedPayments: poPayments.filter((p) => (p.approvalStatus || 'approved') === 'approved').map(formatPayment),
     courier: {
@@ -301,6 +303,10 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     poNumber: po.poNumber,
     generated: Boolean(po.generated),
     source: po.source,
+    // Months of medicine on this PO (shown where the PO paper is signed) and the PO chain (balance carried).
+    supplyMonths: supplyOption(po.supplyPlan, po.supplyPart)?.months || 0,
+    previousPo: po.previousPo ? { id: String(po.previousPo), poNumber: po.previousPoNumber || '' } : null,
+    carriedForward: po.carriedForwardTo ? { id: String(po.carriedForwardTo), poNumber: po.carriedForwardToNumber || '', amount: Number(po.carriedForwardAmount || 0), at: iso(po.carriedForwardAt) } : null,
     status: po.status,
     stageKey,
     patientId: String(patient._id || po.patient || ''),

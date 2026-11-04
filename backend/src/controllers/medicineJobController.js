@@ -47,7 +47,7 @@ const loadPatientAndRequest = async (job) => {
 // The payment status of the job's PO (other POs of the phase are paid on their own).
 const paymentOf = async (patient, stage, request) => {
   const pay = await paymentForRequest(patient, stage, request);
-  return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && pay.remaining <= 0 && pay.pendingCount === 0 && !(stage.transit?.holdActive || stage.transit?.removedAt) };
+  return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && require('../utils/poPayment').paymentCleared(pay) && !(stage.transit?.holdActive || stage.transit?.removedAt) };
 };
 
 const planSentFor = async (job, stage) => fixedSupplyPlan({ po: job.purchaseOrder ? await PurchaseOrder.findById(job.purchaseOrder).lean() : null, stage });
@@ -451,7 +451,7 @@ const completeStage = asyncHandler(async (req, res) => {
     const pay = await paymentOf(patient, phaseEntry, request);
     if (!pay.patientApproved) fail('In Transit must approve the patient before release');
     if (pay.hold) fail('This phase is on hold or removed in In Transit', 409);
-    if (pay.remaining > 0 || pay.pendingCount) fail(`Full verified payment is required before release (balance Rs ${pay.remaining}${pay.pendingCount ? `, ${pay.pendingCount} payment(s) pending verification` : ''})`);
+    if (!require('../utils/poPayment').paymentCleared(pay)) fail(pay.pendingCount ? `Verify the pending payment(s) first (${pay.pendingCount} pending)` : 'A verified payment is required before release');
     Object.assign(request, { status: 'sent_to_courier', sentToCourierAt: now, sentToCourierByName: req.user.name });
     if (!phaseEntry.transit) phaseEntry.transit = {};
     Object.assign(phaseEntry.transit, { financialReleasedAt: now, financialReleasedByName: req.user.name, financialReleaseNote: `Released to In Transit by ${req.user.name}` });

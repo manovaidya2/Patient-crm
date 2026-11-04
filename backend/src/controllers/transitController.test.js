@@ -65,7 +65,7 @@ test('In Transit cannot accept or change Medicine Department preparation updates
     await assert.rejects(() => act(patient, { action, readyByDate: future() }), e => e.statusCode === 403);
   }
 });
-test('dispatch can be scheduled during preparation, but requires release and full approved payment', async () => {
+test('dispatch can be scheduled during preparation, but requires release, a verified payment (no pending) and the PO paper signed', async () => {
   const { patient, stage } = makePatient(500);
   await request(patient);
   await confirmMode(patient, 'porter');
@@ -74,10 +74,9 @@ test('dispatch can be scheduled during preparation, but requires release and ful
   const body = { action: 'dispatch', porterName: 'Ravi', receiverName: 'Parent', receiverPhone: '999', address: 'Delhi' };
   await assert.rejects(() => act(patient, body), /release/);
   release(stage);
-  await assert.rejects(() => act(patient, body), /Full payment/);
   await assert.rejects(() => act(patient, { action: 'add_payment', amount: 500, paymentMode: 'online', utr: 'UTR1' }), /proof/);
   await act(patient, { action: 'add_payment', amount: 500, paymentMode: 'online', utr: 'UTR1' }, [file]);
-  await assert.rejects(() => act(patient, body), /Full payment/);
+  await assert.rejects(() => act(patient, body), /Verify the pending payment/);
   stage.payments[1].approvalStatus = 'approved';
   // "Verify full payment" also needs the PO paper signed by the patient.
   await assert.rejects(() => act(patient, body), /PO paper signed by patient/);
