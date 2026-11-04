@@ -9,6 +9,7 @@ import ReminderBell from '../../components/ReminderBell.jsx';
 import FormulationAlarm from '../../components/medicine/FormulationAlarm.jsx';
 import TransitAlarm from '../../components/medicine/TransitAlarm.jsx';
 import PaperAlarm from '../../components/medicine/PaperAlarm.jsx';
+import PageBack from '../../components/PageBack.jsx';
 import { TeamPendingButton } from '../../components/TeamPending.jsx';
 import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -147,6 +148,8 @@ const AdminLayout = () => {
         <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
           <ScheduleReminderAlert />
           {onHome && <PendingWork />}
+          {/* Back to the page you came from (every page except home and the ones with their own Back). */}
+          <PageBack />
           <Suspense fallback={<div className="py-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
             <Outlet />
           </Suspense>
