@@ -30,8 +30,11 @@ export const FORMS = {
   set_ready_by: { title: 'Change ready-by date', note: 'The automatic reminder moves with the date.', button: 'Save date', fields: [['readyByDate', 'Medicine will be ready by', 'date', true]] },
   log_call: {
     title: 'Log a call with the patient', note: 'Tell the patient the medicine status and confirm how they want to receive it. Log every attempt.', button: 'Save call',
-    fields: [['outcome', 'Call result', 'pills', true, Object.entries(CALL)], ['notes', 'What was discussed', 'textarea', true], ['nextCallAt', 'Call again at', 'datetime-local', true, null, (v) => v.outcome && !['connected', 'wrong_number'].includes(v.outcome)]],
+    fields: [['outcome', 'Call result', 'pills', true, Object.entries(CALL)], ['notes', 'What was discussed', 'textarea', true], ['nextCallAt', 'Call again at', 'datetime-local', true, null, (v) => v.outcome && !['connected', 'wrong_number'].includes(v.outcome)], ['nextCallAt', 'Call again at (optional - e.g. the patient will confirm later)', 'datetime-local', false, null, (v) => ['connected', 'wrong_number'].includes(v.outcome)]],
   },
+  // The same call form on "Schedule delivery" and on the dispatch / handover day.
+  get log_call_scheduled() { return { ...FORMS.log_call, title: 'Log a call - Schedule delivery', note: 'Fix the delivery date with the patient. Not picked up? Set the follow-up: In Transit gets a reminder at that time and the days it is late are counted.' }; },
+  get log_call_handover() { return { ...FORMS.log_call, title: 'Log a call - Dispatch / handover', note: 'Confirm the patient is ready to receive the medicine. Not picked up? Set the follow-up: In Transit gets a reminder at that time and the days it is late are counted.' }; },
   confirm_mode: { title: 'Patient confirmed delivery mode', note: 'Porter / courier: full payment is confirmed before sending. Self pickup: schedule the visit next.', button: 'Confirm', fields: [['mode', 'How will the patient get the medicine?', 'pills', true, Object.entries(MODE).map(([k, v]) => [k, v.label])], ['note', 'Note', 'text']] },
   // Step 1 of the handover: the calls are logged above; once one connects, In Transit marks the step done.
   finish_calls: { title: 'Call for delivery schedule', note: 'The call with the patient has connected. Mark it done to move to "Schedule delivery".', button: 'Call done - go to next step', fields: [] },
@@ -64,11 +67,13 @@ export const formKeyFor = (action, item) => {
   if (action === 'confirm_received') return item.mode === 'pickup' ? 'confirm_received_pickup' : 'confirm_received_shipped';
   return action;
 };
-const actionOf = (formKey) => (formKey.startsWith('dispatch') ? 'dispatch' : formKey.startsWith('confirm_received') ? 'confirm_received' : formKey);
+const actionOf = (formKey) => (formKey.startsWith('dispatch') ? 'dispatch' : formKey.startsWith('confirm_received') ? 'confirm_received' : formKey.startsWith('log_call') ? 'log_call' : formKey);
 const defaults = (formKey, item) => {
   switch (formKey) {
     case 'raise_request': return { readyByDate: item.expectedReadyDate ? localInput(item.expectedReadyDate, false) : '' };
     case 'schedule_dispatch': return { dispatchAt: item.deliveryPlan?.at ? localInput(item.deliveryPlan.at) : '', courierPartner: item.deliveryPlan?.courier || '', address: item.deliveryPlan?.address || item.patientDetails?.address || '' };
+    case 'log_call_scheduled': return { step: 'scheduled' };
+    case 'log_call_handover': return { step: 'handover' };
     case 'set_ready_by': return { readyByDate: item.medicine?.readyByDate ? localInput(item.medicine.readyByDate, false) : '' };
     case 'confirm_mode': return { mode: item.mode || '' };
     case 'schedule_delivery': return {

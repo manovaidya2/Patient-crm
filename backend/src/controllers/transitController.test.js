@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const User = require('../models/User');
-const { runAction, getTransitReminders, completeExplanation, listExplanations, removeFromTransit, restoreToTransit } = require('./transitController');
+const { runAction, getTransitReminders, completeExplanation, rescheduleExplanation, listExplanations, removeFromTransit, restoreToTransit } = require('./transitController');
 const { buildTransitCase, isInTransit } = require('../utils/transitFlow');
 afterEach(() => mock.restoreAll());
 const user = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
@@ -161,6 +161,16 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   item = await act(patient, { action: 'confirm_received', receivedByName: 'Parent', receivedAt: now() });
   assert.equal(item.step.key, 'explained');
   assert.equal(item.nextAction, null, 'the PCC completes the explanation, not In Transit');
+  // The call was not picked up: the PCC moves the explanation to another of their slots (never a Wednesday); kept in history.
+  let wednesday = new Date(Date.now() + 86400000);
+  while (wednesday.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Kolkata' }) !== 'Wednesday') wednesday = new Date(wednesday.getTime() + 86400000);
+  await assert.rejects(() => invoke(rescheduleExplanation, patient, { explanationAt: wednesday.toISOString(), reason: 'not_picked' }, doctor), /off on/);
+  await assert.rejects(() => invoke(rescheduleExplanation, patient, { explanationAt: workDay().toISOString() }, other), /another PCC/);
+  const newSlot = workDay(Date.now() + 2 * 86400000);
+  const moved = await invoke(rescheduleExplanation, patient, { explanationAt: newSlot.toISOString(), reason: 'not_picked', note: 'No answer at 11' }, doctor);
+  assert.equal(moved.item.explanation.reschedules.length, 1);
+  assert.equal(moved.item.explanation.reschedules[0].reason, 'not_picked');
+  assert.equal(new Date(stage.medicineExplainDate).getTime(), newSlot.getTime());
   const result = await invoke(completeExplanation, patient, { completedAt: now(), notes: 'Explained doses and chits' }, doctor);
   assert.equal(result.item.activated, true);
   assert.equal(result.item.steps.at(-1).state, 'done');

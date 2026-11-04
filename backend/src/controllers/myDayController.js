@@ -38,8 +38,9 @@ const requestItems = async (page, statuses, detailOf, extra = () => true) => {
 
 const COLLECTORS = {
   async '/admin/purchase-orders'(user) {
-    return (await loadPoViews()).filter((po) => po.actionBy.includes(stepRole(user)))
-      .map((po) => item('/admin/purchase-orders', po.id, po.patientName, `${po.poNumber} · ${(po.openSteps.find((s) => s.actionBy.includes(stepRole(user))) || po.step).label}${po.supplyLabel ? ` · ${po.supplyLabel}` : ''}`, po.createdAt, `/admin/purchase-orders/${po.id}`, { waitingSince: true }));
+    const pos = await loadPoViews();
+    return [...pos.filter((po) => po.actionBy.includes(stepRole(user)))
+      .map((po) => item('/admin/purchase-orders', po.id, po.patientName, `${po.poNumber} · ${(po.openSteps.find((s) => s.actionBy.includes(stepRole(user))) || po.step).label}${po.supplyLabel ? ` · ${po.supplyLabel}` : ''}`, po.createdAt, `/admin/purchase-orders/${po.id}`, { waitingSince: true }))];
   },
   async '/admin/patient-approvals'() {
     const ps = await Patient.find({ $or: [{ approvalStatus: 'pending' }, { 'stages.payments.approvalStatus': 'pending' }] }).select('patientName patientCode approvalStatus createdAt stages.payments').limit(LIMIT).lean();
@@ -101,6 +102,12 @@ const COLLECTORS = {
       out.push(item('/admin/medicine-explanations', `${p._id}-${st.number}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number} · ${t.explanationMode || 'phone'}`, st.medicineExplainDate, '/admin/medicine-explanations'));
     }
     return out;
+  },
+  // In Transit's follow-up calls whose time has come (late ones say by how many days): one ding each when due.
+  async '/admin/transit-follow-ups'(user) {
+    const { listFollowUps } = require('./transitController');
+    const data = await callHandler(listFollowUps, user, { status: 'open' });
+    return (data.rows || []).filter((r) => r.status !== 'upcoming').map((r) => item('/admin/transit-follow-ups', r.id, r.patientName, `${r.poNumber || `Phase ${r.phase}`} · ${r.label}${r.lateDays ? ` · ${r.lateDays} day${r.lateDays === 1 ? '' : 's'} late` : ''}`, r.dueAt, r.poId ? `/admin/purchase-orders/${r.poId}` : '/admin/transit-follow-ups'));
   },
   async '/admin/followups'(user) { return reminderItems(user, 'followup', '/admin/followups'); },
   async '/admin/family-sessions'(user) { return reminderItems(user, 'family_session', '/admin/family-sessions'); },

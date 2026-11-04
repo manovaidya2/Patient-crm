@@ -131,6 +131,7 @@ export const navItems = [
   { to: '/admin/medicine-inventory', icon: Warehouse, label: 'Medicine Inventory', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
   { to: '/admin/clinic-inventory', icon: Archive, label: 'Clinic Inventory', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/self-pickup-schedule', icon: Store, label: 'Self Pickup Schedule', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/transit-follow-ups', icon: PhoneCall, label: 'In Transit Follow-ups', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/courier', icon: Truck, label: 'Porter / Courier Schedule', roles: [ROLES.ADMIN, ROLES.IN_TRANSIT], group: 'transit' },
   { to: '/admin/payments', icon: CreditCard, label: 'Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR], group: 'transit' },
   { to: '/admin/approved-payments', icon: BadgeCheck, label: 'Approved Payments', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR], group: 'transit' },

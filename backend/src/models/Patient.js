@@ -266,6 +266,18 @@ const transitSchema = new mongoose.Schema(
     explanationScheduledAt: { type: Date, default: null },
     explanationScheduledByName: { type: String, trim: true, default: '' },
     explanationAckAt: { type: Date, default: null },
+    // The PCC moved the explanation (e.g. the call was not picked up) to another slot of theirs.
+    explanationReschedules: {
+      type: [{
+        from: { type: Date, default: null },
+        to: { type: Date, default: null },
+        reason: { type: String, enum: ['not_picked', 'patient_request', 'other'], default: 'not_picked' },
+        note: { type: String, trim: true, default: '', maxlength: 1000 },
+        at: { type: Date, default: Date.now },
+        byName: { type: String, trim: true, default: '' },
+      }],
+      default: undefined,
+    },
     explanationAckByName: { type: String, trim: true, default: '' },
     explanationCompletedAt: { type: Date, default: null },
     explanationCompletedByName: { type: String, trim: true, default: '' },
@@ -280,6 +292,11 @@ const transitSchema = new mongoose.Schema(
         notes: { type: String, trim: true, default: '', maxlength: 2000 },
         nextCallAt: { type: Date, default: null },
         byName: { type: String, trim: true, default: '' },
+        // The In Transit step it was made on (utils/callFollowUps.js); older calls are the delivery schedule call.
+        step: { type: String, enum: ['calls', 'scheduled', 'handover'], default: 'calls' },
+        // The follow-up time this call answered, and how many days after it the call was made.
+        dueAt: { type: Date, default: null },
+        lateDays: { type: Number, default: 0 },
       }],
       default: [],
     },

@@ -1,6 +1,7 @@
 // What one purchase order looks like on screen: its payments, its medicine request and the pipeline from
 // "PO created" to "Treatment started". Nothing here is stored; every step is read from the records the other screens
 // already write (payments, medicine request, courier, phase transit), so all views agree.
+const { openFollowUps } = require('./callFollowUps');
 const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
 const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel, supplyOption } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
@@ -387,6 +388,9 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     actionBy: (t.holdActive || t.removedAt) && po.status === 'verified' && current_ ? TRANSIT
       : [...new Set(openSteps.flatMap((s) => (s.waitsOnMedicine ? [] : actionByOf(po, s.key, canRequestMedicine && !requestBlockedReason, s))))],
     // The "now" step of each track (one before the split), with who acts on it, e.g. for My Day.
+    // Open follow-up calls of In Transit (delivery schedule call, scheduling, dispatch / handover): reminders at their time.
+    // A step counts as done here when its timeline step is done.
+    callFollowUps: transitOwner ? openFollowUps(t.calls || [], Object.fromEntries(['calls', 'scheduled', 'handover'].map((key) => [key, steps.find((s) => s.key === key)?.state === 'done']))) : [],
     openSteps: openSteps.map((s) => ({ key: s.key, label: s.label, branch: s.branch, waitText: s.waitText || '', actionBy: s.waitsOnMedicine ? [] : actionByOf(po, s.key, false, s) })),
     branches: BRANCHES,
     // Reverting a step also reverts the steps after it in this order (the tracks depend on each other).

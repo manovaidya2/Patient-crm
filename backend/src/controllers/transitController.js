@@ -1,3 +1,4 @@
+const { CALL_STEPS, CALL_STEP_LABELS, lateness, followUpHistory } = require('../utils/callFollowUps');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
@@ -100,6 +101,7 @@ const { assertWorkingDay, pccEvents, OFF_WEEKDAYS, AFTERNOON_WEEKDAYS, AFTERNOON
 // @route   GET /api/transit/staff/:id/calendar?from=YYYY-MM-DD&days=28
 const getPccCalendar = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(String(req.params.id))) fail('Invalid PCC');
+  if (req.user.role === ROLES.ASSISTANT_DOCTOR && String(req.params.id) !== String(req.user._id)) fail('You can see only your own calendar', 403);
   const pcc = await User.findOne({ _id: req.params.id, role: ROLES.ASSISTANT_DOCTOR }).select('name').lean();
   if (!pcc) fail('PCC not found', 404);
   const fromText = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || '')) ? req.query.from : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -178,8 +180,12 @@ const ACTIONS = {
     const notes = required(body.notes, 'Call notes', 2000);
     const nextCallAt = body.nextCallAt ? parseDate(body.nextCallAt, 'next call time') : null;
     if (!['connected', 'wrong_number'].includes(outcome) && !nextCallAt) fail('Set when to call again');
-    stage.transit.calls.push({ at: now, outcome, notes, nextCallAt, byName: req.user.name });
-    return `Call: ${outcome.replace('_', ' ')} - ${notes}`;
+    if (nextCallAt && nextCallAt < now) fail('The next call time cannot be in the past');
+    // The step the call is on: the delivery schedule call, scheduling the delivery, or the dispatch / handover day.
+    const step = CALL_STEPS.includes(body.step) ? body.step : 'calls';
+    const { dueAt, lateDays } = lateness(stage.transit.calls, step, now);
+    stage.transit.calls.push({ at: now, outcome, notes, nextCallAt, byName: req.user.name, step, dueAt, lateDays });
+    return `Call (${CALL_STEP_LABELS[step]}): ${outcome.replace('_', ' ')} - ${notes}${lateDays ? ` (${lateDays} day${lateDays === 1 ? '' : 's'} late)` : ''}`;
   },
   // Step 1: the delivery schedule call. In Transit keeps logging calls until one connects, then marks it done and the
   // case moves to "Delivery scheduled".
@@ -495,6 +501,34 @@ const listExplanations = asyncHandler(async (req, res) => {
   res.json({ success: true, items });
 });
 
+// @route POST /api/transit/:patientId/:number/reschedule-explanation  { explanationAt, reason, note }
+// The PCC moves their own explanation to another slot of theirs (e.g. the call was not picked up that day). The same
+// slot rules as assigning (no Wednesday; Saturday, Sunday and Tuesday from 2 pm). Every move is kept.
+const RESCHEDULE_REASONS = { not_picked: 'Call not picked up', patient_request: 'Patient asked for another time', other: 'Other' };
+const rescheduleExplanation = asyncHandler(async (req, res) => {
+  const { patient, stage } = await loadStage(req);
+  const t = stage.transit;
+  if (!isAdminLike(req.user) && explanationOwner(patient, stage) !== String(req.user._id)) fail('This explanation belongs to another PCC', 403);
+  if (t.holdActive || t.removedAt) fail('This case is on hold or removed');
+  if (!t.explanationScheduledAt || !stage.medicineExplainDate) fail('The explanation is not scheduled yet');
+  if (t.explanationCompletedAt || t.activatedAt) fail('The explanation is already completed', 409);
+  const to = parseDate(req.body.explanationAt, 'new explanation date & time');
+  if (to < new Date()) fail('Choose a time in the future');
+  assertWorkingDay(to);
+  const reason = RESCHEDULE_REASONS[req.body.reason] ? req.body.reason : 'not_picked';
+  const note = String(req.body.note || '').trim();
+  if (note.length > 1000) fail('Keep the note under 1000 characters');
+  const from = stage.medicineExplainDate;
+  if (!t.explanationReschedules) t.explanationReschedules = [];
+  t.explanationReschedules.push({ from, to, reason, note, at: new Date(), byName: req.user.name });
+  stage.medicineExplainDate = to;
+  const summary = `Medicine explanation rescheduled (${RESCHEDULE_REASONS[reason]}): ${clinicDay(from)} -> ${new Date(to).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}${note ? ` | ${note}` : ''}`;
+  logActivity(patient, req.user, stage.number, summary);
+  await respondWithCase(res, patient, stage.number);
+  await notePoEvent(stage, req.user, summary);
+  require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
+});
+
 const completeExplanation = asyncHandler(async (req, res) => {
   const { patient, stage } = await loadStage(req);
   const t = stage.transit;
@@ -518,6 +552,46 @@ const completeExplanation = asyncHandler(async (req, res) => {
   await respondWithCase(res, patient, stage.number);
   await notePoEvent(stage, req.user, summary);
   require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
+});
+
+// @route GET /api/transit/follow-ups?status=open|done|all&mine=1   ("In Transit Follow-ups" page)
+// Every follow-up call In Transit set on the delivery schedule call, scheduling and dispatch / handover steps: open ones
+// (upcoming, due, late by N days) and finished ones (done on time / N days late, or closed when the step got done).
+const OPEN_FOLLOW_UP = ['upcoming', 'due', 'late'];
+const listFollowUps = asyncHandler(async (req, res) => {
+  const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.calls.nextCallAt': { $type: 'date' } })
+    .select('patientName patientCode number stages.number stages.purchaseOrder stages.transit stages.medicineRequest stages.medicineRequests').lean();
+  const now = new Date();
+  let rows = [];
+  for (const patient of patients) for (const stage of patient.stages || []) {
+    const t = stage.transit || {};
+    if (!(t.calls || []).some((c) => c.nextCallAt) || t.removedAt) continue;
+    const request = pickRequest(stage);
+    const handedOver = ['dispatched', 'delivered'].includes(courierOf(request || {}).status);
+    const mode = require('../utils/transitFlow').fulfilmentMode(stage, request);
+    const done = {
+      calls: Boolean(t.callsDoneAt || t.fulfilmentSetAt) || handedOver,
+      scheduled: (Boolean(mode) && Boolean(t.pickupScheduledAt || t.dispatchScheduledAt)) || handedOver,
+      handover: handedOver,
+    };
+    followUpHistory(t.calls, done, now).forEach((f) => rows.push({
+      id: `${patient._id}-${stage.number}-${f.setAt}`, patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode || '',
+      phone: patient.number ? String(patient.number) : '', phase: stage.number, poNumber: request?.poNumber || stage.purchaseOrder || '', ...f,
+    }));
+  }
+  const poNumbers = [...new Set(rows.map((r) => r.poNumber).filter(Boolean))];
+  const pos = poNumbers.length && mongoose.connection.readyState === 1 ? await PurchaseOrder.find({ poNumber: { $in: poNumbers } }).select('poNumber').lean() : [];
+  const poIdOf = new Map(pos.map((po) => [po.poNumber, String(po._id)]));
+  rows = rows.map((r) => ({ ...r, poId: poIdOf.get(r.poNumber) || null }));
+  if (req.query.mine === '1') rows = rows.filter((r) => r.setByName === req.user.name);
+  const summary = ['upcoming', 'due', 'late', 'done', 'closed'].reduce((acc, key) => ({ ...acc, [key]: rows.filter((r) => r.status === key).length }), {});
+  const status = req.query.status || 'open';
+  if (status === 'open') rows = rows.filter((r) => OPEN_FOLLOW_UP.includes(r.status));
+  else if (status === 'done') rows = rows.filter((r) => !OPEN_FOLLOW_UP.includes(r.status));
+  rows.sort((a, b) => (OPEN_FOLLOW_UP.includes(a.status) && OPEN_FOLLOW_UP.includes(b.status)
+    ? new Date(a.dueAt) - new Date(b.dueAt)
+    : new Date(b.doneAt || b.dueAt) - new Date(a.doneAt || a.dueAt)));
+  res.json({ success: true, rows, summary });
 });
 
 const getTransitReminders = asyncHandler(async (req, res) => {
@@ -550,4 +624,4 @@ const getTransitReminders = asyncHandler(async (req, res) => {
   res.json({ success: true, count: reminders.length, reminders });
 });
 
-module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation };
+module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation, rescheduleExplanation, listFollowUps };

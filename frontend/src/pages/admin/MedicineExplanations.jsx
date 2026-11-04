@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link } from 'react-router-dom';
-import { Check, ChevronLeft, ChevronRight, Clock3, Package, Phone, Pill, RefreshCw, Stethoscope, UserRound } from 'lucide-react';
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Clock3, Package, Phone, Pill, RefreshCw, Stethoscope, UserRound } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -13,6 +13,43 @@ import { PageHeader } from '../../components/ui/Layout.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import PoPostCounselling from './PoPostCounselling.jsx';
+import PccCalendar, { pccSlotProblem } from '../../components/transit/PccCalendar.jsx';
+
+const REASONS = [['not_picked', 'Call not picked up'], ['patient_request', 'Patient asked for another time'], ['other', 'Other']];
+const pad2 = (n) => String(n).padStart(2, '0');
+const localInputOf = (value) => { const d = new Date(value); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+
+// The PCC moves the explanation to another of their slots (e.g. the call was not picked up that day), with their
+// calendar to pick a free day. Same slot rules as assigning: no Wednesday; Saturday, Sunday and Tuesday from 2 pm.
+function RescheduleForm({ item, pccId, onDone, onCancel }) {
+  const [at, setAt] = useState('');
+  const [reason, setReason] = useState('not_picked');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const problem = pccSlotProblem(at);
+  const pickDay = (day, afternoon) => { const typed = (at || '').slice(11, 16) || (item.explanation.at ? localInputOf(item.explanation.at).slice(11, 16) : '11:00'); setAt(`${day}T${afternoon && typed < '14:00' ? '14:00' : typed}`); };
+  const submit = async (e) => {
+    e.preventDefault();
+    if (problem) { setError(problem); return; }
+    setSaving(true); setError('');
+    try { await api.post(`/transit/${item.patientId}/${item.stage}/reschedule-explanation`, { explanationAt: new Date(at).toISOString(), reason, note }); onDone(); }
+    catch (err) { setError(err.response?.data?.message || 'Could not reschedule'); }
+    finally { setSaving(false); }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <p className="text-sm">{item.patientName} · Phase {item.stage} · now <b>{item.explanation.at ? new Date(item.explanation.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'}</b></p>
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      <div className="flex flex-wrap gap-1.5">{REASONS.map(([key, label]) => <button key={key} type="button" onClick={() => setReason(key)} className={`rounded-full border px-3 py-1 text-xs font-semibold ${reason === key ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/75'}`}>{label}</button>)}</div>
+      <label className="block space-y-1 text-sm">New date & time<input className={input} type="datetime-local" required value={at} onChange={(e) => setAt(e.target.value)} /></label>
+      {problem && <p className="text-xs font-semibold text-[#8C3B2E]">{problem}</p>}
+      <PccCalendar pccId={pccId} value={at} onPick={pickDay} />
+      <label className="block space-y-1 text-sm">Note (optional)<textarea className={input} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. called twice at 11 am, no answer" /></label>
+      <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Cancel</Button><Button type="submit" disabled={saving || !at || Boolean(problem)}><CalendarClock size={15} />{saving ? 'Saving...' : 'Reschedule explanation'}</Button></div>
+    </form>
+  );
+}
 
 // Collapsed by default: the record is long and each card would otherwise load it.
 function PcRecord({ poId }) {
@@ -44,6 +81,7 @@ export default function MedicineExplanations() {
   const [completedAt, setCompletedAt] = useState(localNow);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [moving, setMoving] = useState(null);
   const [calMonth, setCalMonth] = useState(() => new Date().toLocaleDateString('en-CA').slice(0, 7));
   const load = useCallback(async () => {
     try { const { data } = await api.get('/transit/explanations', { params: { date, status }, skipCache: true }); setItems(data.items); setError(''); }
@@ -148,6 +186,7 @@ export default function MedicineExplanations() {
                           <Row label="Delivery" value={item.mode ? MODE_TEXT[item.mode] : ''} />
                           <Row label="Received" value={item.courier?.deliveredAt ? `${item.courier.receivedByName || ''} ${when(item.courier.deliveredAt)}`.trim() : item.courier?.status === 'dispatched' ? `Dispatched ${when(item.courier.dispatchedAt)} (${[item.courier.courierPartner, item.courier.trackingNumber].filter(Boolean).join(' / ')})` : ''} />
                           <Row label="Assigned" value={item.pcc?.assigned ? `${when(item.pcc.at)} by ${item.pcc.byName}` : ''} />
+                          {(item.explanation.reschedules || []).length > 0 && <div className="rounded-lg bg-[#FBF7ED] px-2.5 py-1.5 text-[11.5px] text-charcoal/75"><p className="font-bold text-charcoal/80">Rescheduled {item.explanation.reschedules.length} time{item.explanation.reschedules.length === 1 ? '' : 's'}</p>{item.explanation.reschedules.slice().reverse().map((r, i) => <p key={i}>{when(r.from)} → {when(r.to)} · {(REASONS.find(([k]) => k === r.reason) || [])[1] || r.reason}{r.note ? ` · ${r.note}` : ''} · {r.byName}</p>)}</div>}
                           {item.explanation.completedAt && <><Row label="Explained" value={`${when(item.explanation.completedAt)} by ${item.explanation.completedBy}`} /><p className="break-words text-sm text-charcoal/80">{item.explanation.note}</p></>}
                         </div>
                       </div>
@@ -166,6 +205,7 @@ export default function MedicineExplanations() {
                           <p className="text-[11.5px] text-charcoal/60">{canComplete ? 'Explain the doses and chits, then complete - this starts the treatment.' : text}</p>
                           <span className="flex flex-wrap gap-2">
                             {item.patientPhone && <a href={`tel:${item.patientPhone}`}><Button size="sm" variant="outline"><Phone size={14} />Call</Button></a>}
+                            {item.explanation.at && <Button size="sm" variant="outline" onClick={() => setMoving(item)}><CalendarClock size={14} />Reschedule</Button>}
                             <Button size="sm" variant={canComplete ? 'orange' : 'primary'} disabled={!canComplete} onClick={() => { setSelected(item); setCompletedAt(localNow()); setNotes(''); setError(''); }}><Check size={15} />Complete explanation</Button>
                           </span>
                         </div>
@@ -205,6 +245,9 @@ export default function MedicineExplanations() {
           </section>
         </aside>
       </div>
+      <Modal open={Boolean(moving)} onClose={() => setMoving(null)} title="Reschedule medicine explanation" className="max-w-2xl">
+        {moving && <RescheduleForm item={moving} pccId={user?.role === ROLES.ASSISTANT_DOCTOR ? user._id || user.id : moving.assignments?.assistantDoctor?.id} onCancel={() => setMoving(null)} onDone={() => { setMoving(null); load(); }} />}
+      </Modal>
       <Modal open={Boolean(selected)} onClose={() => !saving && setSelected(null)} title="Complete medicine explanation">
         <form onSubmit={complete} className="space-y-4">
           <p className="font-medium">{selected?.patientName} · Phase {selected?.stage}{selected?.medicine?.poNumber ? ` · ${selected.medicine.poNumber}` : ''}</p>

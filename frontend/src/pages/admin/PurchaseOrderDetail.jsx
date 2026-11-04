@@ -600,6 +600,10 @@ function trackWork(key, item) {
   }
 }
 const TRACK_STEPS = ['calls', 'scheduled', 'fullpay', 'handover', 'pcc', 'received', 'explained', 'started'];
+// Steps where In Transit calls the patient (with follow-ups): the delivery schedule call, scheduling and dispatch / handover.
+const CALL_STEP_FORM = { calls: 'log_call', scheduled: 'log_call_scheduled', handover: 'log_call_handover' };
+const CALL_STEP_NAME = { calls: 'Delivery schedule call', scheduled: 'Schedule delivery', handover: 'Dispatch / handover' };
+const lateText = (days) => `${days} day${days === 1 ? '' : 's'} late`;
 
 // Handover and treatment start of this PO's medicine: calls, delivery mode, pickup or dispatch, receipt, explanation.
 // `step`: the In Transit step chosen on the timeline - its own form shows, whatever step the case is on.
@@ -627,6 +631,9 @@ function HandoverPanel({ po, step, onChanged }) {
   // The delivery schedule (date, self pickup or porter / courier) can still be changed until the handover / dispatch.
   const handedOver = Boolean(courier) && ['dispatched', 'delivered'].includes(courier.status);
   const reschedule = focus?.key === 'scheduled' && focus.state === 'done' && !handedOver;
+  const callStep = focus && CALL_STEP_FORM[focus.key] ? focus.key : null;
+  const stepCalls = callStep ? item.calls.filter((c) => (c.step || 'calls') === callStep) : item.calls;
+  const callFollowUp = callStep ? (item.callFollowUps || []).find((f) => f.step === callStep) : null;
   const work = reschedule ? { action: 'schedule_delivery' } : focus && focus.state !== 'done' ? trackWork(focus.key, item) : {};
   const next = !open ? null : focus ? work.action || null : HANDOVER_ACTIONS.includes(item.nextAction) ? item.nextAction : null;
   return (
@@ -638,20 +645,23 @@ function HandoverPanel({ po, step, onChanged }) {
         {item.activated && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><CheckCircle2 size={15} />Treatment started {poDateTime(item.explanation.completedAt)}{item.explanation.completedBy ? ` by ${item.explanation.completedBy}` : ''}</p>}
         {!focus && item.alerts.filter((a) => !a.text.startsWith('On hold')).map((a) => <p key={a.text} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${a.type === 'danger' ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : a.type === 'warning' ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}`}><AlertTriangle size={15} />{a.text}</p>)}
 
-        {/* The call with the patient comes first: the schedule below is fixed on a connected call. */}
-        {open && (!focus || focus.key === 'calls') && <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setQuick('log_call')}><PhoneCall size={14} />Log call</Button>
+        {/* The call with the patient comes first: the schedule below is fixed on a connected call. Calls (with follow-ups)
+            are also logged while scheduling the delivery and on the dispatch / handover day, until that step is done. */}
+        {focus && callStep && callFollowUp && <p className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${callFollowUp.overdue ? (callFollowUp.lateDays ? 'bg-[#8C3B2E]/10 text-[#8C3B2E]' : 'bg-amber-50 text-amber-900') : 'bg-sky-50 text-sky-900'}`}><Clock3 size={15} />Follow-up call {callFollowUp.overdue ? 'due' : 'set for'} {poDateTime(callFollowUp.dueAt)}{callFollowUp.lateDays > 0 && <span className="rounded-full bg-[#8C3B2E] px-2 py-0.5 text-[11px] text-white">{lateText(callFollowUp.lateDays)}</span>}</p>}
+        {open && (!focus || (callStep && focus.state !== 'done')) && <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setQuick(focus ? CALL_STEP_FORM[focus.key] : 'log_call')}><PhoneCall size={14} />{callFollowUp ? 'Log follow-up call' : 'Log call'}</Button>
           {item.pcc?.assigned && !item.explanation.completedAt && !focus && <Button size="sm" variant="outline" onClick={() => setQuick('assign_pcc')}><Stethoscope size={14} />Change PCC</Button>}
         </div>}
-        {(!focus || focus.key === 'calls') && <div>
-          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">Calls with the patient</p>
-          {item.calls.length ? (
+        {(!focus || callStep) && <div>
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-charcoal/45">Calls with the patient{focus ? ` - ${CALL_STEP_NAME[focus.key]}` : ''}</p>
+          {stepCalls.length ? (
             <ol className="relative space-y-2 border-l border-cardline pl-4">
-              {item.calls.map((c, i) => (
+              {stepCalls.map((c, i) => (
                 <li key={i} className="relative text-sm">
                   <span className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ${c.outcome === 'connected' ? 'bg-emerald-600' : 'bg-amber-500'}`} />
-                  <p className="font-semibold text-charcoal">{CALL[c.outcome]} <span className="font-normal text-charcoal/50">{poDateTime(c.at)} - {c.byName}</span></p>
+                  <p className="font-semibold text-charcoal">{CALL[c.outcome]} <span className="font-normal text-charcoal/50">{poDateTime(c.at)} - {c.byName}</span>{!focus && c.step !== 'calls' && <span className="ml-1.5 rounded bg-[#F3EEE2] px-1.5 py-0.5 text-[10.5px] font-semibold text-charcoal/60">{CALL_STEP_NAME[c.step]}</span>}</p>
                   <p className="text-charcoal/75">{c.notes}</p>
+                  {c.dueAt && <p className={`text-xs font-semibold ${c.lateDays ? 'text-[#8C3B2E]' : 'text-emerald-700'}`}>Follow-up of {poDateTime(c.dueAt)}: {c.lateDays ? `done ${lateText(c.lateDays)}` : 'done on time'}</p>}
                   {c.nextCallAt && <p className="text-xs font-semibold text-amber-800">Call again {poDateTime(c.nextCallAt)}</p>}
                 </li>
               ))}

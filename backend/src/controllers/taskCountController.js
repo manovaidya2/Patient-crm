@@ -24,6 +24,7 @@ const PAGES = {
   '/admin/accounts/refunds': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
   '/admin/courier': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/self-pickup-schedule': [ADMIN, IN_TRANSIT, MANAGER],
+  '/admin/transit-follow-ups': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/treatment-papers': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/final-check': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
@@ -91,6 +92,12 @@ const COUNTERS = {
       { $match: { 'stages.payments.refunds.status': 'initiated' } }, { $count: 'n' },
     ]);
     return rows[0]?.n || 0;
+  },
+  // In Transit's follow-up calls whose time has come (due today or late).
+  async '/admin/transit-follow-ups'(user) {
+    const { listFollowUps } = require('./transitController');
+    const data = await callHandler(listFollowUps, user, { status: 'open' });
+    return (data.rows || []).filter((r) => r.status !== 'upcoming').length;
   },
   // Porter / courier scheduled, still to be dispatched or confirmed delivered.
   async '/admin/courier'() {

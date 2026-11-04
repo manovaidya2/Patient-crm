@@ -6,6 +6,7 @@
 
 const { supplyLabel } = require('../constants/supplyPlans');
 const { phaseAge } = require('./phaseAge');
+const { openFollowUps } = require('./callFollowUps');
 const { medicineDelays, fixedReadyDate, dispatchDelayInput } = require('./medicineDelay');
 
 const MEDICINE_ACTIVE = ['requested', 'in_process', 'made', 'sent_to_courier'];
@@ -139,8 +140,15 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
   const courier = plain(request?.courier);
   const pay = payment || paymentSummary(stage);
   const mode = fulfilmentMode(stage, request);
-  const calls = (t.calls || []).map((call) => ({ ...plain(call), at: iso(call.at), nextCallAt: iso(call.nextCallAt) }))
+  const calls = (t.calls || []).map((call) => ({ ...plain(call), step: call.step || 'calls', at: iso(call.at), nextCallAt: iso(call.nextCallAt), dueAt: iso(call.dueAt), lateDays: call.lateDays || 0 }))
     .sort((a, b) => new Date(b.at) - new Date(a.at));
+  // Follow-up calls still open on the delivery schedule call, scheduling and dispatch / handover steps.
+  const handedOver = ['dispatched', 'delivered'].includes(courier.status);
+  const callFollowUps = openFollowUps(calls, {
+    calls: Boolean(t.callsDoneAt || t.fulfilmentSetAt) || handedOver,
+    scheduled: (Boolean(mode) && Boolean(t.pickupScheduledAt || t.dispatchScheduledAt)) || handedOver,
+    handover: handedOver,
+  }, now);
   const steps = buildSteps({ patient, stage, t, request, courier, pay, mode, calls, now });
   const activated = Boolean(t.activatedAt);
   const currentIndex = activated ? steps.length - 1 : steps.findIndex((step) => !step.complete);
@@ -162,7 +170,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
   const alerts = [];
   if (!activated) {
     if (readyDays != null && readyDays <= 1) alerts.push({ type: readyDays < 0 ? 'danger' : 'warning', text: readyDays < 0 ? `Medicine ready-by date passed ${-readyDays} day(s) ago` : `Medicine ready-by date is ${readyDays === 0 ? 'today' : 'tomorrow'}` });
-    if (lastCall && lastCall.outcome !== 'connected' && lastCall.nextCallAt && new Date(lastCall.nextCallAt) <= now) alerts.push({ type: 'warning', text: 'Call-back is due' });
+    callFollowUps.filter((f) => f.overdue).forEach((f) => alerts.push({ type: f.lateDays ? 'danger' : 'warning', text: `Follow-up call due (${f.label})${f.lateDays ? ` - ${f.lateDays} day${f.lateDays === 1 ? '' : 's'} late` : ''}` }));
     if (t.pickupScheduledAt && !['delivered'].includes(courier.status) && startOfDay(t.pickupScheduledAt).getTime() === today.getTime()) alerts.push({ type: 'info', text: 'Patient visit is today' });
     if (t.dispatchScheduledAt && !['dispatched', 'delivered'].includes(courier.status) && startOfDay(t.dispatchScheduledAt) <= today) alerts.push({ type: 'warning', text: 'Scheduled dispatch is due' });
     if (t.explanationScheduledAt && !t.explanationCompletedAt && stage.medicineExplainDate && startOfDay(stage.medicineExplainDate) <= today) alerts.push({ type: 'warning', text: 'Medicine explanation is due' });
@@ -211,6 +219,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
     activated,
     mode,
     calls,
+    callFollowUps,
     medicine: request ? {
       requestId: request.requestId || 'legacy',
       status: request.status,
@@ -255,7 +264,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
     pcc: { assigned: Boolean(t.assignedAt || t.explanationDoctor), at: iso(t.assignedAt), byName: t.assignedByName || '', name: patient.assignedDoctor?.name || '', existing: Boolean(patient.assignedDoctor) && !(t.assignedAt || t.explanationDoctor) },
     deliveryPlan: { at: iso(t.dispatchScheduledAt), courier: t.plannedCourier || '', address: t.plannedAddress || '', note: t.deliveryPlanNote || '' },
     releasedAt: request?.status === 'sent_to_courier' ? iso(request.sentToCourierAt) : null,
-    explanation: { at: iso(stage.medicineExplainDate), mode: t.explanationMode, completedAt: iso(t.explanationCompletedAt), completedBy: t.explanationCompletedByName, note: t.explanationNote, ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },
+    explanation: { reschedules: (t.explanationReschedules || []).map((r) => ({ from: iso(r.from), to: iso(r.to), reason: r.reason, note: r.note || '', at: iso(r.at), byName: r.byName || '' })), at: iso(stage.medicineExplainDate), mode: t.explanationMode, completedAt: iso(t.explanationCompletedAt), completedBy: t.explanationCompletedByName, note: t.explanationNote, ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },
     assignments: { assistantDoctor: refOf(patient.assignedDoctor), postCounselor: refOf(stage.postCounselor), psychologist: refOf(patient.assignedPsychologist) },
     updatedAt: iso(patient.updatedAt),
   };
