@@ -89,6 +89,17 @@ const schema = new mongoose.Schema({
   // Reception token of the day: given when the patient is first marked Arrived / Online, in that order, from 11.
   tokenNumber: { type: Number, default: null },
   // Booked by the PCC (after a phase was completed) instead of Reception / Sales, with a note for reception.
+  // The visit on the Appointments page: Reception releases the patient to a PCC, who ticks history started / taken.
+  visitFlow: {
+    releasedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    releasedToName: { type: String, trim: true, default: '' },
+    releasedAt: { type: Date, default: null },
+    releasedByName: { type: String, trim: true, default: '' },
+    historyStartedAt: { type: Date, default: null },
+    historyStartedByName: { type: String, trim: true, default: '' },
+    historyTakenAt: { type: Date, default: null },
+    historyTakenByName: { type: String, trim: true, default: '' },
+  },
   bookedByRole: { type: String, trim: true, default: '' },
   bookingNote: { type: String, trim: true, default: '', maxlength: 1000 },
   tokenDate: { type: String, trim: true, default: '' },

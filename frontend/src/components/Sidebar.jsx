@@ -95,6 +95,8 @@ export const canSeeNavItem = (item, role) => (!item.adminOnly || role === ROLES.
 export const navItems = [
   // Every role's open work in one list (the orange counts, item by item).
   { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
+  // Every appointment of a day and how the visit went - for everyone.
+  { to: '/admin/appointments', icon: CalendarCheck, label: 'Appointments', roles: Object.values(ROLES) },
   { to: '/admin/team-pending', icon: Users, label: 'Team pending', roles: [ROLES.ADMIN, ROLES.MANAGER] },
   { to: '/admin', icon: LayoutDashboard, label: 'Control Room', end: true, roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR] },
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, roles: [ROLES.RECEPTIONIST], hiddenFor: [ROLES.MANAGER] }, // the Manager has Control Room on the same page

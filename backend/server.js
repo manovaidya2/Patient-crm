@@ -110,6 +110,7 @@ app.use('/api/medicine', medicineRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/transit', transitRoutes);
 app.use('/api/incoming-calls', require('./src/routes/incomingCallRoutes'));
+app.use('/api/appointments-board', require('./src/routes/appointmentBoardRoutes'));
 app.use('/api/purchase-orders', require('./src/routes/purchaseOrderRoutes'));
 app.use('/api/stocks', require('./src/routes/stockRoutes'));
 app.use('/api/medicine-jobs', require('./src/routes/medicineJobRoutes'));

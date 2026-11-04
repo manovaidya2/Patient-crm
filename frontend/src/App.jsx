@@ -35,6 +35,7 @@ const SelfPickupSchedule = lazy(() => import('./pages/admin/SelfPickupSchedule.j
 const TransitFollowUps = lazy(() => import('./pages/admin/TransitFollowUps.jsx'));
 const IncomingCallLog = lazy(() => import('./pages/admin/IncomingCallLog.jsx'));
 const ReadyNotDelivered = lazy(() => import('./pages/admin/ReadyNotDelivered.jsx'));
+const Appointments = lazy(() => import('./pages/admin/Appointments.jsx'));
 const TreatmentPapers = lazy(() => import('./pages/admin/TreatmentPapers.jsx'));
 const SettingsPage = lazy(() => import('./pages/admin/Settings.jsx'));
 const MedicineFinalCheck = lazy(() => import('./pages/admin/MedicineFinalCheck.jsx'));
@@ -302,6 +303,7 @@ function App() {
         <Route path="self-pickup-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><SelfPickupSchedule /></ProtectedRoute>} />
         <Route path="transit-follow-ups" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><TransitFollowUps /></ProtectedRoute>} />
         <Route path="incoming-calls" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><IncomingCallLog /></ProtectedRoute>} />
+        <Route path="appointments" element={<ProtectedRoute roles={Object.values(ROLES)}><Appointments /></ProtectedRoute>} />
         <Route path="ready-not-delivered" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT, ROLES.DOCTOR]}><ReadyNotDelivered /></ProtectedRoute>} />
         <Route
           path="courier-delivered"
