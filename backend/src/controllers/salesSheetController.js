@@ -534,6 +534,32 @@ const logCall = asyncHandler(async (req, res) => {
   res.json({ success: true, appointment: serializeRow(row, req.user) });
 });
 
+// A logged call's outcome / notes, corrected by the person who logged it (or the admin). The latest call also keeps the
+// row's current call status and last notes in step.
+const canEditCall = (call, user) => isAdminLike(user) || String(call.calledBy) === String(user._id);
+const editCallOn = (Model, sheet, extraFilter = {}) => asyncHandler(async (req, res) => {
+  if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only Admin and Receptionist can edit calls' });
+  const status = req.body?.status;
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
+  if (!['connected', 'no_answer', 'follow_up'].includes(status)) return res.status(400).json({ success: false, message: 'Select the call outcome' });
+  if (!notes || notes.length > 2000) return res.status(400).json({ success: false, message: 'Enter call details (up to 2000 characters)' });
+  const row = await Model.findOne({ _id: req.params.id, ...extraFilter });
+  if (!row) return res.status(404).json({ success: false, message: 'Appointment not found' });
+  const call = (row.callHistory || []).id(req.params.callId);
+  if (!call) return res.status(404).json({ success: false, message: 'Call not found' });
+  if (!canEditCall(call, req.user)) return res.status(403).json({ success: false, message: 'Only the person who logged this call can edit it' });
+  const before = `${call.status.replace('_', ' ')} | ${call.notes}`;
+  call.status = status; call.notes = notes; call.editedAt = new Date(); call.editedByName = req.user.name;
+  const last = row.callHistory[row.callHistory.length - 1];
+  if (String(last._id) === String(call._id)) { row.callStatus = status; row.lastCallNotes = notes; }
+  await row.save();
+  await recordAudit(req, { sheet, rowId: row._id, appointmentCode: row.appointmentCode, action: 'Call edited', details: `${before} -> ${status.replace('_', ' ')} | ${notes}` });
+  emitDateChanged(req, row.appointmentDate);
+  res.json({ success: true });
+});
+const editCall = editCallOn(SalesAppointment, 'sales');
+const editManagementCall = editCallOn(AppointmentManagementEntry, 'management', { sourceAppointment: null });
+
 const listCalls = asyncHandler(async (req, res) => {
   if (![ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST, ROLES.SALES_TEAM].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Call history is not available' });
   const row = await SalesAppointment.findById(req.params.id).select('createdBy appointmentCode status numberOfCalls callStatus lastCallAt callHistory').lean();
@@ -543,6 +569,8 @@ const listCalls = asyncHandler(async (req, res) => {
     id: String(call._id), number: Math.max(0, (row.numberOfCalls || 0) - (row.callHistory || []).length) + index + 1,
     status: call.status, notes: call.notes, calledAt: call.calledAt,
     calledBy: String(call.calledBy), calledByName: call.calledByName,
+    editedAt: call.editedAt || null, editedByName: call.editedByName || '',
+    canEdit: req.user.role !== ROLES.SALES_TEAM && canEditCall(call, req.user),
   })).reverse();
   res.json({ success: true, calls, numberOfCalls: row.numberOfCalls || 0,
     legacyCount: Math.max(0, (row.numberOfCalls || 0) - calls.length),
@@ -612,6 +640,8 @@ const listManagementCalls = asyncHandler(async (req, res) => {
     id: String(call._id), number: Math.max(0, (row.numberOfCalls || 0) - row.callHistory.length) + index + 1,
     status: call.status, notes: call.notes, calledAt: call.calledAt,
     calledBy: String(call.calledBy), calledByName: call.calledByName,
+    editedAt: call.editedAt || null, editedByName: call.editedByName || '',
+    canEdit: canEditCall(call, req.user),
   })).reverse();
   res.json({ success: true, calls, numberOfCalls: row.numberOfCalls || 0,
     legacyCount: Math.max(0, (row.numberOfCalls || 0) - calls.length),
@@ -743,4 +773,4 @@ const deleteAppointment = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, uploadConsultationFeeProof, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, cancelAcceptance, rescheduleAppointment, rescheduleManagedAppointment, markNotComing, clearNotComing, logCall, listCalls, logSalesCall, listSalesCalls, logManagementCall, listManagementCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };
+module.exports = { editCall, editManagementCall, listColumns, createColumn, updateColumn, deleteColumn, listLayout, updateLayout, listManagementColumns, createManagementColumn, updateManagementColumn, deleteManagementColumn, uploadManagementAttachment, uploadConsultationFeeProof, listAppointments, listTimeline, listManagedAppointments, acceptAppointment, cancelAcceptance, rescheduleAppointment, rescheduleManagedAppointment, markNotComing, clearNotComing, logCall, listCalls, logSalesCall, listSalesCalls, logManagementCall, listManagementCalls, updateCallStatus, createManagedAppointment, updateManagedAppointment, deleteManagedAppointment, createAppointment, updateAppointment, deleteAppointment };

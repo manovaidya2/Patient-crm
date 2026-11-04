@@ -58,7 +58,9 @@ const ClinicInventory = () => {
   const openEdit = (item) => { setItemModal({ mode: 'edit', item }); setItemForm({ name: item.name, category: item.category, unit: item.unit, openingStock: '', lowStockAt: item.lowStockAt || '', notes: item.notes || '' }); setModalError(''); };
   const submitItem = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { if (itemModal.mode === 'edit') await api.patch(`/clinic-inventory/${itemModal.item.id}`, itemForm); else await api.post('/clinic-inventory', itemForm); setItemModal(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not save item.'); } finally { setSaving(false); } };
   const openMovement = (item, type) => { setMovementItem(item); setMovement({ ...emptyMovement, type, reason: type === 'add' ? 'New stock received' : type === 'consume' ? 'Item used' : 'Manual stock correction' }); setModalError(''); };
-  const submitMovement = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { await api.post(`/clinic-inventory/${movementItem.id}/transactions`, movement); setMovementItem(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not update stock.'); } finally { setSaving(false); } };
+  // The latest stock entry can be corrected (opened from Stock records): same form, saved over that entry.
+  const openEditLast = (item, entry) => { setMovementItem({ ...item, editLast: true, currentStock: entry.previousStock }); setMovement({ ...emptyMovement, type: entry.type, quantity: String(entry.quantity), reason: entry.reason || '', notes: entry.notes || '' }); setModalError(''); };
+  const submitMovement = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { if (movementItem.editLast) await api.patch(`/clinic-inventory/${movementItem.id}/transactions/last`, movement); else await api.post(`/clinic-inventory/${movementItem.id}/transactions`, movement); setMovementItem(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not update stock.'); } finally { setSaving(false); } };
 
   return (
     <div className="mx-auto max-w-[1500px] font-serif">
@@ -421,7 +423,7 @@ const ClinicInventory = () => {
         onClose={() => setMovementItem(null)}
         title={
           movementItem
-            ? `${labels[movement.type]} | ${movementItem.name}`
+            ? `${movementItem.editLast ? 'Edit last entry' : labels[movement.type]} | ${movementItem.name}`
             : "Update stock"
         }
         className="max-w-xl"
@@ -476,7 +478,7 @@ const ClinicInventory = () => {
             className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2.5 text-sm outline-none focus:border-sage"
           />
           <p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2.5 text-sm text-charcoal/65">
-            Current stock:{" "}
+            {movementItem?.editLast ? "Stock before this entry:" : "Current stock:"}{" "}
             <strong className="text-charcoal">
               {number(movementItem?.currentStock)} {movementItem?.unit}
             </strong>
@@ -490,7 +492,7 @@ const ClinicInventory = () => {
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save movement"}
+              {saving ? "Saving..." : movementItem?.editLast ? "Save changes" : "Save movement"}
             </Button>
           </div>
         </form>
@@ -516,10 +518,11 @@ const ClinicInventory = () => {
                   <th className="px-3 py-3">Stock change</th>
                   <th className="px-3 py-3">Reason</th>
                   <th className="px-3 py-3">Recorded by</th>
+                  <th className="px-3 py-3"><span className="sr-only">Edit</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-cardline-soft">
-                {selectedHistory.transactions?.map((entry) => (
+                {selectedHistory.transactions?.map((entry, index) => (
                   <tr key={entry.id}>
                     <td className="px-3 py-3 text-charcoal/65">
                       {stamp(entry.createdAt)}
@@ -536,13 +539,14 @@ const ClinicInventory = () => {
                     <td className="px-3 py-3">
                       {entry.reason || entry.notes || "-"}
                     </td>
-                    <td className="px-3 py-3">{entry.recordedByName || "-"}</td>
+                    <td className="px-3 py-3">{entry.recordedByName || "-"}{entry.editedByName && <span className="block text-[11px] text-charcoal/50">Edited by {entry.editedByName}</span>}</td>
+                    <td className="px-3 py-3">{index === 0 && <button type="button" title="Edit the latest entry" aria-label="Edit the latest stock entry" onClick={() => { setHistoryItem(null); openEditLast(selectedHistory, entry); }} className="rounded p-1.5 text-sage hover:bg-[#F3F6F2]"><Pencil size={14} /></button>}</td>
                   </tr>
                 ))}
                 {!selectedHistory.transactions?.length && (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="7"
                       className="px-3 py-8 text-center text-charcoal/55"
                     >
                       No stock records yet.

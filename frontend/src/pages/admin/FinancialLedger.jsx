@@ -1,9 +1,9 @@
-import SplitRows, { emptySplitRows, splitTotal, splitsPayload, splitHasOnline } from '../../components/payments/SplitRows.jsx';
+import SplitRows, { emptySplitRows, splitTotal, splitsPayload, splitHasOnline, splitRowsFrom } from '../../components/payments/SplitRows.jsx';
 import ProofPicker from '../../components/ui/ProofPicker.jsx';
 import { useEffect, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Check, ChevronLeft, ChevronRight, Download, Eye, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Eye, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
@@ -39,6 +39,56 @@ function ReferencePicker({ type, value, onChange }) {
     <input className={field} aria-label={type === 'appointments' ? 'Search appointment ID' : 'Search patient'} value={search} onChange={(e) => setSearch(e.target.value)} placeholder={type === 'appointments' ? 'Search appointment ID' : 'Search patient name or ID'} />
     {search.trim().length >= 2 && <div className="mt-1 max-h-36 overflow-auto rounded-lg border border-cardline bg-white">{rows.length ? rows.map((row) => <button key={row._id} type="button" onClick={() => { onChange(row); setSearch(''); setRows([]); }} className="block w-full border-b border-cardline px-3 py-2 text-left text-sm hover:bg-offwhite-200">{row.appointmentCode ? `${row.appointmentCode} | ${row.appointmentDate}` : `${row.patientName} | ${row.patientCode || row.number || '-'}`}</button>) : <p className="p-2 text-xs">{error || 'No matching references'}</p>}</div>}</>}
   </div>;
+}
+
+// Correct a consultation payment (amount, date, mode, bank, UTR, who received cash, notes, proofs). Locked by the
+// server once the Post Counselor has saved the appointment's record; a verified payment goes back for verification.
+function EditReceiptForm({ receipt, onCancel, onSaved }) {
+  const [banks, setBanks] = useState([]);
+  const [form, setForm] = useState({ amount: String(receipt.amount ?? ''), date: String(receipt.date || '').slice(0, 10), paymentMode: receipt.paymentMode || 'cash', bank: receipt.bank ? String(receipt.bank) : '', reference: receipt.reference || '', cashReceivedByName: receipt.cashReceivedByName || '', notes: receipt.notes || '' });
+  const [splitRows, setSplitRows] = useState(() => (receipt.paymentMode === 'split' ? splitRowsFrom(receipt) : emptySplitRows()));
+  const [proofs, setProofs] = useState(receipt.files || []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const split = form.paymentMode === 'split';
+  useEffect(() => { api.get('/accounts/ledger/banks').then(({ data }) => setBanks(data.banks || [])).catch(() => {}); }, []);
+  const change = (name) => (e) => setForm((old) => ({ ...old, [name]: e.target.value }));
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    setBusy(true); setError('');
+    try { const body = new FormData(); body.append('file', file); const { data } = await api.post('/sales-sheet/consultation-upload', body); setProofs((old) => [...old, { url: data.file.url, fileName: data.file.fileName }].slice(0, 5)); }
+    catch (err) { setError(err.response?.data?.message || 'Payment proof could not be uploaded'); }
+    finally { setBusy(false); }
+  };
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setError('');
+    try {
+      await api.patch(`/accounts/consultation-receipts/${receipt._id}/details`, { ...form, amount: split ? String(splitTotal(splitRows)) : form.amount, splits: split ? splitRows : undefined, files: proofs });
+      onSaved();
+    } catch (err) { setError(err.response?.data?.message || 'Payment could not be updated'); }
+    finally { setBusy(false); }
+  };
+  return <form onSubmit={submit} className="space-y-3 border-t border-cardline pt-3">
+    <h3 className="text-sm font-bold">Edit payment</h3>
+    {receipt.status === 'approved' && <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">This payment is verified. Saving a change sends it back for verification.</p>}
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Label title="Amount *"><input className={field} required={!split} disabled={split} type="number" min="0.01" step="0.01" max="100000000" value={split ? splitTotal(splitRows) : form.amount} onChange={change('amount')} /></Label>
+      <Label title="Payment date *"><input className={field} required type="date" max={localDay()} value={form.date} onChange={change('date')} /></Label>
+      <Label title="Payment mode"><select className={field} value={form.paymentMode} onChange={change('paymentMode')}><option value="cash">Cash</option><option value="online">Online</option><option value="split">Split (online + cash + card)</option></select></Label>
+      {form.paymentMode !== 'cash' && <Label title="Bank (optional)"><select className={field} value={form.bank} onChange={change('bank')}><option value="">Unassigned bank</option>{banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.displayName || bank.name}</option>)}</select></Label>}
+      {form.paymentMode === 'online' && <Label title="UTR / reference *"><input className={field} required maxLength={200} value={form.reference} onChange={change('reference')} /></Label>}
+      {form.paymentMode === 'cash' && <Label title="Cash received by *"><input className={field} required maxLength={200} value={form.cashReceivedByName} onChange={change('cashReceivedByName')} /></Label>}
+    </div>
+    {split && <SplitRows idPrefix="ledger-edit-split" rows={splitRows} onChange={setSplitRows} />}
+    <div className="space-y-1.5"><p className="text-xs font-semibold text-charcoal/75">Payment proofs / screenshots</p>
+      {proofs.map((file) => <p key={file.url} className="flex items-center justify-between gap-2 rounded-md border border-cardline bg-white px-2.5 py-1.5 text-xs"><span className="min-w-0 truncate">{file.fileName || 'Payment proof'}</span><button type="button" aria-label="Remove proof" onClick={() => setProofs((old) => old.filter((item) => item.url !== file.url))} className="text-[#9F1D1D]"><X size={13} /></button></p>)}
+      {proofs.length < 5 && <div className="flex flex-wrap gap-3 text-xs font-semibold text-sage"><label className="cursor-pointer hover:underline">Upload file<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" disabled={busy} onChange={upload} /></label><label className="cursor-pointer hover:underline">Take photo<input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy} onChange={upload} /></label></div>}
+    </div>
+    <Label title="Notes"><textarea className={field} rows={2} maxLength={2000} value={form.notes} onChange={change('notes')} /></Label>
+    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Back</Button><Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save payment changes'}</Button></div>
+  </form>;
 }
 
 function ReceiptForm({ onClose, onSaved }) {
@@ -229,8 +279,9 @@ export default function FinancialLedger({ kind = 'all', title, initialStatus = '
       {selected.refunds?.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Refund history</h3>{selected.refunds.map((refund, index) => <div key={refund._id || index} className="border-t border-cardline py-2 text-sm"><p>{money(refund.amount)} | {refund.status} | {stamp(refund.paidAt || refund.createdAt)}</p><p className="break-words text-xs">{refund.reason}</p></div>)}</div>}
       {selected.patientId && <Link className="inline-block text-sm font-semibold text-sage underline" to={`/admin/patients/${selected.patientId}`}>Open patient details</Link>}
       {isAdmin && selected.refunds?.length > 0 && <p className="text-xs text-charcoal/70">This payment has refund history and cannot be deleted.</p>}
-      {!action && <div className="flex flex-wrap justify-end gap-2">{isAdmin && !(selected.refunds?.length > 0) && <Button variant="outline" onClick={() => setAction('delete')}><Trash2 size={15} />Delete payment</Button>}{selected.status === 'pending' && canReview && <><Button variant="outline" onClick={() => { setAction('cancel'); setReason(''); }}><X size={15} />Cancel payment</Button><Button onClick={() => setAction('approve')}><Check size={15} />Approve payment</Button></>}</div>}
-      {action && <div className="space-y-3 border-t border-cardline pt-3"><p className="text-sm font-semibold">{action === 'approve' ? 'Confirm this payment has been verified?' : action === 'delete' ? `Permanently delete this ${selected.status} ${selected.kind} payment of ${money(selected.amount)}? This will remove it from the patient balance and ledger.` : 'Cancellation reason'}</p>{action === 'cancel' && <textarea aria-label="Cancellation reason" className={field} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />}{actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setAction(null)}>Back</Button><Button disabled={saving || (action === 'cancel' && !reason.trim())} onClick={action === 'delete' ? deletePayment : review}>{saving ? 'Saving...' : action === 'delete' ? 'Delete payment' : 'Confirm'}</Button></div></div>}
+      {action === 'edit' && <EditReceiptForm receipt={selected} onCancel={() => setAction(null)} onSaved={() => { setAction(null); setSelected(null); setReload((old) => old + 1); }} />}
+      {!action && <div className="flex flex-wrap justify-end gap-2">{selected.kind === 'consultation' && selected.status !== 'cancelled' && canReview && <Button variant="outline" onClick={() => setAction('edit')}><Pencil size={15} />Edit payment</Button>}{isAdmin && !(selected.refunds?.length > 0) && <Button variant="outline" onClick={() => setAction('delete')}><Trash2 size={15} />Delete payment</Button>}{selected.status === 'pending' && canReview && <><Button variant="outline" onClick={() => { setAction('cancel'); setReason(''); }}><X size={15} />Cancel payment</Button><Button onClick={() => setAction('approve')}><Check size={15} />Approve payment</Button></>}</div>}
+      {action && action !== 'edit' && <div className="space-y-3 border-t border-cardline pt-3"><p className="text-sm font-semibold">{action === 'approve' ? 'Confirm this payment has been verified?' : action === 'delete' ? `Permanently delete this ${selected.status} ${selected.kind} payment of ${money(selected.amount)}? This will remove it from the patient balance and ledger.` : 'Cancellation reason'}</p>{action === 'cancel' && <textarea aria-label="Cancellation reason" className={field} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />}{actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setAction(null)}>Back</Button><Button disabled={saving || (action === 'cancel' && !reason.trim())} onClick={action === 'delete' ? deletePayment : review}>{saving ? 'Saving...' : action === 'delete' ? 'Delete payment' : 'Confirm'}</Button></div></div>}
     </div>}</Modal>
   </div>;
 }

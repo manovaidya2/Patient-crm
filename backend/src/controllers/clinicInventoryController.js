@@ -8,7 +8,7 @@ const formatItem = (item) => ({
   createdByName: item.createdByName || '', editedByName: item.editedByName || '', editedAt: item.editedAt || null,
   createdAt: item.createdAt, updatedAt: item.updatedAt,
   softCopy: item.softCopy?.filename ? { fileName: item.softCopy.originalName, mimeType: item.softCopy.mimeType, uploadedAt: item.softCopy.uploadedAt, uploadedByName: item.softCopy.uploadedByName } : null,
-  transactions: (item.transactions || []).map((entry) => ({ id: String(entry._id), type: entry.type, quantity: entry.quantity, previousStock: entry.previousStock, newStock: entry.newStock, reason: entry.reason || '', notes: entry.notes || '', recordedByName: entry.recordedByName || '', createdAt: entry.createdAt })).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
+  transactions: (item.transactions || []).map((entry) => ({ id: String(entry._id), type: entry.type, quantity: entry.quantity, previousStock: entry.previousStock, newStock: entry.newStock, reason: entry.reason || '', notes: entry.notes || '', recordedByName: entry.recordedByName || '', editedByName: entry.editedByName || '', editedAt: entry.editedAt || null, createdAt: entry.createdAt })).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
 });
 
 const listClinicInventory = asyncHandler(async (req, res) => {
@@ -56,6 +56,24 @@ const addClinicInventoryTransaction = asyncHandler(async (req, res) => {
   await item.save(); res.json({ success: true, item: formatItem(item) });
 });
 
+// @route PATCH /api/clinic-inventory/:id/transactions/last  - correct the latest stock entry (type, quantity, reason,
+// notes). Only the latest, so every older entry's before/after stock stays true.
+const editLastClinicInventoryTransaction = asyncHandler(async (req, res) => {
+  const item = await ClinicInventory.findOne({ _id: req.params.id, deletedAt: null });
+  if (!item) return res.status(404).json({ success: false, message: 'Clinic inventory item not found' });
+  const last = item.transactions[item.transactions.length - 1];
+  if (!last) return res.status(404).json({ success: false, message: 'No stock entry to edit' });
+  const type = String(req.body.type || '');
+  const quantity = Number(req.body.quantity);
+  if (!['add', 'consume', 'adjust'].includes(type) || !Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ success: false, message: 'Enter a valid stock action and quantity' });
+  const previousStock = Number(last.previousStock || 0);
+  const newStock = type === 'add' ? previousStock + quantity : type === 'consume' ? previousStock - quantity : quantity;
+  if (newStock < 0) return res.status(400).json({ success: false, message: 'Not enough stock available' });
+  Object.assign(last, { type, quantity, newStock, reason: String(req.body.reason || '').trim(), notes: String(req.body.notes || '').trim(), editedByName: req.user.name, editedAt: new Date() });
+  item.currentStock = newStock;
+  await item.save(); res.json({ success: true, item: formatItem(item) });
+});
+
 const deleteClinicInventoryItem = asyncHandler(async (req, res) => {
   if (req.user.role !== ROLES.ADMIN) return res.status(403).json({ message: 'Only Admin can delete clinic items' });
   const item = await ClinicInventory.findOneAndUpdate({ _id: req.params.id, deletedAt: null }, {
@@ -65,4 +83,4 @@ const deleteClinicInventoryItem = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listClinicInventory, createClinicInventoryItem, updateClinicInventoryItem, addClinicInventoryTransaction, deleteClinicInventoryItem };
+module.exports = { listClinicInventory, createClinicInventoryItem, updateClinicInventoryItem, addClinicInventoryTransaction, editLastClinicInventoryTransaction, deleteClinicInventoryItem };

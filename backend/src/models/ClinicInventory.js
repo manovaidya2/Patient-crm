@@ -8,6 +8,8 @@ const clinicInventoryTransactionSchema = new mongoose.Schema({
   reason: { type: String, trim: true, default: '' },
   notes: { type: String, trim: true, default: '' },
   recordedByName: { type: String, trim: true, default: '' },
+  editedByName: { type: String, trim: true, default: '' },
+  editedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 const clinicInventorySchema = new mongoose.Schema({

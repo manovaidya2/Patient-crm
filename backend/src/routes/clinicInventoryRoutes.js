@@ -15,5 +15,6 @@ router.post('/', controller.createClinicInventoryItem);
 router.patch('/:id', controller.updateClinicInventoryItem);
 router.delete('/:id', authorize(ROLES.ADMIN), controller.deleteClinicInventoryItem);
 router.post('/:id/transactions', controller.addClinicInventoryTransaction);
+router.patch('/:id/transactions/last', controller.editLastClinicInventoryTransaction);
 
 module.exports = router;

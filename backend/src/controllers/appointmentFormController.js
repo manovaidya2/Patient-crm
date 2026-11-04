@@ -236,4 +236,26 @@ const updateReceptionReceipt = asyncHandler(async (req, res) => {
   res.json({ success: true, receipt });
 });
 
-module.exports = { getForm, listBanks, updateField, updateFee, prepareReceipt, updateSalesReceipt, updateReceptionReceipt, loadTarget, receiptFilter, normalizedValue, canWrite, pcLocked };
+// @route PATCH /api/accounts/consultation-receipts/:id/details  (Consultation Ledger)
+// The same correction from the ledger. Locked for reception once the Post Counselor has saved the record of the
+// appointment the payment belongs to; a verified payment goes back for verification.
+const updateLedgerReceipt = asyncHandler(async (req, res) => {
+  if (!idValid(req.params.id)) fail('Invalid receipt');
+  const current = await Receipt.findOne({ _id: req.params.id, status: { $in: ['pending', 'approved'] } }).lean();
+  if (!current) fail('Payment was cancelled or is no longer available for editing', 409);
+  if (!isAdminLike(req.user)) {
+    const entry = current.appointment
+      ? await Management.findById(current.appointment).select('postCounseling.savedAt').lean()
+      : current.salesAppointment ? await Management.findOne({ sourceAppointment: current.salesAppointment }).select('postCounseling.savedAt').lean() : null;
+    if (entry?.postCounseling?.savedAt) fail(PC_LOCKED, 409);
+  }
+  const set = await editedPayment(req);
+  const reverify = current.status === 'approved' ? { status: 'pending', approvedByName: '', approvedAt: null } : {};
+  const receipt = await Receipt.findOneAndUpdate({ _id: current._id, status: current.status }, { $set: { ...set, ...reverify } }, { new: true, runValidators: true });
+  if (!receipt) fail('This payment changed. Reload before saving.', 409);
+  const rowId = current.appointment || current.salesAppointment;
+  if (rowId) await Audit.create({ sheet: current.appointment ? 'management' : 'sales', rowId, appointmentCode: current.appointmentCode || '', action: 'Payment edited', details: `Receipt ${receipt._id} (ledger): Rs ${current.amount} -> Rs ${set.amount}${reverify.status ? ' (sent back for verification)' : ''}`, changedBy: req.user._id, changedByName: req.user.name });
+  res.json({ success: true, receipt });
+});
+
+module.exports = { getForm, listBanks, updateField, updateFee, prepareReceipt, updateSalesReceipt, updateReceptionReceipt, updateLedgerReceipt, loadTarget, receiptFilter, normalizedValue, canWrite, pcLocked };

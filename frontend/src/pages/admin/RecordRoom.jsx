@@ -58,7 +58,8 @@ async function optimizeRecordImage(file) {
 export default function RecordRoom() {
   const { user } = useAuth();
   const isAdmin = user?.role === ROLES.ADMIN; // deleting stays Admin-only
-  const canManage = isAdminLike(user);
+  // Editing a record's details: the admin / manager and reception (who fills it). Deleting stays Admin-only.
+  const canManage = isAdminLike(user) || user?.role === ROLES.RECEPTIONIST;
   const navigate = useNavigate();
   const location = useLocation();
   const [params, setParams] = useSearchParams();

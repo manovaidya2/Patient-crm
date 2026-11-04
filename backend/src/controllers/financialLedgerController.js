@@ -88,7 +88,7 @@ const ledgerPipeline = (kind = 'all') => [
     { $lookup: { from: Patient.collection.name, localField: 'patient', foreignField: '_id', as: 'linkedPatient', pipeline: [{ $project: { approvalStatus: 1 } }] } },
     { $project: { patientId: '$patient', patientName: 1, patientCode: 1, appointmentCode: 1, appointment: 1,
       patientApproval: { $ifNull: [{ $arrayElemAt: ['$linkedPatient.approvalStatus', 0] }, 'unlinked'] },
-      kind: { $literal: 'consultation' }, collectionStage: 1, amount: 1, date: 1, status: 1, paymentMode: 1, splits: 1, bankName: 1,
+      kind: { $literal: 'consultation' }, collectionStage: 1, amount: 1, date: 1, status: 1, paymentMode: 1, splits: 1, bankName: 1, bank: 1, cashReceivedByName: 1,
       reference: 1, notes: 1, files: 1, recordedByName: 1, editedByName: 1, editedAt: 1, approvedByName: 1, approvedAt: 1,
       cancelledAt: 1, cancelledByName: 1, cancellationReason: 1, createdAt: 1, refunded: { $literal: 0 }, refunds: { $literal: [] } } },
   ] } }]),

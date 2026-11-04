@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, PhoneCall, RefreshCw } from 'lucide-react';
+import { Check, Pencil, PhoneCall, RefreshCw } from 'lucide-react';
 import api from '../api/axios.js';
 import Drawer from './ui/Drawer.jsx';
 import Button from './ui/Button.jsx';
@@ -15,6 +15,18 @@ export default function SalesCallHistory({ row, onClose, onSaved, embedded = fal
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // A logged call being corrected (only the person who logged it, or the admin: call.canEdit).
+  const [editing, setEditing] = useState(null);
+  const saveEdit = async (event) => {
+    event.preventDefault();
+    if (saving || !editing.notes.trim()) return;
+    setSaving(true); setError('');
+    try {
+      await api.patch(`${endpoint}/${editing.id}`, { status: editing.status, notes: editing.notes.trim() });
+      setEditing(null); onSaved?.(); await load();
+    } catch (err) { setError(err.response?.data?.message || 'Could not save the call.'); }
+    finally { setSaving(false); }
+  };
   const load = useCallback(async (signal) => {
     setLoading(true);
     try {
@@ -78,9 +90,16 @@ export default function SalesCallHistory({ row, onClose, onSaved, embedded = fal
       {!!data?.legacyCount && <p className="mb-3 text-xs text-charcoal/65">{data.legacyCount} earlier call(s): conversation details were not recorded.</p>}
       {!data?.calls?.length && <p className="text-sm text-charcoal/65">No detailed call records yet.</p>}
       <ol className="space-y-4">{(data?.calls || []).map((call) => <li key={call.id} className="border-l-2 border-sage pl-3 text-sm text-charcoal">
-        <div className="flex flex-wrap items-center justify-between gap-2"><strong>Call {call.number}</strong><span className="text-xs font-semibold text-sage">{statusLabels[call.status]}</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><strong>Call {call.number}</strong><span className="flex items-center gap-2"><span className="text-xs font-semibold text-sage">{statusLabels[call.status]}</span>{call.canEdit && editing?.id !== call.id && <button type="button" title="Edit call" aria-label={`Edit call ${call.number}`} disabled={saving} onClick={() => setEditing({ id: call.id, status: call.status, notes: call.notes })} className="rounded p-1 text-sage hover:bg-[#F3F6F2]"><Pencil size={13} /></button>}</span></div>
         <p className="mt-1 text-xs text-charcoal/70">{stamp(call.calledAt)}</p><p className="mt-1 text-xs font-semibold">{call.calledByName}</p>
-        <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{call.notes}</p>
+        {editing?.id === call.id ? <form onSubmit={saveEdit} className="mt-2 space-y-2">
+          <select value={editing.status} disabled={saving} onChange={(event) => setEditing((old) => ({ ...old, status: event.target.value }))} className="w-full rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm">
+            {['connected', 'no_answer', 'follow_up'].map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
+          </select>
+          <textarea value={editing.notes} required maxLength={2000} rows={3} disabled={saving} onChange={(event) => setEditing((old) => ({ ...old, notes: event.target.value }))} className="w-full resize-y rounded-md border border-cardline bg-offwhite-200 px-3 py-2 text-sm" />
+          <div className="flex gap-2"><Button type="submit" size="sm" disabled={saving || !editing.notes.trim()}>{saving ? 'Saving...' : 'Save'}</Button><Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setEditing(null)}>Cancel</Button></div>
+        </form> : <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{call.notes}</p>}
+        {call.editedAt && editing?.id !== call.id && <p className="mt-1 text-[11px] text-charcoal/50">Edited by {call.editedByName || '-'} · {stamp(call.editedAt)}</p>}
       </li>)}</ol>
     </>}
   </>;

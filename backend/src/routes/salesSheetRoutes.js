@@ -12,6 +12,7 @@ router.use(protect, authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST)
 router.get('/forms/:sheet/:id', appointmentForm.getForm);
 router.get('/forms/management/:id/calls', controller.listManagementCalls);
 router.post('/forms/management/:id/calls', controller.logManagementCall);
+router.patch('/forms/management/:id/calls/:callId', controller.editManagementCall);
 router.get('/banks', appointmentForm.listBanks);
 router.patch('/forms/:sheet/:id/field', appointmentForm.updateField);
 router.patch('/forms/:sheet/:id/fee', appointmentForm.updateFee);
@@ -51,6 +52,7 @@ router.post('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.SALES_T
 // Clearing a "not coming" mark is an undo, not a delete, so the Manager (named here) may do it too.
 router.delete('/appointments/:id/not-coming', authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.clearNotComing);
 router.post('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.logCall);
+router.patch('/appointments/:id/calls/:callId', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), controller.editCall);
 router.get('/appointments/:id/calls', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.SALES_TEAM), controller.listCalls);
 router.post('/appointments/:id/sales-calls', authorize(ROLES.ADMIN, ROLES.SALES_TEAM), controller.logSalesCall);
 router.get('/appointments/:id/sales-calls', authorize(ROLES.ADMIN, ROLES.SALES_TEAM, ROLES.RECEPTIONIST), controller.listSalesCalls);

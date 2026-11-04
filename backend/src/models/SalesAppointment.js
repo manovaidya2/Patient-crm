@@ -6,6 +6,9 @@ const callEntrySchema = new mongoose.Schema({
   calledAt: { type: Date, required: true },
   calledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   calledByName: { type: String, required: true },
+  // Corrected later by the person who logged it (or the admin).
+  editedAt: { type: Date, default: null },
+  editedByName: { type: String, trim: true, default: '' },
 });
 
 const salesAppointmentSchema = new mongoose.Schema(

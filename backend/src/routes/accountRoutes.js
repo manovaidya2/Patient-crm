@@ -16,6 +16,7 @@ router.get('/ledger/references', ledger.references);
 router.get('/ledger/banks', ledger.banks);
 router.post('/consultation-receipts', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST), uploadConsultationFeeProof.array('proof', 5), ledger.createReceipt);
 router.patch('/consultation-receipts/:id', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST), ledger.reviewReceipt);
+router.patch('/consultation-receipts/:id/details', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST), require('../controllers/appointmentFormController').updateLedgerReceipt);
 router.delete('/consultation-receipts/:id', authorize(ROLES.ADMIN), ledger.deleteReceipt);
 router.delete('/consultation-receipts/:id/files', authorize(ROLES.ADMIN), ledger.deleteReceiptFile);
 router.post('/entries', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST), createAccountEntry);
