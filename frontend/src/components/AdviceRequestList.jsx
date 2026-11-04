@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Clock, Inbox, MessageSquareText, Pencil, RefreshCw, Send } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Inbox, MessageSquareText, Mic, Pencil, RefreshCw, Send } from 'lucide-react';
 import api from '../api/axios.js';
 import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
 import Modal from './ui/Modal.jsx';
 import Badge from './ui/Badge.jsx';
 import DictationButton from './ui/DictationButton.jsx';
+import VoiceRecorder from './ui/VoiceRecorder.jsx';
+
+const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+// The doctor's recorded advice, played where the advice is read.
+export const VoiceAdvice = ({ voice }) => (voice?.url ? (
+  <div className="mt-2">
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Voice advice{voice.durationSec ? ` · ${Math.floor(voice.durationSec / 60)}:${String(voice.durationSec % 60).padStart(2, '0')}` : ''}</p>
+    <audio controls preload="metadata" src={`${SERVER_BASE}${voice.url}`} className="mt-1 h-10 w-full max-w-md" />
+  </div>
+) : null);
 import { CompactAttachments } from './ui/Attachments.jsx';
 import { Stethoscope as PageTitleIcon } from 'lucide-react';
 
@@ -35,6 +45,11 @@ const AdviceRequestList = ({ mode }) => {
   const [error, setError] = useState('');
   const [replyTarget, setReplyTarget] = useState(null);
   const [reply, setReply] = useState('');
+  // A new recording ({ file, seconds }) and whether the saved one is being removed.
+  const [voice, setVoice] = useState(null);
+  const [removeVoice, setRemoveVoice] = useState(false);
+  // Opened from "Record advice": the recorder starts at once.
+  const [recordNow, setRecordNow] = useState(false);
   const [replyError, setReplyError] = useState('');
   const [saving, setSaving] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -57,23 +72,32 @@ const AdviceRequestList = ({ mode }) => {
     return () => window.clearInterval(intervalId);
   }, [isGiven, reloadKey, rows.length]);
 
-  const openReply = (row) => {
+  const openReply = (row, record = false) => {
+    setRecordNow(record);
     setReplyTarget(row);
     setReply(row.status === 'advice_given' ? row.advice || '' : '');
+    setVoice(null);
+    setRemoveVoice(false);
     setReplyError('');
   };
 
   const submitReply = async (e) => {
     e.preventDefault();
-    if (!reply.trim()) {
-      setReplyError('Advice is required');
+    const keepsSavedVoice = Boolean(replyTarget.adviceVoice?.url) && !removeVoice;
+    if (!reply.trim() && !voice && !keepsSavedVoice) {
+      setReplyError('Write the advice or record it');
       return;
     }
     setSaving(true);
     setReplyError('');
     try {
       const endpoint = replyTarget.status === 'advice_given' ? `/advice/${replyTarget.id}/advice` : `/advice/${replyTarget.id}/respond`;
-      await api.patch(endpoint, { advice: reply });
+      // Text and / or the recording, as one form.
+      const body = new FormData();
+      body.append('advice', reply);
+      if (voice) { body.append('voice', voice.file); body.append('voiceSeconds', String(voice.seconds || '')); }
+      else if (removeVoice) body.append('removeVoice', 'true');
+      await api.patch(endpoint, body);
       setReplyTarget(null);
       setReloadKey((value) => value + 1);
     } catch (err) {
@@ -141,6 +165,11 @@ const AdviceRequestList = ({ mode }) => {
                 <div className="flex items-center gap-2">
                   <Badge tone={row.isUrgent && !isGiven ? 'danger' : isGiven ? 'teal' : 'amber'}>{isGiven ? 'Advice Given' : row.isUrgent ? 'Urgent Pending' : 'Pending'}</Badge>
                   {!isGiven && (
+                    <Button size="sm" variant="outline" onClick={() => openReply(row, true)}>
+                      <Mic size={14} /> Record advice
+                    </Button>
+                  )}
+                  {!isGiven && (
                     <Button size="sm" onClick={() => openReply(row)}>
                       <Send size={14} /> Give Advice
                     </Button>
@@ -164,9 +193,10 @@ const AdviceRequestList = ({ mode }) => {
                   <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal/55">
                     {isGiven ? <CheckCircle2 size={13} /> : <Clock size={13} />} Advice
                   </p>
-                  {row.advice ? (
+                  {row.advice || row.adviceVoice?.url ? (
                     <>
-                      <p className="mt-2 whitespace-pre-line text-sm text-charcoal">{row.advice}</p>
+                      {row.advice && <p className="mt-2 whitespace-pre-line text-sm text-charcoal">{row.advice}</p>}
+                      <VoiceAdvice voice={row.adviceVoice} />
                       <p className="mt-2 text-xs text-charcoal/50">
                         By {row.adviceGivenByName || 'Doctor'} on {formatDateTime(row.adviceGivenAt)}
                       </p>
@@ -209,6 +239,11 @@ const AdviceRequestList = ({ mode }) => {
               />
               <DictationButton value={reply} onChange={setReply} className="absolute bottom-2 right-2" />
             </div>
+            <p className="mt-1 text-xs text-charcoal/55">Type, use the mic to speak it into the box, or record your voice below (or both).</p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-charcoal">Voice advice</label>
+            <VoiceRecorder value={voice} onChange={(v) => { setVoice(v); if (v) setRemoveVoice(false); }} existingUrl={!removeVoice && replyTarget?.adviceVoice?.url ? `${SERVER_BASE}${replyTarget.adviceVoice.url}` : ''} onRemoveExisting={() => setRemoveVoice(true)} disabled={saving} autoStart={recordNow} />
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setReplyTarget(null)}>

@@ -4,10 +4,10 @@ import { Mic, Square } from 'lucide-react';
 // Native browser speech-to-text (Chrome / Edge). One engine only — whatever the
 // recognizer finalizes is appended and never rewritten, so text does not flicker
 // or get deleted. Language is pinned so it can't drift into another script.
-const getSpeechRecognition = () =>
+export const getSpeechRecognition = () =>
   typeof window === 'undefined' ? null : window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
-const joinWithSpace = (left, right) => {
+export const joinWithSpace = (left, right) => {
   const a = String(left || '').trimEnd();
   const b = String(right || '').trimStart();
   if (!a) return b;
@@ -27,7 +27,7 @@ const crmPhraseCorrections = [
   [/\bcoure?ir\b/gi, 'courier'],
 ];
 
-const applyCorrections = (text = '') => {
+export const applyCorrections = (text = '') => {
   let next = String(text || '').replace(/\s+/g, ' ');
   crmPhraseCorrections.forEach(([pattern, replacement]) => {
     next = next.replace(pattern, replacement);
@@ -174,6 +174,8 @@ const DictationButton = ({ value, onChange, disabled = false, className = '', la
   return (
     <button
       type="button"
+      // The page-wide voice typing (components/VoiceTyping) skips a field that already has this button.
+      data-dictation-button=""
       onClick={toggleRecording}
       disabled={disabled || !supported}
       className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${

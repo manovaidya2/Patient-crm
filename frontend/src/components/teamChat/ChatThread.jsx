@@ -3,6 +3,7 @@ import { Ban, Check, CheckCheck, ChevronDown, Info, Lock, Paperclip, Send, Trash
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
+import DictationButton from '../ui/DictationButton.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLE_LABELS } from '../../constants/roles.js';
 
@@ -107,6 +108,7 @@ export default function ChatThread({ chat, onChanged, placeholder = 'Message', e
           <div className="flex items-end gap-2">
             <label className="cursor-pointer rounded-lg border border-cardline p-2 text-sage hover:bg-[#F3F6F2]" title="Attach images / PDF"><Paperclip size={16} /><input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => { setFiles((l) => [...l, ...e.target.files].slice(0, 5)); e.target.value = ''; }} /></label>
             <textarea className={`${input} resize-none text-[15px]`} rows={2} maxLength={4000} placeholder={placeholder} value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(e); } }} />
+            <DictationButton value={message} onChange={setMessage} disabled={sending} className="shrink-0" />
             <Button type="submit" disabled={sending || (!message.trim() && !files.length)}><Send size={15} />{sending ? '...' : 'Send'}</Button>
           </div>
         </form>

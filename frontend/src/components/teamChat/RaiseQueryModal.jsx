@@ -4,6 +4,7 @@ import { Paperclip, Send, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
+import DictationButton from '../ui/DictationButton.jsx';
 import EnquiryPatientPicker from '../enquiries/EnquiryPatientPicker.jsx';
 import { ROLE_LABELS } from '../../constants/roles.js';
 
@@ -96,7 +97,7 @@ export default function RaiseQueryModal({ open, onClose, poId = '', patient = nu
               </div>
             ) : <EnquiryPatientPicker draft={draft} setDraft={setDraft} />}
             <label className="space-y-1 text-sm sm:col-span-2">Subject *<input className={input} required maxLength={180} value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label>
-            <label className="space-y-1 text-sm sm:col-span-2">Message *<textarea className={input} rows={4} maxLength={4000} value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} placeholder={draft.kind === 'query' ? 'What do you need to know or get done?' : 'What do you want to share?'} /></label>
+            <label className="space-y-1 text-sm sm:col-span-2">Message *<span className="relative block"><textarea className={`${input} pr-12`} rows={4} maxLength={4000} value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} placeholder={draft.kind === 'query' ? 'What do you need to know or get done?' : 'What do you want to share?'} /><DictationButton value={draft.message} onChange={(v) => setDraft((d) => ({ ...d, message: v }))} className="absolute bottom-2 right-2" /></span></label>
             <div className="sm:col-span-2">
               <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-sage"><Paperclip size={14} />Attach images / PDF<input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => { setFiles((l) => [...l, ...e.target.files].slice(0, 5)); e.target.value = ''; }} /></label>
               {files.length > 0 && <ul className="mt-1 flex flex-wrap gap-1.5">{files.map((f, i) => <li key={i} className="inline-flex items-center gap-1 rounded-full bg-offwhite-200 px-2 py-0.5 text-xs">{f.name}<button type="button" aria-label="Remove" onClick={() => setFiles((l) => l.filter((_, n) => n !== i))}><X size={12} /></button></li>)}</ul>}

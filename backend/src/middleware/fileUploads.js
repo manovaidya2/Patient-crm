@@ -47,7 +47,8 @@ const createUpload = (folder, {
 
   const fileFilter = (req, file, cb) => {
     const allowed = allowedTypes
-      ? allowedTypes.includes(file.mimetype)
+      // 'audio/webm;codecs=opus' (a browser recording) counts as 'audio/webm'.
+      ? allowedTypes.includes(String(file.mimetype || '').split(';')[0].trim())
       : imagesOnly
         ? file.mimetype.startsWith('image/')
         : allowedMimeTypes.includes(file.mimetype);
@@ -110,6 +111,12 @@ module.exports = {
   uploadTransitFile: createUpload('transit'),
   uploadPurchaseOrderFile: createUpload('purchase-orders'),
   uploadTeamChatFile: createUpload('team-chat'),
+  // The doctor's recorded voice reply to a PCC's advice request (browser recording: webm / ogg / mp4 audio).
+  uploadAdviceVoice: createUpload('advice-voice', {
+    allowedTypes: ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/aac', 'video/webm'],
+    allowedTypeMessage: 'Only an audio recording can be sent as voice advice',
+    maxFileSize: 25 * 1024 * 1024,
+  }),
   uploadScheduleCompletion: createUpload('schedule'),
   uploadFollowUpVideo: createUpload('followup-videos', {
     allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/3gpp'],

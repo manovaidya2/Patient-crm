@@ -14,6 +14,27 @@ const canAccessPatient = (user, patient) => {
 
 const canRequestAdvice = (user) => isAdminLike(user) || [ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST].includes(user.role);
 const canAnswerAdvice = (user) => isAdminLike(user) || user.role === ROLES.DOCTOR;
+// The voice advice sent with the reply (multipart "voice"): stored with the advice; "removeVoice" drops the old one.
+const fsp = require('fs/promises');
+const pathLib = require('path');
+const dropFile = (url) => (url && /^\/uploads\/advice-voice\/[\w.-]+$/.test(url) ? fsp.unlink(pathLib.join(__dirname, '../..', url)).catch(() => {}) : null);
+const { compressVoice } = require('../utils/audioCompress');
+const applyVoice = async (entry, req) => {
+  const oldUrl = entry.adviceVoice?.url || '';
+  if (req.file) {
+    const seconds = Number(req.body.voiceSeconds);
+    // Stored compressed (Opus, mono, low bitrate): a fraction of the recorded size.
+    const kept = await compressVoice(req.file);
+    entry.adviceVoice = { url: `/uploads/advice-voice/${kept.filename}`, fileName: req.file.originalname || 'voice-advice', mimeType: kept.mimetype, durationSec: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : null, at: new Date() };
+    if (oldUrl) await dropFile(oldUrl);
+  } else if (req.body.removeVoice === 'true' || req.body.removeVoice === true) {
+    entry.adviceVoice = undefined;
+    if (oldUrl) await dropFile(oldUrl);
+  }
+};
+const adviceSummary = (entry) => [entry.advice, entry.adviceVoice?.url ? 'Voice advice recorded' : ''].filter(Boolean).join(' | ');
+// A rejected request should not leave its recording behind.
+const discardUpload = (req) => (req.file ? fsp.unlink(req.file.path).catch(() => {}) : null);
 
 const ADVICE_PATIENT_SELECT = 'patientName patientCode number stages.number stages.recordFileUrl stages.recordFileName stages.recordFiles';
 
@@ -56,6 +77,7 @@ const formatAdvice = (entry) => ({
   adviceGivenAt: entry.adviceGivenAt || null,
   adviceGivenBy: entry.adviceGivenBy || null,
   adviceGivenByName: entry.adviceGivenByName || '',
+  adviceVoice: entry.adviceVoice?.url ? { url: entry.adviceVoice.url, durationSec: entry.adviceVoice.durationSec ?? null, at: entry.adviceVoice.at || null } : null,
   createdAt: entry.createdAt,
   updatedAt: entry.updatedAt,
 });
@@ -198,21 +220,25 @@ const getUnreadAdviceCount = asyncHandler(async (req, res) => {
 
 const respondToAdviceRequest = asyncHandler(async (req, res) => {
   if (!canAnswerAdvice(req.user)) {
+    await discardUpload(req);
     return res.status(403).json({ success: false, message: 'Only Doctor or Admin can give advice' });
   }
 
   const { advice } = req.body;
-  if (!String(advice || '').trim()) {
-    return res.status(400).json({ success: false, message: 'Advice is required' });
+  // Written advice, a voice recording, or both.
+  if (!String(advice || '').trim() && !req.file) {
+    return res.status(400).json({ success: false, message: 'Write the advice or record it' });
   }
 
   const entry = await AdviceRequest.findById(req.params.id);
   if (!entry) {
+    await discardUpload(req);
     return res.status(404).json({ success: false, message: 'Advice request not found' });
   }
 
   entry.status = 'advice_given';
-  entry.advice = String(advice).trim();
+  entry.advice = String(advice || '').trim();
+  await applyVoice(entry, req);
   entry.adviceGivenAt = new Date();
   entry.adviceGivenBy = req.user._id;
   entry.adviceGivenByName = req.user.name;
@@ -221,7 +247,7 @@ const respondToAdviceRequest = asyncHandler(async (req, res) => {
 
   const patient = await Patient.findById(entry.patient);
   if (patient) {
-    addPatientActivity(patient, req.user, `Doctor advice given for Phase ${entry.stage || '-'}`, entry.advice);
+    addPatientActivity(patient, req.user, `Doctor advice given for Phase ${entry.stage || '-'}`, adviceSummary(entry));
     await patient.save();
   }
 
@@ -280,13 +306,15 @@ const updateAdviceAnswer = asyncHandler(async (req, res) => {
   }
 
   const { advice } = req.body;
-  if (!String(advice || '').trim()) {
-    return res.status(400).json({ success: false, message: 'Advice is required' });
-  }
-
   const entry = await AdviceRequest.findById(req.params.id);
   if (!entry) {
+    await discardUpload(req);
     return res.status(404).json({ success: false, message: 'Advice request not found' });
+  }
+  const keepsVoice = req.file || (entry.adviceVoice?.url && !(req.body.removeVoice === 'true' || req.body.removeVoice === true));
+  if (!String(advice || '').trim() && !keepsVoice) {
+    await discardUpload(req);
+    return res.status(400).json({ success: false, message: 'Write the advice or record it' });
   }
   if (entry.status !== 'advice_given') {
     return res.status(400).json({ success: false, message: 'Advice has not been given yet' });
@@ -295,12 +323,13 @@ const updateAdviceAnswer = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'You can only edit advice given by you' });
   }
 
-  entry.advice = String(advice).trim();
+  entry.advice = String(advice || '').trim();
+  await applyVoice(entry, req);
   await entry.save();
 
   const patient = await Patient.findById(entry.patient);
   if (patient) {
-    addPatientActivity(patient, req.user, `Doctor advice edited for Phase ${entry.stage || '-'}`, entry.advice);
+    addPatientActivity(patient, req.user, `Doctor advice edited for Phase ${entry.stage || '-'}`, adviceSummary(entry));
     await patient.save();
   }
 

@@ -19,6 +19,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import EditableField from '../../components/ui/EditableField.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
+import { VoiceAdvice } from '../../components/AdviceRequestList.jsx';
 import RefundImages from '../../components/RefundImages.jsx';
 import PatientBillPanel from '../../components/PatientBillPanel.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
@@ -2116,9 +2117,10 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
                   </div>
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Doctor Advice</p>
-                    {row.advice ? (
+                    {row.advice || row.adviceVoice?.url ? (
                       <>
-                        <p className="mt-1 whitespace-pre-line text-sm text-charcoal">{row.advice}</p>
+                        {row.advice && <p className="mt-1 whitespace-pre-line text-sm text-charcoal">{row.advice}</p>}
+                        <VoiceAdvice voice={row.adviceVoice} />
                         <p className="mt-1 text-xs text-charcoal/50">By {row.adviceGivenByName || 'Doctor'}</p>
                       </>
                     ) : (

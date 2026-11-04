@@ -9,6 +9,7 @@ import FormulationAlarm from '../../components/medicine/FormulationAlarm.jsx';
 import TransitAlarm from '../../components/medicine/TransitAlarm.jsx';
 import PaperAlarm from '../../components/medicine/PaperAlarm.jsx';
 import PageBack from '../../components/PageBack.jsx';
+import VoiceTyping from '../../components/VoiceTyping.jsx';
 import { TeamPendingButton } from '../../components/TeamPending.jsx';
 import BrandLogo from '../../components/BrandLogo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -148,6 +149,8 @@ const AdminLayout = () => {
           {onHome && <PendingWork />}
           {/* Back to the page you came from (every page except home and the ones with their own Back). */}
           <PageBack />
+          {/* Voice typing (mic) on whichever note / text box is in use, on every page. */}
+          <VoiceTyping />
           <Suspense fallback={<div className="py-4 text-sm text-charcoal/60" role="status">Loading page...</div>}>
             <Outlet />
           </Suspense>

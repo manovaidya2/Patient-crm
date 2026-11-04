@@ -10,6 +10,7 @@ const {
   updateAdviceAnswer,
 } = require('../controllers/adviceController');
 const { protect } = require('../middleware/auth');
+const { uploadAdviceVoice } = require('../middleware/fileUploads');
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ router.get('/given', listAdviceGiven);
 router.get('/patients/:patientId', listPatientAdvice);
 router.post('/patients/:patientId', createAdviceRequest);
 router.patch('/:id/request', updateAdviceRequest);
-router.patch('/:id/advice', updateAdviceAnswer);
-router.patch('/:id/respond', respondToAdviceRequest);
+router.patch('/:id/advice', uploadAdviceVoice.single('voice'), updateAdviceAnswer);
+router.patch('/:id/respond', uploadAdviceVoice.single('voice'), respondToAdviceRequest);
 
 module.exports = router;

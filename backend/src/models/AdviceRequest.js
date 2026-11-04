@@ -38,6 +38,14 @@ const adviceRequestSchema = new mongoose.Schema(
       default: null,
     },
     adviceGivenByName: { type: String, trim: true, default: '' },
+    // The advice recorded by voice (with or instead of the written advice).
+    adviceVoice: {
+      url: { type: String, default: '' },
+      fileName: { type: String, default: '' },
+      mimeType: { type: String, default: '' },
+      durationSec: { type: Number, default: null },
+      at: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );
