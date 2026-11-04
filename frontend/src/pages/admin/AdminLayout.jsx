@@ -2,7 +2,6 @@ import { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { LogOut, Menu } from 'lucide-react';
 import Sidebar from '../../components/Sidebar.jsx';
-import ScheduleReminderAlert from '../../components/ScheduleReminderAlert.jsx';
 import PendingWork from '../../components/PendingWork.jsx';
 import MobileTabBar from '../../components/MobileTabBar.jsx';
 import ReminderBell from '../../components/ReminderBell.jsx';
@@ -146,7 +145,6 @@ const AdminLayout = () => {
         {user?.role === ROLES.ASSISTANT_DOCTOR && <><PaperAlarm user={user} /><PaperAlarm user={user} kind="final" /></>}
         {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}
         <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
-          <ScheduleReminderAlert />
           {onHome && <PendingWork />}
           {/* Back to the page you came from (every page except home and the ones with their own Back). */}
           <PageBack />
