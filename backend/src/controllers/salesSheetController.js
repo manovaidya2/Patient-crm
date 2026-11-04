@@ -185,12 +185,17 @@ const serializeRow = (row, user) => ({
   createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-const cleanValues = async (rawValues, requireComplete = true) => {
+// The form section of a column, as the appointment form groups it (frontend utils/appointmentSections.js).
+const CONFIRMATION_LABEL = /\b(call|calling|confirmation|confirmed|location sent|reports available|appointment time told)\b/i;
+const PAYMENT_LABEL = /\b(consultation (amount|fee)|advance (consultation|payment|fee)|payment screenshot|fee due|fee verified)\b/i;
+const columnSection = (column) => column.section || (PAYMENT_LABEL.test(column.label || '') ? 'payments' : CONFIRMATION_LABEL.test(column.label || '') ? 'confirmation' : 'details');
+
+const cleanValues = async (rawValues, requireComplete = true, { skipCalls = false } = {}) => {
   const columns = await SalesSheetColumn.find({ isActive: true }).sort({ order: 1 }).lean();
   const values = {};
   for (const column of columns) {
     const value = cleanColumnValue(column, rawValues?.[String(column._id)]);
-    if (requireComplete && column.required && !value) {
+    if (requireComplete && column.required && !value && !(skipCalls && columnSection(column) === 'confirmation')) {
       const error = new Error(`${column.label} is required`);
       error.statusCode = 400;
       throw error;
@@ -199,12 +204,16 @@ const cleanValues = async (rawValues, requireComplete = true) => {
   }
   return applyExistingPatient(values, { requireId: requireComplete });
 };
-const cleanManagementValues = async (rawValues, role) => {
+const NOT_ON_CREATE = ['6ab3c020c6143a2dc0496498', '6abb64b5297d3a5387593df8', '6abb64e8297d3a5387593e2e', '6abb64f5297d3a5387593e5c', '6abb6525297d3a5387593e92', '6ab6023c71c30693a6638d7a'];
+const cleanManagementValues = async (rawValues, role, { skipCalls = false } = {}) => {
   const columns = await AppointmentManagementColumn.find({ isActive: true }).sort({ order: 1 }).lean();
   const values = {};
   for (const column of columns) {
     const value = cleanColumnValue(column, rawValues?.[String(column._id)]);
-    if (isManagementColumnRequired(column, role) && !value) {
+    // Not asked when adding: arrival status / time, Patient ID and token (the Arrival step), the screenshot, and the
+    // package result (filled by the Post Counselor's outcome).
+    const later = [RECEPTION_IDS.arrivalStatus, RECEPTION_IDS.arrivalTime, RECEPTION_IDS.patientId, RECEPTION_IDS.tokenNumber, ...NOT_ON_CREATE].includes(String(column._id));
+    if (isManagementColumnRequired(column, role) && !value && !(skipCalls && (later || columnSection(column) === 'confirmation'))) {
       const error = new Error(`${column.label} is required`);
       error.statusCode = 400;
       throw error;
@@ -621,8 +630,9 @@ const updateCallStatus = asyncHandler(async (req, res) => {
 
 const createManagedAppointment = asyncHandler(async (req, res) => {
   if (!validDate(req.body.appointmentDate)) return res.status(400).json({ success: false, message: 'Valid appointment date is required' });
-  const values = await cleanManagementValues(req.body.values, req.user.role);
-  const salesValues = await cleanValues(req.body.salesValues || {});
+  // Added directly at reception (not from Sales): one form without the call steps, so call fields are not required.
+  const values = await cleanManagementValues(req.body.values, req.user.role, { skipCalls: true });
+  const salesValues = await cleanValues(req.body.salesValues || {}, true, { skipCalls: true });
   const fee = consultationFee(req.body.consultationFee);
   const payment = advancePayment(req.body.payment, fee);
   let bank = null;

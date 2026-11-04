@@ -43,9 +43,11 @@ test('category and required fields', () => {
   assert.equal(categoryFromCase('Autism + ADHD'), 'autism_adhd');
   assert.equal(categoryFromCase('Mental Health'), 'mental_health');
   assert.equal(categoryFromCase('Other'), '');
-  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', age: '', category: 'autism_adhd', patientHistoryBy: '' }), ['Age']);
-  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', age: '3', category: 'autism_adhd', patientHistoryBy: '' }), []);
-  assert.deepEqual(missingForSend({ patientName: 'a', age: '3', category: 'autism_adhd' }), ['Phase (this visit is for)']);
+  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', nameMatchesAadhaar: 'Yes', age: '', category: 'autism_adhd', patientHistoryBy: '' }), ['Age']);
+  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', nameMatchesAadhaar: 'Yes', age: '3', category: 'autism_adhd', patientHistoryBy: '' }), []);
+  assert.deepEqual(missingForSend({ patientName: 'a', nameMatchesAadhaar: 'Yes', age: '3', category: 'autism_adhd' }), ['Phase (this visit is for)']);
+  // The Aadhaar name check is a required tick.
+  assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', age: '3', category: 'autism_adhd' }), ['Patient name matched with Aadhaar card']);
 });
 
 test('arrival: needs a time when Arrived', async () => {
@@ -154,7 +156,7 @@ test('registration: sales details come in pre-filled, saved edits win', async ()
 });
 
 test('send: needs arrival, required fields, an active Post Counselor, and only works once', async () => {
-  const fields = { patientName: 'vyom', age: '3', category: 'autism_adhd', patientHistoryBy: 'Mother' };
+  const fields = { patientName: 'vyom', nameMatchesAadhaar: 'Yes', age: '3', category: 'autism_adhd', patientHistoryBy: 'Mother' };
   await withStubs([[Management, 'findById', async () => entry()]], async () => {
     assert.equal((await call(controller.sendRegistration, { body: { fields, postCounselorId: COUNSELOR } })).error.statusCode, 400);
   });
@@ -245,7 +247,7 @@ test('the Post Counselor sends a wrong registration back to reception with a not
     assert.equal(res.body.registration.status, 'draft');
   });
   // Reception corrects it and sends it again: the note is cleared and kept in the history as answered.
-  const fields = { phase: '1', patientName: 'Vyom Sharma', age: '3', category: 'autism_adhd', patientHistoryBy: 'Mother', dateOfBirth: '2023-05-12', fatherName: 'Raj', fatherNumber: '9999999999' };
+  const fields = { phase: '1', patientName: 'Vyom Sharma', nameMatchesAadhaar: 'Yes', age: '3', category: 'autism_adhd', patientHistoryBy: 'Mother', dateOfBirth: '2023-05-12', fatherName: 'Raj', fatherNumber: '9999999999' };
   const returned = entry({ [RECEPTION_IDS.patientId]: 'V-171026-11' }, { registration: { status: 'draft', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', fields: new Map(), consultationDate: '2026-10-17', returned: { reason: 'Wrong date of birth', at: new Date(), byName: 'Abhishek' }, returns: [{ reason: 'Wrong date of birth', at: new Date(), byName: 'Abhishek' }] } });
   let resend = null;
   await withStubs([
@@ -259,5 +261,26 @@ test('the Post Counselor sends a wrong registration back to reception with a not
     assert.equal(resend.returned, null);
     assert.equal(resend.returns[0].resentByName, 'Prachi');
     assert.equal(resend.consultationDate, '2026-10-17', 'the consultation date stays the original one');
+  });
+});
+
+test('a sent registration can be corrected until the Post Counselor saves the record', async () => {
+  const fields = { phase: '1', patientName: 'Vyom Sharma', nameMatchesAadhaar: 'Yes', age: '4', category: 'autism_adhd' };
+  const sent = (savedAt) => entry({ [RECEPTION_IDS.patientId]: 'V-171026-11' }, { registration: { status: 'sent', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', fields: new Map(Object.entries({ ...fields, age: '3' })) }, postCounseling: savedAt ? { savedAt } : undefined });
+  let current = sent(null);
+  let filterSeen = null; let setSeen = null;
+  await withStubs([
+    [Management, 'findById', async () => current],
+    [Management, 'updateOne', async (filter, change) => { filterSeen = filter; setSeen = change.$set; return { modifiedCount: 1 }; }],
+  ], async () => {
+    const ok = await call(controller.saveRegistration, { body: { fields } });
+    assert.equal(ok.error, null);
+    assert.equal(filterSeen['postCounseling.savedAt'], null, 'only while the record is not saved');
+    assert.equal(setSeen['registration.fields'].age, '4');
+    const missingTick = await call(controller.saveRegistration, { body: { fields: { ...fields, nameMatchesAadhaar: '' } } });
+    assert.match(missingTick.error.message, /Aadhaar/);
+    current = sent(new Date());
+    const locked = await call(controller.saveRegistration, { body: { fields } });
+    assert.equal(locked.error.statusCode, 409);
   });
 });

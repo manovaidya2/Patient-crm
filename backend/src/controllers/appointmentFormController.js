@@ -28,6 +28,10 @@ const deleteManagedUpload = async (url) => {
 const canWrite = (sheet, row, user) => isAdminLike(user) || (sheet === 'management'
   ? user.role === ROLES.RECEPTIONIST
   : !row.acceptedAt && row.status === 'active' && (user.role === ROLES.RECEPTIONIST || (user.role === ROLES.SALES_TEAM && String(row.createdBy) === String(user._id))));
+// Reception may correct the appointment (details, fee, payments, proofs) until the Post Counselor saves the
+// post-counselling record; after that only the admin. Reception's own detail columns stay open (release time etc.).
+const pcLocked = (target, user) => !isAdminLike(user) && target.sheet === 'management' && Boolean(target.row.postCounseling?.savedAt);
+const PC_LOCKED = 'The Post Counselor has saved the record. This can no longer be changed by reception.';
 const loadTarget = async (req) => {
   const { sheet, id } = req.params;
   if (!['sales', 'management'].includes(sheet) || !idValid(id)) fail('Invalid appointment');
@@ -75,7 +79,11 @@ const getForm = asyncHandler(async (req, res) => {
       id: target.source?._id || target.row._id,
       sheet: target.source ? 'sales' : 'management',
     } : null,
-    canEdit: target.writable, collectionStage: target.sheet === 'sales' ? 'advance' : 'reception',
+    canEdit: target.writable,
+    pcLocked: pcLocked(target, req.user),
+    pcSavedAt: target.sheet === 'management' ? target.row.postCounseling?.savedAt || null : null,
+    pcSavedByName: target.sheet === 'management' ? target.row.postCounseling?.savedByName || '' : '',
+    collectionStage: target.sheet === 'sales' ? 'advance' : 'reception',
     consultationFee: target.owner.consultationFee ?? null,
     salesValues: valuesOf(target.sheet === 'sales' ? target.row.values : target.row.salesValues),
     values: valuesOf(target.sheet === 'management' ? target.row.values : null),
@@ -113,6 +121,7 @@ const updateField = asyncHandler(async (req, res) => {
   const column = await (source === 'sales' ? SalesColumn : ManagementColumn).findOne({ _id: columnId, isActive: true });
   if (!column) fail('Field is no longer available', 404);
   if (req.user.role === ROLES.RECEPTIONIST && source === 'sales' && isSalesConfirmationColumn(column)) fail('Sales confirmation details are read-only for Reception', 403);
+  if (source === 'sales' && pcLocked(target, req.user)) fail(PC_LOCKED, 409);
   const effectiveColumn = source === 'reception'
     ? { label: column.label, type: column.type, options: column.options || [], required: isManagementColumnRequired(column, req.user.role) }
     : column;
@@ -137,6 +146,7 @@ const updateField = asyncHandler(async (req, res) => {
 const updateFee = asyncHandler(async (req, res) => {
   const target = await loadTarget(req);
   if (!target.writable) fail('This appointment is read-only', 403);
+  if (pcLocked(target, req.user)) fail(PC_LOCKED, 409);
   const amount = req.body.amount === '' || req.body.amount === null ? null : Number(req.body.amount);
   if (amount !== null && (!Number.isFinite(amount) || amount < 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001)) fail('Enter a valid consultation fee');
   const Model = target.root ? Sales : Management;
@@ -150,17 +160,16 @@ const updateFee = asyncHandler(async (req, res) => {
 const prepareReceipt = asyncHandler(async (req, res, next) => {
   const target = await loadTarget(req);
   if (!target.writable) fail('This appointment is read-only', 403);
+  if (pcLocked(target, req.user)) fail(PC_LOCKED, 409);
   req.consultationTarget = target;
   next();
 });
-const updateSalesReceipt = asyncHandler(async (req, res) => {
-  const target = await loadTarget(req);
-  if (target.sheet !== 'sales' || !(isAdminLike(req.user) || req.user.role === ROLES.SALES_TEAM) || !target.writable) fail('Sales payment can no longer be edited', 403);
-  if (!idValid(req.params.receiptId)) fail('Invalid receipt');
+// The edited payment, checked the same way for a sales advance and a reception payment. -> fields to $set
+const editedPayment = async (req, { maxAmount = null } = {}) => {
   const split = req.body.paymentMode === 'split' ? require('../utils/splitPayment').resolveSplit(req.body.splits) : null;
   const amount = split ? split.amount : Number(req.body.amount);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) fail('Enter a valid advance amount');
-  if (target.owner.consultationFee != null && amount > target.owner.consultationFee) fail('Advance cannot be greater than the consultation fee');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) fail('Enter a valid amount');
+  if (maxAmount != null && amount > maxAmount) fail('Advance cannot be greater than the consultation fee');
   const dateText = String(req.body.date || '');
   const date = new Date(`${dateText}T12:00:00.000Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== dateText) fail('Enter a valid payment date');
@@ -182,22 +191,49 @@ const updateSalesReceipt = asyncHandler(async (req, res) => {
     bank = await Bank.findOne({ _id: req.body.bank, isActive: true });
     if (!bank) fail('Select an active bank');
   }
-  const stillOpen = await Sales.exists({ _id: target.row._id, acceptedAt: null, status: 'active' });
-  if (!stillOpen) fail('Reception has accepted this appointment. Payment can no longer be edited.', 409);
-  const receipt = await Receipt.findOneAndUpdate({
-    _id: req.params.receiptId, salesAppointment: target.root || target.row._id,
-    collectionStage: 'advance', status: 'pending',
-  }, { $set: {
+  return {
     amount, date, paymentMode, bank: bank?._id || null, bankName: bank?.displayName || bank?.name || '',
     reference: paymentMode !== 'cash' ? reference : '',
     cashReceivedByName: paymentMode !== 'online' ? cashReceivedByName : '',
     splits: split ? split.splits : [],
     notes, files: files.map((file) => ({ url: String(file.url), fileName: String(file.fileName || 'Payment proof').slice(0, 255) })),
     editedByName: req.user.name, editedAt: new Date(),
-  } }, { new: true, runValidators: true });
+  };
+};
+const updateSalesReceipt = asyncHandler(async (req, res) => {
+  const target = await loadTarget(req);
+  if (target.sheet !== 'sales' || !(isAdminLike(req.user) || req.user.role === ROLES.SALES_TEAM) || !target.writable) fail('Sales payment can no longer be edited', 403);
+  if (!idValid(req.params.receiptId)) fail('Invalid receipt');
+  const set = await editedPayment(req, { maxAmount: target.owner.consultationFee });
+  const { amount } = set;
+  const stillOpen = await Sales.exists({ _id: target.row._id, acceptedAt: null, status: 'active' });
+  if (!stillOpen) fail('Reception has accepted this appointment. Payment can no longer be edited.', 409);
+  const receipt = await Receipt.findOneAndUpdate({
+    _id: req.params.receiptId, salesAppointment: target.root || target.row._id,
+    collectionStage: 'advance', status: 'pending',
+  }, { $set: set }, { new: true, runValidators: true });
   if (!receipt) fail('Payment was verified or is no longer available for editing', 409);
   await Audit.create({ sheet: 'sales', rowId: target.row._id, appointmentCode: target.row.appointmentCode, action: 'Sales advance edited', details: `Receipt ${receipt._id}: Rs ${amount}`, changedBy: req.user._id, changedByName: req.user.name });
   req.app.get('io')?.to(dateRoom(target.row.appointmentDate)).emit('sales-sheet:date-changed', { date: target.row.appointmentDate });
   res.json({ receipt });
 });
-module.exports = { getForm, listBanks, updateField, updateFee, prepareReceipt, updateSalesReceipt, loadTarget, receiptFilter, normalizedValue, canWrite };
+// @route PATCH /api/sales-sheet/forms/management/:id/receipts/:receiptId
+// Reception corrects a payment of this appointment (amount, mode, proof / screenshot...) until the Post Counselor saves
+// the record. A payment already verified goes back to "pending" so it is verified again with the new details.
+const updateReceptionReceipt = asyncHandler(async (req, res) => {
+  const target = await loadTarget(req);
+  if (target.sheet !== 'management' || !target.writable) fail('This payment can no longer be edited', 403);
+  if (pcLocked(target, req.user)) fail(PC_LOCKED, 409);
+  if (!idValid(req.params.receiptId)) fail('Invalid receipt');
+  const set = await editedPayment(req);
+  const current = await Receipt.findOne({ _id: req.params.receiptId, ...receiptFilter(target), status: { $in: ['pending', 'approved'] } }).lean();
+  if (!current) fail('Payment was cancelled or is no longer available for editing', 409);
+  const reverify = current.status === 'approved' ? { status: 'pending', approvedByName: '', approvedAt: null } : {};
+  const receipt = await Receipt.findOneAndUpdate({ _id: current._id, status: current.status }, { $set: { ...set, ...reverify } }, { new: true, runValidators: true });
+  if (!receipt) fail('This payment changed. Reopen the appointment before saving.', 409);
+  await Audit.create({ sheet: 'management', rowId: target.row._id, appointmentCode: target.row.appointmentCode, action: 'Payment edited', details: `Receipt ${receipt._id}: Rs ${current.amount} -> Rs ${set.amount}${reverify.status ? ' (sent back for verification)' : ''}`, changedBy: req.user._id, changedByName: req.user.name });
+  req.app.get('io')?.to(dateRoom(target.row.appointmentDate)).emit('sales-sheet:date-changed', { date: target.row.appointmentDate });
+  res.json({ success: true, receipt });
+});
+
+module.exports = { getForm, listBanks, updateField, updateFee, prepareReceipt, updateSalesReceipt, updateReceptionReceipt, loadTarget, receiptFilter, normalizedValue, canWrite, pcLocked };

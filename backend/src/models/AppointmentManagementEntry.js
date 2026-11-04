@@ -17,6 +17,9 @@ const registrationSchema = new mongoose.Schema({
   postCounselorName: { type: String, trim: true, default: '' },
   sentAt: { type: Date, default: null },
   sentByName: { type: String, trim: true, default: '' },
+  // Corrected by reception after sending (allowed until the Post Counselor saves the record).
+  editedAt: { type: Date, default: null },
+  editedByName: { type: String, trim: true, default: '' },
   consultationDate: { type: String, default: '' },
   // Sent back by the Post Counselor for a correction: the note reception reads. Cleared when it is sent again.
   returned: { type: new mongoose.Schema({

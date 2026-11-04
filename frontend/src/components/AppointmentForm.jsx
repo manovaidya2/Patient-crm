@@ -26,6 +26,13 @@ const appointmentColumnsFor = (columns, sheet, role) => (sheet === 'management' 
 // Sales "Patient Type" = Existing asks for the old Patient ID (a field with showWhen). The ID is checked as it is typed
 // and shows who it is and which phase this visit's purchase will go into.
 const OLD_PATIENT_ID = '6b1f0a3c9d2e4f5a6b7c8d01';
+// Reception columns filled later from the list (Arrival button): arrival status, arrival time, Patient ID, token.
+// Not asked when the appointment is added, and shown read only afterwards (the Arrival step sets them).
+const LATER_COLUMNS = new Set(['6ab7c235bf916b34dfda543c', '6aba53547172140c6badaf14', '6abb6329297d3a5387593670', '6abb65e3297d3a5387593f6e']);
+// Also left out of the add form (filled later, open the appointment to see / edit them): screenshot, and the package
+// result - Package Offered / Advance Amount Paid / Package Due Amount / Package Status, which the Post Counselor's
+// outcome fills by itself (utils/receptionPackage.js), plus the older Package Status column.
+const NOT_ON_CREATE = new Set([...LATER_COLUMNS, '6ab3c020c6143a2dc0496498', '6abb64b5297d3a5387593df8', '6abb64e8297d3a5387593e2e', '6abb64f5297d3a5387593e5c', '6abb6525297d3a5387593e92', '6ab6023c71c30693a6638d7a']);
 // Age is not copied: the child is older now, and each phase keeps the age told at that visit.
 const PREFILL_FROM_PATIENT = { '6ab7b2adbf916b34dfd9f5f7': 'patientName', '6ab7b2fdbf916b34dfd9f66b': 'guardianName', '6ab7b33fbf916b34dfd9f6c2': 'number' };
 const isShown = (column, values) => !column.showWhen || String(values?.[column.showWhen.columnId] ?? '') === column.showWhen.value;
@@ -135,16 +142,19 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     finally { setSaving(false); }
   };
   const beginEditAll = () => {
-    setOriginalValues({ ...values });
+    setOriginalValues({ sales: { ...data.salesValues }, reception: { ...data.values } });
     setEditingAll(true);
     setError('');
   };
   const saveAllFields = async () => {
-    const changed = columns.filter((column) => String(values[column.id] || '') !== String(originalValues[column.id] || ''));
+    // The single form (direct entry) edits both the patient and the reception details together.
+    const parts = isDirect ? [['sales', 'details'], ['reception', 'details']] : [[fieldSource, fieldSection]];
+    const changed = parts.flatMap(([source, section]) => columnsFor(source, section).map((column) => ({ column, source })))
+      .filter(({ column, source }) => String(valuesOf(source)[column.id] || '') !== String(originalValues[source]?.[column.id] || ''));
     if (!changed.length) { setEditingAll(false); return; }
     setSaving(true); setError('');
     try {
-      for (const column of changed) await api.patch(`${endpoint}/field`, { columnId: column.id, source: fieldSource, previousValue: originalValues[column.id] || '', value: values[column.id] || '' });
+      for (const { column, source } of changed) await api.patch(`${endpoint}/field`, { columnId: column.id, source, previousValue: originalValues[source]?.[column.id] || '', value: valuesOf(source)[column.id] || '' });
       await load(); setEditingAll(false); onChanged?.();
     } catch (err) { setError(err.response?.data?.message || 'Some fields could not be saved. Reload before trying again.'); }
     finally { setSaving(false); }
@@ -180,7 +190,7 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     try {
       await api.patch(`${endpoint}/receipts/${editingPayment.id}`, withSplit(editingPayment));
       await load(); setEditingPayment(null); onChanged?.();
-    } catch (err) { setError(err.response?.data?.message || 'Sales payment could not be updated'); }
+    } catch (err) { setError(err.response?.data?.message || 'Payment could not be updated'); }
     finally { setSaving(false); }
   };
   const openPaymentEdit = (item) => {
@@ -197,7 +207,7 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     const requiredField = [
       ...data.salesColumns.map((column) => ({ column, source: 'sales', value: data.salesValues[column.id] })),
       ...(sheet === 'management' ? data.columns.map((column) => ({ column, source: 'reception', value: data.values[column.id] })) : []),
-    ].find(({ column, value, source }) => isRequired(column, source === 'sales' ? data.salesValues : data.values) && isShown(column, source === 'sales' ? data.salesValues : data.values) && !String(value ?? '').trim());
+    ].filter(({ column, source }) => !(isDirect && columnSection(column) === 'confirmation') && !(source === 'reception' && NOT_ON_CREATE.has(column.id))).find(({ column, value, source }) => isRequired(column, source === 'sales' ? data.salesValues : data.values) && isShown(column, source === 'sales' ? data.salesValues : data.values) && !String(value ?? '').trim());
     if (requiredField) {
       const section = columnSection(requiredField.column);
       setTab(section === 'payments' ? 'payments' : requiredField.source === 'sales'
@@ -222,19 +232,25 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
     finally { setSaving(false); }
   };
   const receipts = data?.receipts || [];
+  // Sales edits its pending advance until reception accepts; reception edits any payment of the appointment (a verified
+  // one goes back for verification) until the Post Counselor saves the record.
   const editableSalesReceipts = sheet === 'sales' && row.id && data?.canEdit && !data.acceptedAt && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM].includes(user?.role)
-    ? receipts.filter((item) => item.collectionStage === 'advance' && item.status === 'pending') : [];
+    ? receipts.filter((item) => item.collectionStage === 'advance' && item.status === 'pending')
+    : sheet === 'management' && row.id && data?.canEdit && !data.pcLocked && [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role)
+      ? receipts.filter((item) => item.status !== 'cancelled') : [];
   const received = receipts.filter((item) => item.status !== 'cancelled').reduce((sum, item) => sum + item.amount, 0);
   const advance = receipts.filter((item) => item.status !== 'cancelled' && item.collectionStage === 'advance').reduce((sum, item) => sum + item.amount, 0);
   const approved = receipts.filter((item) => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
   const remaining = data?.consultationFee == null ? null : data.consultationFee - received;
   const fieldSource = tab.startsWith('sales') ? 'sales' : 'reception';
   const fieldSection = tab.endsWith('confirmation') ? 'confirmation' : 'details';
-  const values = fieldSource === 'sales' ? data?.salesValues : data?.values;
-  const columns = (fieldSource === 'sales' ? data?.salesColumns : data?.columns)?.filter((column) => columnSection(column) === fieldSection && isShown(column, values)) || [];
+  const valuesOf = (source) => (source === 'sales' ? data?.salesValues : data?.values) || {};
+  const columnsFor = (source, section) => (source === 'sales' ? data?.salesColumns : data?.columns)?.filter((column) => columnSection(column) === section && isShown(column, valuesOf(source)) && !(source === 'reception' && !row.id && NOT_ON_CREATE.has(column.id))) || [];
+  const values = valuesOf(fieldSource);
+  const columns = columnsFor(fieldSource, fieldSection);
   // Fill the empty name / age / parent / mobile from the existing patient while the form is being filled in.
   const fillFromPatient = (patient) => {
-    if (fieldSource !== 'sales' || !(!row.id || editingAll)) return;
+    if (!(!row.id || editingAll)) return;
     setData((old) => {
       const next = { ...old.salesValues };
       Object.entries(PREFILL_FROM_PATIENT).forEach(([id, key]) => { if (!String(next[id] ?? '').trim() && patient[key] !== '' && patient[key] != null) next[id] = String(patient[key]); });
@@ -244,7 +260,22 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
   const tabs = sheet === 'sales'
     ? [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ...(row.id && [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role) ? [['reception-confirmation', 'Reception calls']] : [])]
     : [['sales', 'Sales details'], ['payments', 'Consultation payments'], ['sales-confirmation', 'Sales confirmation calls'], ['reception-confirmation', 'Reception call confirmation'], ['reception', 'Reception details']];
-  const canEditSection = data?.canEdit && !(user?.role === ROLES.RECEPTIONIST && tab === 'sales-confirmation');
+  // Adding an appointment at reception: no call tabs - one simple form with the patient details, the reception details
+  // needed now and the payment. Opening a saved appointment shows the usual five tabs.
+  const isDirect = sheet === 'management' && !row.id;
+  const canEditSection = data?.canEdit && !(user?.role === ROLES.RECEPTIONIST && tab === 'sales-confirmation') && !(data?.pcLocked && tab.startsWith('sales'));
+  const fieldGrid = (source, section) => {
+    const vals = valuesOf(source);
+    const cols = columnsFor(source, section);
+    const sectionEditable = data?.canEdit && !(user?.role === ROLES.RECEPTIONIST && source === 'sales' && section === 'confirmation') && !(data?.pcLocked && source === 'sales');
+    return <div className="grid gap-x-6 bg-white/70 px-4 sm:grid-cols-2 lg:grid-cols-3">{cols.map((column) => { const canEdit = sectionEditable && !(source === 'reception' && LATER_COLUMNS.has(column.id)); return <div key={column.id} className="min-w-0 border-b border-cardline py-3">
+      <div className="mb-2 flex items-start justify-between gap-2"><p className="text-xs font-semibold text-charcoal/75">{column.label}{isRequired(column, vals) ? ' *' : ''}</p>{row.id && canEdit && !editing && !editingAll && <button aria-label={`Edit ${column.label}`} title={`Edit ${column.label}`} onClick={() => { setEditing({ column, source, previous: vals[column.id] || '' }); setValue(vals[column.id] || ''); setError(''); }} className="shrink-0 text-sage"><Pencil size={14} /></button>}</div>
+      {((!row.id || editingAll) && canEdit) ? <Field column={column} value={vals[column.id] || ''} onChange={(next) => { const key = source === 'sales' ? 'salesValues' : 'values'; setData((old) => ({ ...old, [key]: { ...old[key], [column.id]: next } })); }} onError={setError} onUploading={setUploading} /> : editing?.column.id === column.id ? <form onSubmit={saveField} className="space-y-2"><Field column={column} value={value} onChange={setValue} onError={setError} onUploading={setUploading} /><div className="flex gap-2"><Button type="submit" size="sm" disabled={saving || uploading}><Save size={13} />Save</Button><Button size="sm" variant="outline" disabled={saving || uploading} onClick={() => setEditing(null)}>Cancel</Button></div></form> : <Value column={column} value={vals[column.id]} onRemove={isAdmin && column.type === 'file' && vals[column.id] ? () => removeSavedField(column, source, vals[column.id]) : undefined} />}
+      {column.id === OLD_PATIENT_ID && <ExistingPatientCheck code={editing?.column.id === column.id ? value : vals[column.id]} onFound={source === 'sales' ? fillFromPatient : () => {}} />}
+    </div>; })}{!cols.length && <p className="py-8 text-sm text-charcoal/70">No fields in this section</p>}</div>;
+  };
+  const editAllButton = (count) => row.id && data?.canEdit && !editing && !editingAll && count > 0 && <Button size="sm" variant="outline" onClick={beginEditAll}><Pencil size={14} />Edit all details</Button>;
+  const editAllBar = editingAll && <div className="flex justify-end gap-2 border-t border-cardline pt-3"><Button variant="outline" disabled={saving || uploading} onClick={() => { setEditingAll(false); load().catch(() => { }); }}>Cancel</Button><Button disabled={saving || uploading} onClick={saveAllFields}><Save size={15} />{saving ? 'Saving...' : 'Save details'}</Button></div>;
   const sectionTones = {
     sales: { active: 'bg-sky-700 border-sky-700 text-white', idle: 'bg-sky-50 border-sky-200 text-sky-900', heading: 'border-sky-600 bg-sky-50 text-sky-950' },
     payments: { active: 'bg-emerald-700 border-emerald-700 text-white', idle: 'bg-emerald-50 border-emerald-200 text-emerald-900', heading: 'border-emerald-600 bg-emerald-50 text-emerald-950' },
@@ -281,37 +312,37 @@ export default function AppointmentForm({ sheet, row, onClose, onChanged, onCrea
           ...(data?.status === 'not_coming' ? [['Not coming marked by', data.notComingByName || '-'], ['Marked at', stamp(data.notComingAt)]] : []),
         ].map(([label, text]) => <div key={label} className="min-w-0"><dt className="text-xs font-medium text-charcoal/75">{label}</dt><dd className="mt-1 break-words text-xs font-semibold leading-5 text-charcoal sm:text-sm">{text}</dd></div>)}
       </dl>
+      {sheet === 'management' && row.id && data && (data.pcSavedAt
+        ? <p className="rounded-md border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-xs text-[#78350F]"><b>Post Counselor saved the record</b>{data.pcSavedByName ? ` (${data.pcSavedByName}, ${stamp(data.pcSavedAt)})` : ''}. {data.pcLocked ? 'Appointment details, fee and payments are now locked for reception; reception details stay open.' : 'Admin can still correct it.'}</p>
+        : data.canEdit && <p className="rounded-md border border-sage/30 bg-sage/10 px-3 py-2 text-xs text-charcoal/75">Appointment details, fee, payments and screenshots can be corrected until the Post Counselor saves the record.</p>)}
       {data?.status === 'not_coming' && data.notComingReason && <p className="text-sm"><span className="font-semibold">Not coming reason:</span> {data.notComingReason}</p>}
-      <div role="tablist" aria-label="Appointment sections" className="flex gap-2 overflow-x-auto border-b border-cardline pb-4 pt-1">{tabs.map(([key, label]) => {
+      {!isDirect && <div role="tablist" aria-label="Appointment sections" className="flex gap-2 overflow-x-auto border-b border-cardline pb-4 pt-1">{tabs.map(([key, label]) => {
         const Icon = tabIcons[key];
         return <button key={key} id={`appointment-tab-${key}`} role="tab" aria-selected={tab === key} aria-controls="appointment-section" disabled={saving || uploading || Boolean(editing) || editingAll || adding || feeEdit || Boolean(editingPayment)} onClick={() => setTab(key)} className={`flex min-h-16 min-w-[164px] flex-1 shrink-0 items-center gap-3 rounded-md border px-4 py-3 text-left text-xs font-semibold leading-5 transition-colors sm:text-sm ${tab === key ? `${sectionTones[key].active} shadow-sm` : `${sectionTones[key].idle} hover:brightness-95`} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 disabled:opacity-60`}><Icon size={20} className="shrink-0" aria-hidden="true" /><span className="min-w-0">{label}</span></button>;
-      })}</div>
-      <div id="appointment-section" role="tabpanel" aria-labelledby={`appointment-tab-${tab}`} className="space-y-5">
-        <div className={`flex items-center justify-between gap-3 border-l-4 px-4 py-4 ${sectionTones[tab]?.heading || sectionTones.sales.heading}`}><h3 className="text-base font-bold text-charcoal sm:text-lg">{tabs.find(([key]) => key === tab)?.[1]}</h3>{user?.role === ROLES.RECEPTIONIST && tab === 'sales-confirmation' && <span className="shrink-0 text-xs font-semibold">Read only</span>}</div>
+      })}</div>}
+      <div id="appointment-section" role={isDirect ? undefined : 'tabpanel'} aria-labelledby={isDirect ? undefined : `appointment-tab-${tab}`} className="space-y-5">
+        {isDirect ? <div className="border-l-4 border-teal-600 bg-teal-50 px-4 py-4 text-teal-950"><h3 className="text-base font-bold text-charcoal sm:text-lg">Appointment form</h3><p className="mt-0.5 text-xs text-charcoal/65">Added directly at reception: patient details, reception details and payment in one form.</p></div> : <div className={`flex items-center justify-between gap-3 border-l-4 px-4 py-4 ${sectionTones[tab]?.heading || sectionTones.sales.heading}`}><h3 className="text-base font-bold text-charcoal sm:text-lg">{tabs.find(([key]) => key === tab)?.[1]}</h3>{user?.role === ROLES.RECEPTIONIST && tab === 'sales-confirmation' && <span className="shrink-0 text-xs font-semibold">Read only</span>}</div>}
         {error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        {data && tab !== 'payments' && (sheet !== 'sales' || tab !== 'reception-confirmation') && <div className="space-y-3">{tab.endsWith('confirmation') && <h3 className="text-sm font-bold">Confirmation details</h3>}<div className="flex justify-end">{row.id && canEditSection && !editing && !editingAll && columns.length > 0 && <Button size="sm" variant="outline" onClick={beginEditAll}><Pencil size={14} />Edit all details</Button>}</div><div className="grid gap-x-6 bg-white/70 px-4 sm:grid-cols-2 lg:grid-cols-3">{columns.map((column) => <div key={column.id} className="min-w-0 border-b border-cardline py-3">
-          <div className="mb-2 flex items-start justify-between gap-2"><p className="text-xs font-semibold text-charcoal/75">{column.label}{isRequired(column, values) ? ' *' : ''}</p>{row.id && canEditSection && !editing && !editingAll && <button aria-label={`Edit ${column.label}`} title={`Edit ${column.label}`} onClick={() => { setEditing({ column, source: fieldSource, previous: values[column.id] || '' }); setValue(values[column.id] || ''); setError(''); }} className="shrink-0 text-sage"><Pencil size={14} /></button>}</div>
-          {((!row.id || editingAll) && canEditSection) ? <Field column={column} value={values[column.id] || ''} onChange={(next) => { const key = fieldSource === 'sales' ? 'salesValues' : 'values'; setData((old) => ({ ...old, [key]: { ...old[key], [column.id]: next } })); }} onError={setError} onUploading={setUploading} /> : editing?.column.id === column.id ? <form onSubmit={saveField} className="space-y-2"><Field column={column} value={value} onChange={setValue} onError={setError} onUploading={setUploading} /><div className="flex gap-2"><Button type="submit" size="sm" disabled={saving || uploading}><Save size={13} />Save</Button><Button size="sm" variant="outline" disabled={saving || uploading} onClick={() => setEditing(null)}>Cancel</Button></div></form> : <Value column={column} value={values[column.id]} onRemove={isAdmin && column.type === 'file' && values[column.id] ? () => removeSavedField(column, fieldSource, values[column.id]) : undefined} />}
-          {column.id === OLD_PATIENT_ID && <ExistingPatientCheck code={editing?.column.id === column.id ? value : values[column.id]} onFound={fillFromPatient} />}
-        </div>)}{!columns.length && <p className="py-8 text-sm text-charcoal/70">No fields in this section</p>}</div>{editingAll && <div className="flex justify-end gap-2 border-t border-cardline pt-3"><Button variant="outline" disabled={saving || uploading} onClick={() => { setEditingAll(false); load().catch(() => { }); }}>Cancel</Button><Button disabled={saving || uploading} onClick={saveAllFields}><Save size={15} />{saving ? 'Saving...' : 'Save details'}</Button></div>}</div>}
+        {data && !isDirect && tab !== 'payments' && (sheet !== 'sales' || tab !== 'reception-confirmation') && <div className="space-y-3">{tab.endsWith('confirmation') && <h3 className="text-sm font-bold">Confirmation details</h3>}<div className="flex justify-end">{canEditSection && editAllButton(columns.length)}</div>{fieldGrid(fieldSource, fieldSection)}{editAllBar}</div>}
+        {data && isDirect && <div className="space-y-5"><div className="flex justify-end">{editAllButton(columnsFor('sales', 'details').length + columnsFor('reception', 'details').length)}</div>{[['sales', 'Patient details'], ['reception', 'Reception details']].map(([source, label]) => <section key={source} className="space-y-2"><h4 className="text-sm font-bold text-charcoal">{label}</h4>{fieldGrid(source, 'details')}</section>)}{editAllBar}</div>}
         {data && tab === 'sales-confirmation' && row.id && (sheet === 'sales' || data.callTarget?.sheet === 'sales') && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><h3 className="mb-3 text-sm font-bold">Sales calls</h3><SalesCallHistory embedded key={`sales:${sheet === 'sales' ? row.id : data.callTarget.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={`/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/sales-calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
         {data && tab === 'reception-confirmation' && row.id && (sheet === 'sales' || data.callTarget) && [...ADMIN_LIKE_ROLES, ROLES.RECEPTIONIST].includes(user?.role) && <div className="border-t border-cardline pt-4"><SalesCallHistory embedded key={`reception:${sheet}:${row.id}`} row={{ id: sheet === 'sales' ? row.id : data.callTarget.id, appointmentCode: data.appointmentCode }} endpoint={sheet === 'sales' || data.callTarget.sheet === 'sales' ? `/sales-sheet/appointments/${sheet === 'sales' ? row.id : data.callTarget.id}/calls` : `/sales-sheet/forms/management/${data.callTarget.id}/calls`} onSaved={() => { load().catch(() => { }); onChanged?.(); }} /></div>}
-        {data && !row.id && tab === 'payments' && <div className="space-y-4 rounded-md border border-cardline bg-white/50 p-4">
+        {data && !row.id && (isDirect || tab === 'payments') && <div className="space-y-4 rounded-md border border-cardline bg-white/50 p-4">
           <div><p className="text-sm font-bold">Consultation payment</p><p className="mt-1 text-xs text-charcoal/70">Set the total fee and, if collected now, record the amount paid below. Both save with this appointment.</p></div>
           <Label title="Total consultation fee"><input className={inputClass} type="number" min="0" step="0.01" max="100000000" value={data.consultationFee ?? ''} onChange={(e) => setData((old) => ({ ...old, consultationFee: e.target.value }))} placeholder="Enter total amount to collect" /></Label>
           <div className="space-y-3 border-t border-cardline pt-4"><p className="text-sm font-bold">{sheet === 'sales' ? 'Payment added by sales' : 'Payment received at reception'}</p><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Label title={sheet === 'sales' ? 'Advance amount' : 'Paid amount'}><input className={inputClass} type="number" min="0.01" step="0.01" max={data.consultationFee || 100000000} value={newAdvance.paymentMode === 'split' ? splitTotal(newAdvance.splitRows) : newAdvance.amount} disabled={newAdvance.paymentMode === 'split'} onChange={(e) => setNewAdvance((old) => ({ ...old, amount: e.target.value }))} placeholder="Amount collected now" /></Label><Label title="Payment date"><input className={inputClass} type="date" max={today()} value={newAdvance.date} onChange={(e) => setNewAdvance((old) => ({ ...old, date: e.target.value }))} /></Label><Label title="Payment mode"><select className={inputClass} value={newAdvance.paymentMode} onChange={(e) => setNewAdvance((old) => ({ ...old, paymentMode: e.target.value, bank: '', reference: '', cashReceivedByName: '', files: [], splitRows: emptySplitRows() }))}><option value="cash">Cash</option><option value="online">Online</option><option value="split">Split (online + cash + card)</option></select></Label>{newAdvance.paymentMode !== 'cash' ? <>{newAdvance.paymentMode === 'split' && <div className="sm:col-span-2 lg:col-span-3"><SplitRows idPrefix="new-split" rows={newAdvance.splitRows} onChange={(rows) => setNewAdvance((old) => ({ ...old, splitRows: rows }))} /></div>}<Label title="Paid to bank"><select className={inputClass} value={newAdvance.bank} onChange={(e) => setNewAdvance((old) => ({ ...old, bank: e.target.value }))}><option value="">Select bank (optional)</option>{data.banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.displayName || bank.name}</option>)}</select></Label>{newAdvance.paymentMode === 'online' && <Label title="UTR / reference *"><input className={inputClass} required maxLength={200} value={newAdvance.reference} onChange={(e) => setNewAdvance((old) => ({ ...old, reference: e.target.value }))} /></Label>}<Label title="Payment proof *"><input className={`${inputClass} text-xs`} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setUploading(true); try { const body = new FormData(); body.append('file', file); const { data: result } = await api.post('/sales-sheet/consultation-upload', body); setNewAdvance((old) => ({ ...old, files: [{ url: result.file.url, fileName: result.file.fileName }] })); } catch (err) { setError(err.response?.data?.message || 'Payment proof could not be uploaded'); } finally { setUploading(false); } }} />{newAdvance.files[0] && <p className="mt-1 text-xs font-semibold text-sage">{newAdvance.files[0].fileName} attached</p>}</Label></> : <Label title="Cash received by *"><input className={inputClass} required maxLength={200} value={newAdvance.cashReceivedByName} onChange={(e) => setNewAdvance((old) => ({ ...old, cashReceivedByName: e.target.value }))} placeholder="Name of the person who received cash" /></Label>}</div><Label title="Payment notes"><textarea className={inputClass} rows={2} maxLength={2000} value={newAdvance.notes} onChange={(e) => setNewAdvance((old) => ({ ...old, notes: e.target.value }))} /></Label></div>
           {paymentSheetFields}
         </div>}
         {data && !row.id && <div className="flex justify-end border-t border-cardline pt-3"><Button disabled={saving || uploading} onClick={createAppointment}><Save size={15} />{saving ? 'Saving...' : 'Save appointment'}</Button></div>}
-        {data && row.id && tab === 'payments' && <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-charcoal/70">Consultation fee</p><div className="mt-1 flex flex-wrap items-center gap-3"><strong className="text-lg">{data.consultationFee == null ? 'Not set' : money(data.consultationFee)}</strong>{data.canEdit && !feeEdit && <Button size="sm" variant="outline" onClick={() => { setFee(data.consultationFee ?? ''); setFeeEdit(true); }}><Pencil size={14} />{data.consultationFee == null ? 'Set consultation fee' : 'Edit consultation fee'}</Button>}</div></div>{data.canEdit && !adding && !editingPayment && ((sheet === 'sales' && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM].includes(user?.role)) || sheet !== 'sales') && <Button size="sm" onClick={addReceipt}><Plus size={15} />{sheet === 'sales' ? 'Add sales payment' : 'Record reception payment'}</Button>}</div>
+        {data && row.id && (isDirect || tab === 'payments') && <div className="space-y-4">{isDirect && <h4 className="border-t border-cardline pt-4 text-sm font-bold text-charcoal">Consultation payment</h4>}
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-charcoal/70">Consultation fee</p><div className="mt-1 flex flex-wrap items-center gap-3"><strong className="text-lg">{data.consultationFee == null ? 'Not set' : money(data.consultationFee)}</strong>{data.canEdit && !data.pcLocked && !feeEdit && <Button size="sm" variant="outline" onClick={() => { setFee(data.consultationFee ?? ''); setFeeEdit(true); }}><Pencil size={14} />{data.consultationFee == null ? 'Set consultation fee' : 'Edit consultation fee'}</Button>}</div></div>{data.canEdit && !data.pcLocked && !adding && !editingPayment && ((sheet === 'sales' && [...ADMIN_LIKE_ROLES, ROLES.SALES_TEAM].includes(user?.role)) || sheet !== 'sales') && <Button size="sm" onClick={addReceipt}><Plus size={15} />{sheet === 'sales' ? 'Add sales payment' : 'Record reception payment'}</Button>}</div>
           {feeEdit && <form onSubmit={saveFee} className="flex flex-wrap items-end gap-2"><Label title="Total consultation fee *"><input className={inputClass} type="number" min="0" max="100000000" step="0.01" required value={fee} onChange={(e) => setFee(e.target.value)} /></Label><Button type="submit" disabled={saving}>Save fee</Button><Button variant="outline" disabled={saving} onClick={() => setFeeEdit(false)}>Cancel</Button></form>}
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{[['Sales advance', money(advance)], ['Reception received', money(received - advance)], ['Reception approved', money(approved)], [remaining !== null && remaining < 0 ? 'Extra received' : 'Remaining fee', remaining === null ? 'Fee not set' : money(Math.abs(remaining))]].map(([label, amount]) => <div key={label} className="rounded-md border border-cardline bg-white/60 p-3"><p className="text-xs text-charcoal/70">{label}</p><p className="mt-1 text-base font-bold">{amount}</p></div>)}</div>
-          {editableSalesReceipts.length > 0 && !editingPayment && <div className="flex flex-wrap gap-2">{editableSalesReceipts.map((item) => <Button key={item._id} size="sm" variant="outline" onClick={() => openPaymentEdit(item)}><Pencil size={14} />Edit sales advance {money(item.amount)}</Button>)}</div>}
+          {editableSalesReceipts.length > 0 && !editingPayment && <div className="flex flex-wrap gap-2">{editableSalesReceipts.map((item) => <Button key={item._id} size="sm" variant="outline" onClick={() => openPaymentEdit(item)}><Pencil size={14} />{sheet === 'sales' ? 'Edit sales advance' : 'Edit payment'} {money(item.amount)}{sheet !== 'sales' && ` · ${paidDate(item.date)}`}{item.status === 'approved' && sheet !== 'sales' ? ' (verified)' : ''}</Button>)}</div>}
           {editingPayment && <form onSubmit={saveEditedPayment} className="space-y-4 border-y border-cardline py-4">
-            <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-bold">Edit sales advance</h3><span className="text-xs text-charcoal/70">Available until verification or reception acceptance</span></div>
+            <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-bold">{sheet === 'sales' ? 'Edit sales advance' : 'Edit payment'}</h3><span className="text-xs text-charcoal/70">{sheet === 'sales' ? 'Available until verification or reception acceptance' : 'Available until the Post Counselor saves the record. A verified payment goes back for verification.'}</span></div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <Label title="Advance amount *"><input className={inputClass} type="number" min="0.01" max={data.consultationFee ?? 100000000} step="0.01" required={editingPayment.paymentMode !== 'split'} disabled={editingPayment.paymentMode === 'split'} value={editingPayment.paymentMode === 'split' ? splitTotal(editingPayment.splitRows) : editingPayment.amount} onChange={(e) => setEditingPayment((old) => ({ ...old, amount: e.target.value }))} /></Label>
+              <Label title={sheet === 'sales' ? 'Advance amount *' : 'Amount *'}><input className={inputClass} type="number" min="0.01" max={sheet === 'sales' ? data.consultationFee ?? 100000000 : 100000000} step="0.01" required={editingPayment.paymentMode !== 'split'} disabled={editingPayment.paymentMode === 'split'} value={editingPayment.paymentMode === 'split' ? splitTotal(editingPayment.splitRows) : editingPayment.amount} onChange={(e) => setEditingPayment((old) => ({ ...old, amount: e.target.value }))} /></Label>
               <Label title="Payment date *"><input className={inputClass} type="date" max={today()} required value={editingPayment.date} onChange={(e) => setEditingPayment((old) => ({ ...old, date: e.target.value }))} /></Label>
               <Label title="Payment mode"><select className={inputClass} value={editingPayment.paymentMode} onChange={(e) => setEditingPayment((old) => ({ ...old, paymentMode: e.target.value, bank: '', reference: '', cashReceivedByName: '', files: [], splitRows: emptySplitRows() }))}><option value="cash">Cash</option><option value="online">Online</option><option value="split">Split (online + cash + card)</option></select></Label>
               {editingPayment.paymentMode !== 'cash' ? <>

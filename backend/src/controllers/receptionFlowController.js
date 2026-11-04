@@ -80,6 +80,8 @@ const registrationView = (entry) => {
     consultationDate: registration.consultationDate || '',
     // Sent back by the Post Counselor: the correction reception has to make before sending again.
     returned: registration.returned?.at ? { reason: registration.returned.reason, at: registration.returned.at, byName: registration.returned.byName } : null,
+    // Sent, but the Post Counselor has not saved the record yet: reception can still correct the details.
+    postCounselingSaved: Boolean(entry.postCounseling?.savedAt),
     returns: (registration.returns || []).map((r) => ({ reason: r.reason, at: r.at, byName: r.byName, resentAt: r.resentAt || null, resentByName: r.resentByName || '' })),
   };
 };
@@ -170,8 +172,22 @@ const lookupExistingPatient = asyncHandler(async (req, res) => {
 const saveRegistration = asyncHandler(async (req, res) => {
   const entry = await loadEntry(req);
   if (!valueOf(entry, RECEPTION_IDS.patientId)) throw fail('Mark the patient as arrived first');
-  if (entry.registration?.status === 'sent') throw fail('This registration was already sent to a Post Counselor', 409);
   const fields = cleanRegistration(req.body.fields);
+  if (entry.registration?.status === 'sent') {
+    // Already with the Post Counselor: details can be corrected until the post-counselling record is saved.
+    if (entry.postCounseling?.savedAt) throw fail('The Post Counselor has saved the record. The registration can no longer be changed.', 409);
+    if (!fields.phase) fields.phase = Object.fromEntries(entry.registration.fields || []).phase || '1';
+    const missing = missingForSend(fields);
+    if (missing.length) throw fail(`Fill these before saving: ${missing.join(', ')}`);
+    const changed = await Management.updateOne({ _id: entry._id, 'registration.status': 'sent', 'postCounseling.savedAt': null }, {
+      $set: { 'registration.fields': fields, 'registration.editedAt': new Date(), 'registration.editedByName': req.user.name, updatedByName: req.user.name, lastEditedAt: new Date() },
+    });
+    if (!changed.modifiedCount) throw fail('The Post Counselor has saved the record. The registration can no longer be changed.', 409);
+    await audit(req, entry, 'Registration edited', `Registration details corrected after sending (Post Counselor ${entry.registration.postCounselorName || '-'})`);
+    emitChanged(req, entry);
+    if (entry.registration.postCounselor) req.app.get('io')?.to(postCounselingUserRoom(entry.registration.postCounselor)).to(POST_COUNSELING_ALL_ROOM).emit('post-counseling:changed', { id: String(entry._id) });
+    return res.json({ success: true, registration: registrationView(await Management.findById(entry._id)) });
+  }
   await Management.updateOne({ _id: entry._id, 'registration.status': { $ne: 'sent' } }, {
     $set: { 'registration.fields': fields, 'registration.status': 'draft', 'registration.savedAt': new Date(), 'registration.savedByName': req.user.name },
   });

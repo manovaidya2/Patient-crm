@@ -38,6 +38,8 @@ const REGISTRATION_FIELDS = [
   // Which phase this visit is for; the purchase made in post counselling goes into this phase.
   base('phase', 'Phase (this visit is for)', 2, { type: 'select', required: true, group: 'child', options: PHASE_OPTIONS, optionLabels: Object.fromEntries(PHASE_OPTIONS.map((n) => [n, `Phase ${n}`])) }),
   base('patientName', 'Child name', 120, { required: true, group: 'child' }),
+  // Reception ticks it after checking the child's name against the Aadhaar card; saved as "Yes" (shown as is elsewhere).
+  base('nameMatchesAadhaar', 'Patient name matched with Aadhaar card', 3, { type: 'checkbox', required: true, group: 'child' }),
   PROFILE_FIELDS.find((item) => item.key === 'dateOfBirth'),
   base('age', 'Age', 30, { required: true, group: 'child' }),
   ...PROFILE_FIELDS.filter((item) => ['gender', 'weight', 'height', 'headCircumference'].includes(item.key)),
@@ -80,6 +82,7 @@ const phone = (value) => String(value ?? '').replace(/[^\d+]/g, '').slice(0, 15)
 
 const cleanValue = (definition, raw) => {
   if (definition.key === 'category' || definition.key === 'phase') return definition.options.includes(String(raw ?? '')) ? String(raw) : '';
+  if (definition.type === 'checkbox') return raw === true || /^(yes|true|1)$/i.test(String(raw ?? '').trim()) ? 'Yes' : '';
   return cleanProfileValue(definition, raw);
 };
 

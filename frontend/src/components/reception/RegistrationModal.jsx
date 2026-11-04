@@ -44,6 +44,8 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
 
   const set = (key) => (event) => setFields((current) => ({ ...current, [key]: event.target.value }));
   const sent = data?.status === 'sent';
+  // Sent, but the Post Counselor has not saved the record yet: still correctable here.
+  const locked = sent && data?.postCounselingSaved;
   const visibleDefs = (data?.fieldDefs || []).filter((definition) => !definition.onlyFor || definition.onlyFor === fields.category);
   const missing = visibleDefs.filter((definition) => definition.required && !String(fields[definition.key] || '').trim()).map((definition) => definition.label);
 
@@ -62,7 +64,7 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
 
   const save = async () => {
     setBusy(true); setError(''); setNotice('');
-    try { await saveDetails(); await api.put(`/sales-sheet/management/${row.id}/registration`, { fields }); setNotice('Saved'); onChanged?.(); }
+    try { await saveDetails(); const { data: saved } = await api.put(`/sales-sheet/management/${row.id}/registration`, { fields }); if (saved?.registration) setData(saved.registration); setNotice('Saved'); onChanged?.(); }
     catch (err) { setError(err.response?.data?.message || 'Could not save'); }
     finally { setBusy(false); }
   };
@@ -104,7 +106,9 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
       )}
       {data && step === 'form' && (
         <div className="space-y-4">
-          {sent && <div className="rounded border border-sage/40 bg-sage/10 px-3 py-2 text-sm text-charcoal">Already sent to <b>{data.postCounselorName}</b>. These details can no longer be changed here.</div>}
+          {sent && (locked
+            ? <div className="rounded border border-sage/40 bg-sage/10 px-3 py-2 text-sm text-charcoal">Sent to <b>{data.postCounselorName}</b>, who has saved the post-counselling record. These details can no longer be changed here.</div>
+            : <div className="rounded border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-sm text-[#78350F]">Sent to <b>{data.postCounselorName}</b>. You can still correct these details until the Post Counselor saves the record - press "Save changes".</div>)}
           {!sent && data.returned && (
             <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-sm text-[#7F1D1D]">
               <p className="font-bold">Sent back by {data.returned.byName} · {new Date(data.returned.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
@@ -123,11 +127,20 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
             const defs = visibleDefs.filter((definition) => definition.group === groupKey);
             if (!defs.length) return null;
             return (
-              <fieldset key={groupKey} disabled={sent || busy} className="space-y-2">
+              <fieldset key={groupKey} disabled={locked || busy} className="space-y-2">
                 <legend className="text-sm font-bold text-charcoal">{groupLabel}</legend>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {defs.map((definition) => {
                     const label = `${definition.label}${definition.required ? ' *' : ''}`;
+                    if (definition.type === 'checkbox') {
+                      const ticked = fields[definition.key] === 'Yes';
+                      return (
+                        <label key={definition.key} className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-semibold sm:col-span-2 ${ticked ? 'border-sage/50 bg-sage/10 text-charcoal' : 'border-[#FDBA74] bg-[#FFF7ED] text-[#9A3412]'}`}>
+                          <input type="checkbox" checked={ticked} onChange={(event) => setFields((current) => ({ ...current, [definition.key]: event.target.checked ? 'Yes' : '' }))} className="h-4 w-4 accent-[#5B7B65]" />
+                          {label}
+                        </label>
+                      );
+                    }
                     if (definition.type === 'select') {
                       return (
                         <div key={definition.key}>
@@ -152,12 +165,18 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
                 {detailColumns.map((column) => (
                   <div key={column.id} className="min-w-0">
                     <p className="mb-1 text-xs font-semibold text-charcoal/80">{column.label}{column.required ? ' *' : ''}</p>
-                    {sent || busy || LOCKED_COLUMNS.has(column.id) || !form.canEdit
+                    {locked || busy || LOCKED_COLUMNS.has(column.id) || !form.canEdit
                       ? <Value column={column} value={details[column.id] || ''} />
                       : <Field column={column} value={details[column.id] || ''} onChange={(next) => setDetails((old) => ({ ...old, [column.id]: next }))} onError={setError} onUploading={setUploading} />}
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {sent && !locked && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
+              <Button onClick={() => { if (missing.length) { setError(`Please fill: ${missing.join(', ')}`); return; } save(); }} disabled={busy || uploading}>{busy ? 'Saving...' : 'Save changes'}</Button>
             </div>
           )}
           {!sent && (

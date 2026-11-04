@@ -17,6 +17,7 @@ router.patch('/forms/:sheet/:id/field', appointmentForm.updateField);
 router.patch('/forms/:sheet/:id/fee', appointmentForm.updateFee);
 router.post('/forms/:sheet/:id/receipts', appointmentForm.prepareReceipt, uploadConsultationFeeProof.array('proof', 5), financialLedger.createReceipt);
 router.patch('/forms/sales/:id/receipts/:receiptId', authorize(ROLES.ADMIN, ROLES.SALES_TEAM), appointmentForm.updateSalesReceipt);
+router.patch('/forms/management/:id/receipts/:receiptId', authorize(ROLES.ADMIN, ROLES.RECEPTIONIST), appointmentForm.updateReceptionReceipt);
 router.get('/columns', controller.listColumns);
 router.get('/layout', controller.listLayout);
 router.put('/layout', authorize(ROLES.ADMIN), controller.updateLayout);
