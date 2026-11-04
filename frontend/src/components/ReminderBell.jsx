@@ -8,16 +8,25 @@ import { PAGES } from './PendingWork.jsx';
 import { BUCKETS, bucketOf, when } from '../utils/taskTiming.js';
 import { playChime } from '../utils/chime.js';
 
-// The reminder sound, shared by the bells (mobile and desktop): one ding per reminder - every pending one when the page
-// opens, every new one the moment it arrives (live), and all pending ones again every 30 minutes while any is left.
+// The reminder sound, shared by the bells (mobile and desktop): a single ding when the page opens with work pending
+// (not one per pending reminder), one ding the moment new reminders arrive (live), and one again every 30 minutes while
+// any is left.
+// The sound never plays alone: with it the reminder panel opens on screen (on every bell, so the visible one shows it),
+// the new reminders marked "New".
+const RING_EVENT = 'reminders:ring';
 const REPEAT_MS = 30 * 60 * 1000;
 let seenKeys = null;
 let lastRemindAt = 0;
 const soundFor = (keys) => {
+  const before = seenKeys || new Set();
   const newOnes = seenKeys === null ? keys.length : keys.filter((k) => !seenKeys.has(k)).length;
   const repeat = keys.length > 0 && Date.now() - lastRemindAt >= REPEAT_MS;
   seenKeys = new Set(keys);
-  if (repeat) { lastRemindAt = Date.now(); playChime(keys.length); } else if (newOnes > 0) { lastRemindAt = Date.now(); playChime(newOnes); }
+  const fresh = before.size === 0 || repeat ? keys : keys.filter((k) => !before.has(k));
+  // The panel opens when the dings really play: after a refresh the browser holds sound until the first click, and
+  // opening before that click would let the same click close the panel again.
+  const show = () => window.dispatchEvent(new CustomEvent(RING_EVENT, { detail: fresh }));
+  if (repeat || newOnes > 0) { lastRemindAt = Date.now(); playChime(1, show); }
 };
 
 // The signed-in person's own pending reminders (everything My Day lists for them), as a small panel that opens from
@@ -28,7 +37,13 @@ export default function ReminderBell({ dark = false }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [fresh, setFresh] = useState(() => new Set());
   const box = useRef(null);
+  useEffect(() => {
+    const ring = (e) => { setFresh(new Set(e.detail || [])); setOpen(true); };
+    window.addEventListener(RING_EVENT, ring);
+    return () => window.removeEventListener(RING_EVENT, ring);
+  }, []);
   const load = useCallback(async () => {
     setLoading(true);
     try { const { data: d } = await api.get('/tasks/my-day', { skipCache: true }); setData(d); } catch { /* the bell just shows nothing new */ } finally { setLoading(false); }
@@ -75,7 +90,7 @@ export default function ReminderBell({ dark = false }) {
                   {list.map((i) => (
                     <li key={i.key}>
                       <button type="button" onClick={() => { setOpen(false); navigate(i.href); }} className="block w-full px-3 py-2 text-left hover:bg-[#F3F6F2]">
-                        <p className="flex items-start justify-between gap-2"><span className="min-w-0 truncate text-sm font-semibold text-charcoal">{i.title}</span><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${tone}`}>{when(i) || label}</span></p>
+                        <p className="flex items-start justify-between gap-2"><span className="min-w-0 truncate text-sm font-semibold text-charcoal">{fresh.has(i.key) && <span className="mr-1.5 rounded bg-[#F97316] px-1 py-0.5 text-[9.5px] font-bold uppercase text-white">New</span>}{i.title}</span><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${tone}`}>{when(i) || label}</span></p>
                         <p className="truncate text-xs text-charcoal/60">{i.detail}</p>
                         <p className="text-[10.5px] text-charcoal/45">{i.pageLabel}</p>
                       </button>

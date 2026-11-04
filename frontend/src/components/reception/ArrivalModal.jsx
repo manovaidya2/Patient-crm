@@ -45,6 +45,7 @@ const ArrivalModal = ({ row, onClose, onSaved }) => {
             <>
               <p className="text-sm text-charcoal/70">{result.existing ? 'Existing patient: their old Patient ID is kept, no new ID was made.' : <>Patient ID{result.generated ? ' generated' : ''}. Please note it down.</>}</p>
               <p className="rounded-lg border border-sage/40 bg-sage/10 py-4 font-display text-3xl font-bold tracking-wide text-charcoal">{result.patientId}</p>
+              {result.tokenNumber && <><p className="text-sm text-charcoal/70">Token number (today, in the order of arrival)</p><p className="rounded-lg border border-[#FDBA74] bg-[#FFF1E6] py-3 font-display text-3xl font-bold text-[#C2410C]">Token {result.tokenNumber}</p></>}
             </>
           ) : <p className="text-sm text-charcoal/70">Marked as {result.arrivalStatus.toLowerCase()}. The Patient ID is created when the patient is marked Arrived or Online.</p>}
           <Button onClick={onClose} className="w-full">Okay</Button>

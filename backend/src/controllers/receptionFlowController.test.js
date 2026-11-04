@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 const controller = require('./receptionFlowController');
 const Management = require('../models/AppointmentManagementEntry');
 const PatientIdCounter = require('../models/PatientIdCounter');
+const Counter = require('../models/Counter');
+// The reception token counter of the day (stubbed): 1, 2, 3 ... so the tokens are 11, 12, 13 ...
+let tokenSeq = 0;
 const Patient = require('../models/Patient');
 const User = require('../models/User');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
@@ -57,6 +60,7 @@ test('arrival: needs a time when Arrived', async () => {
 test('arrival: Arrived + time generates the Patient ID once', async () => {
   const state = { writes: [], seq: 0, stored: '' };
   const stubs = [
+    [Counter, 'next', async () => ++tokenSeq],
     [Management, 'findById', async () => entry({ ...(state.stored ? { [RECEPTION_IDS.patientId]: state.stored } : {}) })],
     [Management, 'updateOne', async (filter, update) => {
       state.writes.push(update.$set);
@@ -72,6 +76,7 @@ test('arrival: Arrived + time generates the Patient ID once', async () => {
     assert.equal(first.error, null);
     assert.equal(first.res.body.generated, true);
     assert.match(first.res.body.patientId, /^V-\d{6}-11$/);
+    assert.ok(first.res.body.tokenNumber >= 11, 'the token of the day starts at 11');
     const second = await call(controller.markArrival, { body: { status: 'Arrived', time: '10:45' } });
     assert.equal(second.res.body.generated, false);
     assert.equal(second.res.body.patientId, first.res.body.patientId);
@@ -82,6 +87,7 @@ test('arrival: Arrived + time generates the Patient ID once', async () => {
 test('arrival: Online (online consultation) needs a time and generates the Patient ID like Arrived', async () => {
   const state = { writes: [], seq: 0, stored: '' };
   const stubs = [
+    [Counter, 'next', async () => ++tokenSeq],
     [Management, 'findById', async () => entry({ ...(state.stored ? { [RECEPTION_IDS.patientId]: state.stored } : {}) })],
     [Management, 'updateOne', async (filter, update) => {
       state.writes.push(update.$set);

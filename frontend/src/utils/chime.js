@@ -1,6 +1,7 @@
 // A short two-tone "ding" for reminders (not the emergency siren): made in the browser, no sound file. playChime(n)
 // rings n dings one after another (one per reminder, at most 10). Browsers keep sound off until the page is touched
-// once; then the waiting dings play. Two calls within a few seconds play once.
+// once; then the waiting dings play. Two calls within a few seconds play once. `onPlay` runs when the dings really
+// play (at once, or after that first touch), so what goes with the sound shows at the same moment.
 let ctx = null;
 let lastAt = 0;
 let waiting = false;
@@ -8,6 +9,7 @@ let waiting = false;
 const MAX_DINGS = 10;
 const GAP = 0.75; // seconds between two dings
 let pendingTimes = 1;
+let pendingPlay = null;
 const ding = (start = 0) => {
   const t = ctx.currentTime + start;
   [[880, 0], [1320, 0.18]].forEach(([freq, at]) => {
@@ -23,24 +25,25 @@ const ding = (start = 0) => {
   });
 };
 
-const dings = (times) => { for (let i = 0; i < times; i += 1) ding(i * GAP); };
+const dings = (times, onPlay) => { for (let i = 0; i < times; i += 1) ding(i * GAP); onPlay?.(); };
 
-export function playChime(count = 1) {
+export function playChime(count = 1, onPlay = null) {
   const times = Math.max(1, Math.min(MAX_DINGS, Math.round(Number(count) || 1)));
   const now = Date.now();
   if (now - lastAt < 4000) return;
   lastAt = now;
   pendingTimes = times;
+  pendingPlay = onPlay;
   const Ctx = window.AudioContext || window.webkitAudioContext;
-  if (!Ctx) return;
-  try { ctx = ctx || new Ctx(); } catch { return; }
-  if (ctx.state !== 'suspended') { dings(times); return; }
+  if (!Ctx) { onPlay?.(); return; }
+  try { ctx = ctx || new Ctx(); } catch { onPlay?.(); return; }
+  if (ctx.state !== 'suspended') { dings(times, onPlay); return; }
   if (waiting) return;
   waiting = true;
   const unlock = () => {
     ['pointerdown', 'keydown'].forEach((e) => document.removeEventListener(e, unlock));
     waiting = false;
-    ctx.resume().then(() => dings(pendingTimes)).catch(() => {});
+    ctx.resume().then(() => dings(pendingTimes, pendingPlay)).catch(() => pendingPlay?.());
   };
   ['pointerdown', 'keydown'].forEach((e) => document.addEventListener(e, unlock));
 }

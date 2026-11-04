@@ -68,6 +68,7 @@ const registrationView = (entry) => {
     phaseChosen: Boolean(saved.phase),
     arrivalStatus: valueOf(entry, RECEPTION_IDS.arrivalStatus),
     arrivalTime: valueOf(entry, RECEPTION_IDS.arrivalTime),
+    tokenNumber: entry.tokenNumber || null,
     fields: { ...defaultsFromSales(salesValues), ...saved },
     fieldDefs: REGISTRATION_FIELDS,
     groups: FIELD_GROUPS,
@@ -84,6 +85,8 @@ const registrationView = (entry) => {
 };
 
 // @route POST /api/sales-sheet/management/:id/arrival
+const Counter = require('../models/Counter');
+const TOKEN_START = 11;
 const markArrival = asyncHandler(async (req, res) => {
   const entry = await loadEntry(req);
   const status = String(req.body.status || '');
@@ -115,9 +118,18 @@ const markArrival = asyncHandler(async (req, res) => {
     if (result.modifiedCount) { patientId = candidate; generated = !existingCode; existing = Boolean(existingCode); }
     else patientId = valueOf(await Management.findById(entry._id), RECEPTION_IDS.patientId);
   }
-  await audit(req, entry, status === 'Online' ? 'Online consultation marked' : 'Arrival marked', `${status}${time ? ` at ${time}` : ''}${generated ? `, Patient ID ${patientId}` : ''}${existing ? `, existing patient ${patientId} (no new ID)` : ''}`);
+  // The token of the day, in the order patients are marked Arrived / Online: the first is 11, then 12, 13 ...
+  // New and existing patients both get one; it is given once and kept when the arrival is edited.
+  let tokenNumber = entry.tokenNumber || null;
+  if (joined && !tokenNumber) {
+    const day = entry.appointmentDate || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const candidate = TOKEN_START - 1 + await Counter.next(`arrivalToken:${day}`);
+    const result = await Management.updateOne({ _id: entry._id, tokenNumber: null }, { $set: { tokenNumber: candidate, tokenDate: day } });
+    tokenNumber = result.modifiedCount ? candidate : (await Management.findById(entry._id).select('tokenNumber').lean())?.tokenNumber || null;
+  }
+  await audit(req, entry, status === 'Online' ? 'Online consultation marked' : 'Arrival marked', `${status}${time ? ` at ${time}` : ''}${generated ? `, Patient ID ${patientId}` : ''}${existing ? `, existing patient ${patientId} (no new ID)` : ''}${tokenNumber && !entry.tokenNumber ? `, token ${tokenNumber}` : ''}`);
   emitChanged(req, entry);
-  res.json({ success: true, arrivalStatus: status, arrivalTime: time, patientId, generated, existing });
+  res.json({ success: true, arrivalStatus: status, arrivalTime: time, patientId, generated, existing, tokenNumber });
 });
 
 // An existing patient's registration starts from what the CRM already has about them (only empty fields are filled),

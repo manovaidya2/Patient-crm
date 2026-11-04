@@ -146,6 +146,7 @@ const serializeManagementEntry = (entry, user) => ({
   patientId: String(entry.values?.get?.(RECEPTION_IDS.patientId) || ''),
   arrivalStatus: String(entry.values?.get?.(RECEPTION_IDS.arrivalStatus) || ''),
   arrivalTime: String(entry.values?.get?.(RECEPTION_IDS.arrivalTime) || ''),
+  tokenNumber: entry.tokenNumber || null,
   registrationStatus: entry.registration?.status || '',
   registrationPostCounselorName: entry.registration?.postCounselorName || '',
   registrationReturned: entry.registration?.returned?.at ? { reason: entry.registration.returned.reason, byName: entry.registration.returned.byName, at: entry.registration.returned.at } : null,

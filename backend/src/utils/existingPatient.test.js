@@ -4,6 +4,7 @@ const Patient = require('../models/Patient');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const Management = require('../models/AppointmentManagementEntry');
 const PatientIdCounter = require('../models/PatientIdCounter');
+const Counter = require('../models/Counter');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const { PATIENT_TYPE_ID, EXISTING_PATIENT_ID_FIELD, applyExistingPatient, nextPhaseOf } = require('./existingPatient');
 const { SALES_IDS, RECEPTION_IDS } = require('./receptionFlow');
@@ -47,7 +48,7 @@ const arrivalEntry = (salesValues) => ({
   salesValues: new Map(Object.entries({ [SALES_IDS.patientName]: 'Aahil', ...salesValues })),
 });
 const runArrival = async (entry, patient) => {
-  const state = { counter: 0, stored: '' };
+  const state = { counter: 0, stored: '', tokens: 0 };
   const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } };
   let error = null;
   await stubAll([
@@ -57,6 +58,7 @@ const runArrival = async (entry, patient) => {
     [Patient, 'findOne', findByCodeStub(patient)],
     [PatientIdCounter, 'findOneAndUpdate', async () => { state.counter += 1; return { seq: state.counter }; }],
     [SalesSheetAudit, 'create', async () => ({})],
+    [Counter, 'next', async () => { state.tokens += 1; return state.tokens; }],
   ], () => receptionFlow.markArrival({ params: { id: OID }, body: { status: 'Arrived', time: '11:00' }, user: { _id: 'u1', name: 'Prachi', role: 'receptionist' }, app: { get: () => null } }, res, (e) => { error = e; }));
   return { res, error, state };
 };
@@ -69,6 +71,7 @@ test('arrival: an existing patient keeps the old Patient ID and no new one is ge
   assert.equal(res.body.generated, false);
   assert.equal(state.stored, 'A-3046');
   assert.equal(state.counter, 0, 'the daily Patient ID counter is not used');
+  assert.equal(res.body.tokenNumber, 11, 'an existing patient still gets the token of the day (the first is 11)');
   const missing = await runArrival(arrivalEntry({ [PATIENT_TYPE_ID]: 'Existing', [EXISTING_PATIENT_ID_FIELD]: '' }), null);
   assert.match(missing.error.message, /existing patient.*Old Patient ID/);
   assert.equal(missing.state.stored, '', 'no Patient ID is set when the old one is missing');

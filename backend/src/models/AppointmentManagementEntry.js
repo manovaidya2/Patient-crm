@@ -80,6 +80,9 @@ const schema = new mongoose.Schema({
   appointmentDate: { type: String, required: true, index: true },
   sourceAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesAppointment', default: undefined, unique: true, sparse: true },
   appointmentCode: { type: String, trim: true, default: '' },
+  // Reception token of the day: given when the patient is first marked Arrived / Online, in that order, from 11.
+  tokenNumber: { type: Number, default: null },
+  tokenDate: { type: String, trim: true, default: '' },
   // Set when Reception moves a direct entry to another date
   rescheduleNote: { type: String, trim: true, default: '', maxlength: 1000 },
   rescheduledFromDate: { type: String, default: '' },
