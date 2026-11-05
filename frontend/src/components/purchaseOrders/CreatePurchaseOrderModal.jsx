@@ -101,7 +101,8 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
     if (!patient) { setError('Select the patient'); return; }
     if (!(feeNumber > 0)) { setError('Enter the PO value (approved fee)'); return; }
     if (!values?.supplyOrder) { setError('Select the medicine supply on this PO (section H)'); return; }
-    if (!values?.mode) { setError('Select the payment mode (section F)'); return; }
+    // No first payment is fine; the mode is asked only when an amount is received now.
+    if (Number(values?.amountReceivedNow || 0) > 0 && !values?.mode) { setError('Select the payment mode of the amount received (section F)'); return; }
     setSaving(true); setError('');
     try {
       const { data } = await api.post('/purchase-orders', { patientId: patient.id, phase, fee: feeNumber, purchase: values, ...(fromPo ? { fromPoId: fromPo.id } : {}) });
@@ -116,12 +117,15 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
         {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
         {!fixedPatient && <FieldLabel label="Patient" required><PatientPicker value={patient} onChange={setPatient} /></FieldLabel>}
         {patient && previousOptions.length > 0 && (
-          <FieldLabel label="Take the balance of a previous PO (optional)">
+          <FieldLabel label="Take a balance still owed (optional)">
             <select className={poInput} value={fromPoId} onChange={(e) => (e.target.value ? chooseFrom(e.target.value) : setFromPoId(''))}>
-              <option value="">No - a new PO value</option>
+              <option value="">No - a new PO from fresh (no reference)</option>
               {previousOptions.map((p) => <option key={p.id} value={p.id}>{p.poNumber} · Phase {p.phase} · {p.supplyLabel || 'supply not set'} · paid Rs {Number(p.paid).toLocaleString('en-IN')} of Rs {Number(p.amount).toLocaleString('en-IN')} · balance Rs {Number(p.balance).toLocaleString('en-IN')}</option>)}
             </select>
-            {fromPo && <span className="mt-1 block text-xs text-sky-900">This PO's value is the unpaid balance of {fromPo.poNumber}: Rs {Number(fromPo.balance).toLocaleString('en-IN')}. The balance moves here and is no longer owed on {fromPo.poNumber}.</span>}
+            {fromPo && (fromPo.noPo
+              ? <span className="mt-1 block text-xs text-sky-900">Phase {fromPo.phase} was paid without a PO: Rs {Number(fromPo.paid).toLocaleString('en-IN')} of Rs {Number(fromPo.amount).toLocaleString('en-IN')}. This PO's value is the balance, Rs {Number(fromPo.balance).toLocaleString('en-IN')}; the earlier payments stay on Phase {fromPo.phase} for reference and this PO starts at Rs 0 paid.</span>
+              : <span className="mt-1 block text-xs text-sky-900">This PO's value is the unpaid balance of {fromPo.poNumber}: Rs {Number(fromPo.balance).toLocaleString('en-IN')}. The balance moves here and is no longer owed on {fromPo.poNumber}.</span>)}
+            {!fromPo && <span className="mt-1 block text-xs text-charcoal/60">A new PO always starts at Rs 0 paid: payments made earlier on the phase are not counted on it.</span>}
           </FieldLabel>
         )}
         {patient && (

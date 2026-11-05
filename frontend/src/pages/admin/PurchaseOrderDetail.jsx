@@ -6,6 +6,7 @@ import {
   MessageCircle, PauseCircle, Pencil, Phone, PhoneCall, Pill, PlayCircle, Plus, RotateCcw, Send, ShieldCheck, Stethoscope, Trash2, Truck, UserRound, X,
 } from 'lucide-react';
 import api from '../../api/axios.js';
+import { markPoDeleted } from '../../utils/deletedPos.js';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../../components/payments/UtrRows.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -731,7 +732,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const [deleting, setDeleting] = useState(false);
   const runDelete = async () => {
     setDeleting(true); setError('');
-    try { await api.delete(`/purchase-orders/${po.id}`, { data: { reason: deleteReason } }); navigate('/admin/purchase-orders', { replace: true }); }
+    try { await api.delete(`/purchase-orders/${po.id}`, { data: { reason: deleteReason } }); markPoDeleted(po.id); navigate('/admin/purchase-orders', { replace: true }); }
     catch (err) { setError(err.response?.data?.message || 'Could not delete the purchase order'); setDeleteOpen(false); } finally { setDeleting(false); }
   };
   // The timeline step shown on the right (null: follow the step the PO is on now).
@@ -820,7 +821,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
       <header className="flex flex-wrap items-center gap-3 rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-3.5 sm:px-[18px]">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9EFE9] font-display text-[11px] font-extrabold text-sage" aria-hidden="true">PO</span>
         <div className="min-w-0 flex-1 basis-[calc(100%-56px)] sm:basis-auto">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-[17px] font-bold text-charcoal">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}{po.previousPo && <Link to={`/admin/purchase-orders/${po.previousPo.id}`} className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-bold text-sky-900 hover:underline">Balance of {po.previousPo.poNumber}</Link>}{po.carriedForward && <Link to={`/admin/purchase-orders/${po.carriedForward.id}`} className="rounded-full bg-violet-50 px-2.5 py-0.5 text-[11px] font-bold text-violet-900 hover:underline">Rs {Number(po.carriedForward.amount).toLocaleString('en-IN')} carried to {po.carriedForward.poNumber}</Link>}</div>
+          <div className="flex flex-wrap items-center gap-2"><h1 className="font-mono text-[17px] font-bold text-charcoal">{po.poNumber}</h1><Badge tone={status.tone}>{po.status === 'pending' && po.detailsVerified ? 'Details verified - payment pending' : status.label}</Badge>{po.supplyLabel && <Badge tone="teal">{po.supplyLabel}</Badge>}{po.ageBand && <Badge tone="amber">{ageBandLabel(po.ageBand)}</Badge>}{po.previousPo && (po.previousPo.id ? <Link to={`/admin/purchase-orders/${po.previousPo.id}`} className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-bold text-sky-900 hover:underline">Balance of {po.previousPo.poNumber}</Link> : <span className="text-xs font-semibold text-sky-900">balance of {po.previousPo.poNumber}</span>)}{po.carriedForward && <Link to={`/admin/purchase-orders/${po.carriedForward.id}`} className="rounded-full bg-violet-50 px-2.5 py-0.5 text-[11px] font-bold text-violet-900 hover:underline">Rs {Number(po.carriedForward.amount).toLocaleString('en-IN')} carried to {po.carriedForward.poNumber}</Link>}</div>
           <p className="mt-0.5 text-[12.5px] text-charcoal/65"><b className="text-charcoal">{po.patientName}</b> · {po.patientCode} · Phase {po.phase}{po.currentStage === po.phase ? ' (current)' : ` · current is Phase ${po.currentStage}`} · <b className="text-charcoal">{money(po.amount)}</b>{po.guardianName ? ` · ${po.guardianName}` : ''}</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">

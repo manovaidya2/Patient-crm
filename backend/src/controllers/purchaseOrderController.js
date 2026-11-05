@@ -15,7 +15,7 @@ const { createWithPoNumber } = require('../utils/poNumber');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const { resolveSplit, modeLabelOf } = require('../utils/splitPayment');
 const { buildPoView, STAGE_KEYS, isPendingStage, findRequest } = require('../utils/purchaseOrderFlow');
-const { poPaymentSummary } = require('../utils/poPayment');
+const { poPaymentSummary, earlierPhaseBalance } = require('../utils/poPayment');
 
 const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 const PO_CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -86,7 +86,7 @@ const respond = async (res, po, patient, status = 200) => {
   }
   const [documents, caseCategory] = await Promise.all([patientDocuments(patient), patientCaseCategory(patient)]);
   // The other POs of the phase: each PO is paid on its own.
-  const phasePos = mongoose.connection.readyState === 1 ? await PurchaseOrder.find({ patient: po.patient, phase: po.phase }).select('poNumber amount paymentIds medicineRequestId status').lean() : [];
+  const phasePos = mongoose.connection.readyState === 1 ? await PurchaseOrder.find({ patient: po.patient, phase: po.phase }).select('poNumber amount paymentIds medicineRequestId status ownPaymentsOnly createdAt carriedForwardAmount').lean() : [];
   res.status(status).json({ success: true, purchaseOrder: { ...buildPoView(po, patient.toObject ? patient.toObject() : patient, { includeEvents: true, job, phasePos }), patientDocuments: documents, patientCaseCategory: caseCategory } });
 };
 
@@ -130,7 +130,10 @@ const paymentFromBody = async (body, files, user, poNumber) => {
 
 // Every PO with its patient, as list views (used by the list and by the sidebar task counts).
 // Shared for a minute by every screen asking for the same views, refreshed behind them after a save (utils/readCache).
-const loadPoViews = (filter = { patient: { $ne: null } }, options = {}) => cached(`po-views|${JSON.stringify(filter)}|${Boolean(options.includeHandover)}`, () => buildPoViews(filter, options));
+// A deleted PO leaves every list at once: the cached answer may still be the one from before the delete.
+const deletedPoIds = new Set();
+const loadPoViews = (filter = { patient: { $ne: null } }, options = {}) => cached(`po-views|${JSON.stringify(filter)}|${Boolean(options.includeHandover)}`, () => buildPoViews(filter, options))
+  .then((views) => (deletedPoIds.size ? views.filter((v) => !deletedPoIds.has(v.id)) : views));
 const buildPoViews = async (filter, { includeHandover = false } = {}) => {
   const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
   const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
@@ -280,15 +283,21 @@ const getPurchaseOrder = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
-// The patient's POs whose unpaid balance can start a new PO (not carried yet, verified, something still owed).
+// The balances a new PO can take as its value: a PO's unpaid balance (verified, not carried yet), or a phase's
+// earlier payments made without any PO (id "phase-N").
 const carryablePos = async (patient) => {
   if (mongoose.connection.readyState !== 1) return [];
-  const pos = await PurchaseOrder.find({ patient: patient._id, status: 'verified', carriedForwardTo: null }).select('poNumber phase amount paymentIds supplyPlan supplyPart carriedForwardAmount createdAt').sort({ createdAt: -1 }).lean();
-  return pos.map((po) => {
+  const all = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount paymentIds supplyPlan supplyPart carriedForwardAmount carriedForwardTo status ownPaymentsOnly createdAt').sort({ createdAt: -1 }).lean();
+  const fromPos = all.filter((po) => po.status === 'verified' && !po.carriedForwardTo).map((po) => {
     const stage = (patient.stages || []).find((s) => s.number === po.phase) || {};
-    const pay = poPaymentSummary(stage, po, pos.filter((o) => o.phase === po.phase));
+    const pay = poPaymentSummary(stage, po, all.filter((o) => o.phase === po.phase));
     return { id: String(po._id), poNumber: po.poNumber, phase: po.phase, supplyLabel: supplyLabel(po.supplyPlan, po.supplyPart), amount: po.amount, paid: pay.amountPaid, pending: pay.pendingAmount || 0, balance: pay.remaining };
   }).filter((p) => p.balance > 0);
+  const fromPhases = (patient.stages || []).map((stage) => {
+    const earlier = earlierPhaseBalance(stage, all.filter((o) => o.phase === stage.number));
+    return earlier && { id: `phase-${stage.number}`, noPo: true, poNumber: `Phase ${stage.number} payments (no PO)`, phase: stage.number, supplyLabel: '', amount: earlier.total, paid: earlier.paid, pending: earlier.pending, balance: earlier.balance };
+  }).filter(Boolean);
+  return [...fromPhases, ...fromPos];
 };
 
 // @route GET /api/purchase-orders/form?patient=&phase=
@@ -327,14 +336,14 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
   // From a previous PO: this PO's value is that PO's unpaid balance (taken here, not typed).
   let previous = null;
   if (body.fromPoId) {
-    if (!mongoose.Types.ObjectId.isValid(String(body.fromPoId))) fail('Select a valid previous PO');
     previous = (await carryablePos(patient)).find((p) => p.id === String(body.fromPoId));
-    if (!previous) fail('That PO has no unpaid balance to carry (or it was carried already)');
+    if (!previous) fail('That balance is not open any more (paid, or taken into another PO already)');
   }
   const fee = previous ? previous.balance : amountOf(body.fee, 'PO value / approved fee');
   if (!(fee > 0)) fail('Enter the PO value (approved fee)');
   const cleaned = purchase.cleanPurchase(body.purchase, fee);
-  assertPurchaseComplete(cleaned.values);
+  // A PO can be made with no first payment: the mode is needed only when an amount is received now.
+  if (Number(cleaned.values.amountReceivedNow || 0) > 0) assertPurchaseComplete(cleaned.values);
   const supply = supplyOptionByLabel(cleaned.values.supplyOrder);
   if (!supply) fail('Select the medicine supply on this PO (6 months / 1+5 / 2+4)');
   const paper = await withBankName(cleaned.values);
@@ -352,7 +361,9 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     phase, supplyPlan: supply.plan, supplyPart: supply.part, ageBand: ageBandByLabel(paper.ageGroup),
     packageName: clean(paper.orderedTreatment, 200), amount: fee, medicineReadyDate: readyBy, notes: longText(paper.paymentNotes),
     paperImages: paper.paperImages || [], status: 'pending', source: 'manual', createdByName: req.user.name, createdByRole: req.user.role,
-    ...(previous ? { previousPo: previous.id, previousPoNumber: previous.poNumber } : {}),
+    // Starts fresh: only its own payments count (never the phase's earlier payments made without a PO).
+    ownPaymentsOnly: true,
+    ...(previous ? { previousPo: previous.noPo ? null : previous.id, previousPoNumber: previous.poNumber } : {}),
     events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${previous ? ` | balance of ${previous.poNumber}` : ''}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
   });
   try {
@@ -374,9 +385,14 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     if (!stage.transit.enteredAt) stage.transit.enteredAt = new Date();
     if (readyBy && !stage.transit.expectedReadyDate) stage.transit.expectedReadyDate = readyBy;
     logActivity(patient, req.user, `Purchase order created for Phase ${phase}`, `${po.poNumber} | ${supply.label} | Rs ${fee}${previous ? ` | balance of ${previous.poNumber}` : ''}`);
+    // The earlier no-PO balance of a phase is taken once: the phase remembers which PO it went to.
+    if (previous?.noPo) {
+      stageOf(patient, previous.phase).earlierBalanceCarried = { poId: po._id, poNumber: po.poNumber, amount: fee, paid: previous.paid, total: previous.amount, at: new Date(), byName: req.user.name };
+      logActivity(patient, req.user, `Phase ${previous.phase} earlier balance moved to ${po.poNumber}`, `Paid Rs ${previous.paid} of Rs ${previous.amount} without a PO; balance Rs ${fee} is now on ${po.poNumber}`);
+    }
     await patient.save();
     await po.save();
-    if (previous) {
+    if (previous && !previous.noPo) {
       // The balance now belongs to the new PO: the earlier one no longer owes it.
       await PurchaseOrder.updateOne({ _id: previous.id, carriedForwardTo: null }, {
         $set: { carriedForwardTo: po._id, carriedForwardToNumber: po.poNumber, carriedForwardAmount: fee, carriedForwardAt: new Date() },
@@ -751,8 +767,9 @@ const deletePurchaseOrder = asyncHandler(async (req, res) => {
   // Everything as it was, before any change.
   const data = { purchaseOrder: copy(po), medicineRequest: copy(request), medicineJob: copy(job), payments: payments.map(copy), phaseTransit: copy(stage.transit), medicineExplainDate: stage.medicineExplainDate || null, phasePurchaseOrder: stage.purchaseOrder || '' };
   // Undo the done steps first (stock returned, handover cleared, request and job cancelled), the same way an admin revert does.
-  if (po.status !== 'rejected' && po.status !== 'cancelled') {
-    const before = buildPoView(po, patient.toObject(), { job: job ? job.toObject() : null });
+  // A PO In Transit has not checked yet ("Verify PO details" not done) has nothing to undo: it is just removed.
+  const before = po.status !== 'rejected' && po.status !== 'cancelled' ? buildPoView(po, patient.toObject(), { job: job ? job.toObject() : null }) : null;
+  if (before && before.steps.find((s) => s.key === 'details')?.state === 'done') {
     const { revertPoFrom } = require('../utils/revertFlow');
     try {
       await revertPoFrom('details', { po, patient, stage, request, job, steps: before.steps, returnStock: job ? stockReturner(job, req.user) : async () => {}, reason: `PO deleted: ${reason}`, user: req.user, now });
@@ -774,6 +791,7 @@ const deletePurchaseOrder = asyncHandler(async (req, res) => {
   await patient.save();
   if (job) { await MedicineJob.deleteOne({ _id: job._id }); emitMedicineJobChanged(req.app, job._id); }
   await PurchaseOrder.deleteOne({ _id: po._id });
+  deletedPoIds.add(String(po._id));
   res.json({ success: true, deleted: { poNumber: po.poNumber, medicineRequest: Boolean(request), medicineJob: Boolean(job), payments: payments.length, paymentAmount: total } });
 });
 

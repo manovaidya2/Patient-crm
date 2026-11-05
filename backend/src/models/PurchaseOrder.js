@@ -55,6 +55,9 @@ const purchaseOrderSchema = new mongoose.Schema(
     // The full PO paper as filled at conversion (post-counselling form), kept for reference.
     paperValues: { type: mongoose.Schema.Types.Mixed, default: null },
     paymentIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+    // A PO made with "New PO" counts only its own payments (linked to it, or added on the phase after it was made),
+    // never the phase payments added earlier without a PO. Older POs keep counting them (see utils/poPayment).
+    ownPaymentsOnly: { type: Boolean, default: false },
     // A PO made "from a previous PO": its value is that PO's unpaid balance, carried here (e.g. the rest of the months).
     previousPo: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', default: null },
     previousPoNumber: { type: String, trim: true, default: '' },

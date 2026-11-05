@@ -57,7 +57,7 @@ const listTransit = asyncHandler(async (req, res) => {
   const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).sort({ createdAt: -1 }).populate(POPULATE).lean();
   const now = new Date();
   const PurchaseOrderModel = require('../models/PurchaseOrder');
-  const allPos = mongoose.connection.readyState === 1 ? await PurchaseOrderModel.find({ patient: { $in: patients.map((p) => p._id) } }).select('patient phase poNumber amount paymentIds medicineRequestId status carriedForwardAmount').lean() : [];
+  const allPos = mongoose.connection.readyState === 1 ? await PurchaseOrderModel.find({ patient: { $in: patients.map((p) => p._id) } }).select('patient phase poNumber amount paymentIds medicineRequestId status carriedForwardAmount ownPaymentsOnly createdAt').lean() : [];
   let items = patients.flatMap((patient) => (patient.stages || []).filter(isInTransit).map((stage) => buildTransitCase(patient, stage, now, { payment: paymentForRequestFrom(allPos.filter((o) => String(o.patient) === String(patient._id) && o.phase === stage.number), stage, pickRequest(stage)) })));
   const q = clean(req.query.q, 100).toLowerCase();
   if (q) items = items.filter((item) => [item.patientName, item.patientCode, item.purchaseOrder, item.patientPhone].some((v) => String(v || '').toLowerCase().includes(q)));

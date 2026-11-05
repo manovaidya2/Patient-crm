@@ -1489,7 +1489,7 @@ const getPatientPurchaseOrders = asyncHandler(async (req, res) => {
   if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
   if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   const PurchaseOrder = require('../models/PurchaseOrder');
-  const pos = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount status source paymentIds medicineRequestId createdAt createdByName supplyPlan supplyPart previousPoNumber carriedForwardToNumber carriedForwardAmount').sort({ createdAt: 1 }).lean();
+  const pos = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount status source paymentIds medicineRequestId createdAt createdByName supplyPlan supplyPart previousPoNumber carriedForwardToNumber carriedForwardAmount ownPaymentsOnly').sort({ createdAt: 1 }).lean();
   const { supplyOption } = require('../constants/supplyPlans');
   const { pickRequest } = require('../utils/transitFlow');
   const phases = {};

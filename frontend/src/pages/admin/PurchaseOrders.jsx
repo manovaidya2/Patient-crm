@@ -3,6 +3,7 @@ import useStaleState from '../../hooks/useStaleState.js';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Plus, Search } from 'lucide-react';
 import api from '../../api/axios.js';
+import { withoutDeletedPos } from '../../utils/deletedPos.js';
 import Button from '../../components/ui/Button.jsx';
 import CreatePurchaseOrderModal, { poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import PurchaseOrderRow from '../../components/purchaseOrders/PurchaseOrderRow.jsx';
@@ -65,7 +66,7 @@ export default function PurchaseOrders() {
 
       {loading && !data.items.length ? <p className="p-6 text-center text-sm text-charcoal/55">Loading...</p>
         : !data.items.length ? <div className="rounded-xl border border-dashed border-cardline bg-white p-8 text-center text-sm text-charcoal/55">No purchase orders here.</div>
-          : <div className="grid gap-2 lg:grid-cols-2">{data.items.map((po) => <PurchaseOrderRow key={po.id} po={po} onOpen={open} />)}</div>}
+          : <div className="grid gap-2 lg:grid-cols-2">{withoutDeletedPos(data.items).map((po) => <PurchaseOrderRow key={po.id} po={po} onOpen={open} />)}</div>}
 
       <CreatePurchaseOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={(po) => { setCreateOpen(false); navigate(`/admin/purchase-orders/${po.id}`); }} />
     </div>

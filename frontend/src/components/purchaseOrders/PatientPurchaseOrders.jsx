@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Plus } from 'lucide-react';
 import api from '../../api/axios.js';
+import { withoutDeletedPos } from '../../utils/deletedPos.js';
 import Card from '../ui/Card.jsx';
 import Button from '../ui/Button.jsx';
 import CreatePurchaseOrderModal from './CreatePurchaseOrderModal.jsx';
@@ -38,7 +39,7 @@ export default function PatientPurchaseOrders({ patient }) {
       {error && <p className="mb-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       {items === null ? <p className="py-6 text-center text-sm text-charcoal/55">Loading...</p>
         : !items.length ? <p className="rounded-xl border border-dashed border-cardline p-6 text-center text-sm text-charcoal/55">No purchase orders yet.</p>
-          : <div className="grid gap-2 lg:grid-cols-2">{items.map((po) => <PurchaseOrderRow key={po.id} po={po} showPatient={false} onOpen={() => navigate(`/admin/purchase-orders/${po.id}`)} />)}</div>}
+          : <div className="grid gap-2 lg:grid-cols-2">{withoutDeletedPos(items).map((po) => <PurchaseOrderRow key={po.id} po={po} showPatient={false} onOpen={() => navigate(`/admin/purchase-orders/${po.id}`)} />)}</div>}
       <CreatePurchaseOrderModal open={createOpen} patient={fixedPatient} onClose={() => setCreateOpen(false)} onCreated={(po) => { setCreateOpen(false); navigate(`/admin/purchase-orders/${po.id}`); }} />
     </Card>
   );

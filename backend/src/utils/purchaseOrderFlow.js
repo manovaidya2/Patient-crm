@@ -307,7 +307,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     source: po.source,
     // Months of medicine on this PO (shown where the PO paper is signed) and the PO chain (balance carried).
     supplyMonths: supplyOption(po.supplyPlan, po.supplyPart)?.months || 0,
-    previousPo: po.previousPo ? { id: String(po.previousPo), poNumber: po.previousPoNumber || '' } : null,
+    previousPo: po.previousPo || po.previousPoNumber ? { id: po.previousPo ? String(po.previousPo) : '', poNumber: po.previousPoNumber || '' } : null,
     carriedForward: po.carriedForwardTo ? { id: String(po.carriedForwardTo), poNumber: po.carriedForwardToNumber || '', amount: Number(po.carriedForwardAmount || 0), at: iso(po.carriedForwardAt) } : null,
     status: po.status,
     stageKey,

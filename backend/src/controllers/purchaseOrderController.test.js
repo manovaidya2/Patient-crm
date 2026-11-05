@@ -114,7 +114,8 @@ test('a cash payment needs who received it; online needs UTR and screenshot; not
   await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { mode: 'Online', amountReceivedNow: '5000', utrReference: 'U-1' }) }), /screenshot/);
   await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { mode: 'Cash', amountReceivedNow: '5000' }) }), /cash/);
   await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '' }) }), /medicine supply/);
-  await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { mode: '' }) }), /payment mode/);
+  // The mode is needed only with an amount received now (a PO without a first payment needs none).
+  await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { mode: '', amountReceivedNow: '5000' }) }), /payment mode/);
   await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { amountReceivedNow: '50000' }) }), /cannot be more/);
   assert.equal(docs.length, 0, 'no PO number is used up');
   assert.equal(patient.stages[0].payments.length, 0);
@@ -213,6 +214,30 @@ test('the admin deletes a PO with its medicine request and payments; a full copy
   assert.equal(archived[0].data.payments[0].amount, 10000, 'the copy keeps the payment as it was');
   assert.equal(archived[0].data.medicineRequest.status, 'requested', 'and the request before it was cancelled');
   assert.ok(patient.activityLog.some((e) => /deleted/.test(e.action)));
+});
+
+test('a PO can be made with no first payment: no payment mode needed then; with an amount the mode is asked', async () => {
+  const patient = makePatient();
+  memoryPos();
+  const res = await call(controller.createPurchaseOrder, { body: paperBody(patient, { mode: '', amountReceivedNow: '' }) });
+  assert.equal(res.purchaseOrder.status, 'pending');
+  assert.equal(patient.stages[0].payments.length, 0, 'no payment is made');
+  await assert.rejects(call(controller.createPurchaseOrder, { body: paperBody(patient, { phase: '2', mode: '', amountReceivedNow: '5000' }) }), /payment mode/);
+});
+
+test('the admin also deletes a PO In Transit has not checked yet (nothing done to undo)', async () => {
+  const patient = makePatient({ approvalStatus: 'approved' });
+  memoryPos();
+  const admin = { _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' };
+  const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first', amountReceivedNow: '5000', cashReceiver: 'Prachi' }) })).purchaseOrder;
+  assert.equal(created.status, 'pending');
+  const DeletedRecord = require('../models/DeletedRecord');
+  mock.method(PurchaseOrder, 'find', () => ({ sort: () => ({ select: () => ({ lean: async () => [] }) }) }));
+  mock.method(DeletedRecord, 'create', async (doc) => doc);
+  const res = await call(controller.deletePurchaseOrder, { params: { id: created.id }, body: { reason: 'Made by mistake' }, user: admin });
+  assert.equal(res.deleted.payments, 1);
+  assert.equal(await PurchaseOrder.findById(created.id), null, 'the PO is gone');
+  assert.equal(patient.stages[0].payments.length, 0, 'with the payment it brought');
 });
 
 test('In Transit can make the PO phase the current phase', async () => {
