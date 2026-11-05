@@ -6,6 +6,13 @@ const { uploadTeamChatFile } = require('../middleware/fileUploads');
 
 const router = express.Router();
 router.use(protect, authorize(...GENERAL_CRM_ROLES));
+// Alarms: ring a member for something important (before /:id so they are not read as a chat id).
+const alarms = require('../controllers/chatAlarmController');
+router.post('/alarms', alarms.ringAlarm);
+router.get('/alarms/mine', alarms.myAlarms);
+router.get('/alarms/sent', alarms.sentAlarms);
+router.post('/alarms/:id/ack', alarms.ackAlarm);
+router.post('/alarms/:id/cancel', alarms.cancelAlarm);
 router.get('/people', controller.people);
 router.get('/with/:userId', controller.withUser);
 router.get('/pairs', controller.pairs);

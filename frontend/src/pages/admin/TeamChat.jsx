@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLE_LABELS, ROLES } from '../../constants/roles.js';
 import RaiseQueryModal from '../../components/teamChat/RaiseQueryModal.jsx';
 import ChatThread, { when } from '../../components/teamChat/ChatThread.jsx';
+import { RingAlarmButton } from '../../components/teamChat/ChatAlarm.jsx';
 
 const input = 'w-full min-w-0 rounded-md border border-cardline bg-white px-3 py-2 text-sm';
 const STATUS = { open: ['Open', 'bg-[#FFF1E6] text-[#C2410C]'], resolved: ['Resolved', 'bg-sky-50 text-sky-900'], closed: ['Closed', 'bg-[#E6F2EA] text-[#1F6B41]'] };
@@ -123,7 +124,7 @@ export default function TeamChat() {
 
   return (
     <div ref={shell} style={{ height: shellHeight }} className="flex min-h-[420px] flex-col gap-3">
-      <PageHeader icon={MessageCircle} title="Team Chat" eyebrow={undefined} subtitle={isAdmin ? 'Chat with anyone in the team; as admin you can also open any two people\'s conversation.' : 'Chat with anyone in the team. Only you and that person can read it (and the admin). Raise a query inside the chat when you need something done.'} />
+      <PageHeader icon={MessageCircle} title="Team Chat" eyebrow={undefined} subtitle={isAdmin ? 'Chat with anyone in the team; as admin you can also open any two people\'s conversation.' : 'Chat with anyone in the team. Only you and that person can read it (and the admin). Raise a query inside the chat when you need something done, or ring their alarm when it is urgent.'} />
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         {/* People */}
@@ -192,6 +193,7 @@ export default function TeamChat() {
                   <div className="min-w-0"><h2 className="truncate text-lg font-bold text-charcoal">{person.name}</h2><p className="text-[13px] text-charcoal/60">{person.pair ? 'Admin view of this conversation' : ROLE_LABELS[person.role] || person.role}</p></div>
                 </div>
                 <span className="flex items-center gap-1.5">
+                  {!person.pair && <RingAlarmButton key={person.id} person={person} />}
                   {!person.pair && <Button size="sm" onClick={() => setRaise(true)}><MessageSquarePlus size={15} />Raise query</Button>}
                   {conv.chat && conv.chat.messages.length > 0 && <button type="button" onClick={() => setDeleting(conv.chat)} title={isAdmin ? 'Delete this chat for everyone' : 'Delete this chat from your side'} className="rounded-lg border border-cardline p-2 text-[#8C3B2E] hover:bg-[#8C3B2E]/10"><Trash2 size={15} /></button>}
                 </span>

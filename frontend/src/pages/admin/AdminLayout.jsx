@@ -7,6 +7,7 @@ import MobileTabBar from '../../components/MobileTabBar.jsx';
 import ReminderBell from '../../components/ReminderBell.jsx';
 import FormulationAlarm from '../../components/medicine/FormulationAlarm.jsx';
 import TransitAlarm from '../../components/medicine/TransitAlarm.jsx';
+import { ChatAlarmSiren } from '../../components/teamChat/ChatAlarm.jsx';
 import PaperAlarm from '../../components/medicine/PaperAlarm.jsx';
 import PageBack from '../../components/PageBack.jsx';
 import VoiceTyping from '../../components/VoiceTyping.jsx';
@@ -144,6 +145,8 @@ const AdminLayout = () => {
         {user?.role === ROLES.IN_TRANSIT && <TransitAlarm user={user} />}
         {/* The PCC who makes treatment papers: the Medicine Department rings it while a kit waits (step 9). */}
         {user?.role === ROLES.ASSISTANT_DOCTOR && <><PaperAlarm user={user} /><PaperAlarm user={user} kind="final" /></>}
+        {/* Team Chat alarm: a member rang this person for something important. */}
+        {user && user.role !== ROLES.HR && <ChatAlarmSiren user={user} />}
         {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}
         <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
           {onHome && <PendingWork />}

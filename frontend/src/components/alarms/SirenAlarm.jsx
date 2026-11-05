@@ -6,7 +6,8 @@ import Button from '../ui/Button.jsx';
 
 // A loud alarm popup: it rings an emergency siren while `url` returns alarms, on every login, page open / refresh and
 // (with `liveEvent`) the moment someone rings it. "Snooze" silences it for 20 minutes; a new ring (live event) wakes it.
-// Used for the doctor's pending formulations and for In Transit when the Medicine Department rings.
+// Used for the doctor's pending formulations, for In Transit when the Medicine Department rings, and for a Team Chat
+// ring. renderItem(alarm, snooze, recheck): recheck reloads the list (after an alarm is answered).
 const SNOOZE_MS = 20 * 60 * 1000;
 const POLL_MS = 5 * 60 * 1000;
 const readSnooze = (key) => { try { return Number(localStorage.getItem(key) || 0); } catch { return 0; } };
@@ -101,7 +102,7 @@ export default function SirenAlarm({ user, name, url, title, intro, renderItem, 
         </div>
         {blocked && <p className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"><Volume2 size={16} />Click anywhere to start the alarm sound (the browser keeps sound off until the page is touched).</p>}
         <ul className="mt-3 max-h-64 space-y-1.5 overflow-y-auto">
-          {alarms.map((a) => <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-sm">{renderItem(a, snooze)}</li>)}
+          {alarms.map((a) => <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-sm">{renderItem(a, snooze, check)}</li>)}
         </ul>
         <div className="mt-4 flex justify-end"><Button variant="outline" onClick={snooze}><BellOff size={15} />Snooze 20 min</Button></div>
       </div>
