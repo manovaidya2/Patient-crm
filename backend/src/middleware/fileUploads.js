@@ -111,6 +111,8 @@ module.exports = {
   uploadTransitFile: createUpload('transit'),
   uploadPurchaseOrderFile: createUpload('purchase-orders'),
   uploadTeamChatFile: createUpload('team-chat'),
+  // Bills of clinic expenses and medicine purchases (photo or PDF).
+  uploadExpenseBill: createUpload('expenses'),
   // The doctor's recorded voice reply to a PCC's advice request (browser recording: webm / ogg / mp4 audio).
   uploadAdviceVoice: createUpload('advice-voice', {
     allowedTypes: ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/aac', 'video/webm'],

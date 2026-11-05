@@ -26,6 +26,10 @@ const PAGES = {
   '/admin/self-pickup-schedule': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/transit-follow-ups': [ADMIN, IN_TRANSIT, MANAGER],
   '/admin/ready-not-delivered': [ADMIN, IN_TRANSIT, MANAGER, DOCTOR],
+  // Expenses & vouchers: what each one has to do (make a voucher / approve / settle).
+  '/admin/all-expenses': [ADMIN, DOCTOR],
+  '/admin/clinic-expenses': [ROLES.RECEPTIONIST, MANAGER],
+  '/admin/medicine-purchases': [MEDICINE_DEPARTMENT, MANAGER],
   '/admin/treatment-papers': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/final-check': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
@@ -100,6 +104,11 @@ const COUNTERS = {
     const data = await callHandler(listFollowUps, user, { status: 'open' });
     return (data.rows || []).filter((r) => r.status !== 'upcoming').length;
   },
+  // Expenses: Admin / Doctor - vouchers to approve and approved money still owed; Reception / Medicine Department (and
+  // the Manager) - their entries without a voucher, or sent back.
+  async '/admin/all-expenses'(user) { return (await require('./expenseController').openWorkFor(user)).length; },
+  async '/admin/clinic-expenses'(user) { return (await require('./expenseController').openWorkFor(user)).filter((e) => e.kind === 'clinic').length; },
+  async '/admin/medicine-purchases'(user) { return (await require('./expenseController').openWorkFor(user)).filter((e) => e.kind === 'medicine').length; },
   // Medicines made but not delivered yet.
   async '/admin/ready-not-delivered'() {
     const { readyNotDelivered } = require('./purchaseOrderController');

@@ -109,6 +109,10 @@ const COLLECTORS = {
     const data = await callHandler(listFollowUps, user, { status: 'open' });
     return (data.rows || []).filter((r) => r.status !== 'upcoming').map((r) => item('/admin/transit-follow-ups', r.id, r.patientName, `${r.poNumber || `Phase ${r.phase}`} · ${r.label}${r.lateDays ? ` · ${r.lateDays} day${r.lateDays === 1 ? '' : 's'} late` : ''}`, r.dueAt, r.poId ? `/admin/purchase-orders/${r.poId}` : '/admin/transit-follow-ups'));
   },
+  // Expenses & vouchers (controllers/expenseController openWorkFor).
+  async '/admin/all-expenses'(user) { return expenseItems(user, '/admin/all-expenses', null); },
+  async '/admin/clinic-expenses'(user) { return expenseItems(user, '/admin/clinic-expenses', 'clinic'); },
+  async '/admin/medicine-purchases'(user) { return expenseItems(user, '/admin/medicine-purchases', 'medicine'); },
   async '/admin/followups'(user) { return reminderItems(user, 'followup', '/admin/followups'); },
   async '/admin/family-sessions'(user) { return reminderItems(user, 'family_session', '/admin/family-sessions'); },
   async '/admin/post-counseling-patients'(user) {
@@ -136,6 +140,14 @@ const COLLECTORS = {
     return rows.map((e) => item('/admin/enquiries', String(e._id), e.subject || 'Enquiry', `${e.patientName ? `${e.patientName} · ` : ''}${e.status === 'in_progress' ? 'in progress' : 'open'} · from ${e.createdByName || '-'}`, e.createdAt, `/admin/enquiries?id=${e._id}`, { waitingSince: true }));
   },
 };
+
+async function expenseItems(user, page, kind) {
+  const list = (await require('./expenseController').openWorkFor(user)).filter((e) => !kind || e.kind === kind);
+  return list.map((e) => {
+    const what = e.voucher?.status === 'pending' ? `Approve voucher ${e.voucher.number}` : e.voucher?.status === 'approved' ? (e.repayStatus === 'supplier_due' ? `Pay supplier ${e.vendor}` : `Repay ${e.paidByName}`) : e.voucher?.status === 'rejected' ? `Voucher ${e.voucher.number} sent back: ${e.voucher.rejectReason || ''}` : 'Make the voucher';
+    return item(page, String(e._id), `Rs ${Number(e.amount).toLocaleString('en-IN')} · ${e.purpose}`, `${e.kind === 'medicine' ? 'Medicine purchase' : 'Clinic expense'} · ${what}`, e.voucher?.madeAt || e.createdAt, `${page}?open=${e._id}`, { waitingSince: true });
+  });
+}
 
 async function reminderItems(user, type, page) {
   const { getScheduleReminders } = require('./patientController');
