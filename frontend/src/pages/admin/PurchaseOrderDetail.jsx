@@ -35,6 +35,8 @@ const inputDay = (value) => (value ? new Date(value).toLocaleDateString('en-CA',
 const VERIFY_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT];
 const CREATE_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 const TRANSIT_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.IN_TRANSIT];
+// The quality check (fulfilment step 8) is the Manager's (and the admin's), not In Transit's.
+const QC_ROLES = [ROLES.ADMIN, ROLES.MANAGER];
 const MED_STATUS = { requested: 'Waiting for Medicine Dept', in_process: 'Being prepared', made: 'Medicine ready', sent_to_courier: 'Released', cancelled: 'Cancelled' };
 // Transit steps that belong to handover / treatment start (order and medicine steps live on the PO itself).
 const HANDOVER_ACTIONS = ['finish_calls', 'schedule_delivery', 'dispatch', 'confirm_received', 'assign_pcc', 'confirm_mode', 'schedule_visit', 'schedule_dispatch', 'start_treatment', 'log_call'];
@@ -887,7 +889,7 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
             </Section>
           )}
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
-          {show('final') && TRANSIT_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (selected === 'all' || selected === 'job:qc' || selected === currentKey) && <QualityCheckPanel key={po.medicineJob.id} po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
+          {show('final') && QC_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (selected === 'all' || selected === 'job:qc' || selected === currentKey) && <QualityCheckPanel key={po.medicineJob.id} po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
           {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current' || (selectedStep?.key === 'scheduled' && !['dispatched', 'delivered'].includes(po.handover?.courier?.status))) && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}
           {show('patient') && <Section title="Patient" icon={UserRound}>

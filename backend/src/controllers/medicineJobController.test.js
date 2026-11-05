@@ -15,6 +15,7 @@ const med = { _id: new mongoose.Types.ObjectId(), name: 'Meena', role: 'medicine
 const med2 = { _id: new mongoose.Types.ObjectId(), name: 'Prachi', role: 'medicine_department' };
 const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Dr Garg', role: 'doctor' };
 const transit = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
+const manager = { _id: new mongoose.Types.ObjectId(), name: 'Manager', role: 'manager' };
 const pcc = { _id: new mongoose.Types.ObjectId(), name: 'Aditi', role: 'assistant_doctor' };
 const otherPcc = { _id: new mongoose.Types.ObjectId(), name: 'Neha', role: 'assistant_doctor' };
 const InventorySetting = require('../models/InventorySetting');
@@ -154,19 +155,20 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   await assert.rejects(complete(id, 'fill', {}), /Confirm every chit/);
   v = (await complete(id, 'fill', {}, { chits: JSON.stringify(v.chits.map((c) => ({ key: c.key, confirmed: true }))) })).job;
   assert.ok(v.chits.every((c) => c.confirmed));
-  // Step 7 Packing-1 (Medicine Department) with the photo of all medicines together, step 8 the quality check by In Transit.
+  // Step 7 Packing-1 (Medicine Department) with the photo of all medicines together, step 8 the quality check by the Manager.
   await assert.rejects(complete(id, 'pack1', {}, { files: {} }), /all medicines together/);
   v = (await complete(id, 'pack1', {}, { files: { photoA: [file] } })).job;
   assert.equal(v.photos.overview.length, 1);
   assert.equal(v.currentKey, 'qc');
-  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med), /done by in transit/);
-  // While it waits, the Medicine Department rings In Transit's alarm; In Transit sees why.
+  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med), /done by manager/);
+  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, transit), /done by manager/, 'not In Transit any more');
+  // While it waits, the Medicine Department rings the Manager's alarm; the Manager sees why.
   v = (await call(controller.ringTransit, { params: { id }, body: { note: 'Kit ready on table 2' } })).job;
   assert.equal(v.transitAlarm.stageKey, 'qc');
-  const rung = await call(controller.transitAlarms, { user: transit });
+  const rung = await call(controller.transitAlarms, { user: manager });
   assert.ok(rung.alarms.some((a) => a.id === id && a.note === 'Kit ready on table 2' && a.step === 'Quality check'));
-  v = (await complete(id, 'qc', { result: 'PASS' }, {}, transit)).job;
-  assert.ok(!(await call(controller.transitAlarms, { user: transit })).alarms.some((a) => a.id === id), 'the alarm stops once the step is done');
+  v = (await complete(id, 'qc', { result: 'PASS' }, {}, manager)).job;
+  assert.ok(!(await call(controller.transitAlarms, { user: manager })).alarms.some((a) => a.id === id), 'the alarm stops once the step is done');
   // Step 9: the treatment papers, by the PCC the admin chose (every page of each paper). The Medicine Department cannot.
   assert.equal(v.currentKey, 'photos');
   mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
@@ -191,7 +193,7 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   await assert.rejects(complete(id, 'final', {}, {}, transit), /done by/);
   await assert.rejects(complete(id, 'final', {}, {}, otherPcc), /Aditi does the final medicine check/);
   // "No" at the final check: the PCC sends it back (a hold); Medicine Department fixes it and resumes.
-  await assert.rejects(call(controller.holdJob, { params: { id }, body: { reason: 'x' }, user: transit }), /only at the quality check/);
+  await assert.rejects(call(controller.holdJob, { params: { id }, body: { reason: 'x' }, user: transit }), /done by the Manager now/);
   v = (await call(controller.holdJob, { params: { id }, body: { reason: 'Final check not OK: seal broken' }, user: pcc })).job;
   assert.equal(v.hold.reason, 'Final check not OK: seal broken');
   await assert.rejects(complete(id, 'final', {}, {}, pcc), /on hold/);

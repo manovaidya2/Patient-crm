@@ -10,7 +10,9 @@ router.get('/', authorize(...JOB_VIEW_ROLES), listJobs);
 // Formulations pending with the doctor for over a day (the doctor's alarm).
 router.get('/doctor-alarms', authorize(ROLES.DOCTOR, ROLES.ADMIN), doctorAlarms);
 // In Transit's alarm, rung by the Medicine Department while a job waits on In Transit.
-router.get('/transit-alarms', authorize(ROLES.IN_TRANSIT, ROLES.ADMIN), transitAlarms);
+// The Manager's quality-check alarm (rung by the Medicine Department); /transit-alarms is the old name.
+router.get('/qc-alarms', authorize(ROLES.MANAGER, ROLES.ADMIN), transitAlarms);
+router.get('/transit-alarms', authorize(ROLES.MANAGER, ROLES.ADMIN), transitAlarms);
 router.post('/for-request', authorize(...JOB_ROLES), openForRequest);
 router.get('/patient-file/:patientId', authorize(...JOB_VIEW_ROLES), getPatientFile);
 router.get('/:id', authorize(...JOB_VIEW_ROLES), getJob);

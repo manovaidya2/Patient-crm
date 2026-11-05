@@ -98,7 +98,7 @@ const findRequest = (stage, requestId) => {
 const shortDay = (value) => new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
 
 // The open fulfilment step and who has it, e.g. 'Step 11 Final verification check: the PCC'.
-const OWNER = { in_transit: 'In Transit', assistant_doctor: 'the PCC', doctor: 'the doctor', medicine_department: 'Medicine Department' };
+const OWNER = { in_transit: 'In Transit', manager: 'the Manager', assistant_doctor: 'the PCC', doctor: 'the doctor', medicine_department: 'Medicine Department' };
 const jobStepText = (job) => {
   const idx = job ? job.currentStage || 0 : -1;
   const stage = idx >= 0 ? JOB_STAGES[idx] : null;
@@ -130,7 +130,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const callsDone = (transitOwner && Boolean(t.callsDoneAt || t.fulfilmentSetAt)) || dispatched || delivered;
   // The job waits on In Transit's final check (its packing is done).
   const finalDue = Boolean(job) && job.status === 'open' && !job.hold?.active && (job.currentStage || 0) === STAGE_INDEX.final;
-  // Whose turn the open fulfilment step is (the doctor's formulation, In Transit's quality check, the PCC's papers ...).
+  // Whose turn the open fulfilment step is (the doctor's formulation, the Manager's quality check, the PCC's papers ...).
   const jobRoles = job && job.status === 'open' && !job.hold?.active ? JOB_STAGES[job.currentStage || 0]?.roles || null : null;
   const pccStep = { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(explanationAt), at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' };
   const steps = [

@@ -58,7 +58,7 @@ const medicineJobSchema = new mongoose.Schema(
     caseCategory: { type: String, trim: true, default: '' },
     // 2: the stage list with the doctor's formulation step (older jobs are moved on startup, see utils/jobStageMigration).
     stagesVersion: { type: Number, default: 7 },
-    // The Medicine Department rang In Transit's alarm for an In Transit step (quality check / final check).
+    // The Medicine Department rang the alarm of whoever has the step: the Manager (quality check) or the PCC.
     transitAlarm: {
       at: { type: Date, default: null },
       byName: { type: String, trim: true, default: '' },

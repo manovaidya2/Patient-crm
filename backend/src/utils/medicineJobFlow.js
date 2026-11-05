@@ -6,11 +6,12 @@ const { medicineDelays } = require('./medicineDelay');
 
 const MED = [ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN];
 const DOC = [ROLES.DOCTOR, ROLES.ADMIN];
-const TRANSIT = [ROLES.IN_TRANSIT, ROLES.ADMIN];
+// Step 8, the quality check of the open kit, is the Manager's (it used to be In Transit's).
+const MANAGER = [ROLES.MANAGER, ROLES.ADMIN];
 // The PCC the admin chose for treatment papers (checked in the controller; see controllers/treatmentPaperController).
 const PCC = [ROLES.ASSISTANT_DOCTOR, ROLES.ADMIN];
-// Each stage is filled by its owner only (admin can step in anywhere): the doctor fills the doctor stages, In Transit
-// the final check (from the PO timeline), the Medicine Department everything else. Kept as a name for the stages the doctor used to share.
+// Each stage is filled by its owner only (admin can step in anywhere): the doctor fills the doctor stages, the Manager
+// the quality check, the chosen PCC the treatment papers and the final check, the Medicine Department everything else. Kept as a name for the stages the doctor used to share.
 const MED_DOC = MED;
 
 // field: { key, label, type: text|date|number|select|textarea, required, options }
@@ -47,15 +48,15 @@ const STAGES = [
     checks: ['Each unit filled and actual ml / g recorded; caps and inner seals secure, no leak', 'Powder pouch folded three times with safe outer closure; no exposed staple', 'Every pack carries name, code, patient ID, pack x/n and dose chit', 'Like medicines grouped 2-4 per band; no mixing of codes', 'Morning-evening and noon-night chits not swapped'],
     fields: [] },
   { key: 'pack1', n: 7, label: 'Packing-1 (open kit)', hi: 'पैकिंग-1 खुली किट', roles: MED, sop: 'SOP S4',
-    purpose: 'All packs in one open tray per patient, countable, with papers in a separate sleeve. Nothing is sealed yet: In Transit checks the open kit next (quality check).',
+    purpose: 'All packs in one open tray per patient, countable, with papers in a separate sleeve. Nothing is sealed yet: the Manager checks the open kit next (quality check).',
     checks: ['All medicines in one open tray / envelope for this patient', 'Each medicine group with its code and pack count in front', 'Bottles, droppers, packets and chits all visible; nothing loose', 'Packing-1 checklist (name, ID, age, formula, months, supply) attached; not bubble-wrapped', 'One photo of all the medicines together, every name / code visible'],
     // The photo of the open kit (all medicines together) is taken here, where the medicines are.
     fields: [], files: [{ key: 'photoA', label: 'All medicines together', required: true }] },
-  // Step 8: In Transit checks the open kit the Medicine Department packed (key kept as 'qc'). HOLD puts the job on hold
-  // for the Medicine Department to correct; they resume it and In Transit checks again. The Medicine Department can
-  // ring an alarm on In Transit's screen while it waits.
-  { key: 'qc', n: 8, label: 'Quality check', hi: 'क्वालिटी जाँच', roles: TRANSIT, sop: 'SOP S3 · HR-23-25',
-    purpose: 'In Transit checks the open kit (Packing-1): identity, quantity, appearance, closure, integrity and chits. HOLD sends it back to the Medicine Department to correct.',
+  // Step 8: the Manager checks the open kit the Medicine Department packed (key kept as 'qc'). HOLD puts the job on hold
+  // for the Medicine Department to correct; they resume it and the Manager checks again. The Medicine Department can
+  // ring an alarm on the Manager's screen while it waits.
+  { key: 'qc', n: 8, label: 'Quality check', hi: 'क्वालिटी जाँच', roles: MANAGER, sop: 'SOP S3 · HR-23-25',
+    purpose: 'The Manager checks the open kit (Packing-1): identity, quantity, appearance, closure, integrity and chits. HOLD sends it back to the Medicine Department to correct.',
     checks: ['Identity: medicine code, formulation version, batch match the job', 'Quantity: actual g / ml of every pack and pack count match', 'Appearance: colour, smell, moisture, lumps, foreign particles OK', 'Closure and integrity: folds, caps, no leak, tear or loose staple', 'Chits: name, dose, timing, days, pack x/n readable and correct', 'Treatment papers (first supply) present'],
     fields: [{ key: 'result', label: 'QC result', type: 'select', required: true, options: ['PASS', 'HOLD'] }, { key: 'findings', label: 'Findings / deviations', type: 'textarea' }] },
   // Key kept as 'photos' (older jobs carry it). Every paper that goes with the kit is photographed page by page.

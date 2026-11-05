@@ -374,9 +374,9 @@ export default function MedicineJobPage() {
   const ageLocked = Boolean(job.fixedPlan?.ageBand) && !isAdminLike(user);
   // While the doctor makes the formulation (step 2), the Medicine Department's step is locked and blurred.
   const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
-  // Step 8 (quality check, In Transit) and step 9 (treatment papers, the PCC) are locked and blurred for the Medicine
+  // Step 8 (quality check, the Manager) and step 9 (treatment papers, the PCC) are locked and blurred for the Medicine
   // Department, who can ring the alarm of whoever has the step.
-  const RING_FOR = { qc: { who: 'In Transit', what: 'verify the quality check' }, photos: { who: 'the PCC', what: 'make the treatment papers' }, final: { who: 'the PCC', what: 'do the final verification check' } };
+  const RING_FOR = { qc: { who: 'the Manager', what: 'verify the quality check' }, photos: { who: 'the PCC', what: 'make the treatment papers' }, final: { who: 'the PCC', what: 'do the final verification check' } };
   const ringFor = job.status === 'open' && !job.hold && user?.role === ROLES.MEDICINE_DEPARTMENT ? RING_FOR[job.currentKey] : null;
   const waitingForTransit = Boolean(ringFor);
   const lockedStep = (waitingForDoctor && shown?.key === 'formula') || (waitingForTransit && shown?.key === job.currentKey);

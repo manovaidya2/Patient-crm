@@ -528,8 +528,9 @@ const holdJob = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   if (job.status === 'released') fail('This medicine is already released');
-  // In Transit sends a job back only from its quality check; the final-check PCC only from the final check.
-  if (req.user.role === ROLES.IN_TRANSIT && STAGES[job.currentStage]?.key !== 'qc') fail('In Transit can send a job back only at the quality check', 403);
+  // The quality check (and its HOLD) is the Manager's now, so In Transit has no fulfilment step to send back; the
+  // final-check PCC sends back only from the final check.
+  if (req.user.role === ROLES.IN_TRANSIT) fail('The quality check is done by the Manager now; In Transit cannot send a job back', 403);
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
     if (STAGES[job.currentStage]?.key !== 'final') fail('The PCC can send a job back only at the final check', 403);
     await require('./treatmentPaperController').assertKindPcc('final', req.user);
@@ -576,35 +577,35 @@ const getPatientFile = asyncHandler(async (req, res) => {
 
 
 // @route POST /api/medicine-jobs/:id/ring-transit   body: { note }
-// The Medicine Department rings In Transit's alarm when a job waits on In Transit (quality check / final check), or the
-// PCC's when it waits for the treatment papers.
-const TRANSIT_STAGE_KEYS = ['qc'];
+// The Medicine Department rings the Manager's alarm when a job waits on the quality check, or the PCC's when it waits
+// for the treatment papers / final check. (Route name kept from when the quality check was In Transit's.)
+const QC_STAGE_KEYS = ['qc'];
 const PCC_STAGE_KEYS = ['photos', 'final'];
-const RING_STAGE_KEYS = [...TRANSIT_STAGE_KEYS, ...PCC_STAGE_KEYS];
+const RING_STAGE_KEYS = [...QC_STAGE_KEYS, ...PCC_STAGE_KEYS];
 const ringTransit = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   const key = STAGES[job.currentStage || 0]?.key;
-  if (job.status !== 'open' || !RING_STAGE_KEYS.includes(key)) fail('This job is not waiting on In Transit or the PCC', 409);
+  if (job.status !== 'open' || !RING_STAGE_KEYS.includes(key)) fail('This job is not waiting on the Manager or the PCC', 409);
   const note = clean(req.body?.note, 300);
   const paperPcc = PCC_STAGE_KEYS.includes(key) ? await require('./treatmentPaperController').pccForStage(key) : null;
   if (PCC_STAGE_KEYS.includes(key) && !paperPcc) fail('The admin has not chosen the PCC for this step yet (Settings)', 409);
   job.transitAlarm = { at: new Date(), byName: req.user.name, note, stageKey: key };
   const forPcc = PCC_STAGE_KEYS.includes(key);
-  event(job, req.user, forPcc ? 'Alarm rung for the PCC' : 'Alarm rung for In Transit', `${STAGES[job.currentStage].label}${note ? ` - ${note}` : ''}`);
+  event(job, req.user, forPcc ? 'Alarm rung for the PCC' : 'Alarm rung for the Manager', `${STAGES[job.currentStage].label}${note ? ` - ${note}` : ''}`);
   await job.save();
   const io = req.app?.get?.('io');
   if (forPcc) {
     // Only to the PCC the admin chose.
     io?.to(`enquiry:user:${paperPcc.id}`).emit('pcc:alarm', { id: String(job._id), stage: key });
-  } else io?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('transit:alarm', { id: String(job._id) });
+  } else io?.to('enquiry:managers').emit('qc:alarm', { id: String(job._id) });
   return respond(res, job);
 });
 
-// @route GET /api/medicine-jobs/transit-alarms
-// Jobs whose alarm the Medicine Department rang and which still wait on that In Transit step.
+// @route GET /api/medicine-jobs/qc-alarms   (also /transit-alarms, the old name)
+// Jobs whose alarm the Medicine Department rang and which still wait on the Manager's quality check.
 const transitAlarms = asyncHandler(async (req, res) => {
-  const jobs = await MedicineJob.find({ status: 'open', 'transitAlarm.at': { $ne: null }, currentStage: { $in: TRANSIT_STAGE_KEYS.map((k) => STAGE_INDEX[k]) } })
+  const jobs = await MedicineJob.find({ status: 'open', 'transitAlarm.at': { $ne: null }, currentStage: { $in: QC_STAGE_KEYS.map((k) => STAGE_INDEX[k]) } })
     .select('patientName patientCode phase poNumber purchaseOrder currentStage transitAlarm').lean();
   const alarms = jobs.filter((j) => j.transitAlarm?.stageKey === STAGES[j.currentStage]?.key).map((j) => ({
     id: String(j._id), patientName: j.patientName, patientCode: j.patientCode || '', phase: j.phase, poNumber: j.poNumber || '',

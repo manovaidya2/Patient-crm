@@ -141,8 +141,8 @@ const AdminLayout = () => {
         {/* Desktop: the reminder bell in its own strip above the page, so it never covers a page's own buttons. */}
         {/* The doctor's alarm for formulations pending over a day (rings on every login / refresh until sent). */}
         {user?.role === ROLES.DOCTOR && <FormulationAlarm user={user} />}
-        {/* In Transit's alarm, rung by the Medicine Department while a job waits on In Transit (quality check). */}
-        {user?.role === ROLES.IN_TRANSIT && <TransitAlarm user={user} />}
+        {/* The Manager's alarm, rung by the Medicine Department while a kit waits on the quality check (step 8). */}
+        {user?.role === ROLES.MANAGER && <TransitAlarm user={user} />}
         {/* The PCC who makes treatment papers: the Medicine Department rings it while a kit waits (step 9). */}
         {user?.role === ROLES.ASSISTANT_DOCTOR && <><PaperAlarm user={user} /><PaperAlarm user={user} kind="final" /></>}
         {/* Team Chat alarm: a member rang this person for something important. */}
