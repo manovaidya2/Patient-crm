@@ -183,7 +183,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
     ...(selfPickup ? [] : [pccStep]),
     ...(selfPickup ? [] : [{ key: 'received', group: 'handover', branch: 'transit', label: 'Confirm receipt from patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
     { key: 'explained', group: 'treatment', branch: 'transit', label: 'Explain medicine', done: transitOwner && Boolean(t.explanationCompletedAt), at: iso(transitOwner ? t.explanationCompletedAt : null), by: transitOwner ? t.explanationCompletedByName : '', text: explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
-    { key: 'started', group: 'treatment', branch: 'transit', label: 'Start treatment', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? t.activatedAt : null), by: transitOwner ? t.activatedByName : '' },
+    { key: 'started', group: 'treatment', branch: 'transit', label: 'Medicine start date', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? (t.medicineStartSetAt || t.activatedAt) : null), by: transitOwner ? (t.medicineStartSetByName || t.activatedByName) : '', text: transitOwner && t.activatedAt ? `Starts ${shortDay(t.medicineStartDate || t.activatedAt)}` : '', waitText: 'The PCC fills the medicine start date on the Medicine Explanations page' },
   ];
   // One step is "now" until the medicine is accepted; from there each track has its own "now" step.
   const trunkOpen = steps.find((s) => !s.branch && !s.done);
@@ -221,6 +221,7 @@ function handoverRecord({ t, stage, courier, patient, poPayments }) {
     },
     explanation: { completedAt: iso(t.explanationCompletedAt), byName: t.explanationCompletedByName || '', note: t.explanationNote || '' },
     activatedAt: iso(t.activatedAt), activatedByName: t.activatedByName || '',
+    medicineStartDate: iso(t.medicineStartDate || t.activatedAt), medicineStartSetByName: t.medicineStartSetByName || t.activatedByName || '',
   };
 }
 

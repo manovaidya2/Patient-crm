@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const User = require('../models/User');
-const { runAction, getTransitReminders, completeExplanation, rescheduleExplanation, listExplanations, removeFromTransit, restoreToTransit } = require('./transitController');
+const { runAction, getTransitReminders, completeExplanation, setMedicineStart, rescheduleExplanation, listExplanations, removeFromTransit, restoreToTransit } = require('./transitController');
 const { buildTransitCase, isInTransit } = require('../utils/transitFlow');
 afterEach(() => mock.restoreAll());
 const user = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
@@ -172,9 +172,18 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   assert.equal(moved.item.explanation.reschedules[0].reason, 'not_picked');
   assert.equal(new Date(stage.medicineExplainDate).getTime(), newSlot.getTime());
   const result = await invoke(completeExplanation, patient, { completedAt: now(), notes: 'Explained doses and chits' }, doctor);
-  assert.equal(result.item.activated, true);
-  assert.equal(result.item.steps.at(-1).state, 'done');
+  // The explanation alone does not start the treatment: the PCC fills the medicine start date next.
+  assert.equal(result.item.activated, false);
+  assert.equal(result.item.step.key, 'start');
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  await assert.rejects(() => invoke(setMedicineStart, patient, { startDate: today }, other), e => e.statusCode === 403);
+  await assert.rejects(() => invoke(setMedicineStart, patient, { startDate: '2020-01-01' }, doctor), /before the medicine was received/);
+  const started = await invoke(setMedicineStart, patient, { startDate: today, note: 'Morning dose first' }, doctor);
+  assert.equal(started.item.activated, true);
+  assert.equal(started.item.steps.at(-1).state, 'done');
+  assert.equal(started.item.explanation.medicineStartNote, 'Morning dose first');
   assert.equal(stage.status, 'in_progress');
+  assert.equal(new Date(stage.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }), today);
 });
 test('self pickup requires schedule, release and full payment, then assigned doctor completion starts treatment', async () => {
   const { patient, stage } = makePatient();
@@ -196,7 +205,10 @@ test('self pickup requires schedule, release and full payment, then assigned doc
   await assert.rejects(() => invoke(completeExplanation, patient, { completedAt: now(), notes: 'Done' }, { ...doctor, _id: new mongoose.Types.ObjectId() }), e => e.statusCode === 403);
   await assert.rejects(() => invoke(completeExplanation, patient, { completedAt: future(), notes: 'Done' }, doctor), /future/);
   const result = await invoke(completeExplanation, patient, { completedAt: now(), notes: 'Dosage and schedule explained' }, doctor);
-  assert.equal(result.item.activated, true);
+  assert.equal(result.item.activated, false, 'the start date comes next');
+  await assert.rejects(() => invoke(setMedicineStart, patient, { startDate: '' }, doctor), /start date/);
+  const started = await invoke(setMedicineStart, patient, { startDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) }, doctor);
+  assert.equal(started.item.activated, true);
   assert.equal(stage.status, 'in_progress');
   assert.ok(stage.transit.explanationCompletedAt);
   await assert.rejects(() => invoke(completeExplanation, patient, { completedAt: now(), notes: 'Done' }, doctor), e => e.statusCode === 409);

@@ -97,9 +97,9 @@ const COLLECTORS = {
     const out = [];
     for (const p of patients) for (const st of p.stages || []) {
       const t = st.transit || {};
-      if (!t.explanationScheduledAt || t.explanationCompletedAt || t.removedAt || !(t.assignedAt || t.explanationDoctor)) continue;
+      if (!t.explanationScheduledAt || t.activatedAt || t.removedAt || !(t.assignedAt || t.explanationDoctor)) continue;
       if (!isAdminLike(user) && explanationOwner(p, st) !== String(user._id)) continue;
-      out.push(item('/admin/medicine-explanations', `${p._id}-${st.number}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number} · ${t.explanationMode || 'phone'}`, st.medicineExplainDate, '/admin/medicine-explanations'));
+      out.push(item('/admin/medicine-explanations', `${p._id}-${st.number}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number} · ${t.explanationCompletedAt ? 'explained - fill the medicine start date' : t.explanationMode || 'phone'}`, st.medicineExplainDate, '/admin/medicine-explanations'));
     }
     return out;
   },

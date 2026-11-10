@@ -13,7 +13,19 @@ const emptyAdd = () => ({ name: '', when: '', qty: '', unit: 'g', dose: '', cont
 const num = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number.isInteger(Number(v)) ? String(v) : String(Math.round(Number(v) * 1000) / 1000));
 
 // The Formulation Master sheet of this supply (doc style, as the printed master).
-export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', onSaved, onError }) {
+// Which Stocks item a medicine is drawn from. Left blank, the medicine is matched by name or added to Stocks with 100 units on save.
+function StockPick({ value, onChange, options }) {
+  const known = options.some((o) => o.code === value);
+  return (
+    <select className={poInput} value={value || ''} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Not in Stocks: add it as new (100 units)</option>
+      {value && !known && <option value={value}>{value} (not in Stocks)</option>}
+      {options.map((o) => <option key={o.code} value={o.code}>{o.code} - {o.name} ({o.available} {o.unit})</option>)}
+    </select>
+  );
+}
+
+export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', stockOptions = [], onSaved, onError }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
@@ -51,6 +63,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               {l.components ? l.components.map((c) => <FieldLabel key={c.code} label={`${c.name} (${c.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).components?.[c.code] ?? c.qty} onChange={(e) => setLine(l.key, { components: { ...(d(l.key).components || {}), [c.code]: e.target.value } })} /></FieldLabel>)
                 : l.unit ? <FieldLabel label={`Total quantity (${l.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).qty ?? l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} /></FieldLabel> : null}
               {l.packed && l.chitNo && <FieldLabel label="Packs (days each, comma separated)"><input className={poInput} value={d(l.key).containers ?? l.containers.join(', ')} onChange={(e) => setLine(l.key, { containers: e.target.value })} /></FieldLabel>}
+              {l.added && <FieldLabel label="Drawn from Stocks" className="sm:col-span-2"><StockPick value={d(l.key).stockCode ?? (l.stockCode || '')} options={stockOptions} onChange={(code) => setLine(l.key, { stockCode: code })} /></FieldLabel>}
             </div>
           </li>
         ))}
@@ -76,7 +89,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               </div>
               <FieldLabel label="Packs (days each, comma separated)"><input className={poInput} value={a.containers} onChange={(e) => setAdd({ containers: e.target.value })} placeholder={`${f.days}`} /></FieldLabel>
               <FieldLabel label="Dose / chit text" className="sm:col-span-2"><textarea className={poInput} rows={2} value={a.dose} onChange={(e) => setAdd({ dose: e.target.value })} /></FieldLabel>
-              <FieldLabel label="Stock code (if drawn from Stocks)"><input className={poInput} value={a.stockCode} onChange={(e) => setAdd({ stockCode: e.target.value })} placeholder="e.g. MEDHYA-GHRIT" /></FieldLabel>
+              <FieldLabel label="Drawn from Stocks"><StockPick value={a.stockCode} options={stockOptions} onChange={(code) => setAdd({ stockCode: code })} /></FieldLabel>
               <div className="flex items-end justify-end"><Button size="sm" variant="outline" onClick={() => setAdds((list) => list.filter((_, n) => n !== i))}><X size={13} />Remove</Button></div>
             </div>
           );
@@ -106,6 +119,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               {l.honey && <p className="text-xs text-charcoal/55">शहद कुल: {num(l.honey[0])} {l.honey[1]} (औषधि से अलग, मरीज स्वयं)</p>}
               {l.containers?.length > 1 && <p className="text-xs text-charcoal/55">{l.containers.length} पैक: {l.containers.map((d) => `${d} दिन`).join(' + ')}</p>}
               {l.pending && <p className="text-[11px] font-semibold text-amber-800">पुष्टि बाकी: {l.pending}</p>}
+              {l.packed && !l.components && !l.fromHome && !l.removed && (l.stockCode ? <p className="font-mono text-[11px] text-charcoal/55">Stocks: {l.stockCode}</p> : l.added || f.custom ? <p className="text-[11px] font-semibold text-sky-800">Not linked to Stocks - picked at preparation</p> : null)}
             </div>
             <div className="text-right text-xs text-charcoal/55">टोटल मात्रा<br />{l.edited && l.original && l.original.qty !== l.qty && <span className="block font-mono text-xs text-charcoal/45 line-through">{num(l.original.qty)} {l.original.unit}</span>}<b className="font-mono text-sm text-charcoal">{l.removed ? 'हटाई गई' : l.packed ? `${num(l.qty)} ${l.unit}` : l.fromHome ? 'घर से' : 'पैक नहीं'}</b>{l.bottles && !l.removed ? <><br />{l.bottles} × BT-100</> : null}</div>
           </li>

@@ -91,7 +91,7 @@ const medicineJobSchema = new mongoose.Schema(
     },
     formulation: { type: mongoose.Schema.Types.Mixed, default: null },
     consumption: {
-      type: [{ code: String, name: String, unit: String, planned: Number, actual: Number, txId: { type: mongoose.Schema.Types.ObjectId, default: null }, _id: false }],
+      type: [{ code: String, name: String, unit: String, planned: Number, actual: Number, txId: { type: mongoose.Schema.Types.ObjectId, default: null }, key: String, outside: Boolean, sheetUnit: String, _id: false }],
       default: [],
     },
     chits: {

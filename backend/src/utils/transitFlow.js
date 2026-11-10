@@ -127,7 +127,7 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   if (!mode || shippedMode) steps.push({ key: 'received', group: 'handover', label: 'Confirm receipt from patient', done: delivered, action: shippedMode ? 'confirm_received' : null, by: courier.deliveredByName, at: iso(courier.deliveredAt), text: courier.receivedByName });
   steps.push(
     { key: 'explained', group: 'treatment', label: 'Explain medicine', done: Boolean(t.explanationCompletedAt), waitText: 'The assigned PCC completes the explanation on the Medicine Explanations page', by: t.explanationCompletedByName, at: iso(t.explanationCompletedAt), text: stage.medicineExplainDate ? `Scheduled ${shortDay(stage.medicineExplainDate)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '' },
-    { key: 'start', group: 'treatment', label: 'Start treatment', done: Boolean(t.activatedAt), by: t.activatedByName, at: iso(t.activatedAt) },
+    { key: 'start', group: 'treatment', label: 'Medicine start date', done: Boolean(t.activatedAt), by: t.medicineStartSetByName || t.activatedByName, at: iso(t.medicineStartSetAt || t.activatedAt), text: t.activatedAt ? `Starts ${shortDay(t.medicineStartDate || t.activatedAt)}` : '', waitText: 'The PCC fills the medicine start date on the Medicine Explanations page' },
   );
   steps.forEach((step, index) => { step.n = index + 1; step.complete = step.done; });
   return steps;
@@ -264,7 +264,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
     pcc: { assigned: Boolean(t.assignedAt || t.explanationDoctor), at: iso(t.assignedAt), byName: t.assignedByName || '', name: patient.assignedDoctor?.name || '', existing: Boolean(patient.assignedDoctor) && !(t.assignedAt || t.explanationDoctor) },
     deliveryPlan: { at: iso(t.dispatchScheduledAt), courier: t.plannedCourier || '', address: t.plannedAddress || '', note: t.deliveryPlanNote || '' },
     releasedAt: request?.status === 'sent_to_courier' ? iso(request.sentToCourierAt) : null,
-    explanation: { reschedules: (t.explanationReschedules || []).map((r) => ({ from: iso(r.from), to: iso(r.to), reason: r.reason, note: r.note || '', at: iso(r.at), byName: r.byName || '' })), at: iso(stage.medicineExplainDate), mode: t.explanationMode, completedAt: iso(t.explanationCompletedAt), completedBy: t.explanationCompletedByName, note: t.explanationNote, ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },
+    explanation: { medicineStartDate: iso(t.medicineStartDate || t.activatedAt), medicineStartSetBy: t.medicineStartSetByName || t.activatedByName || '', medicineStartNote: t.medicineStartNote || '', reschedules: (t.explanationReschedules || []).map((r) => ({ from: iso(r.from), to: iso(r.to), reason: r.reason, note: r.note || '', at: iso(r.at), byName: r.byName || '' })), at: iso(stage.medicineExplainDate), mode: t.explanationMode, completedAt: iso(t.explanationCompletedAt), completedBy: t.explanationCompletedByName, note: t.explanationNote, ackAt: iso(t.explanationAckAt), ackByName: t.explanationAckByName || '' },
     assignments: { assistantDoctor: refOf(patient.assignedDoctor), postCounselor: refOf(stage.postCounselor), psychologist: refOf(patient.assignedPsychologist) },
     updatedAt: iso(patient.updatedAt),
   };

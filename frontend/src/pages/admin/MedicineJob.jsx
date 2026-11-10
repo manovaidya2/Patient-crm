@@ -203,6 +203,36 @@ function RequestStep({ job, onNext }) {
   );
 }
 
+// Preparation of sheet medicines with no Stocks item: draw from a picked item, or record it as made without Stocks.
+function UnlinkedPrep({ job, picks, setPicks, disabled }) {
+  const options = job.stockOptions || [];
+  const set = (key, patch) => setPicks((o) => ({ ...o, [key]: { ...(o[key] || {}), ...patch } }));
+  return (
+    <div className="overflow-x-auto rounded-lg border border-sky-200">
+      <table className="w-full text-sm"><thead className="bg-sky-50 text-[11px] uppercase tracking-wide text-sky-900/70"><tr><th className="px-3 py-2 text-left">Sheet medicine (not linked to Stocks)</th><th className="px-3 py-2 text-left">Drawn from</th><th className="px-3 py-2 text-right">Actual used</th></tr></thead>
+        <tbody>{job.unlinked.map((u) => {
+          const pick = picks[u.key] || {};
+          const item = options.find((o) => o.code === pick.code);
+          const sameUnit = !item || item.unit === u.unit || (u.unit === 'spoon' && item.unit === 'g' && item.gramsPerSpoon) || (u.unit === 'drop' && item.unit === 'ml' && item.dropsPerMl);
+          return (
+            <tr key={u.key} className="border-t border-sky-100 align-top">
+              <td className="px-3 py-2"><b>{u.name}</b><div className="text-xs text-charcoal/55">Sheet: {num(u.qty)} {u.unit}{u.when ? ` · ${u.when}` : ''}</div></td>
+              <td className="px-3 py-2">
+                <select className={`${poInput} min-w-[14rem]`} value={pick.code || ''} onChange={(e) => set(u.key, { code: e.target.value })} disabled={disabled}>
+                  <option value="">Made without Stocks (nothing drawn)</option>
+                  {options.map((o) => <option key={o.code} value={o.code}>{o.code} - {o.name} ({o.available} {o.unit})</option>)}
+                </select>
+                {item && !sameUnit && <div className="mt-1 text-[11px] font-semibold text-amber-800">Enter the actual {item.unit} ({u.unit} to {item.unit} is not set in Stocks)</div>}
+              </td>
+              <td className="px-3 py-2 text-right"><input className={`${poInput} ml-auto w-32 text-right`} type="number" step="0.001" min="0" placeholder={item && item.unit !== u.unit ? '' : num(u.qty)} value={pick.actual ?? ''} onChange={(e) => set(u.key, { actual: e.target.value })} disabled={disabled} /><div className="text-[10px] text-charcoal/45">{item?.unit || u.unit}</div></td>
+            </tr>
+          );
+        })}</tbody></table>
+      <p className="px-3 py-2 text-xs text-charcoal/55">Pick the Stocks item to draw it from (Stocks go down and the ledger is written), or leave "Made without Stocks" to only record the quantity. Leave the quantity empty to use the sheet quantity.</p>
+    </div>
+  );
+}
+
 function StageWork({ job, stage, canAct, onDone, onError }) {
   const { user } = useAuth();
   const [err, setErr] = useState('');
@@ -212,6 +242,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const [fields, setFields] = useState({});
   const [notes, setNotes] = useState('');
   const [consumption, setConsumption] = useState({});
+  // Sheet medicines without a Stocks item: { [line key]: { code, actual } } (no code = made without Stocks).
+  const [unlinkedPick, setUnlinkedPick] = useState({});
   const [chits, setChits] = useState({});
   const [files, setFiles] = useState({});
   // Step 9: papers added on the page (name per paper_<i>) and earlier papers to drop.
@@ -219,7 +251,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const [removedPapers, setRemovedPapers] = useState([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setChecks({}); setNotes(''); setConsumption({}); setChits({}); setFiles({}); setPaperRows([]); setRemovedPapers([]);
+    setChecks({}); setNotes(''); setConsumption({}); setUnlinkedPick({}); setChits({}); setFiles({}); setPaperRows([]); setRemovedPapers([]);
     setFields(stage.key === 'accept' ? { readyByDate: inputDay(job.readyByDate) } : {});
   }, [stage.key, job.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const allChecked = stage.checks.every((_, i) => checks[i]);
@@ -235,7 +267,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       // A date and time typed in the browser goes as an exact moment.
       body.append('fields', JSON.stringify(Object.fromEntries(Object.entries(fields).map(([k, val]) => [k, stage.fields.find((x) => x.key === k)?.type === 'datetime' && val ? new Date(val).toISOString() : val]))));
       body.append('notes', notes);
-      if (stage.key === 'prepare') body.append('consumption', JSON.stringify(job.consumption.map((c) => ({ code: c.code, actual: consumption[c.code] === undefined || consumption[c.code] === '' ? null : Number(consumption[c.code]) }))));
+      if (stage.key === 'prepare') body.append('consumption', JSON.stringify(job.consumption.filter((c) => !c.key).map((c) => ({ code: c.code, actual: consumption[c.code] === undefined || consumption[c.code] === '' ? null : Number(consumption[c.code]) }))));
+      if (stage.key === 'prepare') body.append('unlinked', JSON.stringify((job.unlinked || []).map((u) => { const pick = unlinkedPick[u.key] || {}; return { key: u.key, code: pick.code || '', actual: pick.actual === undefined || pick.actual === '' ? null : Number(pick.actual) }; })));
       if (stage.key === 'photos') { body.append('papers', JSON.stringify(paperRows.map((r, slot) => ({ name: r.name.trim(), slot })))); body.append('removePapers', JSON.stringify(removedPapers)); }
       if (stage.key === 'fill') body.append('chits', JSON.stringify(job.chits.map((c) => ({ key: c.key, confirmed: c.confirmed || Boolean(chits[c.key]) }))));
       // Every chosen image goes under its slot (photoA, paper_0, paper_1, ...).
@@ -278,7 +311,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
         </div>
       )}
       {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} onSaved={onDone} onError={report} />}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
@@ -286,15 +319,18 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {stage.key === 'stock' && <>
         <StockTable rows={job.stockTable} endDate={endDate} />
+        {(job.unlinked || []).length > 0 && <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900"><b>Not linked to Stocks:</b> {job.unlinked.map((u) => `${u.name} (${num(u.qty)} ${u.unit})`).join(', ')}. At preparation pick the Stocks item each one is drawn from, or record it as made without Stocks.</p>}
         {job.stockTable.some((r) => r.status === 'short') && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-amber-700" checked={Boolean(fields.shortageAccepted)} onChange={(e) => setFields((o) => ({ ...o, shortageAccepted: e.target.checked }))} disabled={!canAct} />Shortage request raised for the short items; continue (preparation will still need the stock).</label>}
       </>}
-      {stage.key === 'prepare' && (
+      {stage.key === 'prepare' && !job.consumption.filter((c) => !c.key).length && !(job.unlinked || []).length && <p className="rounded-lg border border-dashed border-cardline px-3 py-4 text-center text-sm text-charcoal/55">No medicine on the sheet is packed in this supply.</p>}
+      {stage.key === 'prepare' && job.consumption.filter((c) => !c.key).length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-cardline">
           <table className="w-full text-sm"><thead className="bg-offwhite-200 text-[11px] uppercase tracking-wide text-charcoal/55"><tr><th className="px-3 py-2 text-left">Drawn from stock</th><th className="px-3 py-2 text-right">Per sheet</th><th className="px-3 py-2 text-right">Actual used</th></tr></thead>
-            <tbody>{job.consumption.map((c) => { const row = job.stockTable.find((r) => r.code === c.code); const needs = row && !row.convertible; return <tr key={c.code} className="border-t border-cardline"><td className="px-3 py-2"><b className="font-mono">{c.code}</b> <span className="text-xs text-charcoal/55">{c.name}</span>{needs && <div className="text-[11px] font-semibold text-amber-800">Enter the actual {row.stockUnit} ({c.unit} to {row.stockUnit} not set in Stocks)</div>}</td><td className="px-3 py-2 text-right font-mono">{num(c.planned)} {c.unit}{row?.convertible && row.stockUnit !== c.unit ? ` = ${num(row.needInStock)} ${row.stockUnit}` : ''}</td><td className="px-3 py-2 text-right"><input className={`${poInput} ml-auto w-32 text-right`} type="number" step="0.001" min="0" placeholder={row?.convertible ? num(row.needInStock) : ''} value={consumption[c.code] ?? ''} onChange={(e) => setConsumption((o) => ({ ...o, [c.code]: e.target.value }))} disabled={!canAct} /><div className="text-[10px] text-charcoal/45">{row?.stockUnit || c.unit}</div></td></tr>; })}</tbody></table>
+            <tbody>{job.consumption.filter((c) => !c.key).map((c) => { const row = job.stockTable.find((r) => r.code === c.code); const needs = row && !row.convertible; return <tr key={c.code} className="border-t border-cardline"><td className="px-3 py-2"><b className="font-mono">{c.code}</b> <span className="text-xs text-charcoal/55">{c.name}</span>{needs && <div className="text-[11px] font-semibold text-amber-800">Enter the actual {row.stockUnit} ({c.unit} to {row.stockUnit} not set in Stocks)</div>}</td><td className="px-3 py-2 text-right font-mono">{num(c.planned)} {c.unit}{row?.convertible && row.stockUnit !== c.unit ? ` = ${num(row.needInStock)} ${row.stockUnit}` : ''}</td><td className="px-3 py-2 text-right"><input className={`${poInput} ml-auto w-32 text-right`} type="number" step="0.001" min="0" placeholder={row?.convertible ? num(row.needInStock) : ''} value={consumption[c.code] ?? ''} onChange={(e) => setConsumption((o) => ({ ...o, [c.code]: e.target.value }))} disabled={!canAct} /><div className="text-[10px] text-charcoal/45">{row?.stockUnit || c.unit}</div></td></tr>; })}</tbody></table>
           <p className="px-3 py-2 text-xs text-charcoal/55">Leave a box empty to use the sheet quantity. Completing this stage reduces Stocks by the actual quantities and writes the ledger.</p>
         </div>
       )}
+      {stage.key === 'prepare' && (job.unlinked || []).length > 0 && <UnlinkedPrep job={job} picks={unlinkedPick} setPicks={setUnlinkedPick} disabled={!canAct} />}
       {stage.key === 'fill' && (
         <div>
           <div className="mb-2 flex items-center justify-between"><p className="text-sm font-semibold text-charcoal">{job.chits.length} chits - tick each one once it is on its pack</p><button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline" onClick={() => window.print()}><Printer size={13} />Print chits</button></div>
@@ -477,7 +513,7 @@ export default function MedicineJobPage() {
                       <StockTable rows={shown.snapshot?.stockTable || job.stockTable} />
                     </div>
                   )}
-                  {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.code}>{c.code}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)})</li>)}</ul>}
+                  {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.key || c.code}>{c.outside ? <>{c.name}: {num(c.actual)} {c.unit} made without Stocks (sheet {num(c.planned)})</> : <>{c.code}{c.key ? ` (${c.name})` : ''}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)}{c.sheetUnit && c.sheetUnit !== c.unit ? ` ${c.sheetUnit}` : ''})</>}</li>)}</ul>}
                   {shown.key === 'fill' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked disabled onToggle={() => {}} />)}</div>}
                   {shown.key === 'photos' && <DosePapersView job={job} />}
                   {shown.key === 'doctor' && <VerifySteps job={job} />}

@@ -8,7 +8,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
 const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlans');
-const { formulationFor, stockNeeds, chitsFor, applyOverrides } = require('../constants/formulationMaster');
+const { formulationFor, stockNeeds, unlinkedLines, chitsFor, applyOverrides } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, stageRoles, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary } = require('../utils/transitFlow');
 const { phaseAge } = require('../utils/phaseAge');
@@ -19,6 +19,7 @@ const { handedOverRequestIds } = require('../utils/legacyHandover');
 const { getMaster } = require('../utils/formulationMasterStore');
 const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
 const { moveStock } = require('./stockController');
+const { linkNewMedicines, NEW_MEDICINE_OPENING } = require('../utils/newSheetStock');
 
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
@@ -131,12 +132,21 @@ const editFormulation = asyncHandler(async (req, res) => {
   const note = clean(req.body?.note, 500);
   // For this patient's request only: the Formulation Master is not changed.
   const sheet = applyOverrides(job.formulation, req.body?.lines, { byName: req.user.name });
+  const codes = [...new Set(sheet.lines.map((l) => l.stockCode).filter(Boolean))];
+  if (codes.length) {
+    const known = new Set((await StockItem.find({ code: { $in: codes } }).lean()).map((s) => s.code));
+    const unknown = codes.filter((c) => !known.has(c));
+    if (unknown.length) fail(`Not in Stocks: ${unknown.join(', ')} - pick the item from the list`);
+  }
   const before = job.formulation.lines;
   const changed = sheet.lines.filter((l) => !before.includes(l));
   const dropped = before.filter((l) => !sheet.lines.some((x) => x.key === l.key));
   if (!changed.length && !dropped.length) fail('Nothing was changed');
+  // A new medicine not in Stocks is added there (100 units) and linked, so preparation draws it like the rest.
+  const linked = await linkNewMedicines(sheet, { user: req.user, job });
   await applyFormulation(job, sheet);
   event(job, req.user, 'Formulation sheet corrected', `${[...changed.map((l) => `${l.name}: ${l.edited.changes.join(', ')}`), ...dropped.map((l) => `${l.name}: removed`)].join(' | ')}${note ? ` - ${note}` : ''}`);
+  linked.forEach((l) => event(job, req.user, l.created ? 'New medicine added to Stocks' : 'Medicine linked to Stocks', l.created ? `${l.name}: added to Stocks as ${l.code} with ${NEW_MEDICINE_OPENING} units` : `${l.name}: drawn from ${l.code}`));
   await job.save();
   await respond(res, job);
 });
@@ -333,15 +343,39 @@ const completeStage = asyncHandler(async (req, res) => {
     // Draw the actual quantities from Stocks. Planned comes from the formulation; the preparer confirms or corrects each.
     const given = parseJson(body.consumption, []);
     const byCode = new Map((Array.isArray(given) ? given : []).map((c) => [String(c.code || '').toUpperCase(), c]));
-    const lines = job.consumption.length ? job.consumption : [];
-    if (!lines.length) fail('No formulation on this job - set the age group and supply first');
-    const items = await StockItem.find({ code: { $in: lines.map((l) => l.code) }, isActive: { $ne: false } });
+    // Sheet medicines without a stock code (custom formulation, added medicine): what the preparer chose for each.
+    const unlinked = unlinkedLines(job.formulation);
+    const chosen = new Map((parseJson(body.unlinked, []) || []).filter((u) => u && u.key).map((u) => [String(u.key), u]));
+    // Lines recorded for them by an earlier (reverted) preparation are made again.
+    job.consumption = job.consumption.filter((c) => !c.key);
+    const lines = job.consumption;
+    if (!lines.length && !unlinked.length) fail(job.formulation?.lines?.length ? 'Nothing on the sheet is packed in this supply' : 'No formulation on this job - set the age group and supply first');
+    const pickedCodes = unlinked.map((u) => String(chosen.get(u.key)?.code || '').trim().toUpperCase()).filter(Boolean);
+    const items = await StockItem.find({ code: { $in: [...lines.map((l) => l.code), ...pickedCodes] }, isActive: { $ne: false } });
     const itemByCode = new Map(items.map((i) => [i.code, i]));
     const planned = [];
+    const outside = [];
+    const keyed = new Map();
+    for (const u of unlinked) {
+      const pick = chosen.get(u.key) || {};
+      const code = String(pick.code || '').trim().toUpperCase();
+      const entered = pick.actual !== '' && pick.actual != null ? Number(pick.actual) : null;
+      if (entered != null && (!Number.isFinite(entered) || entered < 0)) fail(`Enter a valid quantity for ${u.name}`);
+      if (!code) {
+        // Made without Stocks: nothing is drawn, the quantity is only recorded.
+        outside.push({ key: u.key, code: '', name: u.name, unit: u.unit, sheetUnit: u.unit, planned: u.qty, actual: entered ?? u.qty, txId: null, outside: true });
+        continue;
+      }
+      const item = itemByCode.get(code);
+      if (!item) fail(`Stock item ${code} (for ${u.name}) is not in Stocks`);
+      const line = { key: u.key, code, name: `${u.name} - ${item.name}`, unit: u.unit, sheetUnit: u.unit, planned: u.qty, actual: null, txId: null };
+      lines.push(line);
+      if (entered != null) keyed.set(u.key, { actual: entered });
+    }
     for (const line of lines) {
       const item = itemByCode.get(line.code);
       if (!item) fail(`Stock item ${line.code} is missing`);
-      const entered = byCode.get(line.code);
+      const entered = line.key ? keyed.get(line.key) : byCode.get(line.code);
       let actual = entered && entered.actual !== '' && entered.actual != null ? Number(entered.actual) : null;
       if (actual == null) {
         if (item.unit === line.unit) actual = line.planned;
@@ -352,8 +386,11 @@ const completeStage = asyncHandler(async (req, res) => {
       if (!Number.isFinite(actual) || actual < 0) fail(`Enter a valid quantity for ${line.code}`);
       planned.push({ line, item, actual: Math.round(actual * 1000) / 1000 });
     }
+    const totalOf = new Map();
+    planned.forEach((p) => totalOf.set(p.item.code, Math.round(((totalOf.get(p.item.code) || 0) + p.actual) * 1000) / 1000));
     for (const p of planned) {
-      if (p.actual > Number(p.item.currentStock || 0)) fail(`${p.item.name} (${p.item.code}): only ${p.item.currentStock} ${p.item.unit} in stock, ${p.actual} ${p.item.unit} needed`);
+      const need = totalOf.get(p.item.code);
+      if (need > Number(p.item.currentStock || 0)) fail(`${p.item.name} (${p.item.code}): only ${p.item.currentStock} ${p.item.unit} in stock, ${need} ${p.item.unit} needed`);
     }
     for (const p of planned) {
       if (p.actual === 0) { p.line.actual = 0; continue; }
@@ -361,8 +398,9 @@ const completeStage = asyncHandler(async (req, res) => {
       const tx = await moveStock(p.item, { type: 'consume', quantity: p.actual, delta: -p.actual, user: req.user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation for ${job.patientName} Phase ${job.phase}` });
       p.line.actual = p.actual; p.line.txId = tx._id; p.line.unit = p.item.unit;
     }
+    outside.forEach((o) => job.consumption.push(o));
     job.markModified('consumption');
-    detail = planned.map((p) => `${p.line.code} ${p.actual} ${p.item.unit}`).join(', ');
+    detail = [...planned.map((p) => `${p.line.code} ${p.actual} ${p.item.unit}`), ...outside.map((o) => `${o.name} ${o.actual} ${o.unit} (not from Stocks)`)].join(', ');
   }
   if (stage.key === 'fill') {
     const confirmed = new Set((parseJson(body.chits, []) || []).filter((c) => c && c.confirmed).map((c) => c.key));

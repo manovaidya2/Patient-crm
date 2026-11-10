@@ -271,6 +271,16 @@ function addedLine(o, formulation, n, byName) {
   };
 }
 
+// Packed sheet medicines that do not say which Stocks item they come from (a custom 0-3 years formulation, a
+// medicine the doctor added without a stock code). The Medicine Department picks the item at preparation, or
+// records that it was made without Stocks.
+function unlinkedLines(formulation) {
+  if (!formulation) return [];
+  return (formulation.lines || [])
+    .filter((l) => l.packed && !l.fromHome && !l.removed && !l.components && !l.stockCode)
+    .map((l) => ({ key: l.key, name: l.name, qty: l.qty, unit: l.unit, when: l.when || '' }));
+}
+
 function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   if (!formulation) fail('There is no formulation sheet to edit');
   const list = Array.isArray(overrides) ? overrides : [];
@@ -298,6 +308,11 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
     const changes = [];
     if (o.packed !== undefined && !line.fromHome) { const packed = o.packed === true || o.packed === 'true'; if (packed !== line.packed) { next.packed = packed; changes.push(packed ? 'packed' : 'not packed'); } }
     if (o.dose !== undefined && String(o.dose).trim() !== (line.dose || '')) { next.dose = String(o.dose).trim().slice(0, 500); changes.push('dose'); }
+    // A medicine added for this patient can be linked to (or unlinked from) a Stocks item.
+    if (o.stockCode !== undefined && line.added) {
+      const code = String(o.stockCode || '').trim().toUpperCase().slice(0, 40);
+      if (code !== (line.stockCode || '')) { next.stockCode = code || undefined; changes.push(code ? `stock item ${code}` : 'not from Stocks'); }
+    }
     if (o.containers !== undefined) {
       const containers = (Array.isArray(o.containers) ? o.containers : String(o.containers).split(/[,+]/)).map((d) => String(d).trim()).filter(Boolean).map((d) => { const n = Number(d); if (!Number.isInteger(n) || n <= 0) fail(`Pack days for ${line.name} must be whole days`); return n; });
       if (!containers.length) fail(`Enter the pack days for ${line.name}`);
@@ -329,4 +344,4 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   return { ...formulation, lines, edited: lines.some((l) => l.edited), pending: lines.map((l) => l.pending).filter(Boolean) };
 }
 
-module.exports = { applyOverrides, formulationFor, stockNeeds, chitsFor, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };
+module.exports = { applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

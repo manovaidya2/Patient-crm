@@ -38,6 +38,9 @@ const YES_NO_OPTIONS = [
 ];
 
 const toDateInputValue = (value) => (value ? String(value).slice(0, 10) : '');
+// The day a phase's medicine starts (filled by the PCC after the explanation; older cases: the treatment start).
+const medicineStartOf = (stage) => stage?.transit?.medicineStartDate || stage?.transit?.activatedAt || null;
+const istDay = (value) => (value ? new Date(value).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '');
 
 const isDateTodayOrPast = (value) => {
   const dateValue = toDateInputValue(value);
@@ -3020,7 +3023,7 @@ const PatientDetails = () => {
                       <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-extrabold ${current ? 'border-2 border-[#FDBA74] bg-[#FFF1E6] text-[#C2410C]' : started ? 'bg-[#E6F2EA] text-[#1F6B41]' : 'bg-[#F3EEE2] text-charcoal/45'}`}>{stage.number}</span>
                       <span className="min-w-0">
                         <span className={`block truncate text-[13px] ${started || current ? 'font-bold text-charcoal' : 'text-charcoal/55'}`}>{STAGE_LABELS[stage.number]}{stage.packageName ? ` · ${stage.packageName}` : ''}</span>
-                        <span className="block truncate text-[11.5px] text-charcoal/55">{[stage.purchaseOrder && `PO ${stage.purchaseOrder}`, request?.statusLabel && `medicine ${request.statusLabel}`, Number(stage.totalAmount || 0) > 0 && `${formatMoney(stage.amountPaid)} / ${formatMoney(stage.totalAmount)}`].filter(Boolean).join(' · ') || 'Not started'}</span>
+                        <span className="block truncate text-[11.5px] text-charcoal/55">{[stage.purchaseOrder && `PO ${stage.purchaseOrder}`, medicineStartOf(stage) && `medicine started ${formatDate(medicineStartOf(stage))}`, request?.statusLabel && `medicine ${request.statusLabel}`, Number(stage.totalAmount || 0) > 0 && `${formatMoney(stage.amountPaid)} / ${formatMoney(stage.totalAmount)}`].filter(Boolean).join(' · ') || 'Not started'}</span>
                       </span>
                       {!canSetPhaseStatus && <Badge tone={current ? 'orange' : started ? 'green' : 'default'}>{stage.statusLabel || (started ? 'Started' : 'Not started')}</Badge>}
                     </button>
@@ -3247,6 +3250,14 @@ const PatientDetails = () => {
                   placeholder="Not added"
                   onSave={(val) => saveStageField('consultationDate', val)}
                   readOnly={!(canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR || user?.role === ROLES.MANAGER)}
+                />
+                {/* Filled by the PCC on the Medicine Explanations page after the explanation. */}
+                <EditableField
+                  label={`Medicine Start Date - Phase ${activeStage.number}`}
+                  type="date"
+                  value={istDay(medicineStartOf(activeStage))}
+                  placeholder={activeStage.transit?.explanationCompletedAt ? 'Explained - the PCC fills the start date' : 'Not started yet'}
+                  readOnly
                 />
               </div>
               {/* Package card — compact, same small-field style as Age/Phone/etc above */}

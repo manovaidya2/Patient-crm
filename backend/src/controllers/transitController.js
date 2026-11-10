@@ -502,8 +502,8 @@ const listExplanations = asyncHandler(async (req, res) => {
     return { ...item, treatmentPapers: { overview: job?.photos?.overview || [], paperSets: job?.photos?.paperSets || [], papers: job?.photos?.papers || [] }, patientDocuments: docsOf.get(item.patientId) || [] };
   });
   if (req.query.date) items = items.filter(item => item.explanation.at && clinicDay(item.explanation.at) === req.query.date);
-  if (req.query.status === 'done') items = items.filter(item => item.explanation.completedAt);
-  else if (req.query.status !== 'all') items = items.filter(item => !item.explanation.completedAt);
+  if (req.query.status === 'done') items = items.filter(item => item.activated);
+  else if (req.query.status !== 'all') items = items.filter(item => !item.activated);
   items.sort((a, b) => new Date(a.explanation.at) - new Date(b.explanation.at));
   res.json({ success: true, items });
 });
@@ -550,11 +550,10 @@ const completeExplanation = asyncHandler(async (req, res) => {
   const completedAt = parseDate(req.body.completedAt, 'actual explanation completion time');
   if (completedAt > new Date() || completedAt < new Date(request.courier.deliveredAt)) fail('Completion time must be after medicine receipt and not in the future');
   const note = required(req.body.notes, 'Explanation notes', 2000);
-  Object.assign(t, { explanationCompletedAt: completedAt, explanationCompletedByName: req.user.name, explainedByName: req.user.name, explanationNote: note, activatedAt: completedAt, activatedByName: req.user.name });
+  // Next step: the PCC fills the medicine start date (that starts the treatment of the phase).
+  Object.assign(t, { explanationCompletedAt: completedAt, explanationCompletedByName: req.user.name, explainedByName: req.user.name, explanationNote: note });
   Object.assign(request, { explanationDate: stage.medicineExplainDate || null, explainedAt: completedAt, explainedByName: req.user.name });
-  stage.status = 'in_progress';
-  stage.date = completedAt;
-  const summary = `Medicine explanation completed; treatment started | ${note}`;
+  const summary = `Medicine explanation completed | ${note}`;
   logActivity(patient, req.user, stage.number, summary);
   await respondWithCase(res, patient, stage.number);
   await notePoEvent(stage, req.user, summary);
@@ -601,6 +600,35 @@ const listFollowUps = asyncHandler(async (req, res) => {
   res.json({ success: true, rows, summary });
 });
 
+// @route POST /api/transit/:patientId/:number/medicine-start  { startDate (YYYY-MM-DD), note }
+// After the explanation the PCC fills the day the patient starts the medicine: the phase's treatment starts (In
+// Progress, its date). It can be corrected later by the same PCC or the admin.
+const setMedicineStart = asyncHandler(async (req, res) => {
+  const { patient, stage } = await loadStage(req);
+  const t = stage.transit;
+  if (!isAdminLike(req.user) && explanationOwner(patient, stage) !== String(req.user._id)) fail('Only the PCC of this explanation fills the medicine start date', 403);
+  if (!t.explanationCompletedAt) fail('Complete the medicine explanation first');
+  const day = String(req.body?.startDate || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) fail('Choose the medicine start date');
+  const start = new Date(`${day}T00:00:00+05:30`);
+  const request = pickRequest(stage);
+  const received = request ? courierOf(request).deliveredAt : null;
+  if (received && day < clinicDay(received)) fail(`The start date cannot be before the medicine was received (${clinicDay(received)})`);
+  if (start.getTime() > Date.now() + 60 * 86400000) fail('The start date can be at most 60 days ahead');
+  const note = String(req.body?.note || '').trim();
+  if (note.length > 500) fail('Keep the note under 500 characters');
+  const before = t.medicineStartDate ? clinicDay(t.medicineStartDate) : '';
+  const now = new Date();
+  Object.assign(t, { medicineStartDate: start, medicineStartSetAt: now, medicineStartSetByName: req.user.name, medicineStartNote: note, activatedAt: t.activatedAt || now, activatedByName: t.activatedByName || req.user.name });
+  stage.status = 'in_progress';
+  stage.date = start;
+  const summary = before && before !== day ? `Medicine start date changed: ${before} -> ${day}${note ? ` | ${note}` : ''}` : `Medicine start date: ${day}; treatment started${note ? ` | ${note}` : ''}`;
+  logActivity(patient, req.user, stage.number, summary);
+  await respondWithCase(res, patient, stage.number);
+  await notePoEvent(stage, req.user, summary);
+  require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
+});
+
 const getTransitReminders = asyncHandler(async (req, res) => {
   const patients = await Patient.find(TRANSIT_FILTER).select(LIST_FIELDS).lean();
   const now = new Date(), reminders = [], role = isAdminLike(req.user) ? ROLES.ADMIN : req.user.role;
@@ -631,4 +659,4 @@ const getTransitReminders = asyncHandler(async (req, res) => {
   res.json({ success: true, count: reminders.length, reminders });
 });
 
-module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation, rescheduleExplanation, listFollowUps };
+module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation, rescheduleExplanation, listFollowUps, setMedicineStart };

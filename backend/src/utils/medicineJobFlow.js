@@ -164,6 +164,10 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     delay: medicineDelays({ expected: job.readyByDate, madeAt: done.get('final')?.doneAt, releasedAt: done.get('release')?.doneAt, ...dispatch, now }),
     formulation: job.formulation || null,
     stockTable,
+    // Sheet medicines with no Stocks item: picked (or made without Stocks) at preparation.
+    unlinked: job.formulation ? require('../constants/formulationMaster').unlinkedLines(job.formulation) : [],
+    // Items the sheet editor and the preparer can pick from.
+    stockOptions: stocks.map((s) => ({ code: s.code, name: s.name, unit: s.unit, available: Number(s.currentStock || 0), gramsPerSpoon: s.gramsPerSpoon || null, dropsPerMl: s.dropsPerMl || null })),
     consumption: (job.consumption || []).map((c) => ({ ...c, txId: c.txId ? String(c.txId) : null })),
     chits: (job.chits || []).map((c) => ({ ...c, confirmedAt: iso(c.confirmedAt) })),
     photos: { overview: job.photos?.overview || [], papers: job.photos?.papers || [], paperSets: job.photos?.paperSets || [] },

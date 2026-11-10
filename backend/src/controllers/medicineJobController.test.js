@@ -76,6 +76,8 @@ function setup({ paid = 42000, approval = 'approved' } = {}) {
   patient.save = async () => patient;
   mock.method(Patient, 'findById', async () => patient);
   const stocks = stockDocs();
+  // A new medicine on a formulation goes into Stocks.
+  mock.method(StockItem, 'create', async (d) => { const doc = new StockItem(d); doc.save = async () => doc; stocks.push(doc); return doc; });
   const txs = [];
   mock.method(StockItem, 'find', (filter = {}) => {
     const codes = filter.code?.$in;
@@ -338,6 +340,68 @@ test('0 - 3 years has no master: the sheet starts empty, the doctor creates it f
   assert.equal(v.currentKey, 'stock', 'then the same process as every sheet');
 });
 
+test('a new medicine on a custom (0 - 3 years) formulation goes into Stocks with 100 units and is drawn at preparation', async () => {
+  const { patient, stage, stocks, txs } = setup();
+  stage.medicineRequests[0].ageBand = '0-3';
+  const { job } = await open(patient);
+  const id = job.id;
+  await complete(id, 'accept', { readyByDate: '2026-11-02' });
+  const edit = (lines) => call(controller.editFormulation, { params: { id }, body: { lines }, user: doctor });
+  await assert.rejects(edit([{ add: true, name: 'X', unit: 'g', qty: 1, stockCode: 'NOPE-1' }]), /Not in Stocks: NOPE-1/);
+  // "rtyuj" is not in Stocks; "medhya ghrit" is (same name, any case).
+  let v = (await edit([{ add: true, name: 'rtyuj', unit: 'g', qty: 80 }, { add: true, name: 'medhya ghrit', unit: 'ml', qty: 20 }])).job;
+  const added = stocks.find((s) => s.code === 'RTYUJ');
+  assert.ok(added, 'the new medicine is added to Stocks');
+  assert.deepEqual({ name: added.name, unit: added.unit, currentStock: added.currentStock }, { name: 'rtyuj', unit: 'g', currentStock: 100 });
+  assert.equal(txs.filter((t) => t.type === 'add' && t.code === 'RTYUJ' && t.quantity === 100).length, 1, 'its 100 units are in the ledger');
+  assert.equal(stocks.filter((s) => /MEDHYA-GHRIT/.test(s.code)).length, 1, 'a medicine already in Stocks is not added again');
+  assert.deepEqual(v.formulation.lines.map((l) => l.stockCode), ['RTYUJ', 'MEDHYA-GHRIT']);
+  assert.deepEqual(v.unlinked, []);
+  assert.deepEqual(v.consumption.map((c) => [c.code, c.planned]), [['RTYUJ', 80], ['MEDHYA-GHRIT', 20]]);
+  // Saving again does not add it twice.
+  await edit([{ key: v.formulation.lines[0].key, dose: '1 spoon' }]);
+  assert.equal(stocks.filter((s) => /^RTYUJ/.test(s.code)).length, 1);
+  await complete(id, 'formula', {}, {}, doctor);
+  await complete(id, 'review');
+  await complete(id, 'stock', {});
+  const ghrit = stocks.find((s) => s.code === 'MEDHYA-GHRIT');
+  const before = ghrit.currentStock;
+  v = (await complete(id, 'prepare', {})).job;
+  assert.equal(v.currentKey, 'fill');
+  assert.equal(added.currentStock, 20, '80 g drawn from the 100 added');
+  assert.equal(ghrit.currentStock, before - 20);
+});
+
+test('an older sheet medicine with no Stocks item: the preparer picks one or records it as made without Stocks', async () => {
+  const { patient, stage, stocks, txs, jobs } = setup();
+  stage.medicineRequests[0].ageBand = '0-3';
+  const { job } = await open(patient);
+  const id = job.id;
+  await complete(id, 'accept', { readyByDate: '2026-11-02' });
+  await call(controller.editFormulation, { params: { id }, body: { lines: [{ add: true, name: 'rtyuj', unit: 'g', qty: 80 }, { add: true, name: 'Brahmi ghrit', unit: 'ml', qty: 20 }] }, user: doctor });
+  // As saved before new medicines went into Stocks: no stock code, no stock need.
+  const doc = jobs.find((j) => String(j._id) === id);
+  doc.formulation = { ...doc.formulation, lines: doc.formulation.lines.map(({ stockCode, ...l }) => l) };
+  doc.consumption = [];
+  await complete(id, 'formula', {}, {}, doctor);
+  await complete(id, 'review');
+  let v = (await complete(id, 'stock', {})).job;
+  assert.deepEqual(v.unlinked.map((u) => u.name), ['rtyuj', 'Brahmi ghrit']);
+  assert.ok(v.stockOptions.some((o) => o.code === 'MEDHYA-GHRIT'), 'the preparer can pick from Stocks');
+  const [rtyuj, brahmi] = v.unlinked;
+  const ghrit = stocks.find((s) => s.code === 'MEDHYA-GHRIT');
+  const before = ghrit.currentStock;
+  const drawn = txs.filter((t) => t.type === 'consume').length;
+  await assert.rejects(complete(id, 'prepare', {}, { unlinked: JSON.stringify([{ key: brahmi.key, code: 'NOPE-2' }]) }), /NOPE-2 \(for Brahmi ghrit\) is not in Stocks/);
+  // Before the fix the step failed with "No formulation on this job".
+  v = (await complete(id, 'prepare', {}, { unlinked: JSON.stringify([{ key: rtyuj.key, code: '', actual: null }, { key: brahmi.key, code: 'MEDHYA-GHRIT', actual: 18 }]) })).job;
+  assert.equal(v.currentKey, 'fill');
+  assert.equal(ghrit.currentStock, before - 18, 'the picked item is drawn by the actual entered');
+  assert.equal(txs.filter((t) => t.type === 'consume').length, drawn + 1, 'nothing is drawn for the medicine made without Stocks');
+  const made = v.consumption.find((c) => c.key === rtyuj.key);
+  assert.deepEqual({ outside: made.outside, actual: made.actual, unit: made.unit, txId: made.txId }, { outside: true, actual: 80, unit: 'g', txId: null });
+  assert.equal(v.consumption.find((c) => c.key === brahmi.key).code, 'MEDHYA-GHRIT');
+});
 test('an old request (before the fulfilment timeline, no PO): the admin and the doctor can fill every stage', async () => {
   const { patient, stage } = setup();
   Object.assign(stage.medicineRequests[0], { poNumber: '', ageBand: '', supplyPlan: '', supplyPart: '' });

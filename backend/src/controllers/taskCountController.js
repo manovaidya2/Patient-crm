@@ -152,7 +152,7 @@ const COUNTERS = {
     let n = 0;
     for (const patient of patients) for (const stage of patient.stages || []) {
       const t = stage.transit || {};
-      if (!t.explanationScheduledAt || t.explanationCompletedAt || t.removedAt || !(t.assignedAt || t.explanationDoctor)) continue;
+      if (!t.explanationScheduledAt || t.activatedAt || t.removedAt || !(t.assignedAt || t.explanationDoctor)) continue;
       if (user.role === ADMIN || explanationOwner(patient, stage) === String(user._id)) n += 1;
     }
     return n;

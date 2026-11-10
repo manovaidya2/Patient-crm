@@ -283,7 +283,13 @@ const transitSchema = new mongoose.Schema(
     explanationCompletedByName: { type: String, trim: true, default: '' },
     explainedByName: { type: String, trim: true, default: '' },
     explanationNote: { type: String, trim: true, default: '' },
+    // Treatment started: set when the PCC fills the medicine start date (older cases: at the explanation).
     activatedAt: { type: Date, default: null },
+    // The day the patient starts the medicine, filled by the PCC after the explanation (Medicine Explanations page).
+    medicineStartDate: { type: Date, default: null },
+    medicineStartSetAt: { type: Date, default: null },
+    medicineStartSetByName: { type: String, trim: true, default: '' },
+    medicineStartNote: { type: String, trim: true, default: '', maxlength: 500 },
     activatedByName: { type: String, trim: true, default: '' },
     calls: {
       type: [{

@@ -82,6 +82,17 @@ export default function MedicineExplanations() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [moving, setMoving] = useState(null);
+  // The step after the explanation: the medicine start date (opens by itself after "Complete").
+  const [starting, setStarting] = useState(null);
+  const [startDate, setStartDate] = useState('');
+  const [startNote, setStartNote] = useState('');
+  const openStart = (item) => { setStarting(item); setStartDate(item.explanation.medicineStartDate ? new Date(item.explanation.medicineStartDate).toLocaleDateString('en-CA') : new Date().toLocaleDateString('en-CA')); setStartNote(item.explanation.medicineStartNote || ''); setError(''); };
+  const saveStart = async (event) => {
+    event.preventDefault(); setSaving(true); setError('');
+    try { await api.post(`/transit/${starting.patientId}/${starting.stage}/medicine-start`, { startDate, note: startNote }); setStarting(null); await load(); }
+    catch (err) { setError(err.response?.data?.message || 'Could not save the start date'); }
+    finally { setSaving(false); }
+  };
   const [calMonth, setCalMonth] = useState(() => new Date().toLocaleDateString('en-CA').slice(0, 7));
   const load = useCallback(async () => {
     try { const { data } = await api.get('/transit/explanations', { params: { date, status }, skipCache: true }); setItems(data.items); setError(''); }
@@ -93,12 +104,16 @@ export default function MedicineExplanations() {
     event.preventDefault(); setSaving(true); setError('');
     try {
       await api.post(`/transit/${selected.patientId}/${selected.stage}/complete-explanation`, { completedAt: new Date(completedAt).toISOString(), notes });
+      const done = selected;
       setSelected(null); await load();
+      // Next step at once: the medicine start date.
+      openStart({ ...done, explanation: { ...done.explanation, completedAt: new Date(completedAt).toISOString() } });
     } catch (err) { setError(err.response?.data?.message || 'Could not complete explanation'); }
     finally { setSaving(false); }
   };
   const readiness = (item) => {
-    if (item.explanation.completedAt) return ['done', 'Explained'];
+    if (item.activated) return ['done', 'Medicine started'];
+    if (item.explanation.completedAt) return ['start', 'Explained - fill the medicine start date'];
     if (item.onHold) return ['hold', 'On hold'];
     if (!item.pcc?.assigned) return ['wait', 'PCC not assigned yet'];
     if (item.courier?.status !== 'delivered') return ['wait', item.courier?.status === 'dispatched' ? 'Medicine on the way' : 'Awaiting medicine handover'];
@@ -107,8 +122,8 @@ export default function MedicineExplanations() {
     if (!(item.payment?.amountPaid > 0 || item.payment?.remaining <= 0)) return ['wait', 'No payment verified yet'];
     return ['ready', 'Ready to explain'];
   };
-  const tone = { done: 'inactive', hold: 'danger', wait: 'amber', ready: 'teal' };
-  const pillTone = { done: 'bg-[#E6F2EA] text-[#1F6B41]', hold: 'bg-[#FDE2E1] text-[#9F1D1D]', wait: 'bg-[#FBF0DC] text-[#7C5B2E]', ready: 'bg-[#2F8F5B] text-white' };
+  const tone = { done: 'inactive', hold: 'danger', wait: 'amber', ready: 'teal', start: 'amber' };
+  const pillTone = { done: 'bg-[#E6F2EA] text-[#1F6B41]', hold: 'bg-[#FDE2E1] text-[#9F1D1D]', wait: 'bg-[#FBF0DC] text-[#7C5B2E]', ready: 'bg-[#2F8F5B] text-white', start: 'bg-[#F97316] text-white' };
   const dayKey = (value) => (value ? new Date(value).toLocaleDateString('en-CA') : '');
   const todayKey = new Date().toLocaleDateString('en-CA');
   const sorted = [...items].sort((a, b) => String(a.explanation.at || '9999').localeCompare(String(b.explanation.at || '9999')));
@@ -200,9 +215,18 @@ export default function MedicineExplanations() {
                       </div>
                       {/* The post-counselling record behind this PO (sections A to E), as In Transit sees it. Loaded when opened. */}
                       {item.poId && item.poFromConversion && <PcRecord poId={item.poId} />}
+                      {/* Step after the explanation: the medicine start date (the PCC; editable later). */}
+                      {item.explanation.completedAt && (
+                        <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[10px] px-3 py-2 ${item.activated ? 'bg-[#E6F2EA]' : 'border-2 border-[#FDBA74] bg-[#FFF7ED]'}`}>
+                          <p className="text-sm">{item.activated
+                            ? <><b className="text-[#1F6B41]">Medicine started {new Date(item.explanation.medicineStartDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</b><span className="text-xs text-charcoal/60"> · {item.explanation.medicineStartSetBy}{item.explanation.medicineStartNote ? ` · ${item.explanation.medicineStartNote}` : ''}</span></>
+                            : <b className="text-[#C2410C]">Next: fill the medicine start date</b>}</p>
+                          <Button size="sm" variant={item.activated ? 'outline' : 'orange'} onClick={() => openStart(item)}><CalendarClock size={14} />{item.activated ? 'Change start date' : 'Medicine start date'}</Button>
+                        </div>
+                      )}
                       {!item.explanation.completedAt && (
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11.5px] text-charcoal/60">{canComplete ? 'Explain the doses and chits, then complete - this starts the treatment.' : text}</p>
+                          <p className="text-[11.5px] text-charcoal/60">{canComplete ? 'Explain the doses and chits, then complete. Next you fill the medicine start date.' : text}</p>
                           <span className="flex flex-wrap gap-2">
                             {item.patientPhone && <a href={`tel:${item.patientPhone}`}><Button size="sm" variant="outline"><Phone size={14} />Call</Button></a>}
                             {item.explanation.at && <Button size="sm" variant="outline" onClick={() => setMoving(item)}><CalendarClock size={14} />Reschedule</Button>}
@@ -245,6 +269,16 @@ export default function MedicineExplanations() {
           </section>
         </aside>
       </div>
+      <Modal open={Boolean(starting)} onClose={() => !saving && setStarting(null)} title="Medicine start date">
+        <form onSubmit={saveStart} className="space-y-4">
+          <p className="font-medium">{starting?.patientName} · Phase {starting?.stage}{starting?.medicine?.poNumber ? ` · ${starting.medicine.poNumber}` : ''}</p>
+          <p className="text-sm text-charcoal/65">The day the patient starts taking the medicine. It starts the treatment of this phase and shows in Patient Details.</p>
+          {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+          <label className="block space-y-1 text-sm">Medicine start date<input className={input} type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+          <label className="block space-y-1 text-sm">Note (optional)<input className={input} maxLength={500} value={startNote} onChange={(e) => setStartNote(e.target.value)} placeholder="e.g. Starts from Monday morning dose" /></label>
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setStarting(null)}>Later</Button><Button type="submit" disabled={saving || !startDate}><Check size={16} />{saving ? 'Saving...' : 'Save start date'}</Button></div>
+        </form>
+      </Modal>
       <Modal open={Boolean(moving)} onClose={() => setMoving(null)} title="Reschedule medicine explanation" className="max-w-2xl">
         {moving && <RescheduleForm item={moving} pccId={user?.role === ROLES.ASSISTANT_DOCTOR ? user._id || user.id : moving.assignments?.assistantDoctor?.id} onCancel={() => setMoving(null)} onDone={() => { setMoving(null); load(); }} />}
       </Modal>
@@ -254,7 +288,7 @@ export default function MedicineExplanations() {
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           <label className="block space-y-1 text-sm">Actual completion time<input className={input} type="datetime-local" required value={completedAt} max={localNow()} onChange={(event) => setCompletedAt(event.target.value)} /></label>
           <label className="block space-y-1 text-sm">Explanation notes<textarea className={input} required maxLength={2000} rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="What was explained: doses, chits, diet, next connect" /></label>
-          <Button type="submit" disabled={saving}><Check size={16} />{saving ? 'Saving...' : 'Complete and start treatment'}</Button>
+          <Button type="submit" disabled={saving}><Check size={16} />{saving ? 'Saving...' : 'Complete explanation'}</Button>
         </form>
       </Modal>
     </div>

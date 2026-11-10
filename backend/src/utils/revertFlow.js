@@ -75,19 +75,33 @@ const orderOf = (steps = []) => { const at = (k) => steps.findIndex((s) => s.key
 const courierOf = (request) => { if (!request.courier) request.courier = {}; return request.courier; };
 const toPending = (payment, snapshot) => { snapshot.push(take(payment, ['_id', 'approvalStatus', 'approvedAt', 'approvedByName'])); payment.approvalStatus = 'pending'; payment.approvedAt = null; payment.approvedByName = ''; };
 
+// The phase was set In Progress by this treatment start (its date is the start date, or the older explanation time).
+const near = (a, b) => a && b && Math.abs(new Date(a).getTime() - new Date(b).getTime()) < 1000;
+const startedByTransit = (stage, t) => stage.status === 'in_progress' && stage.date && (near(stage.date, t.medicineStartDate) || near(stage.date, t.explanationCompletedAt) || near(stage.date, t.activatedAt));
+
 const PO_REVERTS = {
-  // Explanation done + treatment started are written together, so one revert clears both.
+  // Explanation done, then the medicine start date (treatment started) - two steps. Older cases wrote both at the
+  // explanation, so reverting the explanation also clears a start written with it.
   async explained({ stage }) {
     const t = stage.transit;
     if (!t?.explanationCompletedAt && !t?.activatedAt) return null;
-    const keys = ['explanationCompletedAt', 'explanationCompletedByName', 'explainedByName', 'explanationNote', 'activatedAt', 'activatedByName'];
+    const keys = ['explanationCompletedAt', 'explanationCompletedByName', 'explainedByName', 'explanationNote', 'activatedAt', 'activatedByName', 'medicineStartDate', 'medicineStartSetAt', 'medicineStartSetByName', 'medicineStartNote'];
     const snapshot = { transit: take(t, keys), stage: take(stage, ['status', 'date']) };
-    const startedByExplanation = stage.status === 'in_progress' && stage.date && t.explanationCompletedAt && Math.abs(new Date(stage.date).getTime() - new Date(t.explanationCompletedAt).getTime()) < 1000;
+    const startedHere = startedByTransit(stage, t);
     clear(t, keys);
-    if (startedByExplanation) { stage.status = 'not_started'; stage.date = null; }
+    if (startedHere) { stage.status = 'not_started'; stage.date = null; }
     return snapshot;
   },
-  async started(ctx) { return PO_REVERTS.explained(ctx); },
+  async started({ stage }) {
+    const t = stage.transit;
+    if (!t?.activatedAt) return null;
+    const keys = ['activatedAt', 'activatedByName', 'medicineStartDate', 'medicineStartSetAt', 'medicineStartSetByName', 'medicineStartNote'];
+    const snapshot = { transit: take(t, keys), stage: take(stage, ['status', 'date']) };
+    const startedHere = startedByTransit(stage, t);
+    clear(t, keys);
+    if (startedHere) { stage.status = 'not_started'; stage.date = null; }
+    return snapshot;
+  },
   // The PCC step also holds the medicine explanation date.
   async pcc({ stage }) {
     const t = stage.transit;

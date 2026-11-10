@@ -55,7 +55,8 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   const returned = [];
   const ctx = { ...c, steps: stepsOf(c), returnStock: async (line) => returned.push(line.code), reason: 'Wrong parcel', user, now: new Date() };
   const { reverted, snapshot } = await revertPoFrom('ready', ctx);
-  assert.deepEqual(reverted, ['started', 'handover', 'released', 'fullpay', 'pcc', 'scheduled', 'ready']);
+  // The medicine start date and the explanation are two steps now.
+  assert.deepEqual(reverted, ['started', 'explained', 'handover', 'released', 'fullpay', 'pcc', 'scheduled', 'ready']);
   assert.equal(c.request.status, 'in_process');
   assert.equal(c.request.courier.status, 'pending');
   assert.equal(c.stage.transit.activatedAt, null);
@@ -71,7 +72,7 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   assert.equal(c.job.stages.length, STAGE_INDEX.doctor);
   assert.equal(c.job.consumption[0].txId !== null, true, 'preparation is before "ready": stock stays drawn');
   assert.deepEqual(returned, []);
-  assert.equal(snapshot.started.transit.explanationNote, 'Explained');
+  assert.equal(snapshot.explained.transit.explanationNote, 'Explained', 'the explanation is kept in its own step');
   assert.deepEqual(snapshot.released.stages.map((s) => s.key), ['release'], 'the release record is kept in the snapshot');
   assert.deepEqual(snapshot.ready.stages.map((s) => s.key), ['doctor'], 'the doctor final-verification record is kept in the snapshot');
   assert.equal(snapshot.fullpay.payments.length, 1);
