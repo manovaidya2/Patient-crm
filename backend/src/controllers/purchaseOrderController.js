@@ -16,6 +16,7 @@ const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const { resolveSplit, modeLabelOf } = require('../utils/splitPayment');
 const { buildPoView, STAGE_KEYS, isPendingStage, findRequest } = require('../utils/purchaseOrderFlow');
 const { poPaymentSummary, earlierPhaseBalance } = require('../utils/poPayment');
+const { beginSupplyRound } = require('../utils/transitFlow');
 
 const PO_VIEW_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 const PO_CREATE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
@@ -138,7 +139,7 @@ const buildPoViews = async (filter, { includeHandover = false } = {}) => {
   const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
   const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
   const patients = await Patient.find({ _id: { $in: patientIds } })
-    .select(`patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate${includeHandover ? ' guardianName relativeName address city assignedDoctor' : ''}`)
+    .select(`patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate stages.delivery.parts stages.delivery.phaseDays stages.delivery.supplyClosedAt${includeHandover ? ' guardianName relativeName address city assignedDoctor' : ''}`)
     .populate(includeHandover ? { path: 'assignedDoctor', select: 'name' } : [])
     .lean();
   const byId = new Map(patients.map((p) => [String(p._id), p]));
@@ -619,11 +620,13 @@ const requestMedicine = asyncHandler(async (req, res) => {
     prescriptionUrl: files[0]?.url || null, prescriptionFileName: files[0]?.fileName || '', prescriptionFiles: files,
     requestedAt: now, requestedByName: req.user.name, readyByDate: readyBy, readyBySetAt: now, readyBySetByName: req.user.name,
   });
+  // The next supply of a phase (the "5" of 1 + 5): In Transit works it as a new round; the first one is kept.
+  const nextSupply = beginSupplyRound(stage, stage.medicineRequests[stage.medicineRequests.length - 1], req.user, now);
   stage.transit.expectedReadyDate = readyBy;
   if (!stage.transit.enteredAt) stage.transit.enteredAt = now;
   if (!String(stage.purchaseOrder || '').trim()) stage.purchaseOrder = po.poNumber;
   const detail = [`PO ${po.poNumber}`, caseCategory, supply.label, AGE_BANDS[ageBand], medicines].filter(Boolean).join(' | ');
-  logActivity(patient, req.user, `Medicine requested for Phase ${po.phase}`, `${detail} | Request: ${requestId}`);
+  logActivity(patient, req.user, `Medicine requested for Phase ${po.phase}`, `${detail} | Request: ${requestId}${nextSupply ? ` | next supply of the phase (round ${stage.transit.supplyRound})` : ''}`);
   Object.assign(po, { supplyPlan: supply.plan, supplyPart: supply.part, ageBand, medicineRequestId: requestId, medicineRequestedAt: now, medicineRequestedByName: req.user.name });
   if (!po.medicineReadyDate || !readyDateFromPostCounselling(po)) po.medicineReadyDate = readyBy;
   event(po, req.user, existing ? 'Medicine requested again' : 'Medicine requested', [caseCategory, supply.label, AGE_BANDS[ageBand], `ready by ${readyBy.toISOString().slice(0, 10)}`].filter(Boolean).join(' | '));
@@ -715,6 +718,11 @@ const stockReturner = (job, user) => async (line) => {
   await moveStock(item, { type: 'return', quantity: line.actual, delta: Number(line.actual), user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation reverted by admin for ${job.patientName} Phase ${job.phase}` });
 };
 
+// Payments attached to the phase's other purchase orders: a revert on this PO never touches them.
+const foreignPaymentIds = async (po) => (mongoose.connection.readyState === 1
+  ? (await PurchaseOrder.find({ patient: po.patient, phase: po.phase, _id: { $ne: po._id } }).select('paymentIds').lean()).flatMap((other) => (other.paymentIds || []).map(String))
+  : []);
+
 // @route POST /api/purchase-orders/:id/revert   body: { step, reason }   (admin)
 // Undoes a timeline step - and every later step - when it was done by mistake. The cleared records are kept on the
 // PO (`reverts`), drawn stock is returned through the ledger, and the activity shows who reverted what and why.
@@ -732,7 +740,7 @@ const revertStep = asyncHandler(async (req, res) => {
   const before = buildPoView(po, patient.toObject(), { job: job ? job.toObject() : null });
   const now = new Date();
   const { revertPoFrom } = require('../utils/revertFlow');
-  const { reverted, snapshot } = await revertPoFrom(step, { po, patient, stage, request, job, steps: before.steps, returnStock: job ? stockReturner(job, req.user) : async () => {}, reason, user: req.user, now });
+  const { reverted, snapshot } = await revertPoFrom(step, { po, patient, stage, request, job, steps: before.steps, foreignPaymentIds: await foreignPaymentIds(po), returnStock: job ? stockReturner(job, req.user) : async () => {}, reason, user: req.user, now });
   const labels = reverted.map((k) => before.steps.find((s) => s.key === k)?.label || k);
   po.reverts.push({ at: now, byName: req.user.name, byRole: req.user.role, step, reason, reverted, snapshot });
   event(po, req.user, 'Reverted by admin', `${labels.join(', ')} - ${reason}`);
@@ -772,7 +780,7 @@ const deletePurchaseOrder = asyncHandler(async (req, res) => {
   if (before && before.steps.find((s) => s.key === 'details')?.state === 'done') {
     const { revertPoFrom } = require('../utils/revertFlow');
     try {
-      await revertPoFrom('details', { po, patient, stage, request, job, steps: before.steps, returnStock: job ? stockReturner(job, req.user) : async () => {}, reason: `PO deleted: ${reason}`, user: req.user, now });
+      await revertPoFrom('details', { po, patient, stage, request, job, steps: before.steps, foreignPaymentIds: await foreignPaymentIds(po), returnStock: job ? stockReturner(job, req.user) : async () => {}, reason: `PO deleted: ${reason}`, user: req.user, now });
     } catch (error) { if (!/Nothing to revert/.test(error.message)) throw error; }
   }
   // Then remove the records themselves.

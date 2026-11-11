@@ -119,7 +119,8 @@ router.post('/:id/stages/:number/family-sessions/notes', authorize(...PATIENT_WR
 router.delete('/:id/stages/:number/family-sessions/notes/:noteId', authorize(...PATIENT_WRITE_ROLES), deleteScheduleNote('family_session'));
 
 // Next appointment of an existing patient after a completed phase, booked by the PCC (like Reception's direct booking).
-const BOOK_APPOINTMENT_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR];
+// The Doctor too: the next-phase card of Treatment Delivery reads this form.
+const BOOK_APPOINTMENT_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR];
 router.get('/:id/book-appointment', protect, authorize(...BOOK_APPOINTMENT_ROLES), require('../controllers/salesSheetController').getAppointmentBooking);
 router.post('/:id/book-appointment', protect, authorize(...BOOK_APPOINTMENT_ROLES), require('../controllers/salesSheetController').bookAppointmentForPatient);
 

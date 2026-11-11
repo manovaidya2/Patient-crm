@@ -6,6 +6,51 @@ const { STAGES, STAGE_STATUSES, ALL_STAGE_STATUSES } = require('../constants/tre
 const { PAYMENT_MODES, ALL_PAYMENT_MODES } = require('../constants/paymentModes');
 const { SCHEDULE_STATUSES, ALL_SCHEDULE_STATUSES } = require('../constants/scheduleStatuses');
 
+// Treatment Delivery marks on a follow-up / family session that belongs to the phase's delivery plan
+// (utils/treatmentDelivery.js). Absent on every hand-made entry, so the old follow-ups work as before.
+const sessionDeliverySchema = new mongoose.Schema(
+  {
+    auto: { type: Boolean, default: false }, // made by the plan (not booked on request)
+    key: { type: String, trim: true, default: '' }, // stable plan key: 'diet:1', 'fu:7', 'medc:2', 'fam:1'...
+    template: { type: String, trim: true, default: '' },
+    title: { type: String, trim: true, default: '' },
+    components: { type: [String], default: [] },
+    day: { type: Number, default: 0 }, // plan day, counted from the medicine start date
+    seq: { type: Number, default: 0 },
+    total: { type: Number, default: 0 },
+    monthly: { type: Boolean, default: false },
+    role: { type: String, trim: true, default: 'pcc' }, // who conducts it: pcc / doctor
+    mode: { type: String, trim: true, default: '' },
+    duration: { type: Number, default: 0 },
+    onRequest: { type: Boolean, default: false },
+    confirmedAt: { type: Date, default: null },
+    confirmedByName: { type: String, trim: true, default: '' },
+    movedAt: { type: Date, default: null }, // a person changed the date; a corrected start date no longer moves it
+    missedAt: { type: Date, default: null },
+    missReason: { type: String, trim: true, default: '' },
+    missedByName: { type: String, trim: true, default: '' },
+    rescheduledFrom: { type: String, trim: true, default: '' },
+    rescheduledTo: { type: String, trim: true, default: '' },
+    rescheduleReason: { type: String, trim: true, default: '' },
+    // Cancelled because its component was unticked when the plan's ticks were corrected; ticking it again makes a new one.
+    droppedAt: { type: Date, default: null },
+    // The session console as it was closed: every line answered Done or N/A, then the closing form.
+    checklist: {
+      type: [new mongoose.Schema({
+        key: { type: String, default: '' },
+        text: { type: String, default: '' },
+        section: { type: String, default: '' },
+        answer: { type: String, enum: ['done', 'na'], default: 'done' },
+        reason: { type: String, trim: true, default: '' },
+      }, { _id: false })],
+      default: [],
+    },
+    close: { type: mongoose.Schema.Types.Mixed, default: null },
+    adviceId: { type: String, trim: true, default: '' }, // the urgent doctor query raised by a red flag
+  },
+  { _id: false }
+);
+
 // One scheduled occurrence — used for both Follow-ups and Family Sessions (same shape).
 // "status" only ever holds scheduled/completed/cancelled — "late"/"done late" are computed,
 // never stored (see getDisplayStatus in constants/scheduleStatuses.js).
@@ -49,6 +94,8 @@ const scheduleEntrySchema = new mongoose.Schema(
     cancelReason: { type: String, trim: true, default: '' },
     cancelledAt: { type: Date, default: null },
     cancelledByName: { type: String, trim: true, default: '' },
+    // Only on entries of the Treatment Delivery plan.
+    delivery: { type: sessionDeliverySchema, default: undefined },
   },
   { timestamps: true }
 );
@@ -141,6 +188,17 @@ const medicineRequestSchema = new mongoose.Schema(
     explainedByName: { type: String, trim: true, default: '' },
     // "6 months of medicine (Full 6 months) given for Rs 10,000 paid; balance Rs 30,000 on PO-5831" (at Verify payment).
     supplyNote: { type: String, trim: true, default: '' },
+    // A later supply of a started phase (the "5" of 1 + 5, on its own PO): the day the patient starts THIS medicine,
+    // filled by the PCC. The first supply's start date stays on stage.transit (it starts the treatment of the phase).
+    medicineStartDate: { type: Date, default: null },
+    medicineStartSetAt: { type: Date, default: null },
+    medicineStartSetByName: { type: String, trim: true, default: '' },
+    medicineStartNote: { type: String, trim: true, default: '' },
+    // ...its explanation is not repeated: the PCC closes it as "already explained" or "skipped" with the start date.
+    explanationSkippedAt: { type: Date, default: null },
+    explanationSkippedByName: { type: String, trim: true, default: '' },
+    explanationSkipReason: { type: String, enum: ['', 'already_explained', 'skipped'], default: '' },
+    explanationSkipNote: { type: String, trim: true, default: '' },
     // Last correction by In Transit before Medicine Department accepted it.
     editedAt: { type: Date, default: null },
     editedByName: { type: String, trim: true, default: '' },
@@ -320,6 +378,80 @@ const transitSchema = new mongoose.Schema(
     holdReason: { type: String, trim: true, default: '' },
     holdAt: { type: Date, default: null },
     holdByName: { type: String, trim: true, default: '' },
+    // A phase can get its medicine in parts (1 + 5 months), each part on its own purchase order and medicine
+    // request. The calls, the delivery schedule, the PO paper tick and the release above belong to ONE supply: the
+    // round. When the next supply is requested the finished round is copied to `rounds` (nothing is lost) and the
+    // round fields start empty again (utils/transitFlow.js beginSupplyRound).
+    supplyRound: { type: Number, default: 1 },
+    roundRequestId: { type: String, trim: true, default: '' },
+    rounds: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+  },
+  { _id: false }
+);
+
+// Treatment Delivery of one phase: what the Treatment & PO paper promised (section D ticks), how many months of
+// medicine, and the plan made from them. The sessions themselves are ordinary follow-ups / family sessions carrying
+// a `delivery` mark; this holds the rest. Absent until the paper is saved or the plan is set up.
+const deliverySchema = new mongoose.Schema(
+  {
+    components: { type: [String], default: [] }, // ticked section D keys (utils/postCounselingRecord.js COMPONENTS)
+    componentsSource: { type: String, trim: true, default: '' }, // paper / manual
+    componentsSetAt: { type: Date, default: null },
+    componentsSetByName: { type: String, trim: true, default: '' },
+    // The medicine start date was saved but the ticks (or the months of supply) are not on record: someone must set the plan up.
+    setupNeededAt: { type: Date, default: null },
+    setupNeededWhy: { type: String, trim: true, default: '' },
+    planMonths: { type: Number, default: 0 },
+    phaseDays: { type: Number, default: 0 },
+    followUpsPromised: { type: Number, default: 0 },
+    // The rules as they were when this plan was first made, so a later settings change only affects new plans.
+    rules: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Each supply of medicine covers its months of the plan from its own start date.
+    parts: {
+      type: [new mongoose.Schema({
+        requestId: { type: String, trim: true, default: '' },
+        poNumber: { type: String, trim: true, default: '' },
+        months: { type: Number, default: 0 },
+        startDate: { type: String, trim: true, default: '' }, // YYYY-MM-DD, clinic day
+        offsetDays: { type: Number, default: 0 },
+        source: { type: String, trim: true, default: 'transit' }, // transit (start date from Medicine Explanations) / receipt (older plans: continued on the receipt) / manual
+        addedAt: { type: Date, default: null },
+        addedByName: { type: String, trim: true, default: '' },
+      }, { _id: false })],
+      default: [],
+    },
+    generatedAt: { type: Date, default: null },
+    generatedByName: { type: String, trim: true, default: '' },
+    reschedulesUsed: { type: Number, default: 0 },
+    tasks: {
+      type: [new mongoose.Schema({
+        key: { type: String, default: '' },
+        title: { type: String, default: '' },
+        day: { type: Number, default: 0 },
+        dueDate: { type: Date, default: null },
+        doneAt: { type: Date, default: null },
+        doneByName: { type: String, trim: true, default: '' },
+        note: { type: String, trim: true, default: '' },
+      }, { _id: false })],
+      default: [],
+    },
+    // Plan items left out because their day had passed when the plan was made; they can still be scheduled by hand.
+    skipped: {
+      type: [new mongoose.Schema({
+        key: { type: String, default: '' },
+        title: { type: String, default: '' },
+        day: { type: Number, default: 0 },
+        reason: { type: String, trim: true, default: '' },
+      }, { _id: false })],
+      default: [],
+    },
+    // What was decided for the next phase once this one is delivered: book / time / stop, with who and when.
+    nextPhase: { type: mongoose.Schema.Types.Mixed, default: null },
+    nextPhaseHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // "No further supply in this phase": the phase ends with the medicine on record (fewer months than the plan).
+    supplyClosedAt: { type: Date, default: null },
+    supplyClosedByName: { type: String, trim: true, default: '' },
+    supplyClosedNote: { type: String, trim: true, default: '' },
   },
   { _id: false }
 );
@@ -382,6 +514,7 @@ const stageEntrySchema = new mongoose.Schema(
     // Follow-ups and Family Sessions scheduled specifically for this stage
     followUps: { type: [scheduleEntrySchema], default: [] },
     familySessions: { type: [scheduleEntrySchema], default: [] },
+    delivery: { type: deliverySchema, default: undefined },
   },
   { _id: false }
 );

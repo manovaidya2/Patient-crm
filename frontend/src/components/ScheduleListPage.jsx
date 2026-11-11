@@ -10,6 +10,7 @@ import Drawer from './ui/Drawer.jsx';
 import Badge from './ui/Badge.jsx';
 import { DISPLAY_STATUS_BADGE_TONE } from '../constants/scheduleStatuses.js';
 import { PageHeader, StatRow, StatTile } from './ui/Layout.jsx';
+import { planLink } from './delivery/deliveryUi.js';
 
 const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 
@@ -187,6 +188,8 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
   const { user } = useAuth();
   // The PCC raises the patient's query with the doctor while taking the follow-up.
   const canRaiseQuery = isAdminLike(user) || user?.role === ROLES.ASSISTANT_DOCTOR;
+  // The Doctor opens Treatment Delivery plans too (without raising queries here).
+  const canOpenPlan = canRaiseQuery || user?.role === ROLES.DOCTOR;
   const [raiseFor, setRaiseFor] = useState(null);
   const [raisedNote, setRaisedNote] = useState('');
   const navigate = useNavigate();
@@ -451,7 +454,14 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
               <p className="mt-1 text-xs text-charcoal/60">
                 {e.stageLabel} · {formatDateTime(e.dateTime)}
               </p>
-              {(showFollowUpTypeFilter || showFamilySessionTypeFilter) && (
+              {e.delivery && (
+                <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-bold text-charcoal">{e.delivery.title}</span>
+                  <span className="rounded-full bg-sage-muted/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sage">Treatment plan · {e.delivery.stateLabel}</span>
+                  {canOpenPlan && e.stageNumber ? <button type="button" onClick={(event) => { event.stopPropagation(); navigate(planLink(e.patientId, e.stageNumber)); }} className="font-bold text-sage underline">Open in Treatment Delivery</button> : null}
+                </p>
+              )}
+              {!e.delivery && (showFollowUpTypeFilter || showFamilySessionTypeFilter) && (
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-charcoal/45">
                   {showFamilySessionTypeFilter
                     ? (e.followUpType === 'sfs' ? 'Short Follow-up' : 'Family Session')

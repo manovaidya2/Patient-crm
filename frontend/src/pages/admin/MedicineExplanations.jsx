@@ -14,6 +14,7 @@ import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import PoPostCounselling from './PoPostCounselling.jsx';
 import PccCalendar, { pccSlotProblem } from '../../components/transit/PccCalendar.jsx';
+import { planLink } from '../../components/delivery/deliveryUi.js';
 
 const REASONS = [['not_picked', 'Call not picked up'], ['patient_request', 'Patient asked for another time'], ['other', 'Other']];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -86,10 +87,32 @@ export default function MedicineExplanations() {
   const [starting, setStarting] = useState(null);
   const [startDate, setStartDate] = useState('');
   const [startNote, setStartNote] = useState('');
+  // What saving the start date did to the Treatment Delivery plan of that phase (made, moved, or set-up needed).
+  const [planNotice, setPlanNotice] = useState(null);
   const openStart = (item) => { setStarting(item); setStartDate(item.explanation.medicineStartDate ? new Date(item.explanation.medicineStartDate).toLocaleDateString('en-CA') : new Date().toLocaleDateString('en-CA')); setStartNote(item.explanation.medicineStartNote || ''); setError(''); };
+  // A later supply of a running phase (its own PO): no new explanation. The PCC closes it as "already explained" or
+  // "skipped" and fills only the day the patient starts this medicine. No date is filled in beforehand.
+  const [skipReason, setSkipReason] = useState('already_explained');
+  const [skipNote, setSkipNote] = useState('');
+  const [supplyMonths, setSupplyMonths] = useState('');
+  const openSupplyStart = (item) => {
+    const s = item.supplyStart;
+    setStarting({ ...item, later: true });
+    setStartDate(s.startDate ? new Date(s.startDate).toLocaleDateString('en-CA') : '');
+    setStartNote(s.note || ''); setSkipReason(s.skipReason || 'already_explained'); setSkipNote(s.skipNote || ''); setSupplyMonths(''); setError('');
+  };
   const saveStart = async (event) => {
     event.preventDefault(); setSaving(true); setError('');
-    try { await api.post(`/transit/${starting.patientId}/${starting.stage}/medicine-start`, { startDate, note: startNote }); setStarting(null); await load(); }
+    try {
+      const body = starting.later
+        ? { requestId: starting.supplyStart.requestId, startDate, note: startNote, explanation: skipReason, explanationNote: skipNote, ...(supplyMonths ? { months: Number(supplyMonths) } : {}) }
+        : { startDate, note: startNote };
+      const { data } = await api.post(`/transit/${starting.patientId}/${starting.stage}/medicine-start`, body);
+      const saved = starting;
+      setStarting(null);
+      setPlanNotice(data?.delivery?.notice ? { text: data.delivery.notice, name: saved.patientName, to: planLink(saved.patientId, saved.stage), warn: /^(needs_|error)/.test(data.delivery.status || '') } : null);
+      await load();
+    }
     catch (err) { setError(err.response?.data?.message || 'Could not save the start date'); }
     finally { setSaving(false); }
   };
@@ -112,6 +135,7 @@ export default function MedicineExplanations() {
     finally { setSaving(false); }
   };
   const readiness = (item) => {
+    if (item.supplyStart?.pending) return ['start', 'Next supply received - fill its medicine start date'];
     if (item.activated) return ['done', 'Medicine started'];
     if (item.explanation.completedAt) return ['start', 'Explained - fill the medicine start date'];
     if (item.onHold) return ['hold', 'On hold'];
@@ -126,18 +150,22 @@ export default function MedicineExplanations() {
   const pillTone = { done: 'bg-[#E6F2EA] text-[#1F6B41]', hold: 'bg-[#FDE2E1] text-[#9F1D1D]', wait: 'bg-[#FBF0DC] text-[#7C5B2E]', ready: 'bg-[#2F8F5B] text-white', start: 'bg-[#F97316] text-white' };
   const dayKey = (value) => (value ? new Date(value).toLocaleDateString('en-CA') : '');
   const todayKey = new Date().toLocaleDateString('en-CA');
-  const sorted = [...items].sort((a, b) => String(a.explanation.at || '9999').localeCompare(String(b.explanation.at || '9999')));
-  const groups = sorted.reduce((acc, item) => { const k = dayKey(item.explanation.at) || 'none'; (acc[k] = acc[k] || []).push(item); return acc; }, {});
+  // The day a card belongs to: its explanation, or (a later supply waiting for its start date) the day it was received.
+  const itemAt = (item) => (item.supplyStart?.pending ? item.supplyStart.receivedAt || item.explanation.at : item.explanation.at);
+  const dayText = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
+  const monthsText = (n) => `${n} month${Number(n) === 1 ? '' : 's'}`;
+  const sorted = [...items].sort((a, b) => String(itemAt(a) || '9999').localeCompare(String(itemAt(b) || '9999')));
+  const groups = sorted.reduce((acc, item) => { const k = dayKey(itemAt(item)) || 'none'; (acc[k] = acc[k] || []).push(item); return acc; }, {});
   const dayTitle = (k) => (k === 'none' ? 'Date not scheduled' : `${k === todayKey ? 'Today · ' : ''}${new Date(`${k}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })}`);
   const weekEnd = new Date(); weekEnd.setDate(weekEnd.getDate() + 7);
-  const todayCount = items.filter((i) => dayKey(i.explanation.at) === todayKey).length;
-  const weekCount = items.filter((i) => i.explanation.at && new Date(i.explanation.at) <= weekEnd && dayKey(i.explanation.at) >= todayKey).length;
+  const todayCount = items.filter((i) => dayKey(itemAt(i)) === todayKey).length;
+  const weekCount = items.filter((i) => itemAt(i) && new Date(itemAt(i)) <= weekEnd && dayKey(itemAt(i)) >= todayKey).length;
   const counts = items.reduce((acc, i) => { const [st] = readiness(i); acc[st] = (acc[st] || 0) + 1; return acc; }, {});
   // Month calendar: days with an explanation are orange, today is dark; a click filters the list to that day.
   const monthBase = new Date(`${calMonth}-01T12:00:00`);
   const lead = (monthBase.getDay() + 6) % 7;
   const daysIn = new Date(monthBase.getFullYear(), monthBase.getMonth() + 1, 0).getDate();
-  const hasDay = new Set(items.map((i) => dayKey(i.explanation.at)).filter(Boolean));
+  const hasDay = new Set(items.map((i) => dayKey(itemAt(i))).filter(Boolean));
   const shiftMonth = (n) => { const d = new Date(monthBase); d.setMonth(d.getMonth() + n); setCalMonth(d.toLocaleDateString('en-CA').slice(0, 7)); };
   const chip = (active) => `rounded-full border px-3.5 py-1.5 text-xs font-bold ${active ? 'border-charcoal bg-charcoal text-white' : 'border-[#DED2BD] bg-white text-charcoal hover:bg-[#FBF7ED]'}`;
   return (
@@ -154,6 +182,12 @@ export default function MedicineExplanations() {
         {date && <Button size="sm" variant="outline" onClick={() => setDate('')}>Show all dates</Button>}
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {planNotice && (
+        <div role="status" className={`flex flex-wrap items-center justify-between gap-2 rounded-[12px] border px-3.5 py-2.5 text-sm ${planNotice.warn ? 'border-[#FDBA74] bg-[#FFF7ED] text-[#9A3412]' : 'border-[#A7D3B8] bg-[#F6FBF7] text-[#1F6B41]'}`}>
+          <p className="min-w-0"><b>{planNotice.name}:</b> {planNotice.text}</p>
+          <span className="flex shrink-0 items-center gap-3"><Link to={planNotice.to} className="font-bold underline">{planNotice.warn ? 'Set up the plan' : 'Open the plan'}</Link><button type="button" onClick={() => setPlanNotice(null)} className="text-xs font-semibold opacity-70 hover:opacity-100">Dismiss</button></span>
+        </div>
+      )}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <section className="min-w-0 space-y-3" aria-label="Schedule">
           {loading && !items.length ? <p className="text-sm text-charcoal/60">Loading...</p> : !items.length ? <p className="rounded-[14px] border border-dashed border-[#DED2BD] bg-white p-8 text-center text-sm text-charcoal/60">No explanations for this selection.</p> : Object.entries(groups).map(([k, list]) => (
@@ -164,10 +198,13 @@ export default function MedicineExplanations() {
                 const canComplete = state === 'ready';
                 const at = item.explanation.at ? new Date(item.explanation.at) : null;
                 const hot = !item.explanation.completedAt && item.pcc?.assigned;
+                // A later supply of this phase (its own PO): only its medicine start date, never a new explanation.
+                const supply = item.supplyStart;
+                const due = Boolean(supply?.pending);
                 return (
                   <div key={item.key} className="grid gap-3 sm:grid-cols-[72px_minmax(0,1fr)]">
-                    <div className="pt-1 font-display text-[15px] font-extrabold text-charcoal sm:pt-3.5 sm:text-right">{at ? at.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}<span className="block font-body text-[11px] font-semibold text-charcoal/60">{item.explanation.mode || 'phone'}</span></div>
-                    <article className={`rounded-[14px] p-4 sm:p-[18px] ${state === 'ready' ? 'border-2 border-[#FDBA74] bg-[#FFF7ED]' : hot ? 'border-2 border-[#FDBA74]/70 bg-white' : 'border border-[#E8DFCB] bg-white'}`}>
+                    <div className="pt-1 font-display text-[15px] font-extrabold text-charcoal sm:pt-3.5 sm:text-right">{due ? 'Next' : at ? at.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}<span className="block font-body text-[11px] font-semibold text-charcoal/60">{due ? 'supply' : item.explanation.mode || 'phone'}</span></div>
+                    <article className={`rounded-[14px] p-4 sm:p-[18px] ${state === 'ready' || due ? 'border-2 border-[#FDBA74] bg-[#FFF7ED]' : hot ? 'border-2 border-[#FDBA74]/70 bg-white' : 'border border-[#E8DFCB] bg-white'}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
@@ -221,9 +258,27 @@ export default function MedicineExplanations() {
                           <p className="text-sm">{item.activated
                             ? <><b className="text-[#1F6B41]">Medicine started {new Date(item.explanation.medicineStartDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</b><span className="text-xs text-charcoal/60"> · {item.explanation.medicineStartSetBy}{item.explanation.medicineStartNote ? ` · ${item.explanation.medicineStartNote}` : ''}</span></>
                             : <b className="text-[#C2410C]">Next: fill the medicine start date</b>}</p>
-                          <Button size="sm" variant={item.activated ? 'outline' : 'orange'} onClick={() => openStart(item)}><CalendarClock size={14} />{item.activated ? 'Change start date' : 'Medicine start date'}</Button>
+                          <span className="flex flex-wrap items-center gap-2">
+                            {item.activated && <Link to={planLink(item.patientId, item.stage)} className="text-xs font-bold text-sage underline">Treatment Delivery plan</Link>}
+                            <Button size="sm" variant={item.activated ? 'outline' : 'orange'} onClick={() => openStart(item)}><CalendarClock size={14} />{item.activated ? 'Change start date' : 'Medicine start date'}</Button>
+                          </span>
                         </div>
                       )}
+                      {/* A later supply of the same phase: explanation closed as already explained / skipped, only its start date. */}
+                      {supply && (supply.pending || supply.startDate) && (
+                        <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[10px] px-3 py-2 ${supply.startDate ? 'bg-[#E6F2EA]' : 'border-2 border-[#FDBA74] bg-[#FFF7ED]'}`}>
+                          <div className="min-w-0 text-sm">
+                            {supply.startDate
+                              ? <p><b className="text-[#1F6B41]">Next supply{supply.poNumber ? ` ${supply.poNumber}` : ''}{supply.months ? ` (${monthsText(supply.months)})` : ''}: medicine started {dayText(supply.startDate)}</b><span className="text-xs text-charcoal/60">{supply.setBy ? ` · ${supply.setBy}` : ''}{supply.setAt ? ` · ${when(supply.setAt)}` : ''}{supply.note ? ` · ${supply.note}` : ''}</span></p>
+                              : <p><b className="text-[#C2410C]">Next supply{supply.poNumber ? ` ${supply.poNumber}` : ''}{supply.months ? ` (${monthsText(supply.months)})` : ''} is with the patient{supply.receivedAt ? ` since ${dayText(supply.receivedAt)}` : ''}: fill its medicine start date</b></p>}
+                            <p className="text-xs text-charcoal/65">{supply.startDate
+                              ? `${supply.skipReason === 'skipped' ? 'Explanation skipped' : 'Already explained with the first supply'}${supply.skipNote ? `: ${supply.skipNote}` : ''}${supply.skippedBy ? ` · ${supply.skippedBy}` : ''}${supply.skippedAt ? ` · ${when(supply.skippedAt)}` : ''}`
+                              : `No new explanation: close it as already explained or skipped. ${supply.runsOut ? `Medicine in hand runs till ${dayText(supply.runsOut)}. ` : ''}The rest of the plan is made from the date you fill.`}</p>
+                          </div>
+                          <Button size="sm" variant={supply.startDate ? 'outline' : 'orange'} onClick={() => openSupplyStart(item)}><CalendarClock size={14} />{supply.startDate ? 'Change start date' : 'Medicine start date of this supply'}</Button>
+                        </div>
+                      )}
+                      {supply && supply.needed && !supply.pending && !supply.startDate && <p className="mt-2 rounded-[10px] bg-[#F6F0E3] px-3 py-2 text-xs text-charcoal/70">Next supply{supply.poNumber ? ` ${supply.poNumber}` : ''} is on its way. It is not explained again: once the patient has it, its medicine start date is filled here.</p>}
                       {!item.explanation.completedAt && (
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-[11.5px] text-charcoal/60">{canComplete ? 'Explain the doses and chits, then complete. Next you fill the medicine start date.' : text}</p>
@@ -269,12 +324,25 @@ export default function MedicineExplanations() {
           </section>
         </aside>
       </div>
-      <Modal open={Boolean(starting)} onClose={() => !saving && setStarting(null)} title="Medicine start date">
+      <Modal open={Boolean(starting)} onClose={() => !saving && setStarting(null)} title={starting?.later ? 'Medicine start date of the next supply' : 'Medicine start date'}>
         <form onSubmit={saveStart} className="space-y-4">
-          <p className="font-medium">{starting?.patientName} · Phase {starting?.stage}{starting?.medicine?.poNumber ? ` · ${starting.medicine.poNumber}` : ''}</p>
-          <p className="text-sm text-charcoal/65">The day the patient starts taking the medicine. It starts the treatment of this phase and shows in Patient Details.</p>
+          <p className="font-medium">{starting?.patientName} · Phase {starting?.stage}{(starting?.later ? starting.supplyStart.poNumber : starting?.medicine?.poNumber) ? ` · ${starting.later ? starting.supplyStart.poNumber : starting.medicine.poNumber}` : ''}{starting?.later && starting.supplyStart.months ? ` · ${monthsText(starting.supplyStart.months)} of medicine` : ''}</p>
+          {starting?.later
+            ? <p className="text-sm text-charcoal/65">This is a later supply of the same phase, so the medicine is not explained again. Close the explanation and fill the day the patient starts this medicine: the remaining sessions and follow-ups of the plan are made from that day.</p>
+            : <p className="text-sm text-charcoal/65">The day the patient starts taking the medicine. It starts the treatment of this phase and shows in Patient Details.</p>}
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-          <label className="block space-y-1 text-sm">Medicine start date<input className={input} type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+          {starting?.later && (
+            <fieldset className="space-y-2 rounded-lg border border-cardline bg-[#FBF7ED] p-3">
+              <legend className="px-1 text-xs font-bold uppercase tracking-wide text-charcoal/60">Explanation of this supply</legend>
+              <div className="flex flex-wrap gap-1.5">{[['already_explained', 'Already explained'], ['skipped', 'Skip explanation']].map(([key, label]) => <button key={key} type="button" aria-pressed={skipReason === key} onClick={() => setSkipReason(key)} className={`rounded-full border px-3 py-1 text-xs font-semibold ${skipReason === key ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/75'}`}>{label}</button>)}</div>
+              <input className={input} maxLength={500} value={skipNote} onChange={(e) => setSkipNote(e.target.value)} placeholder={skipReason === 'skipped' ? 'Why it is skipped (optional)' : 'e.g. same medicines as the first supply (optional)'} />
+            </fieldset>
+          )}
+          {starting?.later && !starting.supplyStart.months && (
+            <label className="block space-y-1 text-sm">Months of medicine in this supply<select className={input} required value={supplyMonths} onChange={(e) => setSupplyMonths(e.target.value)}><option value="">Select</option>{Array.from({ length: Math.max(1, starting.supplyStart.monthsLeft || 0) }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}</select><span className="block text-[11.5px] text-charcoal/55">The months are not on its purchase order. {starting.supplyStart.monthsLeft} month(s) of this phase still have no medicine.</span></label>
+          )}
+          <label className="block space-y-1 text-sm">{starting?.later ? 'Medicine start date of this supply' : 'Medicine start date'}<input className={input} type="date" required min={starting?.later && starting.supplyStart.receivedAt ? new Date(starting.supplyStart.receivedAt).toLocaleDateString('en-CA') : undefined} value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+          {starting?.later && <p className="-mt-2 text-[11.5px] text-charcoal/60">{[starting.supplyStart.runsOut ? `Medicine in hand runs till ${dayText(starting.supplyStart.runsOut)}` : '', starting.supplyStart.receivedAt ? `this supply was received on ${dayText(starting.supplyStart.receivedAt)}` : ''].filter(Boolean).join(' · ')}{starting.supplyStart.runsOut || starting.supplyStart.receivedAt ? '. ' : ''}No date is chosen for you: ask the parent which day they start it.</p>}
           <label className="block space-y-1 text-sm">Note (optional)<input className={input} maxLength={500} value={startNote} onChange={(e) => setStartNote(e.target.value)} placeholder="e.g. Starts from Monday morning dose" /></label>
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setStarting(null)}>Later</Button><Button type="submit" disabled={saving || !startDate}><Check size={16} />{saving ? 'Saving...' : 'Save start date'}</Button></div>
         </form>

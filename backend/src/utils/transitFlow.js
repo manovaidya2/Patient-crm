@@ -38,6 +38,166 @@ function pickRequest(stage) {
   return candidates.reduce((best, request) => (new Date(request.requestedAt || 0) >= new Date(best.requestedAt || 0) ? request : best));
 }
 
+// ---- Supply rounds ---------------------------------------------------------------------------------------------
+// One phase can get its medicine in parts (1 + 5 months). Every part has its own purchase order and medicine
+// request, and its own hand-over: calls, delivery schedule, PO paper tick, release, dispatch, receipt. That
+// hand-over is a "round". The explanation, the PCC and the medicine start date belong to the phase and happen once.
+const ROUND_FIELDS = [
+  'calls', 'callsDoneAt', 'callsDoneByName', 'fulfilmentMode', 'fulfilmentSetAt', 'fulfilmentSetByName',
+  'pickupScheduledAt', 'pickupNote', 'pickupScheduledByName', 'dispatchScheduledAt', 'plannedCourier', 'plannedAddress',
+  'deliveryPlanNote', 'poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote', 'financialReleasedAt',
+  'financialReleasedByName', 'financialReleaseNote', 'stuckNote', 'stuckNoteAt', 'stuckNoteByName',
+];
+const requestKey = (request) => (request ? request.requestId || 'legacy' : '');
+const isReceived = (request) => plain(request?.courier).status === 'delivered';
+const blankRound = () => Object.fromEntries(ROUND_FIELDS.map((field) => [field, field === 'calls' ? [] : /At$/.test(field) ? null : '']));
+const aliveRequests = (stage) => [...(stage.medicineRequests || []), stage.medicineRequest]
+  .filter((request) => request && MEDICINE_ACTIVE.includes(request.status));
+
+// The supply the medicine start date belongs to: the one that was explained, else the first one received.
+function startRequestOf(stage) {
+  const alive = aliveRequests(stage);
+  const byTime = (field) => (a, b) => new Date(field(a) || 0) - new Date(field(b) || 0);
+  const explained = alive.filter((request) => request.explainedAt).sort(byTime((r) => r.explainedAt));
+  if (explained.length) return explained[0];
+  const received = alive.filter(isReceived).sort(byTime((r) => plain(r.courier).deliveredAt || r.requestedAt));
+  return received[0] || pickRequest(stage);
+}
+
+// ---- Start date of a later supply ------------------------------------------------------------------------------
+// The first supply's medicine start date starts the treatment of the phase (stage.transit). A later supply of the
+// phase (its own purchase order, any months) is not explained again: once the patient has it the PCC closes its
+// explanation as "already explained" / "skipped" and fills the day the patient starts it. The rest of the Treatment
+// Delivery plan is laid out from that day; nothing is dated by itself on the receipt.
+// (deliverySupply / treatmentDelivery are required inside the functions: deliverySupply requires this file.)
+const planAwaitsSupply = (stage) => {
+  const d = plain(stage?.delivery);
+  return Boolean(d.parts?.length && d.phaseDays) && !require('./treatmentDelivery').supplyDone(d);
+};
+// The oldest supply the patient already has whose start date the PCC still has to fill (null: none). Only phases
+// with a Treatment Delivery plan that still awaits medicine, so a phase from before the plans is never reopened.
+function pendingStart(stage) {
+  const t = plain(stage?.transit);
+  if (!t.activatedAt || !planAwaitsSupply(stage)) return null;
+  return require('./deliverySupply').receivedSupplies(stage)[0] || null;
+}
+// Where the medicine start date of one supply stands.
+// later: not the supply the treatment started with. needed: the plan waits for this supply's start date.
+// pending: needed and the patient has the medicine (the PCC can fill it now). done: nothing more to fill.
+function supplyStartOf(stage, request = stage ? pickRequest(stage) : null) {
+  const t = plain(stage?.transit);
+  const first = stage ? startRequestOf(stage) : null;
+  const key = requestKey(request);
+  const later = Boolean(request && t.activatedAt && first && key !== requestKey(first));
+  if (!later) {
+    return {
+      later: false, needed: false, pending: false, done: Boolean(t.activatedAt), date: t.medicineStartDate || t.activatedAt || null,
+      setAt: t.medicineStartSetAt || t.activatedAt || null, by: t.medicineStartSetByName || t.activatedByName || '', note: t.medicineStartNote || '',
+    };
+  }
+  const part = (plain(stage.delivery).parts || []).find((item) => item && item.requestId === key) || null;
+  const date = part?.startDate ? new Date(`${part.startDate}T00:00:00+05:30`) : request.medicineStartDate || null;
+  const needed = !date && planAwaitsSupply(stage) && require('./deliverySupply').openSupplies(stage).some((item) => requestKey(item) === key);
+  return {
+    later: true, needed, pending: needed && isReceived(request), done: Boolean(date) || !needed, date, onPlan: Boolean(part),
+    setAt: request.medicineStartSetAt || part?.addedAt || null, by: request.medicineStartSetByName || part?.addedByName || '', note: request.medicineStartNote || '',
+    skipReason: request.explanationSkipReason || '', skippedAt: request.explanationSkippedAt || null, skippedBy: request.explanationSkippedByName || '', skipNote: request.explanationSkipNote || '',
+  };
+}
+
+// A later supply of a phase whose treatment already started, not finished yet: In Transit has to work this phase
+// again while it is on its way, and it stays open until the PCC has filled the start date of the supply the patient
+// received. Its request is the round's request, or (records older than the rounds) was raised after the treatment
+// started.
+function refillOpen(stage) {
+  const t = plain(stage?.transit);
+  const request = stage ? pickRequest(stage) : null;
+  if (!t.activatedAt || !request) return false;
+  if (isReceived(request)) return Boolean(pendingStart(stage));
+  if (t.roundRequestId && t.roundRequestId === requestKey(request)) return true;
+  return new Date(request.requestedAt || 0) > new Date(t.activatedAt);
+}
+
+// The supply whose hand-over a new request closes: the round's request (records older than the rounds: the newest
+// other request), when the patient already has it. Null when the request only replaces a cancelled / undelivered
+// one, or is the round's request itself.
+function closingRequest(stage, request) {
+  const t = plain(stage?.transit);
+  const key = requestKey(request);
+  if (!request || t.roundRequestId === key) return null;
+  const others = aliveRequests(stage).filter((item) => item !== request && requestKey(item) !== key);
+  const previous = t.roundRequestId
+    ? others.find((item) => requestKey(item) === t.roundRequestId)
+    : others.sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0))[0];
+  if (!previous || !isReceived(previous)) return null;
+  return (t.rounds || []).some((round) => round && round.requestId === requestKey(previous)) ? null : previous;
+}
+
+// True while the newest request is a later supply whose round was never begun (a request raised on a screen that
+// does not call beginSupplyRound, or a record older than the rounds). The round fields still hold the previous
+// supply then: readers blank them (roundTransit) and the next In Transit save begins the round (ensureSupplyRound).
+const roundStale = (stage) => Boolean(stage) && refillOpen(stage) && Boolean(closingRequest(stage, pickRequest(stage)));
+
+// The request the live round fields belong to: the newest running request; while its round is not begun yet
+// (roundStale) still the supply before it; with no running request the one the round was begun for.
+function roundOwnerKey(stage) {
+  const t = plain(stage?.transit);
+  const request = stage ? pickRequest(stage) : null;
+  if (!request) return t.roundRequestId || '';
+  return roundStale(stage) ? requestKey(closingRequest(stage, request)) : requestKey(request);
+}
+
+// The transit record as the current supply sees it.
+function roundTransit(stage) {
+  const t = plain(stage?.transit);
+  return stage && roundStale(stage) ? { ...t, ...blankRound(), supplyRound: Number(t.supplyRound || 1) + 1, roundRequestId: requestKey(pickRequest(stage)) } : t;
+}
+
+// Called when a medicine request is raised. When the supply before it has reached the patient, its hand-over is
+// copied to `transit.rounds` and the round fields start empty for the new request. A request that only replaces a
+// cancelled / undelivered one keeps the round. Returns true when a new round began.
+function beginSupplyRound(stage, request, user, now = new Date()) {
+  const t = stage?.transit;
+  if (!t || !request) return false;
+  const key = requestKey(request);
+  if (t.roundRequestId === key) return false;
+  // A phase the PCC closed as "no further supply" gets medicine after all: its plan waits for this supply again
+  // (who closed it and why stay on record).
+  const d = stage.delivery;
+  if (d?.supplyClosedAt && !(d.parts || []).some((part) => part && part.requestId === key)) d.supplyClosedAt = null;
+  const previous = closingRequest(stage, request);
+  if (!previous) {
+    t.roundRequestId = key;
+    if (!t.supplyRound) t.supplyRound = 1;
+    return false;
+  }
+  const current = plain(t);
+  const snapshot = { n: Number(current.supplyRound || 1), requestId: requestKey(previous), poNumber: previous.poNumber || '', closedAt: now, closedByName: user?.name || '' };
+  ROUND_FIELDS.forEach((field) => { snapshot[field] = field === 'calls' ? (current.calls || []).map((call) => ({ ...plain(call) })) : current[field] ?? null; });
+  t.rounds = [...(current.rounds || []), snapshot];
+  Object.assign(t, blankRound(), { supplyRound: snapshot.n + 1, roundRequestId: key });
+  return true;
+}
+
+// Begins the round of a later supply that no screen began (see roundStale). Safe to call before any In Transit save.
+const ensureSupplyRound = (stage, user, now = new Date()) => (roundStale(stage) ? beginSupplyRound(stage, pickRequest(stage), user, now) : false);
+
+// The hand-over record of one request: the live round for the request that owns it, the saved copy for an earlier
+// supply (`archived`: its hand-over is over and no longer worked by In Transit).
+function roundOf(stage, requestId) {
+  const raw = plain(stage?.transit);
+  const key = requestId || 'legacy';
+  const fields = (source) => Object.fromEntries(ROUND_FIELDS.map((field) => [field, source[field]]));
+  const archived = [...(raw.rounds || [])].reverse().find((round) => round && round.requestId === key);
+  if (archived) return { ...blankRound(), ...archived, archived: true };
+  if (stage && roundStale(stage)) {
+    // The next supply's round is not begun yet: it starts empty, the fields still tell the supply before it.
+    if (key === requestKey(pickRequest(stage))) return { ...blankRound(), n: Number(raw.supplyRound || 1) + 1, requestId: key, archived: false };
+    return key === roundOwnerKey(stage) ? { ...fields(raw), n: Number(raw.supplyRound || 1), requestId: key, archived: true } : null;
+  }
+  return stage && roundOwnerKey(stage) === key ? { ...fields(raw), n: Number(raw.supplyRound || 1), requestId: key, archived: false } : null;
+}
+
 function paymentSummary(stage) {
   const payments = stage.payments || [];
   const approved = payments.filter((p) => (p.approvalStatus || 'approved') === 'approved');
@@ -60,7 +220,7 @@ function paymentSummary(stage) {
 const isInTransit = (stage) => Boolean(String(stage?.purchaseOrder || '').trim());
 
 function fulfilmentMode(stage, request) {
-  const t = plain(stage.transit);
+  const t = roundTransit(stage);
   if (t.fulfilmentMode) return t.fulfilmentMode;
   const courier = plain(request?.courier);
   if (courier.status === 'delivered' && courier.deliveryMode === 'self') return 'pickup';
@@ -98,7 +258,8 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   const pccName = patient.assignedDoctor?.name ? `${patient.assignedDoctor.name}${pccAssigned ? '' : ' (already on the patient record - confirm or change)'}` : '';
   const lastCall = calls[0];
   const shippedMode = SHIPPED_MODES.includes(mode);
-  const pccStep = { key: 'pcc', group: 'treatment', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(stage.medicineExplainDate), action: 'assign_pcc', by: t.assignedByName, at: iso(t.assignedAt), text: pccName };
+  const started = Boolean(t.activatedAt);
+  const pccStep = { key: 'pcc', group: 'treatment', label: 'Schedule explanation & assign PCC', done: started || (pccAssigned && Boolean(stage.medicineExplainDate)), action: 'assign_pcc', by: t.assignedByName, at: iso(t.assignedAt), text: pccName };
   const connected = calls.some((c) => c.outcome === 'connected');
   // Older cases scheduled before this step existed count it as done.
   const callsDone = Boolean(t.callsDoneAt || t.fulfilmentSetAt || dispatched || delivered);
@@ -125,17 +286,49 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
   ];
   if (mode !== 'pickup') steps.push(pccStep);
   if (!mode || shippedMode) steps.push({ key: 'received', group: 'handover', label: 'Confirm receipt from patient', done: delivered, action: shippedMode ? 'confirm_received' : null, by: courier.deliveredByName, at: iso(courier.deliveredAt), text: courier.receivedByName });
-  steps.push(
-    { key: 'explained', group: 'treatment', label: 'Explain medicine', done: Boolean(t.explanationCompletedAt), waitText: 'The assigned PCC completes the explanation on the Medicine Explanations page', by: t.explanationCompletedByName, at: iso(t.explanationCompletedAt), text: stage.medicineExplainDate ? `Scheduled ${shortDay(stage.medicineExplainDate)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '' },
-    { key: 'start', group: 'treatment', label: 'Medicine start date', done: Boolean(t.activatedAt), by: t.medicineStartSetByName || t.activatedByName, at: iso(t.medicineStartSetAt || t.activatedAt), text: t.activatedAt ? `Starts ${shortDay(t.medicineStartDate || t.activatedAt)}` : '', waitText: 'The PCC fills the medicine start date on the Medicine Explanations page' },
-  );
+  // A later supply of a started phase: no new explanation, only the day the patient starts this medicine.
+  const own = supplyStartOf(stage, request);
+  if (own.later) {
+    steps.push(
+      { key: 'explained', group: 'treatment', label: 'Explain medicine', done: true, by: own.skippedBy || t.explanationCompletedByName, at: iso(own.skippedAt || t.explanationCompletedAt), text: own.skipReason === 'skipped' ? 'Explanation skipped for this supply' : 'Already explained with the first supply of this phase' },
+      { key: 'start', group: 'treatment', label: 'Medicine start date of this supply', done: own.done, by: own.date ? own.by : '', at: iso(own.date ? own.setAt : null), text: own.date ? `Starts ${shortDay(own.date)}` : own.needed ? '' : `Treatment running since ${shortDay(t.medicineStartDate || t.activatedAt)}`, waitText: 'The PCC fills the medicine start date of this supply on the Medicine Explanations page (no new explanation)' },
+    );
+  } else {
+    steps.push(
+      { key: 'explained', group: 'treatment', label: 'Explain medicine', done: started || Boolean(t.explanationCompletedAt), waitText: 'The assigned PCC completes the explanation on the Medicine Explanations page', by: t.explanationCompletedByName, at: iso(t.explanationCompletedAt), text: stage.medicineExplainDate ? `Scheduled ${shortDay(stage.medicineExplainDate)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '' },
+      { key: 'start', group: 'treatment', label: 'Medicine start date', done: Boolean(t.activatedAt), by: t.medicineStartSetByName || t.activatedByName, at: iso(t.medicineStartSetAt || t.activatedAt), text: t.activatedAt ? `Starts ${shortDay(t.medicineStartDate || t.activatedAt)}` : '', waitText: 'The PCC fills the medicine start date on the Medicine Explanations page' },
+    );
+  }
   steps.forEach((step, index) => { step.n = index + 1; step.complete = step.done; });
   return steps;
 }
 
+// What the Medicine Explanations page shows of a later supply's start date: the supply, what is saved, and what the
+// PCC needs to choose the day (the medicine before it runs till `runsOut`; the plan still misses `monthsLeft` months).
+function supplyStartView(stage, request, state) {
+  const D = require('./treatmentDelivery');
+  const d = plain(stage.delivery);
+  const parts = d.parts || [];
+  const key = requestKey(request);
+  const index = parts.findIndex((part) => part && part.requestId === key);
+  const before = index >= 0 ? parts.slice(0, index) : parts;
+  const covered = D.coveredDays(before);
+  return {
+    later: true, pending: state.pending, needed: state.needed, onPlan: Boolean(state.onPlan), requestId: key, poNumber: request.poNumber || '',
+    supplyLabel: supplyLabel(request.supplyPlan, request.supplyPart),
+    months: D.partMonthsOf(request.supplyPlan, request.supplyPart) || (index >= 0 ? Number(parts[index].months || 0) : 0),
+    receivedAt: iso(plain(request.courier).deliveredAt),
+    startDate: iso(state.date), setBy: state.by || '', setAt: iso(state.setAt), note: state.note || '',
+    skipReason: state.skipReason || '', skippedAt: iso(state.skippedAt), skippedBy: state.skippedBy || '', skipNote: state.skipNote || '',
+    monthsLeft: d.phaseDays ? Math.max(0, Math.ceil((d.phaseDays - covered) / 30)) : 0,
+    runsOut: before.length ? D.dateOfDay(covered, before) : null,
+    previousStart: before.length ? before[before.length - 1].startDate || '' : '',
+  };
+}
+
 // `payment`: the payment status of the request's PO (poPayment.paymentForRequest); the whole phase when not given.
 function buildTransitCase(patient, stage, now = new Date(), { payment = null } = {}) {
-  const t = plain(stage.transit);
+  const t = roundTransit(stage);
   const request = pickRequest(stage);
   const courier = plain(request?.courier);
   const pay = payment || paymentSummary(stage);
@@ -151,10 +344,19 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
   }, now);
   const steps = buildSteps({ patient, stage, t, request, courier, pay, mode, calls, now });
   const activated = Boolean(t.activatedAt);
-  const currentIndex = activated ? steps.length - 1 : steps.findIndex((step) => !step.complete);
+  // A later supply (the "5" of 1 + 5) of a started phase is open work again until the patient has it and the PCC has
+  // filled its medicine start date.
+  const refill = refillOpen(stage);
+  // The supply whose start date is asked for: the oldest received one still without it, else the running request.
+  const startOwner = pendingStart(stage) || request;
+  const supplyStart = supplyStartOf(stage, startOwner);
+  const closed = activated && !refill;
+  // Open only for the start date of an older supply (every step of the newest request is done): the last step stands.
+  const openIndex = steps.findIndex((step) => !step.complete);
+  const currentIndex = closed || openIndex < 0 ? steps.length - 1 : openIndex;
   const current = steps[Math.max(currentIndex, 0)];
   steps.forEach((step, index) => {
-    step.state = activated || step.complete ? 'done' : index === currentIndex ? 'current' : 'todo';
+    step.state = closed || step.complete ? 'done' : index === currentIndex ? 'current' : 'todo';
   });
   const groups = GROUPS.map((group) => {
     const inGroup = steps.filter((step) => step.group === group.key);
@@ -168,13 +370,14 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
 
   // Things that need someone today.
   const alerts = [];
-  if (!activated) {
+  if (!closed) {
     if (readyDays != null && readyDays <= 1) alerts.push({ type: readyDays < 0 ? 'danger' : 'warning', text: readyDays < 0 ? `Medicine ready-by date passed ${-readyDays} day(s) ago` : `Medicine ready-by date is ${readyDays === 0 ? 'today' : 'tomorrow'}` });
     callFollowUps.filter((f) => f.overdue).forEach((f) => alerts.push({ type: f.lateDays ? 'danger' : 'warning', text: `Follow-up call due (${f.label})${f.lateDays ? ` - ${f.lateDays} day${f.lateDays === 1 ? '' : 's'} late` : ''}` }));
     if (t.pickupScheduledAt && !['delivered'].includes(courier.status) && startOfDay(t.pickupScheduledAt).getTime() === today.getTime()) alerts.push({ type: 'info', text: 'Patient visit is today' });
     if (t.dispatchScheduledAt && !['dispatched', 'delivered'].includes(courier.status) && startOfDay(t.dispatchScheduledAt) <= today) alerts.push({ type: 'warning', text: 'Scheduled dispatch is due' });
     if (t.explanationScheduledAt && !t.explanationCompletedAt && stage.medicineExplainDate && startOfDay(stage.medicineExplainDate) <= today) alerts.push({ type: 'warning', text: 'Medicine explanation is due' });
     if (t.holdActive) alerts.push({ type: 'danger', text: `On hold: ${t.holdReason}` });
+    if (supplyStart.pending) alerts.push({ type: 'info', text: `The patient has the next supply${startOwner.poNumber ? ` (${startOwner.poNumber})` : ''}: the PCC fills its medicine start date` });
   }
 
   return {
@@ -198,9 +401,9 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
       recordedByName: p.recordedByName || '', approvedByName: p.approvedByName || '',
       files: [...(p.screenshotFiles || []), ...(p.screenshotUrl && !(p.screenshotFiles || []).some(f => f.url === p.screenshotUrl) ? [{ url: p.screenshotUrl, fileName: 'Payment proof' }] : [])],
     })).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)),
-    group: activated ? 'treatment' : current.group,
-    step: { n: current.n, key: current.key, label: activated ? 'Start treatment' : current.label, waitText: current.waitText || '' },
-    nextAction: activated || current.auto || current.placeholder ? null : (current.action || null),
+    group: closed ? 'treatment' : current.group,
+    step: { n: current.n, key: current.key, label: closed ? 'Start treatment' : current.label, waitText: current.waitText || '' },
+    nextAction: closed || current.auto || current.placeholder ? null : (current.action || null),
     // Before the mode is chosen the handover is one placeholder for four real steps.
     totalSteps: steps.length,
     progress: Math.round((steps.filter((s) => s.state === 'done').length / steps.length) * 100),
@@ -217,6 +420,12 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
     onHold: Boolean(t.holdActive),
     hold: t.holdActive ? { reason: t.holdReason, at: iso(t.holdAt), by: t.holdByName } : null,
     activated,
+    // refill: the treatment has started and the next supply of the same phase is being handed over.
+    refill,
+    // The medicine start date of a later supply (null for the first supply: see `explanation`).
+    supplyStart: supplyStart.later ? supplyStartView(stage, startOwner, supplyStart) : null,
+    supplyRound: Number(t.supplyRound || 1),
+    pastRounds: (t.rounds || []).map((round) => ({ n: round.n, requestId: round.requestId, poNumber: round.poNumber || '', closedAt: iso(round.closedAt), calls: (round.calls || []).length, mode: round.fulfilmentMode || '' })),
     mode,
     calls,
     callFollowUps,
@@ -239,7 +448,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
       readyByDate: iso(readyBy),
       // The date fixed in post counselling cannot be changed in In Transit (admin only).
       readyByFixed: Boolean(fixedReadyDate({ stage })),
-      delay: medicineDelays({ expected: readyBy, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, ...dispatchDelayInput({ stage, request }), now }),
+      delay: medicineDelays({ expected: readyBy, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, ...dispatchDelayInput({ stage: { transit: t }, request }), now }),
       readyBySetByName: request.readyBySetByName || '',
       reminderOn: iso(reminderDate(readyBy)),
       readyDays,
@@ -270,4 +479,7 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
   };
 }
 
-module.exports = { GROUPS, SHIPPED_MODES, MODE_LABEL, isInTransit, buildTransitCase, pickRequest, paymentSummary, fulfilmentMode, reminderDate };
+module.exports = {
+  GROUPS, SHIPPED_MODES, MODE_LABEL, MEDICINE_ACTIVE, ROUND_FIELDS, isInTransit, buildTransitCase, pickRequest, paymentSummary, fulfilmentMode, reminderDate,
+  startRequestOf, supplyStartOf, pendingStart, refillOpen, roundStale, roundTransit, beginSupplyRound, ensureSupplyRound, roundOf, requestKey, roundOwnerKey,
+};

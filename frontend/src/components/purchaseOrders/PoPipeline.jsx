@@ -97,7 +97,7 @@ function TrackStep({ step, last, selected, onSelect, onRevert }) {
           {step.state === 'done' && (step.by || step.at) && <span className="block text-[11px] leading-snug text-charcoal/55">{[step.by, poDateTime(step.at)].filter(Boolean).join(' · ')}</span>}
           {step.state === 'current' && step.waitText && <span className="line-clamp-2 block text-[11px] font-semibold leading-snug text-[#C2410C]/85">{step.waitText}</span>}
         </Body>
-        {onRevert && step.state === 'done' && <button type="button" onClick={() => onRevert(step)} aria-label={`Revert ${step.label}`} className="absolute right-0.5 top-0.5 rounded p-1 text-[#8C3B2E] opacity-50 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it"><RotateCcw size={11} /></button>}
+        {onRevert && step.state === 'done' && !step.phaseFact && <button type="button" onClick={() => onRevert(step)} aria-label={`Revert ${step.label}`} className="absolute right-0.5 top-0.5 rounded p-1 text-[#8C3B2E] opacity-50 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it"><RotateCcw size={11} /></button>}
       </div>
     </li>
   );
@@ -136,7 +136,7 @@ export function PoTimeline({ steps = [], job = null, onRevert, selected, onSelec
                   )}
                   {step.state === 'current' && step.waitText && <span className="block text-xs font-semibold text-[#C2410C]/85">{step.waitText}</span>}
                 </Body>
-                {onRevert && step.state === 'done' && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
+                {onRevert && step.state === 'done' && !step.phaseFact && step.key !== 'created' && <button type="button" onClick={() => onRevert(step)} className="absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#8C3B2E] opacity-60 hover:bg-[#8C3B2E]/10 hover:opacity-100" title="Admin: undo this step and every step after it">Revert</button>}
               </div>
             </li>
           );

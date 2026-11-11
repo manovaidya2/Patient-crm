@@ -20,6 +20,7 @@ export default function PurchaseOrderRow({ po, onOpen, showPatient = true }) {
         <span className="font-mono text-[13px] font-extrabold text-charcoal">{po.poNumber}</span>
         <Badge tone={status.tone}>{status.label}</Badge>
         {po.supplyLabel && <span className="rounded-full bg-sage/10 px-2 py-0.5 text-[11px] font-semibold text-sage">{po.supplyLabel}</span>}
+        {po.refill && <span className="rounded-full bg-[#EFE9FA] px-2 py-0.5 text-[11px] font-semibold text-[#4C2F8F]">Next supply</span>}
         <span className="text-xs text-charcoal/55">Phase {po.phase}</span>
         {mine && <span className="rounded-full bg-[#F97316] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Your action</span>}
         <span className="ml-auto font-display text-[14px] font-extrabold text-charcoal">{money(po.amount)}</span>

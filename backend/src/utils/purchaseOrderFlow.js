@@ -2,7 +2,7 @@
 // "PO created" to "Treatment started". Nothing here is stored; every step is read from the records the other screens
 // already write (payments, medicine request, courier, phase transit), so all views agree.
 const { openFollowUps } = require('./callFollowUps');
-const { paymentSummary, pickRequest, MODE_LABEL } = require('./transitFlow');
+const { paymentSummary, pickRequest, MODE_LABEL, MEDICINE_ACTIVE, ROUND_FIELDS, roundOf, startRequestOf, supplyStartOf, requestKey } = require('./transitFlow');
 const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel, supplyOption } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
 const { phaseAge } = require('./phaseAge');
@@ -106,7 +106,11 @@ const jobStepText = (job) => {
   return `Step ${idx + 1} ${stage.label}: ${OWNER[stage.roles.find((r) => r !== 'admin')] || 'Medicine Department'}`;
 };
 
-function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay, patient, job }) {
+// transitOwner: the hand-over record `t` is this PO's own (its live round, or the saved copy of an earlier supply).
+// phaseOwner: the explanation / start date of the phase are told on this PO. refill: this PO is a later supply of a
+// phase whose treatment already runs - nothing is explained again; once the patient has it the PCC fills the medicine
+// start date of this supply (ownStart: transitFlow.supplyStartOf, with the months on the plan) and the plan goes on.
+function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = transitOwner, refill = false, ownStart = null, t, stage, pay, patient, job }) {
   const status = request?.status;
   const accepted = ['in_process', 'made', 'sent_to_courier'].includes(status);
   const made = ['made', 'sent_to_courier'].includes(status);
@@ -117,9 +121,18 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const mode = transitOwner ? (t.fulfilmentMode || (courier.deliveryMode === 'self' ? 'pickup' : dispatched ? (courier.deliveryMode || 'courier') : '')) : (courier.deliveryMode === 'self' ? 'pickup' : dispatched ? courier.deliveryMode : '');
   const selfPickup = mode === 'pickup';
   const planDate = transitOwner ? (selfPickup ? t.pickupScheduledAt : t.dispatchScheduledAt) : null;
-  const explanationAt = transitOwner ? stage.medicineExplainDate : null;
-  const pccName = transitOwner ? (patient.assignedDoctor?.name || '') : '';
-  const pccAssigned = transitOwner && Boolean(t.assignedAt || t.explanationDoctor);
+  const explanationAt = phaseOwner && !refill ? stage.medicineExplainDate : null;
+  const pccName = phaseOwner && !refill ? (patient.assignedDoctor?.name || '') : '';
+  const pccAssigned = phaseOwner && Boolean(t.assignedAt || t.explanationDoctor);
+  const FIRST_SUPPLY = 'Done with the first supply of this phase';
+  // The start date of a later supply: asked for while the Treatment Delivery plan waits for it; a phase without a
+  // plan (or one that needs no more medicine) asks for none and the step closes on the receipt.
+  const own = refill ? ownStart || {} : {};
+  const ownAsked = Boolean(own.needed || own.date);
+  const ownDone = ownAsked ? Boolean(own.date) : delivered;
+  const ownMonths = Number(own.months || 0);
+  const ownText = own.date ? `Starts ${shortDay(own.date)}${ownMonths ? ` (${ownMonths} month${ownMonths === 1 ? '' : 's'} of medicine)` : ''}`
+    : delivered && !ownAsked ? `Treatment running since ${shortDay(t.medicineStartDate || t.activatedAt)}` : '';
   // The PO paper signed by the patient (ticked at "Verify full payment"); a parcel already handed over counts as signed.
   const poSigned = (transitOwner && Boolean(t.poPaperSignedAt)) || dispatched || delivered;
   const supplyMonths = supplyOption(po.supplyPlan, po.supplyPart)?.months || 0;
@@ -132,7 +145,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
   const finalDue = Boolean(job) && job.status === 'open' && !job.hold?.active && (job.currentStage || 0) === STAGE_INDEX.final;
   // Whose turn the open fulfilment step is (the doctor's formulation, the Manager's quality check, the PCC's papers ...).
   const jobRoles = job && job.status === 'open' && !job.hold?.active ? JOB_STAGES[job.currentStage || 0]?.roles || null : null;
-  const pccStep = { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', done: pccAssigned && Boolean(explanationAt), at: iso(transitOwner ? t.assignedAt : null), by: transitOwner ? t.assignedByName : '', text: [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' };
+  const pccStep = { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', phaseFact: refill, done: refill || (pccAssigned && Boolean(explanationAt)), at: iso(phaseOwner && !refill ? t.assignedAt : null), by: phaseOwner && !refill ? t.assignedByName : '', text: refill ? FIRST_SUPPLY : [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' };
   const steps = [
     { key: 'created', group: 'verification', label: 'Create PO', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
     {
@@ -182,8 +195,20 @@ function buildSteps({ po, request, courier, linked, transitOwner, t, stage, pay,
     // Porter / courier: after the dispatch.
     ...(selfPickup ? [] : [pccStep]),
     ...(selfPickup ? [] : [{ key: 'received', group: 'handover', branch: 'transit', label: 'Confirm receipt from patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
-    { key: 'explained', group: 'treatment', branch: 'transit', label: 'Explain medicine', done: transitOwner && Boolean(t.explanationCompletedAt), at: iso(transitOwner ? t.explanationCompletedAt : null), by: transitOwner ? t.explanationCompletedByName : '', text: explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
-    { key: 'started', group: 'treatment', branch: 'transit', label: 'Medicine start date', done: transitOwner && Boolean(t.activatedAt), at: iso(transitOwner ? (t.medicineStartSetAt || t.activatedAt) : null), by: transitOwner ? (t.medicineStartSetByName || t.activatedByName) : '', text: transitOwner && t.activatedAt ? `Starts ${shortDay(t.medicineStartDate || t.activatedAt)}` : '', waitText: 'The PCC fills the medicine start date on the Medicine Explanations page' },
+    { key: 'explained', group: 'treatment', branch: 'transit', label: 'Explain medicine', phaseFact: refill, done: refill || (phaseOwner && Boolean(t.explanationCompletedAt)), at: iso(refill ? own.skippedAt : phaseOwner ? t.explanationCompletedAt : null), by: refill ? own.skippedBy || '' : phaseOwner ? t.explanationCompletedByName : '', text: refill ? (own.skipReason === 'skipped' ? `Explanation skipped for this supply${own.skipNote ? `: ${own.skipNote}` : ''}` : 'Already explained with the first supply of this phase') : explanationAt ? `Scheduled ${shortDay(explanationAt)}${t.explanationMode ? ` (${t.explanationMode})` : ''}` : '', waitText: 'The PCC completes it on the Medicine Explanations page' },
+    {
+      key: 'started', group: 'treatment', branch: 'transit', label: refill ? 'Medicine start date of this supply' : 'Medicine start date', phaseFact: refill,
+      // startDue: the patient has this later supply and the PCC has to fill its start date now.
+      startDue: refill && Boolean(own.pending),
+      done: refill ? ownDone : phaseOwner && Boolean(t.activatedAt),
+      at: iso(refill ? (own.date ? own.setAt : ownDone ? courier.deliveredAt : null) : phaseOwner ? (t.medicineStartSetAt || t.activatedAt) : null),
+      by: refill ? (own.date ? own.by || '' : ownDone ? courier.deliveredByName || '' : '') : phaseOwner ? (t.medicineStartSetByName || t.activatedByName) : '',
+      text: refill ? ownText : phaseOwner && t.activatedAt ? `Starts ${shortDay(t.medicineStartDate || t.activatedAt)}` : '',
+      waitText: !refill ? 'The PCC fills the medicine start date on the Medicine Explanations page'
+        : own.pending ? 'The patient has this medicine: the PCC fills its medicine start date on the Medicine Explanations page (no new explanation)'
+          : own.needed ? 'Once the patient has this medicine the PCC fills its medicine start date on the Medicine Explanations page (no new explanation)'
+            : 'The treatment of this phase is already running: this step closes when the patient has the medicine',
+    },
   ];
   // One step is "now" until the medicine is accepted; from there each track has its own "now" step.
   const trunkOpen = steps.find((s) => !s.branch && !s.done);
@@ -254,6 +279,8 @@ function actionByOf(po, stepKey, canRequest, step = null) {
     case 'released': return MED;
     case 'calls': case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;
     case 'explained': return ['admin', 'assistant_doctor'];
+    // The start date of a later supply the patient already has (the first supply's is part of "explained").
+    case 'started': return step?.startDue ? ['admin', 'assistant_doctor'] : [];
     default: return [];
   }
 }
@@ -262,7 +289,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
   const po = plain(poDoc);
   const patient = plain(patientDoc);
   const stage = (patient.stages || []).find((s) => s.number === po.phase) || {};
-  const t = plain(stage.transit);
+  const raw = plain(stage.transit);
   const ids = new Set((po.paymentIds || []).map(String));
   const payments = (stage.payments || []).filter((p) => ids.has(String(p._id))).map(formatPayment)
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -277,14 +304,27 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
   const req = plain(request);
   const courier = plain(req.courier);
   const current = pickRequest(stage);
-  const transitOwner = Boolean(request && current && (current.requestId || 'legacy') === (req.requestId || 'legacy'));
+  const isCurrent = Boolean(request && current && requestKey(current) === requestKey(req));
+  // The hand-over of THIS purchase order's medicine: the live round while it is the phase's running request, the
+  // saved copy once a later supply of the phase took over (the first PO of 1 + 5 keeps its calls, schedule, PO paper).
+  const round = request ? roundOf(stage, req.requestId) : null;
+  const transitOwner = Boolean(round && (round.archived || isCurrent));
+  const liveOwner = transitOwner && !round.archived;
+  const t = transitOwner ? { ...raw, ...Object.fromEntries(ROUND_FIELDS.map((field) => [field, round[field]])) } : raw;
+  // The explanation, the PCC and the medicine start date are done once, with the first supply of the phase.
+  const startRequest = startRequestOf(stage);
+  const isStart = Boolean(request && startRequest && requestKey(startRequest) === requestKey(req));
+  const refill = Boolean(raw.activatedAt) && !isStart && (!request || MEDICINE_ACTIVE.includes(req.status));
+  const part = request ? (plain(stage.delivery).parts || []).find((item) => item && item.requestId === requestKey(req)) : null;
+  // Where the medicine start date of this later supply stands, with its months (the plan's, else the purchase order's).
+  const ownStart = refill && request ? { ...supplyStartOf(stage, req), months: Number(part?.months || 0) || supplyOption(req.supplyPlan || po.supplyPlan, req.supplyPart || po.supplyPart)?.months || 0 } : null;
   const phasePay = paymentSummary(stage);
   // "Full payment verified" is about this PO: its value against its own payments (other POs of the phase are paid apart).
   const siblings = (phasePos || []).filter((o) => String(o._id) !== String(po._id));
   const poList = [po, ...siblings];
   const poPay = poPaymentSummary(stage, po, poList);
   const poPayments = paymentsOfPo(stage, po, poList);
-  const steps = buildSteps({ po, request: request ? req : null, courier, linked, transitOwner, t, stage, pay: poPay, patient, job: job ? plain(job) : null });
+  const steps = buildSteps({ po, request: request ? req : null, courier, linked, transitOwner, phaseOwner: transitOwner || isStart, refill, ownStart, t, stage, pay: poPay, patient, job: job ? plain(job) : null });
   const openSteps = steps.filter((s) => s.state === 'current' || s.state === 'failed');
   const current_ = openSteps[0];
   const groups = GROUPS.map((g) => {
@@ -346,7 +386,9 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     guardianName: patient.guardianName || patient.relativeName || '',
     alternateNumber: patient.alternateNumber || '',
     address: [patient.address, patient.city, patient.state, patient.pinCode].filter(Boolean).join(', '),
-    isPhaseCurrentRequest: transitOwner,
+    isPhaseCurrentRequest: isCurrent,
+    // A later supply of a phase whose treatment already runs (the "5" of 1 + 5): no second explanation / start date.
+    refill, supplyRound: round ? round.n : 0,
     rejectedAt: iso(po.rejectedAt),
     rejectedByName: po.rejectedByName || '',
     rejectReason: po.rejectReason || '',
@@ -366,7 +408,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
       paperAgeBand: readyDateFromPostCounselling(po) && Boolean(ageBandByLabel(po.paperValues?.ageGroup)),
     },
     // Days late against that date: medicine made (Medicine Department) and released to In Transit.
-    delay: medicineDelays({ expected: po.medicineReadyDate || req?.readyByDate, madeAt: req?.madeAt, releasedAt: req?.sentToCourierAt, ...(transitOwner ? dispatchDelayInput({ stage, request: req }) : {}) }),
+    delay: medicineDelays({ expected: po.medicineReadyDate || req?.readyByDate, madeAt: req?.madeAt, releasedAt: req?.sentToCourierAt, ...(transitOwner ? dispatchDelayInput({ stage: { ...stage, transit: t }, request: req }) : {}) }),
     medicine: request ? {
       requestId: req.requestId || 'legacy',
       status: req.status,
@@ -393,7 +435,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     // The "now" step of each track (one before the split), with who acts on it, e.g. for My Day.
     // Open follow-up calls of In Transit (delivery schedule call, scheduling, dispatch / handover): reminders at their time.
     // A step counts as done here when its timeline step is done.
-    callFollowUps: transitOwner ? openFollowUps(t.calls || [], Object.fromEntries(['calls', 'scheduled', 'handover'].map((key) => [key, steps.find((s) => s.key === key)?.state === 'done']))) : [],
+    callFollowUps: liveOwner ? openFollowUps(t.calls || [], Object.fromEntries(['calls', 'scheduled', 'handover'].map((key) => [key, steps.find((s) => s.key === key)?.state === 'done']))) : [],
     openSteps: openSteps.map((s) => ({ key: s.key, label: s.label, branch: s.branch, waitText: s.waitText || '', actionBy: s.waitsOnMedicine ? [] : actionByOf(po, s.key, false, s) })),
     branches: BRANCHES,
     // Reverting a step also reverts the steps after it in this order (the tracks depend on each other).

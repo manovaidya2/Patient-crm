@@ -6,7 +6,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const User = require('../models/User');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODES, MODE_LABEL } = require('../utils/transitFlow');
+const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODES, MODE_LABEL, refillOpen, roundTransit, beginSupplyRound, ensureSupplyRound, startRequestOf, pendingStart, requestKey } = require('../utils/transitFlow');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
 const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
@@ -30,7 +30,9 @@ const day = (value) => value.toISOString().slice(0, 10);
 
 const LIST_FIELDS = 'patientName patientCode number guardianName relativeName age category address centerName centerId approvalStatus createdAt assignedDoctor assignedPsychologist updatedAt isActive '
   + 'stages.number stages.age stages.purchaseOrder stages.totalAmount stages.payments stages.postCounselor stages.medicineExplainDate '
-  + 'stages.transit stages.poPaper stages.packageName stages.medicineRequest stages.medicineRequests';
+  + 'stages.transit stages.poPaper stages.packageName stages.medicineRequest stages.medicineRequests '
+  // The Treatment Delivery plan decides whether a later supply still waits for its medicine start date.
+  + 'stages.delivery.parts stages.delivery.phaseDays stages.delivery.planMonths stages.delivery.supplyClosedAt';
 const TRANSIT_FILTER = {
   isActive: { $ne: false },
   stages: { $elemMatch: { purchaseOrder: { $exists: true, $ne: '' } } },
@@ -46,7 +48,9 @@ const matchesView = (item, view) => {
   if (item.removed) return false;
   if (view === 'started') return item.activated;
   if (view === 'hold') return item.onHold;
-  if (item.activated) return view === 'all';
+  // A started phase is finished work, except while its next supply (the "5" of 1 + 5) is being handed over or
+  // waits for the PCC to fill its medicine start date.
+  if (item.activated && !item.refill) return view === 'all';
   if (view === 'attention') return item.needsAttention;
   return view === 'all' || (!item.onHold && item.group === view);
 };
@@ -69,8 +73,8 @@ const listTransit = asyncHandler(async (req, res) => {
   let view = VIEWS.includes(req.query.view) ? req.query.view : 'all';
   if (view === 'removed' && !isAdmin) view = 'all';
   // Hide finished cases from "all" unless asked: the queue is for work still to do.
-  const visible = items.filter((item) => matchesView(item, view) && (view === 'started' || !item.activated));
-  counts.all = items.filter((item) => !item.activated && !item.removed).length;
+  const visible = items.filter((item) => matchesView(item, view) && (view === 'started' || !item.activated || item.refill));
+  counts.all = items.filter((item) => (!item.activated || item.refill) && !item.removed).length;
   // Most urgent first, then whatever is due soonest, then the oldest case.
   visible.sort((a, b) => a.priority - b.priority
     || (a.dueAt ? new Date(a.dueAt) : Infinity) - (b.dueAt ? new Date(b.dueAt) : Infinity)
@@ -157,6 +161,7 @@ const ACTIONS = {
       requestedAt: now, requestedByName: req.user.name,
       readyByDate, readyBySetAt: now, readyBySetByName: req.user.name,
     });
+    beginSupplyRound(stage, stage.medicineRequests[stage.medicineRequests.length - 1], req.user, now);
     return `Medicine request raised${medicines ? `: ${medicines}` : ''}`;
   },
   accept_request({ request, body, req, now }) {
@@ -269,7 +274,8 @@ const ACTIONS = {
     const courier = request ? courierOf(request) : {};
     // The date and the mode can change until the handover / dispatch; after that the schedule is final.
     if (['dispatched', 'delivered'].includes(courier.status)) fail('The medicine has already been handed over / dispatched; the schedule cannot change now');
-    const withExplanation = Boolean(body.explanationAt || body.assistantDoctorId);
+    // The explanation and the PCC belong to the phase: a later supply of a started phase only gets its delivery scheduled.
+    const withExplanation = Boolean(body.explanationAt || body.assistantDoctorId) && !stage.transit.explanationCompletedAt && !stage.transit.activatedAt;
     const explanationAt = withExplanation ? parseDate(body.explanationAt, 'medicine explanation date and time') : null;
     assertWorkingDay(explanationAt);
     const explanationMode = ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : 'phone';
@@ -373,7 +379,7 @@ const ACTIONS = {
   // usually with the delivery schedule; the explanation date can be adjusted here. The PCC completes it on the Medicine
   // Explanations page once the medicine is received and fully paid.
   async assign_pcc({ patient, stage, body, req, now }) {
-    if (stage.transit.explanationCompletedAt) fail('Explanation is already completed', 409);
+    if (stage.transit.explanationCompletedAt || stage.transit.activatedAt) fail('Explanation is already completed', 409);
     const explanationAt = body.explanationAt ? parseDate(body.explanationAt, 'medicine explanation date and time') : stage.medicineExplainDate;
     // A newly picked date may not fall on the PCCs' day off (Wednesday).
     if (body.explanationAt) assertWorkingDay(explanationAt);
@@ -411,11 +417,11 @@ const loadStage = async (req) => {
   if (!stage.transit) stage.transit = {};
   return { patient, stage };
 };
-const respondWithCase = async (res, patient, stageNumber) => {
+const respondWithCase = async (res, patient, stageNumber, extra = {}) => {
   await patient.save();
   await patient.populate(POPULATE);
   const saved = patient.toObject();
-  res.json({ success: true, item: await caseOf(saved, saved.stages.find((s) => s.number === stageNumber)) });
+  res.json({ success: true, item: await caseOf(saved, saved.stages.find((s) => s.number === stageNumber)), ...extra });
 };
 
 // @desc    Do one in-transit step
@@ -426,19 +432,31 @@ const runAction = asyncHandler(async (req, res) => {
   if (['accept_request', 'set_ready_by'].includes(action) && !isAdminLike(req.user)) fail('Medicine Department owns preparation updates', 403);
   const { patient, stage } = await loadStage(req);
   if (stage.transit.removedAt) fail('This case was removed from In Transit');
-  if (stage.transit.activatedAt) fail('Treatment has already started for this phase');
+  // Once the treatment has started the phase is closed here, except while its next supply is on its way or waits
+  // for its medicine start date.
+  if (stage.transit.activatedAt && !refillOpen(stage)) fail('Treatment has already started for this phase');
   if (stage.transit.holdActive && !['resume', 'stuck_note'].includes(action)) fail('This case is on hold. Resume it first');
-  const summary = await ACTIONS[action]({ patient, stage, request: pickRequest(stage), body: req.body, req, now: new Date() });
+  const now = new Date();
+  // A later supply requested on a screen that did not begin its round: begin it before the step is written.
+  ensureSupplyRound(stage, req.user, now);
+  const summary = await ACTIONS[action]({ patient, stage, request: pickRequest(stage), body: req.body, req, now });
   logActivity(patient, req.user, stage.number, summary);
-  await respondWithCase(res, patient, stage.number);
+  // The next supply reached the patient: the screen is told that the PCC now fills its medicine start date (nothing
+  // is dated or scheduled here, and it never blocks the step itself).
+  let delivery = null;
+  try {
+    const result = await require('./deliveryController').supplyReceived(patient, stage, req.user, now);
+    if (result.notice) delivery = { status: result.status, notice: result.notice };
+  } catch (error) { console.error(`Next supply notice not made: ${error.message}`); }
+  await respondWithCase(res, patient, stage.number, delivery ? { delivery } : {});
   await notePoEvent(stage, req.user, summary);
   require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
+  if (delivery) req.app?.get?.('io')?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('delivery:changed', { patientId: String(patient._id), phase: Number(stage.number) });
 });
 
 // Every In Transit action is also noted on the purchase order of the phase's current medicine request, so the PO
 // page's activity shows the whole story with times. Best effort: the patient record is already saved.
-const notePoEvent = async (stage, user, details) => {
-  const request = pickRequest(stage);
+const notePoEvent = async (stage, user, details, request = pickRequest(stage)) => {
   if (!request?.requestId || mongoose.connection.readyState !== 1) return;
   try {
     await PurchaseOrder.updateOne({ medicineRequestId: request.requestId }, { $push: { events: { at: new Date(), action: 'In Transit', details, byName: user.name, byRole: user.role } } });
@@ -501,10 +519,14 @@ const listExplanations = asyncHandler(async (req, res) => {
     const job = jobs.find((j) => String(j.patient) === item.patientId && j.phase === item.stage && j.requestId === item.medicine?.requestId);
     return { ...item, treatmentPapers: { overview: job?.photos?.overview || [], paperSets: job?.photos?.paperSets || [], papers: job?.photos?.papers || [] }, patientDocuments: docsOf.get(item.patientId) || [] };
   });
-  if (req.query.date) items = items.filter(item => item.explanation.at && clinicDay(item.explanation.at) === req.query.date);
-  if (req.query.status === 'done') items = items.filter(item => item.activated);
-  else if (req.query.status !== 'all') items = items.filter(item => !item.activated);
-  items.sort((a, b) => new Date(a.explanation.at) - new Date(b.explanation.at));
+  // A later supply of a started phase that the patient has: its medicine start date is pending work of the PCC (no
+  // new explanation), listed on the day the patient received it.
+  const startDue = (item) => Boolean(item.supplyStart?.pending);
+  const dayOfItem = (item) => (startDue(item) ? item.supplyStart.receivedAt || item.explanation.at : item.explanation.at);
+  if (req.query.date) items = items.filter(item => dayOfItem(item) && clinicDay(dayOfItem(item)) === req.query.date);
+  if (req.query.status === 'done') items = items.filter(item => item.activated && !startDue(item));
+  else if (req.query.status !== 'all') items = items.filter(item => !item.activated || startDue(item));
+  items.sort((a, b) => new Date(dayOfItem(a) || 0) - new Date(dayOfItem(b) || 0));
   res.json({ success: true, items });
 });
 
@@ -543,7 +565,8 @@ const completeExplanation = asyncHandler(async (req, res) => {
   if (t.holdActive || t.removedAt) fail('This case is on hold or removed');
   if (!t.explanationScheduledAt || !stage.medicineExplainDate) fail('Schedule the explanation first');
   if (t.explanationCompletedAt || t.activatedAt) fail('Explanation already completed', 409);
-  const request = pickRequest(stage);
+  // The explanation is done once, with the first supply of the phase.
+  const request = startRequestOf(stage);
   if (!request || courierOf(request).status !== 'delivered') fail('Confirm medicine receipt before completing explanation');
   const pay = await paymentForRequest(patient, stage, request);
   if (!paymentCleared(pay)) fail('Verify the payment of this PO first');
@@ -565,13 +588,21 @@ const completeExplanation = asyncHandler(async (req, res) => {
 // (upcoming, due, late by N days) and finished ones (done on time / N days late, or closed when the step got done).
 const OPEN_FOLLOW_UP = ['upcoming', 'due', 'late'];
 const listFollowUps = asyncHandler(async (req, res) => {
-  const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.calls.nextCallAt': { $type: 'date' } })
+  const patients = await Patient.find({ isActive: { $ne: false }, $or: [{ 'stages.transit.calls.nextCallAt': { $type: 'date' } }, { 'stages.transit.rounds.calls.nextCallAt': { $type: 'date' } }] })
     .select('patientName patientCode number stages.number stages.purchaseOrder stages.transit stages.medicineRequest stages.medicineRequests').lean();
   const now = new Date();
   let rows = [];
   for (const patient of patients) for (const stage of patient.stages || []) {
-    const t = stage.transit || {};
-    if (!(t.calls || []).some((c) => c.nextCallAt) || t.removedAt) continue;
+    if (!stage.transit || stage.transit.removedAt) continue;
+    const t = roundTransit(stage);
+    const row = (f, poNumber) => ({
+      id: `${patient._id}-${stage.number}-${f.setAt}`, patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode || '',
+      phone: patient.number ? String(patient.number) : '', phase: stage.number, poNumber, ...f,
+    });
+    // Earlier supplies of the phase: their hand-over is over, so their follow-ups stay here as closed history.
+    (t.rounds || []).forEach((round) => followUpHistory(round.calls || [], { calls: true, scheduled: true, handover: true }, now)
+      .forEach((f) => rows.push(row(f, round.poNumber || stage.purchaseOrder || ''))));
+    if (!(t.calls || []).some((c) => c.nextCallAt)) continue;
     const request = pickRequest(stage);
     const handedOver = ['dispatched', 'delivered'].includes(courierOf(request || {}).status);
     const mode = require('../utils/transitFlow').fulfilmentMode(stage, request);
@@ -580,10 +611,7 @@ const listFollowUps = asyncHandler(async (req, res) => {
       scheduled: (Boolean(mode) && Boolean(t.pickupScheduledAt || t.dispatchScheduledAt)) || handedOver,
       handover: handedOver,
     };
-    followUpHistory(t.calls, done, now).forEach((f) => rows.push({
-      id: `${patient._id}-${stage.number}-${f.setAt}`, patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode || '',
-      phone: patient.number ? String(patient.number) : '', phase: stage.number, poNumber: request?.poNumber || stage.purchaseOrder || '', ...f,
-    }));
+    followUpHistory(t.calls, done, now).forEach((f) => rows.push(row(f, request?.poNumber || stage.purchaseOrder || '')));
   }
   const poNumbers = [...new Set(rows.map((r) => r.poNumber).filter(Boolean))];
   const pos = poNumbers.length && mongoose.connection.readyState === 1 ? await PurchaseOrder.find({ poNumber: { $in: poNumbers } }).select('poNumber').lean() : [];
@@ -600,18 +628,85 @@ const listFollowUps = asyncHandler(async (req, res) => {
   res.json({ success: true, rows, summary });
 });
 
+// A later supply of a started phase (its own purchase order, any months of the phase): the medicine is not explained
+// again. The PCC closes its explanation as "already explained" or "skipped" and fills the day the patient starts this
+// medicine; the rest of the Treatment Delivery plan is laid out from that day. The treatment start of the phase
+// (stage.transit, stage.date) is not touched. The date can be corrected later by the same PCC or the admin.
+// body: { requestId, startDate, note, explanation: 'already_explained' | 'skipped', explanationNote, months }
+// (months: only when the months of the supply are not on its purchase order).
+const SKIP_TEXT = { already_explained: 'already explained with the first supply', skipped: 'explanation skipped' };
+const setSupplyStart = async (req, res, patient, stage, key) => {
+  const S = require('../utils/deliverySupply');
+  const D = require('../utils/treatmentDelivery');
+  const request = S.aliveRequests(stage).find((item) => requestKey(item) === key);
+  if (!request) fail('This supply is not found on the phase', 404);
+  const courier = courierOf(request);
+  if (courier.status !== 'delivered') fail('Confirm that the patient received this medicine first');
+  const d = stage.delivery;
+  if (!d?.parts?.length || !d.phaseDays) fail('This phase has no Treatment Delivery plan yet. Set it up on the Treatment Delivery page first.');
+  const day = String(req.body?.startDate || '');
+  if (!D.validDay(day)) fail('Choose the medicine start date of this supply');
+  if (courier.deliveredAt && day < clinicDay(courier.deliveredAt)) fail(`The start date cannot be before the medicine was received (${clinicDay(courier.deliveredAt)})`);
+  const now = new Date();
+  if (D.diffDays(day, D.dayOf(now)) > 60) fail('The start date can be at most 60 days ahead');
+  const note = String(req.body?.note || '').trim();
+  if (note.length > 500) fail('Keep the note under 500 characters');
+  const skipNote = String(req.body?.explanationNote || '').trim();
+  if (skipNote.length > 500) fail('Keep the explanation note under 500 characters');
+  const index = d.parts.findIndex((part) => part.requestId === key);
+  if (index >= 0) {
+    if (index > 0 && day <= d.parts[index - 1].startDate) fail(`This supply cannot start on or before the earlier one (${d.parts[index - 1].startDate})`);
+    if (d.parts[index + 1] && day >= d.parts[index + 1].startDate) fail(`This supply cannot start on or after the next one (${d.parts[index + 1].startDate})`);
+  } else {
+    if (d.supplyClosedAt) fail('This phase is closed as "no further supply". Reopen it on the Treatment Delivery page first.');
+    if (D.supplyDone(d)) fail(`The ${d.planMonths} month(s) of this plan already have their medicine`);
+    const due = pendingStart(stage);
+    if (!S.openSupplies(stage).some((item) => requestKey(item) === key)) fail('This supply is not awaited by the Treatment Delivery plan');
+    if (due && requestKey(due) !== key) fail(`Fill the medicine start date of the earlier supply${due.poNumber ? ` (${due.poNumber})` : ''} first`);
+    const last = d.parts[d.parts.length - 1];
+    if (day <= last.startDate) fail(`This supply cannot start on or before the earlier one (${last.startDate})`);
+  }
+  const before = index >= 0 ? d.parts[index].startDate : request.medicineStartDate ? clinicDay(request.medicineStartDate) : '';
+  // The explanation of this supply is closed without a new one, once; a later save only changes the mark when asked.
+  const asked = ['already_explained', 'skipped'].includes(req.body?.explanation) ? req.body.explanation : '';
+  const reason = asked || request.explanationSkipReason || 'already_explained';
+  const { stampStart, startDelivery } = require('./deliveryController');
+  stampStart(stage, key, day, req.user, now, note);
+  [...(stage.medicineRequests || []), stage.medicineRequest].filter((item) => item && requestKey(item) === key && item.medicineStartDate).forEach((item) => {
+    const first = !item.explanationSkippedAt;
+    if (first || asked) Object.assign(item, { explanationSkipReason: reason, explanationSkipNote: asked || first ? skipNote : item.explanationSkipNote || '' });
+    if (first) Object.assign(item, { explanationSkippedAt: now, explanationSkippedByName: req.user.name });
+  });
+  // The plan goes on from this day. A supply whose months are not on record stops here and nothing is saved.
+  const delivery = await startDelivery(patient, stage, req.user, now, { request, months: req.body?.months });
+  const po = request.poNumber ? ` (${request.poNumber})` : '';
+  const summary = before && before !== day
+    ? `Medicine start date of the next supply${po} changed: ${before} -> ${day}${note ? ` | ${note}` : ''}`
+    : `Medicine start date of the next supply${po}: ${day} (${SKIP_TEXT[reason]}${skipNote ? `: ${skipNote}` : ''})${note ? ` | ${note}` : ''}`;
+  logActivity(patient, req.user, stage.number, summary);
+  await respondWithCase(res, patient, stage.number, { delivery });
+  await notePoEvent(stage, req.user, summary, request);
+  const sockets = require('../realtime/salesSheetSocket');
+  sockets.emitTransitChanged(req.app, patient._id, stage.number);
+  req.app?.get?.('io')?.to(sockets.MEDICINE_JOBS_ROOM).emit('delivery:changed', { patientId: String(patient._id), phase: Number(stage.number) });
+};
+
 // @route POST /api/transit/:patientId/:number/medicine-start  { startDate (YYYY-MM-DD), note }
 // After the explanation the PCC fills the day the patient starts the medicine: the phase's treatment starts (In
 // Progress, its date). It can be corrected later by the same PCC or the admin.
+// With { requestId } of a later supply of the started phase it is that supply's start date (setSupplyStart).
 const setMedicineStart = asyncHandler(async (req, res) => {
   const { patient, stage } = await loadStage(req);
   const t = stage.transit;
   if (!isAdminLike(req.user) && explanationOwner(patient, stage) !== String(req.user._id)) fail('Only the PCC of this explanation fills the medicine start date', 403);
+  const laterKey = clean(req.body?.requestId, 80);
+  if (laterKey && t.activatedAt && laterKey !== requestKey(startRequestOf(stage))) return setSupplyStart(req, res, patient, stage, laterKey);
   if (!t.explanationCompletedAt) fail('Complete the medicine explanation first');
   const day = String(req.body?.startDate || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) fail('Choose the medicine start date');
   const start = new Date(`${day}T00:00:00+05:30`);
-  const request = pickRequest(stage);
+  // The start date belongs to the first supply of the phase, also when it is corrected after the next one was requested.
+  const request = startRequestOf(stage);
   const received = request ? courierOf(request).deliveredAt : null;
   if (received && day < clinicDay(received)) fail(`The start date cannot be before the medicine was received (${clinicDay(received)})`);
   if (start.getTime() > Date.now() + 60 * 86400000) fail('The start date can be at most 60 days ahead');
@@ -624,7 +719,16 @@ const setMedicineStart = asyncHandler(async (req, res) => {
   stage.date = start;
   const summary = before && before !== day ? `Medicine start date changed: ${before} -> ${day}${note ? ` | ${note}` : ''}` : `Medicine start date: ${day}; treatment started${note ? ` | ${note}` : ''}`;
   logActivity(patient, req.user, stage.number, summary);
-  await respondWithCase(res, patient, stage.number);
+  // Treatment Delivery: the sessions and follow-ups of the ticked components are laid out from this date (a corrected
+  // date moves the ones nobody has touched yet). The start date is saved even if the plan cannot be made.
+  let delivery = null;
+  try {
+    delivery = await require('./deliveryController').startDelivery(patient, stage, req.user, now);
+  } catch (error) {
+    console.error('Treatment Delivery plan could not be made:', error.message);
+    delivery = { status: 'error', notice: 'The start date is saved, but the Treatment Delivery plan could not be made. Open the Treatment Delivery page and set it up there.' };
+  }
+  await respondWithCase(res, patient, stage.number, { delivery });
   await notePoEvent(stage, req.user, summary);
   require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
 });
@@ -634,8 +738,8 @@ const getTransitReminders = asyncHandler(async (req, res) => {
   const now = new Date(), reminders = [], role = isAdminLike(req.user) ? ROLES.ADMIN : req.user.role;
   for (const patient of patients) for (const stage of patient.stages || []) {
     if (!isInTransit(stage)) continue;
-    const t = stage.transit || {}, request = pickRequest(stage);
-    if (t.holdActive || t.removedAt || t.activatedAt) continue;
+    const t = roundTransit(stage), request = pickRequest(stage);
+    if (t.holdActive || t.removedAt || (t.activatedAt && !refillOpen(stage))) continue;
     const base = { patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode, stage: stage.number };
     const add = (type, dateTime, title, message) => reminders.push({ ...base, id: `${type}-${patient._id}-${stage.number}-${clinicDay(dateTime)}-${clinicDay(now)}`, type, dateTime, title, message });
     const ready = request?.readyByDate || t.expectedReadyDate;
@@ -645,7 +749,10 @@ const getTransitReminders = asyncHandler(async (req, res) => {
     }
     if (role === ROLES.MEDICINE_DEPARTMENT) continue;
     if (role === ROLES.ASSISTANT_DOCTOR) {
-      if (explanationOwner(patient, stage) === String(req.user._id) && stage.medicineExplainDate && t.explanationScheduledAt && !t.explanationCompletedAt && dayDiff(stage.medicineExplainDate, now) <= 0) add('explanation_today', stage.medicineExplainDate, 'Medicine explanation due', `${patient.patientName}: scheduled ${new Date(stage.medicineExplainDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      if (explanationOwner(patient, stage) === String(req.user._id) && stage.medicineExplainDate && t.explanationScheduledAt && !t.explanationCompletedAt && !t.activatedAt && dayDiff(stage.medicineExplainDate, now) <= 0) add('explanation_today', stage.medicineExplainDate, 'Medicine explanation due', `${patient.patientName}: scheduled ${new Date(stage.medicineExplainDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      // The next supply of a running phase is with the patient: only its medicine start date is asked for.
+      const due = explanationOwner(patient, stage) === String(req.user._id) ? pendingStart(stage) : null;
+      if (due) add('supply_start_due', courierOf(due).deliveredAt || now, 'Medicine start date due', `${patient.patientName}: the next supply${due.poNumber ? ` (${due.poNumber})` : ''} is with the patient - fill its medicine start date (no new explanation)`);
       continue;
     }
     const last = [...(t.calls || [])].sort((a,b) => new Date(b.at)-new Date(a.at))[0];

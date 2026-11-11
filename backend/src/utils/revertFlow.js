@@ -3,6 +3,7 @@
 // "Medicine ready" also undoes release, handover, PCC and explanation). Nothing is lost: what gets cleared is returned
 // as a snapshot that the caller stores on the PO / job (`reverts[]`), and drawn stock goes back through the ledger.
 const { STAGES, STAGE_INDEX } = require('./medicineJobFlow');
+const { requestKey, startRequestOf, ensureSupplyRound, roundOwnerKey } = require('./transitFlow');
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const plain = (value) => JSON.parse(JSON.stringify(value?.toObject ? value.toObject() : value ?? null));
@@ -79,11 +80,34 @@ const toPending = (payment, snapshot) => { snapshot.push(take(payment, ['_id', '
 const near = (a, b) => a && b && Math.abs(new Date(a).getTime() - new Date(b).getTime()) < 1000;
 const startedByTransit = (stage, t) => stage.status === 'in_progress' && stage.date && (near(stage.date, t.medicineStartDate) || near(stage.date, t.explanationCompletedAt) || near(stage.date, t.activatedAt));
 
+// A phase can have several purchase orders (1 + 5 months of medicine). The hand-over fields of `stage.transit`
+// belong to ONE supply (its round: the live one, or a finished one kept in `transit.rounds`), and the PCC, the
+// explanation and the start date belong to the phase and are written with its first supply. A revert on one PO
+// touches only what is its own:
+//   round  the hand-over record of this PO's request (null when another supply owns the live one)
+//   phase  true when this PO's request is the one the phase's explanation / start date were done with
+function revertScope(stage, request) {
+  const t = stage?.transit;
+  if (!t) return { round: null, archived: false, phase: !request };
+  const key = requestKey(request);
+  let round = null; let archived = false;
+  if (request) {
+    const past = [...(t.rounds || [])].reverse().find((item) => item && item.requestId === key);
+    const owner = roundOwnerKey(stage);
+    if (past) { round = past; archived = true; } else if (!owner || owner === key) round = t;
+  }
+  const begun = Boolean(t.explanationCompletedAt || t.activatedAt);
+  const start = begun ? startRequestOf(stage) : null;
+  return { round, archived, phase: begun ? !start || !request || requestKey(start) === key : Boolean(round) && !archived };
+}
+const PHASE_STEPS = ['pcc', 'explained', 'started'];
+
 const PO_REVERTS = {
   // Explanation done, then the medicine start date (treatment started) - two steps. Older cases wrote both at the
   // explanation, so reverting the explanation also clears a start written with it.
-  async explained({ stage }) {
+  async explained({ stage, scope }) {
     const t = stage.transit;
+    if (!scope.phase) return null;
     if (!t?.explanationCompletedAt && !t?.activatedAt) return null;
     const keys = ['explanationCompletedAt', 'explanationCompletedByName', 'explainedByName', 'explanationNote', 'activatedAt', 'activatedByName', 'medicineStartDate', 'medicineStartSetAt', 'medicineStartSetByName', 'medicineStartNote'];
     const snapshot = { transit: take(t, keys), stage: take(stage, ['status', 'date']) };
@@ -92,9 +116,9 @@ const PO_REVERTS = {
     if (startedHere) { stage.status = 'not_started'; stage.date = null; }
     return snapshot;
   },
-  async started({ stage }) {
+  async started({ stage, scope }) {
     const t = stage.transit;
-    if (!t?.activatedAt) return null;
+    if (!scope.phase || !t?.activatedAt) return null;
     const keys = ['activatedAt', 'activatedByName', 'medicineStartDate', 'medicineStartSetAt', 'medicineStartSetByName', 'medicineStartNote'];
     const snapshot = { transit: take(t, keys), stage: take(stage, ['status', 'date']) };
     const startedHere = startedByTransit(stage, t);
@@ -103,8 +127,9 @@ const PO_REVERTS = {
     return snapshot;
   },
   // The PCC step also holds the medicine explanation date.
-  async pcc({ stage }) {
+  async pcc({ stage, scope }) {
     const t = stage.transit;
+    if (!scope.phase) return null;
     if (!t?.assignedAt && !t?.explanationDoctor && !stage.medicineExplainDate) return null;
     const keys = ['assignedAt', 'assignedByName', 'explanationDoctor', 'explanationAckAt', 'explanationAckByName', 'explanationScheduledAt', 'explanationScheduledByName', 'explanationMode'];
     const snapshot = { transit: take(t || {}, keys), stage: take(stage, ['medicineExplainDate']) };
@@ -112,8 +137,8 @@ const PO_REVERTS = {
     stage.medicineExplainDate = null;
     return snapshot;
   },
-  async calls({ stage }) {
-    const t = stage.transit;
+  async calls({ scope }) {
+    const t = scope.round;
     if (!t?.callsDoneAt) return null;
     const keys = ['callsDoneAt', 'callsDoneByName'];
     const snapshot = { transit: take(t, keys) };
@@ -142,26 +167,30 @@ const PO_REVERTS = {
   async released(ctx) {
     const { request, job, stage } = ctx;
     if (request.status !== 'sent_to_courier') return null;
-    if (job && job.stages.some((s) => s.key === 'release')) return revertJobTo(job, STAGE_INDEX.release, { request, phaseEntry: stage, returnStock: ctx.returnStock, now: ctx.now });
-    const snapshot = { request: take(request, ['status', 'sentToCourierAt', 'sentToCourierByName']), transit: take(stage.transit, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']) };
+    const round = ctx.scope.round;
+    if (job && job.stages.some((s) => s.key === 'release')) return revertJobTo(job, STAGE_INDEX.release, { request, phaseEntry: round ? { transit: round } : null, returnStock: ctx.returnStock, now: ctx.now });
+    const snapshot = { request: take(request, ['status', 'sentToCourierAt', 'sentToCourierByName']), transit: take(round || {}, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']) };
     request.status = 'made'; clear(request, ['sentToCourierAt', 'sentToCourierByName']);
-    clear(stage.transit, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']);
+    if (round) clear(round, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']);
     return snapshot;
   },
   // Payments verified after the PO's own payment verification (the balance) go back to pending.
-  async fullpay({ po, stage }) {
+  async fullpay({ po, stage, scope, foreignPaymentIds = [] }) {
     const since = po.paymentVerifiedAt ? new Date(po.paymentVerifiedAt).getTime() : 0;
     const linked = new Set((po.paymentIds || []).map(String));
-    const later = (stage.payments || []).filter((p) => (p.approvalStatus || 'approved') === 'approved' && !linked.has(String(p._id)) && p.approvedAt && new Date(p.approvedAt).getTime() > since);
-    const signed = Boolean(stage.transit?.poPaperSignedAt);
+    // Payments attached to another purchase order of the phase (the next supply) are not this PO's balance.
+    const foreign = new Set(foreignPaymentIds.map(String));
+    const later = (stage.payments || []).filter((p) => (p.approvalStatus || 'approved') === 'approved' && !linked.has(String(p._id)) && !foreign.has(String(p._id)) && p.approvedAt && new Date(p.approvedAt).getTime() > since);
+    const round = scope.round;
+    const signed = Boolean(round?.poPaperSignedAt);
     if (!later.length && !signed) return null;
     const snapshot = { payments: [] };
     later.forEach((p) => toPending(p, snapshot.payments));
-    if (signed) { snapshot.transit = take(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote']); clear(stage.transit, ['poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote']); }
+    if (signed) { snapshot.transit = take(round, ['poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote']); clear(round, ['poPaperSignedAt', 'poPaperSignedByName', 'poPaperSignedNote']); }
     return snapshot;
   },
-  async scheduled({ stage }) {
-    const t = stage.transit;
+  async scheduled({ scope }) {
+    const t = scope.round;
     if (!t?.fulfilmentMode) return null;
     const keys = ['fulfilmentMode', 'fulfilmentSetAt', 'fulfilmentSetByName', 'pickupScheduledAt', 'pickupNote', 'pickupScheduledByName', 'dispatchScheduledAt', 'plannedCourier', 'plannedAddress', 'deliveryPlanNote'];
     const snapshot = { transit: take(t, keys) };
@@ -171,7 +200,7 @@ const PO_REVERTS = {
   async ready(ctx) {
     const { request, job, stage } = ctx;
     if (!['made', 'sent_to_courier'].includes(request.status)) return null;
-    if (job && job.stages.some((s) => s.key === 'doctor')) return revertJobTo(job, STAGE_INDEX.doctor, { request, phaseEntry: stage, returnStock: ctx.returnStock, now: ctx.now });
+    if (job && job.stages.some((s) => s.key === 'doctor')) return revertJobTo(job, STAGE_INDEX.doctor, { request, phaseEntry: ctx.scope.round ? { transit: ctx.scope.round } : null, returnStock: ctx.returnStock, now: ctx.now });
     const keys = ['status', 'madeAt', 'madeByName', 'packagedByName', 'lastMedicineCheckedByName', 'packagingDetailsFilledByName', 'packagingDetailsFilledAt'];
     const snapshot = { request: take(request, keys) };
     request.status = 'in_process'; clear(request, keys.slice(1));
@@ -180,7 +209,7 @@ const PO_REVERTS = {
   async accepted(ctx) {
     const { request, job, stage } = ctx;
     if (!['in_process', 'made', 'sent_to_courier'].includes(request.status)) return null;
-    if (job && job.stages.length) return revertJobTo(job, 0, { request, phaseEntry: stage, returnStock: ctx.returnStock, now: ctx.now });
+    if (job && job.stages.length) return revertJobTo(job, 0, { request, phaseEntry: ctx.scope.round ? { transit: ctx.scope.round } : null, returnStock: ctx.returnStock, now: ctx.now });
     const snapshot = { request: take(request, ['status', 'inProcessAt', 'inProcessByName']) };
     request.status = 'requested'; clear(request, ['inProcessAt', 'inProcessByName']);
     return snapshot;
@@ -212,7 +241,12 @@ const PO_REVERTS = {
 };
 
 // Reverts `stepKey` and every later step that is done, latest first. `steps` is the PO view's step list.
-async function revertPoFrom(stepKey, ctx) {
+async function revertPoFrom(stepKey, input) {
+  // A later supply whose round no screen began: begin it first, so the earlier supply's hand-over is kept apart.
+  if (input.stage?.transit) ensureSupplyRound(input.stage, input.user, input.now);
+  const scope = revertScope(input.stage, input.request);
+  const ctx = { ...input, scope };
+  if (PHASE_STEPS.includes(stepKey) && !scope.phase) fail('This step was done with the first supply of the phase. Revert it on that purchase order');
   const order = orderOf(ctx.steps);
   const index = order.indexOf(stepKey);
   if (index < 0) fail(stepKey === 'created' ? 'The PO itself cannot be reverted; reject or cancel it instead' : 'This step cannot be reverted');
@@ -226,7 +260,9 @@ async function revertPoFrom(stepKey, ctx) {
     if (part) { snapshot[key] = part; reverted.push(key); }
   }
   if (!reverted.length) fail('Nothing to revert for this step');
+  // A finished round lives in a mixed array: tell the document it changed.
+  if (scope.archived) ctx.stage.markModified?.('transit.rounds');
   return { reverted, snapshot };
 }
 
-module.exports = { revertJobTo, revertPoFrom, PO_REVERT_ORDER };
+module.exports = { revertJobTo, revertPoFrom, revertScope, PO_REVERT_ORDER };

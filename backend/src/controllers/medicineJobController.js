@@ -10,7 +10,9 @@ const { STAGES: PHASES } = require('../constants/treatmentStages');
 const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlans');
 const { formulationFor, stockNeeds, unlinkedLines, chitsFor, applyOverrides } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, stageRoles, buildJobView } = require('../utils/medicineJobFlow');
-const { paymentSummary } = require('../utils/transitFlow');
+const { paymentSummary, ensureSupplyRound, requestKey, roundOwnerKey } = require('../utils/transitFlow');
+// The hand-over fields of `transit` belong to the newest supply of the phase; a job of an earlier supply leaves them.
+const ownsRound = (phaseEntry, request) => { const owner = phaseEntry?.transit ? roundOwnerKey(phaseEntry) : ''; return !owner || owner === requestKey(request); };
 const { phaseAge } = require('../utils/phaseAge');
 const { canOverrideFixed, fixedSupplyPlan, fixedReadyDate, dispatchDelayInput } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
@@ -492,7 +494,8 @@ const completeStage = asyncHandler(async (req, res) => {
     if (!require('../utils/poPayment').paymentCleared(pay)) fail(pay.pendingCount ? `Verify the pending payment(s) first (${pay.pendingCount} pending)` : 'A verified payment is required before release');
     Object.assign(request, { status: 'sent_to_courier', sentToCourierAt: now, sentToCourierByName: req.user.name });
     if (!phaseEntry.transit) phaseEntry.transit = {};
-    Object.assign(phaseEntry.transit, { financialReleasedAt: now, financialReleasedByName: req.user.name, financialReleaseNote: `Released to In Transit by ${req.user.name}` });
+    ensureSupplyRound(phaseEntry, req.user, now);
+    if (ownsRound(phaseEntry, request)) Object.assign(phaseEntry.transit, { financialReleasedAt: now, financialReleasedByName: req.user.name, financialReleaseNote: `Released to In Transit by ${req.user.name}` });
     job.status = 'released';
     logActivity(patient, req.user, `Medicine released for Phase ${job.phase}`, `Released to In Transit by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
     detail = 'Released to In Transit';
@@ -528,7 +531,8 @@ const revertJob = asyncHandler(async (req, res) => {
     await moveStock(item, { type: 'return', quantity: line.actual, delta: Number(line.actual), user: req.user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation reverted by admin for ${job.patientName} Phase ${job.phase}` });
   };
   const { revertJobTo } = require('../utils/revertFlow');
-  const snapshot = await revertJobTo(job, index, { request, phaseEntry, returnStock, now });
+  ensureSupplyRound(phaseEntry, req.user, now);
+  const snapshot = await revertJobTo(job, index, { request, phaseEntry: ownsRound(phaseEntry, request) ? phaseEntry : null, returnStock, now });
   const labels = snapshot.stages.map((s) => STAGES[STAGE_INDEX[s.key]]?.label || s.key);
   job.reverts.push({ at: now, byName: req.user.name, byRole: req.user.role, step: key, reason, reverted: snapshot.stages.map((s) => s.key), snapshot });
   event(job, req.user, 'Reverted by admin', `${labels.join(', ')} - ${reason}`);

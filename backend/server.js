@@ -109,6 +109,7 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/medicine', medicineRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/transit', transitRoutes);
+app.use('/api/delivery', require('./src/routes/deliveryRoutes'));
 app.use('/api/incoming-calls', require('./src/routes/incomingCallRoutes'));
 app.use('/api/appointments-board', require('./src/routes/appointmentBoardRoutes'));
 app.use('/api/expenses', require('./src/routes/expenseRoutes'));

@@ -197,6 +197,7 @@ const convertToPatient = asyncHandler(async (req, res) => {
       input, fee, values, totals: entry.postCounseling.purchase.totals || {}, source: 'post_counseling', user: req.user,
       existingPatientCode: registration.existingPatientCode,
       phase: visitPhaseOf(registration, await existingOf(entry)),
+      components: entry.postCounseling.record?.components?.selected,
       activityDetails: `Converted from Post Counseling (${entry.appointmentCode || 'appointment'}) by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {

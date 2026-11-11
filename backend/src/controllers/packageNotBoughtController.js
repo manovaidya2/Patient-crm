@@ -370,6 +370,7 @@ const markPackageNotBoughtConverted = asyncHandler(async (req, res) => {
       input: details, fee, values: cleaned.values, totals: cleaned.totals, source: 'package_not_bought', user: req.user,
       existingPatientCode: entry ? registrationView(entry).existingPatientCode : '',
       phase: entry ? await visitPhaseFor(entry) : 1,
+      components: entry?.postCounseling?.record?.components?.selected,
       activityDetails: `Converted from Package Not Bought by ${req.user.name} — pending accounts approval`,
     });
   } catch (error) {
