@@ -12,6 +12,8 @@ export const PAGES = {
   '/admin/self-pickup-schedule': ['Self Pickup Schedule', 'Patients coming to collect medicine'],
   '/admin/courier': ['Porter / Courier Schedule', 'Parcels to dispatch / deliver'],
   '/admin/transit-follow-ups': ['In Transit Follow-ups', 'Follow-up calls due or late'],
+  '/admin/patient-queries': ['Patient Queries', "Doctor's answers to send, follow-ups due, queries to solve"],
+  '/admin/request-for-advice': ['Request for Advice', 'Patient queries waiting for your answer'],
   '/admin/ready-not-delivered': ['Ready, Not Delivered', 'Medicines made but not delivered yet'],
   '/admin/all-expenses': ['All Expenses', 'Vouchers to approve, money to repay'],
   '/admin/clinic-expenses': ['Clinic Expenses', 'Expenses without a voucher / sent back'],

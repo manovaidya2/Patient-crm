@@ -131,6 +131,7 @@ export const navItems = [
   { to: '/admin/patient-improvement', icon: TrendingUp, label: 'Patient Improvement', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.DIGITAL_MARKETING], group: 'care' },
   { type: 'stages', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/request-for-advice', icon: MessageCircleQuestion, label: 'Request for Advice', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
+  { to: '/admin/patient-queries', icon: MessageCircleQuestion, label: 'Patient Queries', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/advice-given', icon: Lightbulb, label: 'Advice Given', roles: [ROLES.ADMIN, ROLES.DOCTOR], group: 'care' },
   { to: '/admin/medicine-requests', icon: Pill, label: 'Medicine Requests', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
   { to: '/admin/medicine-jobs', icon: ListOrdered, label: 'Fulfilment Queue', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
@@ -417,9 +418,10 @@ const Sidebar = ({ mobile = false, onClose }) => {
             return <HrMenu key="hr" collapsed={isCollapsed} onNavigate={onClose} />;
           }
           const { to, icon: Icon, label, end } = item;
-          const showAdviceBadge = to === '/admin/request-for-advice' && adviceUnreadCount > 0;
-          const showEmergencyAlert = to === '/admin/request-for-advice' && urgentAdviceCount > 0;
           const taskCount = to === '/admin/my-day' ? Object.values(taskCounts).reduce((sum, n) => sum + Number(n || 0), 0) : Number(taskCounts[to] || 0);
+          const showEmergencyAlert = to === '/admin/request-for-advice' && urgentAdviceCount > 0;
+          // Waiting queries show as the orange count (like every pending page); "! n" marks the emergencies.
+          const showAdviceBadge = to === '/admin/request-for-advice' && (showEmergencyAlert || (adviceUnreadCount > 0 && !taskCount));
           return (
             <NavLink
               key={to}

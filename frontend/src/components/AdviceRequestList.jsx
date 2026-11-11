@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Clock, Inbox, MessageSquareText, Mic, Pencil, RefreshCw, Send } from 'lucide-react';
+import { AlertTriangle, Inbox, Mic, Pencil, RefreshCw, Send } from 'lucide-react';
 import api from '../api/axios.js';
 import Card from './ui/Card.jsx';
 import Button from './ui/Button.jsx';
@@ -9,14 +9,11 @@ import Badge from './ui/Badge.jsx';
 import DictationButton from './ui/DictationButton.jsx';
 import VoiceRecorder from './ui/VoiceRecorder.jsx';
 
+import useLiveEvent from '../api/useLiveEvent.js';
+import { PROGRESS, ProgressSteps, QueryThread, QueryTimeline, VoiceAdvice, WaitingForDoctor } from './advice/adviceParts.jsx';
+
 const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
-// The doctor's recorded advice, played where the advice is read.
-export const VoiceAdvice = ({ voice }) => (voice?.url ? (
-  <div className="mt-2">
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Voice advice{voice.durationSec ? ` · ${Math.floor(voice.durationSec / 60)}:${String(voice.durationSec % 60).padStart(2, '0')}` : ''}</p>
-    <audio controls preload="metadata" src={`${SERVER_BASE}${voice.url}`} className="mt-1 h-10 w-full max-w-md" />
-  </div>
-) : null);
+export { VoiceAdvice };
 import { CompactAttachments } from './ui/Attachments.jsx';
 import { Stethoscope as PageTitleIcon } from 'lucide-react';
 
@@ -71,6 +68,8 @@ const AdviceRequestList = ({ mode }) => {
     const intervalId = window.setInterval(fetchRows, 10000);
     return () => window.clearInterval(intervalId);
   }, [isGiven, reloadKey, rows.length]);
+  // A new query, a PCC ringing, the PCC sending / solving: at once.
+  useLiveEvent('advice:changed', () => setReloadKey((value) => value + 1));
 
   const openReply = (row, record = false) => {
     setRecordNow(record);
@@ -157,10 +156,17 @@ const AdviceRequestList = ({ mode }) => {
                     {row.patientCode && <Badge tone="default">{row.patientCode}</Badge>}
                     {row.stage && <Badge tone="teal">Phase {row.stage}</Badge>}
                     {row.isUrgent && <Badge tone="danger">Emergency</Badge>}
+                    {row.rounds?.length > 0 && <Badge tone="default">Asked again ({row.rounds.length + 1})</Badge>}
+                    {isGiven && PROGRESS[row.progress] && <Badge tone={PROGRESS[row.progress][1]}>{PROGRESS[row.progress][0]}</Badge>}
                   </div>
                   <p className="mt-1 text-xs text-charcoal/50">
-                    Requested by {row.requestedByName || 'Unknown'} {row.requestedByRole ? `(${roleLabel(row.requestedByRole)})` : ''} on {formatDateTime(row.createdAt)}
+                    Requested by {row.requestedByName || 'Unknown'} {row.requestedByRole ? `(${roleLabel(row.requestedByRole)})` : ''} on {formatDateTime(row.askedAt || row.createdAt)}
                   </p>
+                  {!isGiven && row.alarms?.length > 0 && (
+                    <p className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-[#B42318] px-2 py-0.5 text-xs font-bold text-white">
+                      <AlertTriangle size={12} /> PCC rang the alarm {row.alarms.length} time{row.alarms.length === 1 ? '' : 's'} · last {formatDateTime(row.lastAlarmAt)}{row.alarms[row.alarms.length - 1]?.note ? ` · "${row.alarms[row.alarms.length - 1].note}"` : ''}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge tone={row.isUrgent && !isGiven ? 'danger' : isGiven ? 'teal' : 'amber'}>{isGiven ? 'Advice Given' : row.isUrgent ? 'Urgent Pending' : 'Pending'}</Badge>
@@ -182,29 +188,11 @@ const AdviceRequestList = ({ mode }) => {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <div className={`rounded-lg border p-3.5 ${row.isUrgent && !isGiven ? 'border-[#B42318]/35 bg-white/70' : 'border-cardline bg-offwhite-200'}`}>
-                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal/55">
-                    <MessageSquareText size={13} /> Query
-                  </p>
-                  <p className="mt-2 whitespace-pre-line text-sm text-charcoal">{row.query}</p>
-                </div>
-                <div className={`rounded-lg border p-3.5 ${row.isUrgent && !isGiven ? 'border-[#B42318]/35 bg-white/70' : 'border-cardline bg-offwhite-200'}`}>
-                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal/55">
-                    {isGiven ? <CheckCircle2 size={13} /> : <Clock size={13} />} Advice
-                  </p>
-                  {row.advice || row.adviceVoice?.url ? (
-                    <>
-                      {row.advice && <p className="mt-2 whitespace-pre-line text-sm text-charcoal">{row.advice}</p>}
-                      <VoiceAdvice voice={row.adviceVoice} />
-                      <p className="mt-2 text-xs text-charcoal/50">
-                        By {row.adviceGivenByName || 'Doctor'} on {formatDateTime(row.adviceGivenAt)}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-sm text-charcoal/45">Waiting for doctor advice.</p>
-                  )}
-                </div>
+              {/* Every question on this query and its answer, in order (asked again = the next question). */}
+              <div className="mt-4 space-y-2.5">
+                {isGiven && <ProgressSteps row={row} />}
+                <QueryThread row={row} waiting={() => <WaitingForDoctor row={row} you />} />
+                <QueryTimeline timeline={row.timeline} />
               </div>
 
               {!!row.patientRecordFiles?.length && (
@@ -222,10 +210,18 @@ const AdviceRequestList = ({ mode }) => {
         <form onSubmit={submitReply} className="space-y-4">
           {replyError && <div className="rounded-lg bg-[#8C3B2E]/8 px-3.5 py-3 text-sm text-[#8C3B2E]">{replyError}</div>}
           {replyTarget && (
-            <div className="rounded-lg border border-cardline bg-offwhite-200 p-3 text-sm text-charcoal/70">
-              <p className="font-semibold text-charcoal">{replyTarget.patientName}</p>
-              <p className="mt-1 whitespace-pre-line">{replyTarget.query}</p>
-            </div>
+            replyTarget.rounds?.length ? (
+              // Asked again: the earlier questions and answers stay in view while answering the latest one.
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-cardline bg-offwhite-200 p-2.5">
+                <p className="mb-2 px-0.5 text-sm font-semibold text-charcoal">{replyTarget.patientName}</p>
+                <QueryThread row={replyTarget} waiting={() => <p className="text-sm font-semibold text-[#9C6B2E]">Your answer to this question below</p>} />
+              </div>
+            ) : (
+              <div className="rounded-lg border border-cardline bg-offwhite-200 p-3 text-sm text-charcoal/70">
+                <p className="font-semibold text-charcoal">{replyTarget.patientName}</p>
+                <p className="mt-1 whitespace-pre-line">{replyTarget.query}</p>
+              </div>
+            )
           )}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-charcoal">Advice</label>

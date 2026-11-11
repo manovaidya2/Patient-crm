@@ -38,6 +38,10 @@ const PAGES = {
   '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/followups': [MANAGER, ASSISTANT_DOCTOR],
+  // Patient queries the PCC raised that the doctor has not answered yet.
+  '/admin/request-for-advice': [ADMIN, DOCTOR],
+  // Patient queries: doctor's answers to send, follow-ups due, satisfied ones to mark solved.
+  '/admin/patient-queries': [ASSISTANT_DOCTOR, MANAGER],
   '/admin/family-sessions': [MANAGER, ASSISTANT_DOCTOR],
   '/admin/post-counseling-patients': [ADMIN, POST_COUNSELOR, DOCTOR, MANAGER],
   '/admin/package-not-bought': [ADMIN, POST_COUNSELOR, MANAGER],
@@ -157,6 +161,10 @@ const COUNTERS = {
     }
     return n;
   },
+  async '/admin/request-for-advice'() {
+    return require('../models/AdviceRequest').countDocuments({ status: 'requested', resolvedAt: null });
+  },
+  async '/admin/patient-queries'(user) { return (await require('./adviceController').pccQueryWork(user)).length; },
   // Reminder types are 'followup' and 'family_session' (see collectScheduleReminders).
   async '/admin/followups'(user) { return (await scheduleReminders(user)).filter((r) => r.type === 'followup').length; },
   async '/admin/family-sessions'(user) { return (await scheduleReminders(user)).filter((r) => r.type === 'family_session').length; },
@@ -197,7 +205,7 @@ const getTaskCounts = asyncHandler(async (req, res) => {
 // Badges, My day, the reminder bell and Team pending all ask for the same lists; each is worked out once and shared
 // (see utils/readCache: emptied by any save). A list is the same for everyone, for one role, or for one person.
 // Team Chat and Enquiries are cheap and change when read, so they are always worked out fresh.
-const PER_PERSON = new Set(['/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
+const PER_PERSON = new Set(['/admin/patient-queries', '/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
 const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs']);
 const UNCACHED = new Set(['/admin/team-chat', '/admin/enquiries']);
 const scopeOf = (page, user) => (PER_PERSON.has(page) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');

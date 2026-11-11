@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, Search, Inbox, AlertTriangle } from 'lucide-react';
+import { CalendarDays, Search, Inbox, AlertTriangle, MessageCircleQuestion } from 'lucide-react';
+import RaiseQueryModal from './advice/RaiseQueryModal.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { ROLES, isAdminLike } from '../constants/roles.js';
 import useApiQuery from '../api/useApiQuery.js';
 import Card from './ui/Card.jsx';
 import Drawer from './ui/Drawer.jsx';
@@ -181,6 +184,11 @@ const ScheduleCalendar = ({ entries, range, mode, family, onOpen }) => {
 };
 
 const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = false, showFamilySessionTypeFilter = false }) => {
+  const { user } = useAuth();
+  // The PCC raises the patient's query with the doctor while taking the follow-up.
+  const canRaiseQuery = isAdminLike(user) || user?.role === ROLES.ASSISTANT_DOCTOR;
+  const [raiseFor, setRaiseFor] = useState(null);
+  const [raisedNote, setRaisedNote] = useState('');
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [followUpTypeFilter, setFollowUpTypeFilter] = useState('all');
@@ -473,6 +481,11 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
                 </a>
               )}
               {e.notes && <p className="mt-1 text-xs text-charcoal/55">{e.notes}</p>}
+              {canRaiseQuery && (
+                <button type="button" onClick={(event) => { event.stopPropagation(); setRaisedNote(''); setRaiseFor(e); }} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-sage/40 bg-white px-2.5 py-1.5 text-xs font-bold text-sage hover:bg-[#F3F6F2]">
+                  <MessageCircleQuestion size={13} /> Raise query to doctor
+                </button>
+              )}
               {e.status === 'cancelled' && e.cancelReason && (
                 <div className="mt-2 pt-2 border-t border-cardline-soft">
                   <p className="text-xs font-semibold text-[#8C3B2E]">
@@ -485,7 +498,17 @@ const ScheduleListPage = ({ title, subtitle, apiPath, showFollowUpTypeFilter = f
             </li>
           ))}
         </ul>
+        {raisedNote && <p className="mt-3 rounded-lg bg-[#EEF7F1] px-3 py-2 text-sm font-semibold text-[#1F6B41]">{raisedNote}</p>}
       </Drawer>
+      {raiseFor && (
+        <RaiseQueryModal
+          patientId={raiseFor.patientId}
+          patientName={raiseFor.patientName}
+          stage={raiseFor.stageNumber || raiseFor.stage}
+          onClose={() => setRaiseFor(null)}
+          onDone={() => { setRaisedNote(`Query for ${raiseFor.patientName} sent to the doctor. Track it on Patient Queries.`); setRaiseFor(null); }}
+        />
+      )}
     </div>
   );
 };

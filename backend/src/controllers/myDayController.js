@@ -127,6 +127,20 @@ const COLLECTORS = {
       return item('/admin/package-not-bought', String(r._id), r.patientName, `${r.parentName || ''}${r.program ? ` · ${r.program}` : ''} · ${next ? 'follow-up' : 'no follow-up set'}`, next, `/admin/package-not-bought/${r._id}`);
     });
   },
+  async '/admin/request-for-advice'() {
+    const rows = await require('../models/AdviceRequest').find({ status: 'requested', resolvedAt: null })
+      .select('patient stage query isUrgent askedAt createdAt alarms.at lastAlarmAt').populate('patient', 'patientName patientCode')
+      .sort({ isUrgent: -1, createdAt: 1 }).limit(LIMIT).lean();
+    return rows.map((r) => {
+      const rings = (r.alarms || []).length;
+      const detail = [r.patient?.patientCode, `Phase ${r.stage || '-'}`, r.isUrgent ? 'EMERGENCY' : '', rings ? `PCC rang ${rings} time${rings === 1 ? '' : 's'}` : '', `"${String(r.query || '').slice(0, 80)}"`].filter(Boolean).join(' · ');
+      return item('/admin/request-for-advice', String(r._id), r.patient?.patientName || 'Patient', detail, r.askedAt || r.createdAt, '/admin/request-for-advice', { waitingSince: true });
+    });
+  },
+  async '/admin/patient-queries'(user) {
+    const work = await require('./adviceController').pccQueryWork(user);
+    return work.map((w) => item('/admin/patient-queries', w.id, w.patientName, `${w.patientCode ? `${w.patientCode} · ` : ''}Phase ${w.stage || '-'} · ${w.what} · "${w.query}"`, w.due, `/admin/patient-queries?q=${w.id}`));
+  },
   async '/admin/team-chat'(user) {
     const TeamChat = require('../models/TeamChat');
     const { unreadFor } = require('./teamChatController');

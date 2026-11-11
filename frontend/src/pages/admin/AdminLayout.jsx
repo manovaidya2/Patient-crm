@@ -6,6 +6,7 @@ import PendingWork from '../../components/PendingWork.jsx';
 import MobileTabBar from '../../components/MobileTabBar.jsx';
 import ReminderBell from '../../components/ReminderBell.jsx';
 import FormulationAlarm from '../../components/medicine/FormulationAlarm.jsx';
+import AdviceAlarm from '../../components/advice/AdviceAlarm.jsx';
 import TransitAlarm from '../../components/medicine/TransitAlarm.jsx';
 import { ChatAlarmSiren } from '../../components/teamChat/ChatAlarm.jsx';
 import PaperAlarm from '../../components/medicine/PaperAlarm.jsx';
@@ -141,6 +142,8 @@ const AdminLayout = () => {
         {/* Desktop: the reminder bell in its own strip above the page, so it never covers a page's own buttons. */}
         {/* The doctor's alarm for formulations pending over a day (rings on every login / refresh until sent). */}
         {user?.role === ROLES.DOCTOR && <FormulationAlarm user={user} />}
+        {/* The doctor's alarm, rung by a PCC while a patient query waits for the doctor's answer. */}
+        {user?.role === ROLES.DOCTOR && <AdviceAlarm user={user} />}
         {/* The Manager's alarm, rung by the Medicine Department while a kit waits on the quality check (step 8). */}
         {user?.role === ROLES.MANAGER && <TransitAlarm user={user} />}
         {/* The PCC who makes treatment papers: the Medicine Department rings it while a kit waits (step 9). */}

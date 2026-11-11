@@ -40,6 +40,8 @@ const registerSalesSheetSocket = (io) => {
     socket.join(`enquiry:user:${socket.user._id}`);
     if (socket.user.role === ROLES.ADMIN) socket.join('enquiry:admins'); // also gets every Team Chat update
     if (socket.user.role === ROLES.MANAGER) socket.join('enquiry:managers');
+    // Patient queries: a new one, an answer, a PCC ringing the doctor's alarm.
+    if (socket.user.role === ROLES.DOCTOR) socket.join('advice:doctors');
     if (socket.user.role === ROLES.POST_COUNSELOR) socket.join(postCounselingUserRoom(socket.user._id));
     if (postCounselingViewers.includes(socket.user.role)) socket.join(POST_COUNSELING_ALL_ROOM);
     if (medicineJobViewers.includes(socket.user.role)) socket.join(MEDICINE_JOBS_ROOM);

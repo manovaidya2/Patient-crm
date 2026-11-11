@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
@@ -19,7 +19,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import EditableField from '../../components/ui/EditableField.jsx';
 import Drawer from '../../components/ui/Drawer.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
-import { VoiceAdvice } from '../../components/AdviceRequestList.jsx';
+import QueryCard from '../../components/advice/QueryCard.jsx';
 import RefundImages from '../../components/RefundImages.jsx';
 import PatientBillPanel from '../../components/PatientBillPanel.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
@@ -1988,9 +1988,16 @@ const ActivityTimeline = ({ entries = [], callLogs = [] }) => {
   );
 };
 
-const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNumber }) => {
+const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, onChanged, stageNumber }) => {
   const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  // Each query of this phase keeps its number (Query 1 = the first raised); open ones are listed first.
+  const [show, setShow] = useState('all');
+  const numberOf = useMemo(() => new Map([...rows].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((r, i) => [r.id, i + 1])), [rows]);
+  const openCount = rows.filter((r) => r.progress !== 'solved').length;
+  const shownRows = rows
+    .filter((r) => show === 'all' || (show === 'open' ? r.progress !== 'solved' : r.progress === 'solved'))
+    .sort((a, b) => (Number(a.progress === 'solved') - Number(b.progress === 'solved')) || (numberOf.get(b.id) - numberOf.get(a.id)));
   const [modalOpen, setModalOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [isUrgent, setIsUrgent] = useState(false);
@@ -2057,14 +2064,14 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="flex items-center gap-2 font-display text-base font-bold text-charcoal">
-            <MessageSquareText size={17} className="text-sage" /> Doctor Advice {stageNumber ? `| Phase ${stageNumber}` : ''}
+            <MessageSquareText size={17} className="text-sage" /> Patient Queries to Doctor {stageNumber ? `| Phase ${stageNumber}` : ''}
           </h2>
-          <p className="mt-1 text-sm text-charcoal/55">Patient-related advice requests and doctor replies.</p>
+          <p className="mt-1 text-sm text-charcoal/55">Raise the patient's query, send the doctor's answer to the patient, follow up and mark it solved. All queries: Patient Queries page.</p>
         </div>
         <div className="flex items-center gap-2">
           {canRequest && (
             <Button size="sm" onClick={openModal}>
-              <MessageSquarePlus size={14} /> Request Advice
+              <MessageSquarePlus size={14} /> Raise query to doctor
             </Button>
           )}
           <button
@@ -2084,55 +2091,22 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, stageNum
           {rows.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-lg border border-cardline bg-offwhite-200 py-8 text-center">
               <Inbox size={22} className="text-charcoal/35" />
-              <p className="text-sm font-semibold text-charcoal">No advice requests yet</p>
-              <p className="text-xs text-charcoal/55">Requests and doctor replies will appear here.</p>
+              <p className="text-sm font-semibold text-charcoal">No queries for this phase yet</p>
+              <p className="text-xs text-charcoal/55">Raise the patient's query to the doctor; the answer and follow-ups appear here.</p>
             </div>
           ) : (
-            rows.map((row) => (
-              <div key={row.id} className={`rounded-lg border p-3.5 ${row.isUrgent && row.status === 'requested' ? 'border-[#B42318] bg-[#B42318]/8' : 'border-cardline bg-offwhite-200'}`}>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-bold text-charcoal">Phase {row.stage || '-'}</p>
-                      {row.isUrgent && <Badge tone="danger">Emergency</Badge>}
-                      <Badge tone={row.status === 'advice_given' ? 'teal' : 'amber'}>
-                        {row.status === 'advice_given' ? 'Advice Given' : 'Pending'}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-charcoal/50">
-                      Requested by {row.requestedByName || 'Unknown'} on {formatDateTime(row.createdAt)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 text-xs font-semibold text-charcoal/55">
-                    {row.status === 'advice_given' ? <CheckCircle2 size={14} className="text-sage" /> : <Clock size={14} className="text-[#9C6B2E]" />}
-                    {row.status === 'advice_given' ? formatDateTime(row.adviceGivenAt) : 'Waiting'}
-                    {row.status === 'requested' && (isAdminLike(user) || String(row.requestedBy || '') === String(user?.id || user?._id || '')) && (
-                      <Button size="sm" variant="ghost" onClick={() => openEditModal(row)} className="ml-1">
-                        <Pencil size={13} /> Edit
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Query</p>
-                    <p className="mt-1 whitespace-pre-line text-sm text-charcoal">{row.query}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/55">Doctor Advice</p>
-                    {row.advice || row.adviceVoice?.url ? (
-                      <>
-                        {row.advice && <p className="mt-1 whitespace-pre-line text-sm text-charcoal">{row.advice}</p>}
-                        <VoiceAdvice voice={row.adviceVoice} />
-                        <p className="mt-1 text-xs text-charcoal/50">By {row.adviceGivenByName || 'Doctor'}</p>
-                      </>
-                    ) : (
-                      <p className="mt-1 text-sm text-charcoal/45">No advice yet.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
+            <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[['all', `All ${rows.length}`], ['open', `Open ${openCount}`], ['solved', `Solved ${rows.length - openCount}`]].map(([key, text]) => (
+                <button key={key} type="button" aria-pressed={show === key} onClick={() => setShow(key)} className={`rounded-full border px-3 py-1 text-xs font-semibold ${show === key ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/70'}`}>{text}</button>
+              ))}
+              <span className="text-xs text-charcoal/50">Each query is separate; inside it, every question to the doctor and its answer in order.</span>
+            </div>
+            {!shownRows.length && <p className="rounded-lg border border-dashed border-cardline py-6 text-center text-sm text-charcoal/55">Nothing here.</p>}
+            {shownRows.map((row) => (
+              <QueryCard key={row.id} row={row} number={numberOf.get(row.id)} showPatient={false} canAct={canRequest} onChanged={onChanged} onEdit={(isAdminLike(user) || String(row.requestedBy || '') === String(user?.id || user?._id || '')) ? openEditModal : undefined} />
+            ))}
+            </>
           )}
         </div>
       )}
@@ -3453,6 +3427,7 @@ const PatientDetails = () => {
                 canRequest={canRequestAdvice}
                 onRequest={handleRequestAdvice}
                 onEditRequest={handleEditAdviceRequest}
+                onChanged={() => loadPatientData({ silent: true })}
                 stageNumber={activeStage.number}
               />
               </>}
