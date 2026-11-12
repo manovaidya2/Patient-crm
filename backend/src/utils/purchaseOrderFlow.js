@@ -3,7 +3,7 @@
 // already write (payments, medicine request, courier, phase transit), so all views agree.
 const { openFollowUps } = require('./callFollowUps');
 const { paymentSummary, pickRequest, MODE_LABEL, MEDICINE_ACTIVE, ROUND_FIELDS, roundOf, startRequestOf, supplyStartOf, requestKey } = require('./transitFlow');
-const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel, supplyOption } = require('../constants/supplyPlans');
+const { supplyLabel, ageBandFor, AGE_BANDS, supplyOptionByLabel, ageBandByLabel, supplyOption, lengthText } = require('../constants/supplyPlans');
 const purchaseRecord = require('./purchaseOrderRecord');
 const { phaseAge } = require('./phaseAge');
 const { medicineDelays, fixedReadyDate, dispatchDelayInput, readyDateFromPostCounselling } = require('./medicineDelay');
@@ -130,12 +130,12 @@ function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = t
   const own = refill ? ownStart || {} : {};
   const ownAsked = Boolean(own.needed || own.date);
   const ownDone = ownAsked ? Boolean(own.date) : delivered;
-  const ownMonths = Number(own.months || 0);
-  const ownText = own.date ? `Starts ${shortDay(own.date)}${ownMonths ? ` (${ownMonths} month${ownMonths === 1 ? '' : 's'} of medicine)` : ''}`
+  const ownDays = Number(own.days || 0) || Math.round(Number(own.months || 0) * 30);
+  const ownText = own.date ? `Starts ${shortDay(own.date)}${ownDays ? ` (${lengthText(ownDays)} of medicine)` : ''}`
     : delivered && !ownAsked ? `Treatment running since ${shortDay(t.medicineStartDate || t.activatedAt)}` : '';
   // The PO paper signed by the patient (ticked at "Verify full payment"); a parcel already handed over counts as signed.
   const poSigned = (transitOwner && Boolean(t.poPaperSignedAt)) || dispatched || delivered;
-  const supplyMonths = supplyOption(po.supplyPlan, po.supplyPart)?.months || 0;
+  const supplyDays = supplyOption(po.supplyPlan, po.supplyPart)?.days || 0;
   const transitCalls = transitOwner ? [...(t.calls || [])].sort((a, b) => new Date(b.at) - new Date(a.at)) : [];
   const lastCall = transitCalls[0];
   const connected = transitCalls.some((c) => c.outcome === 'connected');
@@ -190,7 +190,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = t
     // Self pickup: the explanation date and the PCC are fixed before the payment and the handover.
     ...(selfPickup ? [pccStep] : []),
     // Verify payment: no payment pending and some verified (a balance may stay, to a next PO), plus the PO paper signed.
-    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify payment', done: paymentCleared(pay) && poSigned, text: `Verified Rs ${pay.amountPaid} of Rs ${pay.totalAmount}${pay.remaining > 0 ? ` · balance Rs ${pay.remaining}` : ''}${supplyMonths ? ` · ${supplyMonths} month${supplyMonths === 1 ? '' : 's'} of medicine` : ''}${poSigned ? ' · PO paper signed' : ''}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : !paymentCleared(pay) ? 'In Transit collects a payment and verifies it' : 'In Transit ticks "PO paper signed by patient"' },
+    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify payment', done: paymentCleared(pay) && poSigned, text: `Verified Rs ${pay.amountPaid} of Rs ${pay.totalAmount}${pay.remaining > 0 ? ` · balance Rs ${pay.remaining}` : ''}${supplyDays ? ` · ${lengthText(supplyDays)} of medicine` : ''}${poSigned ? ' · PO paper signed' : ''}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : !paymentCleared(pay) ? 'In Transit collects a payment and verifies it' : 'In Transit ticks "PO paper signed by patient"' },
     { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Handover' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
     // Porter / courier: after the dispatch.
     ...(selfPickup ? [] : [pccStep]),
@@ -317,7 +317,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
   const refill = Boolean(raw.activatedAt) && !isStart && (!request || MEDICINE_ACTIVE.includes(req.status));
   const part = request ? (plain(stage.delivery).parts || []).find((item) => item && item.requestId === requestKey(req)) : null;
   // Where the medicine start date of this later supply stands, with its months (the plan's, else the purchase order's).
-  const ownStart = refill && request ? { ...supplyStartOf(stage, req), months: Number(part?.months || 0) || supplyOption(req.supplyPlan || po.supplyPlan, req.supplyPart || po.supplyPart)?.months || 0 } : null;
+  const ownStart = refill && request ? { ...supplyStartOf(stage, req), days: Number(part?.days || 0) || Math.round(Number(part?.months || 0) * 30) || supplyOption(req.supplyPlan || po.supplyPlan, req.supplyPart || po.supplyPart)?.days || 0 } : null;
   const phasePay = paymentSummary(stage);
   // "Full payment verified" is about this PO: its value against its own payments (other POs of the phase are paid apart).
   const siblings = (phasePos || []).filter((o) => String(o._id) !== String(po._id));
@@ -346,8 +346,10 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     poNumber: po.poNumber,
     generated: Boolean(po.generated),
     source: po.source,
-    // Months of medicine on this PO (shown where the PO paper is signed) and the PO chain (balance carried).
+    // How much medicine this PO sends (shown where the PO paper is signed) and the PO chain (balance carried).
     supplyMonths: supplyOption(po.supplyPlan, po.supplyPart)?.months || 0,
+    supplyDays: supplyOption(po.supplyPlan, po.supplyPart)?.days || 0,
+    supplyText: lengthText(supplyOption(po.supplyPlan, po.supplyPart)?.days || 0),
     previousPo: po.previousPo || po.previousPoNumber ? { id: po.previousPo ? String(po.previousPo) : '', poNumber: po.previousPoNumber || '' } : null,
     carriedForward: po.carriedForwardTo ? { id: String(po.carriedForwardTo), poNumber: po.carriedForwardToNumber || '', amount: Number(po.carriedForwardAmount || 0), at: iso(po.carriedForwardAt) } : null,
     status: po.status,

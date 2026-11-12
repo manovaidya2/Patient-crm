@@ -213,7 +213,7 @@ const ACTIONS = {
     const courier = request ? courierOf(request) : {};
     if (['dispatched', 'delivered'].includes(courier.status)) fail('The medicine has already been handed over / dispatched');
     const signed = body.signed === true || body.signed === 'true';
-    // The note saved with the tick: the months of medicine going, the payment it went for, the balance left on the PO.
+    // The note saved with the tick: how much medicine is going, the payment it went for, the balance left on the PO.
     let note = '';
     if (signed && request) {
       const phasePos = await phasePurchaseOrders(patient._id, stage.number);
@@ -222,7 +222,7 @@ const ACTIONS = {
       if (!paymentCleared(pay)) fail(pay.pendingCount ? 'Verify the pending payment(s) of this PO first' : 'Add and verify a payment of this PO first');
       const option = require('../constants/supplyPlans').supplyOption(po?.supplyPlan || request.supplyPlan, po?.supplyPart || request.supplyPart);
       const rs = (n) => `Rs ${Number(n || 0).toLocaleString('en-IN')}`;
-      const what = option ? `${option.months} month${option.months === 1 ? '' : 's'} of medicine (${option.label})` : 'Medicine';
+      const what = option ? `${require('../constants/supplyPlans').lengthText(option.days)} of medicine (${option.label})` : 'Medicine';
       note = `${what} given for ${rs(pay.amountPaid)} paid of ${rs(pay.totalAmount)}; balance ${rs(pay.remaining)}${po ? ` on ${po.poNumber}` : ''}`;
       request.supplyNote = note;
     } else if (request) request.supplyNote = '';
@@ -632,8 +632,8 @@ const listFollowUps = asyncHandler(async (req, res) => {
 // again. The PCC closes its explanation as "already explained" or "skipped" and fills the day the patient starts this
 // medicine; the rest of the Treatment Delivery plan is laid out from that day. The treatment start of the phase
 // (stage.transit, stage.date) is not touched. The date can be corrected later by the same PCC or the admin.
-// body: { requestId, startDate, note, explanation: 'already_explained' | 'skipped', explanationNote, months }
-// (months: only when the months of the supply are not on its purchase order).
+// body: { requestId, startDate, note, explanation: 'already_explained' | 'skipped', explanationNote, months, days }
+// (months / days: only when the length of the supply is not on its purchase order).
 const SKIP_TEXT = { already_explained: 'already explained with the first supply', skipped: 'explanation skipped' };
 const setSupplyStart = async (req, res, patient, stage, key) => {
   const S = require('../utils/deliverySupply');
@@ -659,7 +659,7 @@ const setSupplyStart = async (req, res, patient, stage, key) => {
     if (d.parts[index + 1] && day >= d.parts[index + 1].startDate) fail(`This supply cannot start on or after the next one (${d.parts[index + 1].startDate})`);
   } else {
     if (d.supplyClosedAt) fail('This phase is closed as "no further supply". Reopen it on the Treatment Delivery page first.');
-    if (D.supplyDone(d)) fail(`The ${d.planMonths} month(s) of this plan already have their medicine`);
+    if (D.supplyDone(d)) fail(`The ${D.lengthText(d.phaseDays)} of this plan already have their medicine`);
     const due = pendingStart(stage);
     if (!S.openSupplies(stage).some((item) => requestKey(item) === key)) fail('This supply is not awaited by the Treatment Delivery plan');
     if (due && requestKey(due) !== key) fail(`Fill the medicine start date of the earlier supply${due.poNumber ? ` (${due.poNumber})` : ''} first`);
@@ -677,8 +677,8 @@ const setSupplyStart = async (req, res, patient, stage, key) => {
     if (first || asked) Object.assign(item, { explanationSkipReason: reason, explanationSkipNote: asked || first ? skipNote : item.explanationSkipNote || '' });
     if (first) Object.assign(item, { explanationSkippedAt: now, explanationSkippedByName: req.user.name });
   });
-  // The plan goes on from this day. A supply whose months are not on record stops here and nothing is saved.
-  const delivery = await startDelivery(patient, stage, req.user, now, { request, months: req.body?.months });
+  // The plan goes on from this day. A supply whose length is not on record stops here and nothing is saved.
+  const delivery = await startDelivery(patient, stage, req.user, now, { request, months: req.body?.months, days: req.body?.days });
   const po = request.poNumber ? ` (${request.poNumber})` : '';
   const summary = before && before !== day
     ? `Medicine start date of the next supply${po} changed: ${before} -> ${day}${note ? ` | ${note}` : ''}`

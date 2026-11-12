@@ -406,12 +406,14 @@ const deliverySchema = new mongoose.Schema(
     followUpsPromised: { type: Number, default: 0 },
     // The rules as they were when this plan was first made, so a later settings change only affects new plans.
     rules: { type: mongoose.Schema.Types.Mixed, default: null },
-    // Each supply of medicine covers its months of the plan from its own start date.
+    // Each supply of medicine covers its days of the plan from its own start date (`days`; a part saved before days were
+    // kept has only `months`, a month being 30 days).
     parts: {
       type: [new mongoose.Schema({
         requestId: { type: String, trim: true, default: '' },
         poNumber: { type: String, trim: true, default: '' },
         months: { type: Number, default: 0 },
+        days: { type: Number, default: 0 },
         startDate: { type: String, trim: true, default: '' }, // YYYY-MM-DD, clinic day
         offsetDays: { type: Number, default: 0 },
         source: { type: String, trim: true, default: 'transit' }, // transit (start date from Medicine Explanations) / receipt (older plans: continued on the receipt) / manual

@@ -13,7 +13,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, ROLE_LABELS, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { AGE_BANDS, supplyKeyOf } from '../../constants/supplyPlans.js';
 import SupplyChips from '../../components/medicine/SupplyChips.jsx';
-import { customMonthsOf } from '../../constants/supplyPlans.js';
+import { customLengthOf, lengthText } from '../../constants/supplyPlans.js';
 import { DelayChips, DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePaperUpload, DosePapersView } from '../../components/medicine/DosePapers.jsx';
@@ -300,13 +300,13 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {['review', 'formula'].includes(stage.key) && job.formulation && (
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${job.masterOutdated ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-cardline bg-offwhite-200/60 text-charcoal/70'}`}>
-          {job.formulation.custom ? <span>{customMonthsOf(job.formulation.plan) ? `Custom supply of ${job.formulation.months} months` : job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this patient.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
+          {job.formulation.custom ? <span>{customLengthOf(job.formulation.plan) ? `Custom supply of ${lengthText(job.formulation.days)}` : job.formulation.ageBandLabel}: no Formulation Master - this sheet is made for this patient.</span> : <span>Built from the Formulation Master {job.formulation.master?.version ? `v${job.formulation.master.version}` : '(document values)'}{job.formulation.master?.updatedByName ? ` · edited by ${job.formulation.master.updatedByName}` : ''}.{roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user) && <> <Link to="/admin/formulation-master" className="font-semibold text-sage hover:underline">Open Formulation Master</Link></>}</span>}
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
       {stage.key === 'formula' && job.formulation?.custom && (
         <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
-          <p className="font-bold">{customMonthsOf(job.formulation.plan) ? `Custom supply of ${job.formulation.months} months` : job.formulation.ageBandLabel}: no Formulation Master - create this child's formulation</p>
+          <p className="font-bold">{customLengthOf(job.formulation.plan) ? `Custom supply of ${lengthText(job.formulation.days)}` : job.formulation.ageBandLabel}: no Formulation Master - create this child's formulation</p>
           <p className="mt-1 text-[13px]">"Create formulation" below, add each medicine with its timing, dose and total quantity, save, then complete this step. It goes to the Medicine Department as you made it.</p>
         </div>
       )}

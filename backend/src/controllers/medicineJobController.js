@@ -260,7 +260,7 @@ const setSupply = asyncHandler(async (req, res) => {
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
   const [plan, part] = String(req.body?.supplyKey || '').split(':');
   const option = supplyOption(plan, part);
-  if (!option) fail(plan === 'CUSTOM' ? 'Custom supply: choose the months of medicine' : 'Select the medicine supply');
+  if (!option) fail(plan === 'CUSTOM' ? 'Custom supply: choose the months / days of medicine (1 day to 12 months)' : 'Select the medicine supply');
   // The supply (6 months / 1+5 / 2+4) and the age group were decided in post counselling.
   const { stage: jobStage } = await loadPatientAndRequest(job);
   const sent = await planSentFor(job, jobStage);

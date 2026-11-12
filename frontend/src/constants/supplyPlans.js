@@ -17,10 +17,32 @@ export const AGE_BANDS = [
 ];
 
 export const supplyKeyOf = (plan, part) => (plan && part ? `${plan}:${part}` : '');
-// Custom supply (months chosen by the Post Counselor): plan "C<months>", part "full" - see backend supplyPlans.js.
-export const CUSTOM_PICK_LABEL = 'Custom (choose months)';
-export const customMonthsOf = (keyOrPlan) => { const m = /^C([1-9]|1[0-2])(?::full)?$/.exec(String(keyOrPlan || '')); return m ? Number(m[1]) : 0; };
-export const customKey = (months) => `C${months}:full`;
+// A length of medicine in days, as people say it: "6 months", "20 days", "1 month 15 days" (a month is 30 days).
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+export const lengthText = (days) => {
+  const n = Math.round(Number(days) || 0);
+  if (n <= 0) return '';
+  if (n % 30 === 0) return plural(n / 30, 'month');
+  return n < 30 ? plural(n, 'day') : `${plural(Math.floor(n / 30), 'month')} ${plural(n % 30, 'day')}`;
+};
+// Custom supply (months and days chosen by the Post Counselor, at most 12 months in all): plan "C<months>" or
+// "C<months>m<days>d" ("C0m45d" = 45 days), part "full" - see backend supplyPlans.js.
+export const CUSTOM_PICK_LABEL = 'Custom (months / days)';
+export const CUSTOM_MAX_DAYS = 360;
+export const customLengthOk = (months, days) => Number.isInteger(months) && Number.isInteger(days) && months >= 0 && months <= 12 && days >= 0
+  && months * 30 + days >= 1 && months * 30 + days <= CUSTOM_MAX_DAYS;
+export const customKey = (months, days = 0) => `${days ? `C${months}m${days}d` : `C${months}`}:full`;
+// { months, days, total } of a custom key or plan, else null.
+export const customLengthOf = (keyOrPlan) => {
+  const m = /^C(\d{1,2})(?:m(\d{1,3})d)?(?::full)?$/.exec(String(keyOrPlan || ''));
+  if (!m) return null;
+  const months = Number(m[1]);
+  const days = Number(m[2] || 0);
+  if (!customLengthOk(months, days) || (m[2] !== undefined && !days) || (m[1].length > 1 && m[1][0] === '0')) return null;
+  return { months, days, total: months * 30 + days };
+};
+// As the Post Counselor chose it: "4 months", "45 days", "1 month 15 days".
+export const customText = (length) => (length ? [length.months ? plural(length.months, 'month') : '', length.days ? plural(length.days, 'day') : ''].filter(Boolean).join(' ') : '');
 export const isCustomSupplyLabel = (label) => /^Custom(:| \()/.test(String(label || ''));
 export const ageBandLabel = (value) => AGE_BANDS.find((band) => band.value === value)?.label || '';
 // Same rule as the backend: the dose age group from an age like "6", "4.5" or "13 years".

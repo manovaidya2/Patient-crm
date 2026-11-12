@@ -304,7 +304,9 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
 }
 
 // What the Medicine Explanations page shows of a later supply's start date: the supply, what is saved, and what the
-// PCC needs to choose the day (the medicine before it runs till `runsOut`; the plan still misses `monthsLeft` months).
+// PCC needs to choose the day (the medicine before it runs till `runsOut`; the plan still misses `leftDays` days).
+// { days, months, lengthText } of a supply (months = days / 30, for older screens).
+const lengthOf = (days) => ({ days, months: days / 30, lengthText: require('../constants/supplyPlans').lengthText(days) });
 function supplyStartView(stage, request, state) {
   const D = require('./treatmentDelivery');
   const d = plain(stage.delivery);
@@ -316,11 +318,12 @@ function supplyStartView(stage, request, state) {
   return {
     later: true, pending: state.pending, needed: state.needed, onPlan: Boolean(state.onPlan), requestId: key, poNumber: request.poNumber || '',
     supplyLabel: supplyLabel(request.supplyPlan, request.supplyPart),
-    months: D.partMonthsOf(request.supplyPlan, request.supplyPart) || (index >= 0 ? Number(parts[index].months || 0) : 0),
+    ...lengthOf(D.partDaysOf(request.supplyPlan, request.supplyPart) || (index >= 0 ? D.partDays(parts[index]) : 0)),
     receivedAt: iso(plain(request.courier).deliveredAt),
     startDate: iso(state.date), setBy: state.by || '', setAt: iso(state.setAt), note: state.note || '',
     skipReason: state.skipReason || '', skippedAt: iso(state.skippedAt), skippedBy: state.skippedBy || '', skipNote: state.skipNote || '',
     monthsLeft: d.phaseDays ? Math.max(0, Math.ceil((d.phaseDays - covered) / 30)) : 0,
+    leftDays: d.phaseDays ? Math.max(0, d.phaseDays - covered) : 0,
     runsOut: before.length ? D.dateOfDay(covered, before) : null,
     previousStart: before.length ? before[before.length - 1].startDate || '' : '',
   };
@@ -434,8 +437,10 @@ function buildTransitCase(patient, stage, now = new Date(), { payment = null } =
       status: request.status,
       poNumber: request.poNumber || '',
       supplyLabel: supplyLabel(request.supplyPlan, request.supplyPart),
-      // Months of medicine on this request and the note saved at Verify payment (months for how much payment).
+      // Length of medicine on this request and the note saved at Verify payment (how much medicine for how much payment).
       supplyMonths: require('../constants/supplyPlans').supplyOption(request.supplyPlan, request.supplyPart)?.months || 0,
+      supplyDays: require('../constants/supplyPlans').supplyOption(request.supplyPlan, request.supplyPart)?.days || 0,
+      supplyText: require('../constants/supplyPlans').lengthText(require('../constants/supplyPlans').supplyOption(request.supplyPlan, request.supplyPart)?.days || 0),
       supplyNote: request.supplyNote || t.poPaperSignedNote || '',
       medicines: request.medicines || '',
       notes: request.notes || '',

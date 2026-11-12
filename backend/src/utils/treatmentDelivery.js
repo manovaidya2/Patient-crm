@@ -3,7 +3,7 @@
 // reviews that ride on them, and the PCC's tasks towards the next phase.
 // Only rules here, no database, so every rule can be tested. The controller (deliveryController.js) applies them.
 const { COMPONENTS } = require('./postCounselingRecord');
-const { supplyOption, customMonths, SUPPLY_PLANS } = require('../constants/supplyPlans');
+const { supplyOption, customDays, isCustomPlan, SUPPLY_PLANS, lengthText } = require('../constants/supplyPlans');
 const { AFTERNOON_WEEKDAYS, AFTERNOON_FROM_HOUR } = require('./pccCalendar');
 
 const COMPONENT_KEYS = COMPONENTS.map((component) => component.key);
@@ -93,17 +93,23 @@ const UNDERSTANDING = { good: 'Good', partial: 'Partial', repeat: 'Needs repeat'
 const RECORDING = { recorded: 'Recorded (consented)', declined: 'Consent declined', unsupported: 'Not supported', failed: 'Recording failed' };
 
 // ---- Supply -> phase length -------------------------------------------------------------------------------------
-// The whole plan the purchase order belongs to (6 months for 6M / 1+5 / 2+4, the chosen months for a custom plan)...
-const planMonthsOf = (supplyPlan) => customMonths(supplyPlan) || (SUPPLY_PLANS[supplyPlan] ? 6 : 0);
-// ...and the months of medicine this one purchase order actually supplies.
-const partMonthsOf = (supplyPlan, supplyPart) => supplyOption(supplyPlan, supplyPart)?.months || 0;
-// How long the plan of a phase is when it is made from one supply ({ months, planMonths, supplyPart }): the phase
-// length of the settings, or longer when the purchase order says so. The medicine can come in any combination of
-// months on later purchase orders; each adds its months to the same plan. A "rest" supply with no plan before it (the
-// phase started before this page existed) is planned on its own.
-const planLengthOf = (supply = {}, rules) => (supply.supplyPart === 'rest'
-  ? Number(supply.months || 0)
-  : Math.max(cleanRules(rules).phaseMonths, Number(supply.planMonths || 0), Number(supply.months || 0)));
+// Lengths are kept in days (a month is 30 days): a custom supply can be 45 days.
+// The whole plan the purchase order belongs to (180 days for 6M / 1+5 / 2+4, the chosen length for a custom plan)...
+const planDaysOf = (supplyPlan) => customDays(supplyPlan) || (SUPPLY_PLANS[supplyPlan] ? 180 : 0);
+// ...and the days of medicine this one purchase order actually supplies.
+const partDaysOf = (supplyPlan, supplyPart) => supplyOption(supplyPlan, supplyPart)?.days || 0;
+const planMonthsOf = (supplyPlan) => planDaysOf(supplyPlan) / 30;
+const partMonthsOf = (supplyPlan, supplyPart) => partDaysOf(supplyPlan, supplyPart) / 30;
+// A custom supply of a Mental Health patient is the whole package of the phase (a 45 day package is a 45 day phase).
+// Autism / ADHD phases run the months of the settings and a custom supply is one part of them.
+const isWholePackage = (supply = {}, category = '') => category === 'mental_health' && isCustomPlan(supply.supplyPlan) && supply.supplyPart !== 'rest';
+// How long (days) the plan of a phase is when it is made from one supply ({ days, planDays, supplyPart, supplyPlan }):
+// the phase length of the settings, or longer when the purchase order says so. The medicine can come in any
+// combination of months and days on later purchase orders; each adds its days to the same plan. A "rest" supply with
+// no plan before it (the phase started before this page existed) is planned on its own, and so is a whole package.
+const planLengthOf = (supply = {}, rules, category = '') => (supply.supplyPart === 'rest' || isWholePackage(supply, category)
+  ? Number(supply.days || 0)
+  : Math.max(cleanRules(rules).phaseMonths * 30, Number(supply.planDays || 0), Number(supply.days || 0)));
 const cleanComponents = (list) => COMPONENT_KEYS.filter((key) => (Array.isArray(list) ? list : []).includes(key));
 
 // ---- Days ------------------------------------------------------------------------------------------------------
@@ -186,10 +192,12 @@ const sessionInfo = (item) => {
 
 // ---- The calendar ----------------------------------------------------------------------------------------------
 // The supply can come in parts (1 + 5 months). Each part covers its days of the plan from its own start date:
-// parts = [{ startDate: 'YYYY-MM-DD', months, offsetDays }]. Day 1 of a part is its start date.
-const coveredDays = (parts = []) => parts.reduce((sum, part) => sum + Number(part.months || 0) * 30, 0);
+// parts = [{ startDate: 'YYYY-MM-DD', days, months, offsetDays }]. Day 1 of a part is its start date. A part saved
+// before days were kept has only its months.
+const partDays = (part) => Number(part?.days || 0) || Math.round(Number(part?.months || 0) * 30);
+const coveredDays = (parts = []) => parts.reduce((sum, part) => sum + partDays(part), 0);
 const dateOfDay = (day, parts = []) => {
-  const part = parts.find((p) => day > Number(p.offsetDays || 0) && day <= Number(p.offsetDays || 0) + Number(p.months || 0) * 30);
+  const part = parts.find((p) => day > Number(p.offsetDays || 0) && day <= Number(p.offsetDays || 0) + partDays(p));
   return part && validDay(part.startDate) ? addDays(part.startDate, day - 1 - Number(part.offsetDays || 0)) : null;
 };
 // No more medicine is awaited for this plan: every month of it has started, or the PCC closed the phase with the
@@ -376,7 +384,7 @@ const progressOf = (sessions, now = new Date()) => {
 
 module.exports = {
   COMPONENT_KEYS, COMPONENT_LABEL, DEFAULT_RULES, RULE_LIMITS, TEMPLATES, PLAN_COMPONENTS, FOLLOW_UP_LINES, TASKS, FAMILY_LIMIT, MISS_REASONS, UNDERSTANDING, RECORDING, STATE_LABELS,
-  cleanRules, cleanComponents, planMonthsOf, partMonthsOf, planLengthOf, supplyDone, dayOf, addDays, diffDays, weekdayOf, atHour, validDay, scaleDay, followUpCount, followUpDays,
+  cleanRules, cleanComponents, planDaysOf, partDaysOf, planMonthsOf, partMonthsOf, isWholePackage, planLengthOf, partDays, lengthText, supplyDone, dayOf, addDays, diffDays, weekdayOf, atHour, validDay, scaleDay, followUpCount, followUpDays,
   buildPlan, sessionInfo, coveredDays, dateOfDay, isClosed, nextWorkingDay, hourFor, layout, stateOf, isOpen, isMovable, checklistFor, cleanSubmission, summaryOf,
   trackerOf, phaseEndDay, isDelivered, nextPhaseOpen, alertsOf, progressOf,
 };

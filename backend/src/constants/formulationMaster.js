@@ -2,7 +2,7 @@
 // Quantities are the SIX-MONTH totals per age band; a supply part takes its fraction (1+5 -> 1/6 and 5/6, 2+4 -> 2/6 and
 // 4/6), exactly as the master's packing table does. Doses and chit texts come from the Chit Book.
 // Items marked `pending` carry a note the doctor still has to confirm (the documents disagree or leave it open).
-const { AGE_BANDS, customMonths } = require('./supplyPlans');
+const { AGE_BANDS, customLength } = require('./supplyPlans');
 
 // Age groups without a master: their sheet starts empty and is filled for the child (Medicine Department / doctor).
 const CUSTOM_BANDS = ['0-3'];
@@ -150,7 +150,8 @@ function normalizeMaster(input = {}, ageBand) {
 function formulationFor({ ageBand, plan, part }, master = null) {
   const key = `${plan}:${part}`;
   // A custom supply (months chosen in post counselling) has no master: the sheet is made for this patient.
-  if (customMonths(plan)) return customSheet({ ageBand, plan, part: 'full', months: customMonths(plan) });
+  const custom = customLength(plan);
+  if (custom) return customSheet({ ageBand, plan, part: 'full', months: custom.total / 30, days: custom.total });
   const fraction = PART_FRACTION[key];
   if (CUSTOM_BANDS.includes(ageBand) && fraction) return customSheet({ ageBand, plan, part });
   if (!BANDS.includes(ageBand) || !fraction) return null;
@@ -202,12 +203,13 @@ function formulationFor({ ageBand, plan, part }, master = null) {
 }
 
 // 0-3 years: the same sheet with no medicines yet; they are added for this child (applyOverrides "add" lines).
-function customSheet({ ageBand, plan, part, months = PART_MONTHS[`${plan}:${part}`] }) {
+// A custom supply (months and days chosen in post counselling) is the same, for its own days.
+function customSheet({ ageBand, plan, part, months = PART_MONTHS[`${plan}:${part}`], days = months * 30 }) {
   const first = part !== 'rest';
-  const customPlan = customMonths(plan) > 0;
+  const customPlan = Boolean(customLength(plan));
   return {
-    ageBand, ageBandLabel: AGE_BANDS[ageBand] || '', plan, part, months, days: months * 30, first,
-    title: customPlan ? `${months} MONTH FORMULATION | CUSTOM SUPPLY` : `${plan === '6M' ? 'SIX MONTH' : `${months} MONTH`} FORMULATION${plan === '6M' ? '' : part === 'first' ? ' | PART 1' : ' | PART 2'} | CUSTOM`,
+    ageBand, ageBandLabel: AGE_BANDS[ageBand] || '', plan, part, months, days, first,
+    title: customPlan ? `${days % 30 ? `${days} DAY` : `${days / 30} MONTH`} FORMULATION | CUSTOM SUPPLY` : `${plan === '6M' ? 'SIX MONTH' : `${months} MONTH`} FORMULATION${plan === '6M' ? '' : part === 'first' ? ' | PART 1' : ' | PART 2'} | CUSTOM`,
     lines: [], honey: null,
     papers: first ? TREATMENT_PAPERS : [],
     papersNote: first ? 'Treatment Papers केवल पहली आपूर्ति में।' : 'Treatment Papers पहली आपूर्ति में दिए जा चुके हैं; दोबारा नहीं देने हैं।',

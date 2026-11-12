@@ -216,11 +216,11 @@ export default function TreatmentDelivery() {
                       {row.planMonths > 0 && (
                         <div className="mt-2">
                           <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-charcoal/60">
-                            <span>{row.progress.done} of {row.progress.total} sessions done · medicine for {row.coveredMonths} of {row.planMonths} month(s)</span>
+                            <span>{row.progress.done} of {row.progress.total} sessions done · medicine for {row.coveredText} of {row.planText}</span>
                             <span>{next ? `Next: ${next.title} · ${fmtDT(next.at)}` : row.status === 'delivered' ? 'All sessions done' : 'No session waiting'}</span>
                           </div>
                           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#F3EEE2]"><div className={`h-full rounded-full ${row.status === 'delivered' ? 'bg-[#2F8F5B]' : 'bg-sage'}`} style={{ width: `${percent}%` }} /></div>
-                          {row.nextSupply && <p className={`mt-1 text-[11.5px] ${row.nextSupply.level === 'red' ? 'font-semibold text-[#9F1D1D]' : row.nextSupply.level === 'amber' ? 'font-semibold text-[#7C5B2E]' : 'text-charcoal/60'}`}>Next supply ({row.nextSupply.monthsLeft} month(s)): {row.nextSupply.text}{row.nextSupply.daysLeft != null ? ` · medicine in hand ${row.nextSupply.daysLeft >= 0 ? `for ${row.nextSupply.daysLeft} more day(s)` : `finished ${-row.nextSupply.daysLeft} day(s) ago`}` : ''}</p>}
+                          {row.nextSupply && <p className={`mt-1 text-[11.5px] ${row.nextSupply.level === 'red' ? 'font-semibold text-[#9F1D1D]' : row.nextSupply.level === 'amber' ? 'font-semibold text-[#7C5B2E]' : 'text-charcoal/60'}`}>Next supply ({row.nextSupply.leftText || `${row.nextSupply.monthsLeft} month(s)`}): {row.nextSupply.text}{row.nextSupply.daysLeft != null ? ` · medicine in hand ${row.nextSupply.daysLeft >= 0 ? `for ${row.nextSupply.daysLeft} more day(s)` : `finished ${-row.nextSupply.daysLeft} day(s) ago`}` : ''}</p>}
                         </div>
                       )}
                     </button>

@@ -137,7 +137,8 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
     if (field.type === 'ageGroup') return <div key={field.key} className={wrap}><Auto label={field.label} value={ageBandLabel(ageBandFor(values.patientAge)) || 'Enter the age (from 3 years)'} /></div>;
     if (field.type === 'auto') return <div key={field.key} className={wrap}><Auto label={field.label} value={values[field.key] || 'Generated on convert (PO-xxxx)'} /></div>;
     if (field.type === 'check') return <label key={field.key} className={`flex items-center gap-2 pt-6 text-sm font-semibold text-charcoal ${wrap}`}><input type="checkbox" disabled={!editable} checked={Boolean(values[field.key])} onChange={(event) => onChange(field.key, event.target.checked)} className="h-4 w-4 accent-sage" />{field.label}</label>;
-    // The months of a custom supply are asked only once "Custom" is picked (the saved label reads "Custom: 4 months").
+    // The months / days of a custom supply are asked only once "Custom" is picked (the saved label reads "Custom: 4 months",
+    // "Custom: 45 days").
     if (field.showWhen?.custom && !isCustomSupplyLabel(values[field.showWhen.key])) return null;
     const isOn = (option) => values[field.key] === option || (option === CUSTOM_PICK_LABEL && isCustomSupplyLabel(values[field.key]));
     return (
@@ -145,7 +146,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
         <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}{field.key === 'mode' ? ' *' : ''}</p>
         {field.type === 'single'
           ? <div className="flex flex-wrap gap-1.5">{field.options.map((option) => <Chip key={option} disabled={!editable} active={isOn(option)} onClick={() => onChange(field.key, isOn(option) ? '' : option)}>{option}</Chip>)}</div>
-          : <input disabled={!editable} type={field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : 'text'} inputMode={field.type === 'money' ? 'decimal' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className={inputClass} />}
+          : <input disabled={!editable} type={field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : 'text'} inputMode={field.type === 'money' ? 'decimal' : field.numeric ? 'numeric' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className={inputClass} />}
       </div>
     );
   };

@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const { setMedicineStart, listExplanations } = require('./transitController');
-const { startDelivery, getPlan, closeSupply, getWorklist, setupPlan, saveSettings } = require('./deliveryController');
+const { startDelivery, getPlan, closeSupply, getWorklist, setupPlan, saveSettings, savePart } = require('./deliveryController');
 const T = require('../utils/transitFlow');
 const D = require('../utils/treatmentDelivery');
 afterEach(() => mock.restoreAll());
@@ -143,12 +143,24 @@ test('a supply whose months are not on record: the PCC tells the months together
   const { patient, stage } = await makeCase();
   receive(addSecond(stage, { supplyPlan: '', supplyPart: '' }), ago(3));
   assert.equal((await listed(patient))[0].supplyStart.months, 0);
-  await assert.rejects(invoke(setMedicineStart, patient, { requestId: 'r2', startDate: ago(2) }), /The months of this supply are not on record\. Choose how many months of medicine it is\./);
+  await assert.rejects(invoke(setMedicineStart, patient, { requestId: 'r2', startDate: ago(2) }), /The length of this supply is not on record\. Enter its months \/ days of medicine\./);
   assert.deepEqual(partsOf(stage), [['r1', 1, ago(40)]]);
   const saved = await invoke(setMedicineStart, patient, { requestId: 'r2', startDate: ago(2), months: 3 });
   assert.deepEqual([saved.delivery.status, saved.delivery.months, saved.delivery.monthsLeft], ['extended', 3, 2]);
   assert.match(saved.delivery.notice, /2 months of the phase still wait for medicine/);
   assert.deepEqual(partsOf(stage), [['r1', 1, ago(40)], ['r2', 3, ago(2)]]);
+});
+
+test('a supply added by hand on the Treatment Delivery page in months and days', async () => {
+  const { patient, stage } = await makeCase();
+  await assert.rejects(invoke(savePart, patient, { startDate: ago(10) }), /Enter the months \/ days of medicine in this supply/);
+  await assert.rejects(invoke(savePart, patient, { startDate: ago(10), months: 5, days: 10 }), /Only 5 months of the plan are left/);
+  const saved = await invoke(savePart, patient, { startDate: ago(10), months: 1, days: 10 });
+  assert.match(saved.message, /Next supply added/);
+  assert.deepEqual(stage.delivery.parts.map((p) => [p.days, p.offsetDays, p.startDate]), [[30, 0, ago(40)], [40, 30, ago(10)]]);
+  assert.deepEqual([saved.plan.delivery.parts[1].lengthText, saved.plan.delivery.coveredText, saved.plan.delivery.planText], ['1 month 10 days', '2 months 10 days', '6 months']);
+  assert.deepEqual([saved.plan.nextSupply.leftDays, saved.plan.nextSupply.leftText], [110, '3 months 20 days']);
+  await assert.rejects(invoke(savePart, patient, { startDate: ago(5), months: 3, days: 21 }), /Only 3 months 20 days of the plan are left/);
 });
 
 test('Treatment Delivery page: the next supply, "no further supply" with a reason, and reopening', async () => {

@@ -26,7 +26,7 @@ export default function PurchaseOrderRow({ po, onOpen, showPatient = true }) {
         <span className="ml-auto font-display text-[14px] font-extrabold text-charcoal">{money(po.amount)}</span>
       </div>
       {showPatient && <div className="mt-2 flex min-w-0 items-center gap-2.5"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-extrabold ${mine ? 'bg-[#FFE4CC] text-[#C2410C]' : 'bg-[#E9EFE8] text-[#3F5546]'}`}>{initials(po.patientName)}</span><p className="min-w-0 truncate text-[13px] text-charcoal"><b className="font-bold">{po.patientName}</b> <span className="text-[11.5px] text-charcoal/60">{po.patientCode}{po.patientPhone ? ` · ${po.patientPhone}` : ''}</span></p></div>}
-      {/* What was paid on this PO, what is left, and how many months of medicine it sends. */}
+      {/* What was paid on this PO, what is left, and how much medicine it sends. */}
       {po.poPayment && (
         <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-charcoal/75">
           <span>Paid <b className="text-[#1F6B41]">{money(po.poPayment.amountPaid)}</b> of {money(po.amount || po.poPayment.totalAmount)}</span>
@@ -34,7 +34,7 @@ export default function PurchaseOrderRow({ po, onOpen, showPatient = true }) {
             ? <span>Balance <b>{money(po.carriedForward.amount)}</b> carried to {po.carriedForward.poNumber}</span>
             : <span>Balance <b className={Number(po.poPayment.remaining) > 0 ? 'text-[#C2410C]' : 'text-[#1F6B41]'}>{money(po.poPayment.remaining)}</b></span>}
           {po.poPayment.pendingCount > 0 && <span className="font-semibold text-amber-800">{po.poPayment.pendingCount} payment{po.poPayment.pendingCount === 1 ? '' : 's'} to verify</span>}
-          {po.supplyMonths > 0 && <span><b>{po.supplyMonths} month{po.supplyMonths === 1 ? '' : 's'}</b> of medicine</span>}
+          {po.supplyText && <span><b>{po.supplyText}</b> of medicine</span>}
           {po.previousPo && <span className="text-sky-900">balance of {po.previousPo.poNumber}</span>}
         </p>
       )}

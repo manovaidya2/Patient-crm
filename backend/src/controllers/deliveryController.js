@@ -10,6 +10,7 @@ const DeliverySetting = require('../models/DeliverySetting');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { cached } = require('../utils/readCache');
+const { customLengthOk } = require('../constants/supplyPlans');
 const { COMPONENTS } = require('../utils/postCounselingRecord');
 const { MEDICINE_ACTIVE, startRequestOf, requestKey } = require('../utils/transitFlow');
 const S = require('../utils/deliverySupply');
@@ -57,6 +58,17 @@ const planOf = (stage) => (stage.delivery?.parts?.length ? stage.delivery : fail
 const log = (patient, user, number, details) => patient.activityLog?.push({ action: 'Treatment Delivery', details: `Phase ${number}: ${details}`, actorName: user?.name || 'System', actorRole: user?.role || '' });
 const changed = (req, patient, number) => req.app?.get?.('io')?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('delivery:changed', { patientId: String(patient._id), phase: Number(number) });
 
+// ---- Lengths --------------------------------------------------------------------------------------------------------
+// Lengths of medicine are kept in days (a month is 30 days): a custom supply can be 45 days.
+const L = (days) => D.lengthText(days);
+const isAre = (days) => (days === 30 || days === 1 ? 'is' : 'are');
+// A length typed by a person, { months, days } -> days; 0 when it is not 1 day to 12 months.
+const typedDays = (months, days) => {
+  const m = months === '' || months == null ? 0 : Number(months);
+  const n = days === '' || days == null ? 0 : Number(days);
+  return customLengthOk(m, n) ? m * 30 + n : 0;
+};
+
 // ---- The plan's entries -------------------------------------------------------------------------------------------
 const ensure = (stage) => {
   if (!stage.delivery) stage.delivery = {};
@@ -78,7 +90,7 @@ const applyPlan = (patient, stage, { byName = '', holidays = new Set(), now = ne
   const rules = D.cleanRules(d.rules);
   const items = D.buildPlan(d.components, d.phaseDays, rules);
   const from = Number(shiftPart?.offsetDays || 0);
-  const inShift = (day) => Boolean(shiftPart) && day > from && day <= from + Number(shiftPart.months || 0) * 30;
+  const inShift = (day) => Boolean(shiftPart) && day > from && day <= from + D.partDays(shiftPart);
   const entries = planEntries(stage).map(({ entry }) => entry);
   const onRecord = new Set(entries.filter((entry) => !entry.delivery.droppedAt).map((entry) => entry.delivery.key));
   const movable = new Map(entries.filter((entry) => D.isMovable(entry) && inShift(entry.delivery.day)).map((entry) => [entry.delivery.key, entry]));
@@ -141,14 +153,13 @@ const supplyOf = async (stage, request = startRequestOf(stage)) => {
   let supplyPlan = request?.supplyPlan || '';
   let supplyPart = request?.supplyPart || '';
   const poNumber = request?.poNumber || stage.purchaseOrder || '';
-  if (!D.partMonthsOf(supplyPlan, supplyPart) && dbUp() && poNumber) {
+  if (!D.partDaysOf(supplyPlan, supplyPart) && dbUp() && poNumber) {
     const po = await require('../models/PurchaseOrder').findOne({ poNumber }).select('supplyPlan supplyPart').lean();
     if (po) { supplyPlan = po.supplyPlan || ''; supplyPart = po.supplyPart || ''; }
   }
-  return {
-    requestId: String(request?.requestId || 'legacy'), poNumber, supplyPlan, supplyPart,
-    months: D.partMonthsOf(supplyPlan, supplyPart), planMonths: D.planMonthsOf(supplyPlan),
-  };
+  const days = D.partDaysOf(supplyPlan, supplyPart);
+  const planDays = D.planDaysOf(supplyPlan);
+  return { requestId: String(request?.requestId || 'legacy'), poNumber, supplyPlan, supplyPart, days, months: days / 30, planDays, planMonths: planDays / 30 };
 };
 // The section D ticks: kept on the phase since conversion; for a phase converted earlier, read from its Treatment & PO paper.
 const ticksOf = async (patient, stage) => {
@@ -168,10 +179,10 @@ const noticeOf = (result) => [
   result.skipped ? `${result.skipped} left out because their day had already passed (they can be scheduled by hand)` : '',
 ].filter(Boolean).join(', ');
 
-// A later supply of the phase (its own purchase order, any months) got its medicine start date, new or corrected
-// (`request.medicineStartDate`): the plan goes on with it from that day. `askedMonths` counts only when the months of
-// the supply are not on record. Throws, and nothing is saved, when the months are missing.
-const continueDelivery = async (patient, stage, user, now, request, askedMonths = 0) => {
+// A later supply of the phase (its own purchase order, any months / days) got its medicine start date, new or
+// corrected (`request.medicineStartDate`): the plan goes on with it from that day. `asked` ({ months, days }) counts
+// only when the length of the supply is not on record. Throws, and nothing is saved, when the length is missing.
+const continueDelivery = async (patient, stage, user, now, request, asked = {}) => {
   const d = stage.delivery;
   if (!request.medicineStartDate) return { status: 'no_start', notice: '' };
   if (!d?.parts?.length || !d.phaseDays) return { status: 'no_plan', notice: '' };
@@ -190,26 +201,26 @@ const continueDelivery = async (patient, stage, user, now, request, askedMonths 
   }
   if (D.supplyDone(d)) return { status: 'covered', notice: '' };
   const covered = D.coveredDays(d.parts);
-  const left = Math.ceil((d.phaseDays - covered) / 30);
-  const own = supply.months || wholeNumber(askedMonths, 1, 12);
-  if (!own) fail('The months of this supply are not on record. Choose how many months of medicine it is.');
-  const months = Math.min(own, left);
-  d.parts.push({ requestId: supply.requestId, poNumber: supply.poNumber, months, startDate: startDay, offsetDays: covered, source: 'transit', addedAt: now, addedByName: byName });
+  const left = d.phaseDays - covered;
+  const own = supply.days || typedDays(asked.months, asked.days);
+  if (!own) fail('The length of this supply is not on record. Enter its months / days of medicine.');
+  const days = Math.min(own, left);
+  d.parts.push({ requestId: supply.requestId, poNumber: supply.poNumber, days, months: days / 30, startDate: startDay, offsetDays: covered, source: 'transit', addedAt: now, addedByName: byName });
   Object.assign(d, { setupNeededAt: null, setupNeededWhy: '' });
   const result = applyPlan(patient, stage, { byName, holidays, now });
-  const still = left - months;
-  log(patient, user, stage.number, `next supply${supply.poNumber ? ` ${supply.poNumber}` : ''} of ${months} month(s) starts on ${startDay}: ${noticeOf(result)}`);
+  const still = left - days;
+  log(patient, user, stage.number, `next supply${supply.poNumber ? ` ${supply.poNumber}` : ''} of ${L(days)} starts on ${startDay}: ${noticeOf(result)}`);
   return {
-    status: 'extended', ...result, months, monthsLeft: still,
-    notice: `Treatment Delivery: the next ${months} month${months === 1 ? '' : 's'} of the plan ${months === 1 ? 'is' : 'are'} scheduled from ${startDay}. ${noticeOf(result)}.${still > 0 ? ` ${still} month${still === 1 ? '' : 's'} of the phase still wait${still === 1 ? 's' : ''} for medicine.` : ''}`,
+    status: 'extended', ...result, days, months: days / 30, leftDays: still, monthsLeft: Math.ceil(still / 30),
+    notice: `Treatment Delivery: the next ${L(days)} of the plan ${isAre(days)} scheduled from ${startDay}. ${noticeOf(result)}.${still > 0 ? ` ${L(still)} of the phase still wait${isAre(still) === 'is' ? 's' : ''} for medicine.` : ''}`,
   };
 };
 
 // Called when a medicine start date is saved (new or corrected). Returns { status, notice } for the screen.
 // Without `request` it is the start date of the phase (the first supply, stage.transit): the plan is made from it.
 // With `request` it is the start date of that later supply: the plan goes on with it (continueDelivery).
-const startDelivery = async (patient, stage, user, now = new Date(), { request = null, months: askedMonths = 0 } = {}) => {
-  if (request) return continueDelivery(patient, stage, user, now, request, askedMonths);
+const startDelivery = async (patient, stage, user, now = new Date(), { request = null, months: askedMonths = 0, days: askedDays = 0 } = {}) => {
+  if (request) return continueDelivery(patient, stage, user, now, request, { months: askedMonths, days: askedDays });
   if (!stage.transit?.medicineStartDate) return { status: 'no_start', notice: '' };
   const startDay = D.dayOf(stage.transit.medicineStartDate);
   const [supply, ticks, rules, holidays] = await Promise.all([supplyOf(stage), ticksOf(patient, stage), loadRules(), loadHolidays()]);
@@ -231,7 +242,7 @@ const startDelivery = async (patient, stage, user, now = new Date(), { request =
     let part = d.parts.find((p) => p.requestId === supply.requestId);
     const replaced = part ? null : d.parts.find((p) => p.source === 'transit' && !alive.has(p.requestId));
     if (replaced) part = Object.assign(replaced, { requestId: supply.requestId, poNumber: supply.poNumber || replaced.poNumber });
-    if (!part && last.source === 'transit' && startDay < D.addDays(last.startDate, Math.floor(last.months * 15))) part = last;
+    if (!part && last.source === 'transit' && startDay < D.addDays(last.startDate, Math.floor(D.partDays(last) / 2))) part = last;
     if (part) {
       if (part.startDate === startDay) return { status: 'unchanged', notice: '' };
       const before = part.startDate;
@@ -243,23 +254,24 @@ const startDelivery = async (patient, stage, user, now = new Date(), { request =
     }
     const covered = D.coveredDays(d.parts);
     if (D.supplyDone(d)) return { status: 'covered', notice: '' };
-    if (!supply.months) return needs('months', 'Treatment Delivery: the months of this supply are not on record. Add the supply on the Treatment Delivery page so the rest of the plan is scheduled.');
-    const months = Math.min(supply.months, Math.ceil((d.phaseDays - covered) / 30));
-    d.parts.push({ requestId: supply.requestId, poNumber: supply.poNumber, months, startDate: startDay, offsetDays: covered, source: 'transit', addedAt: now, addedByName: byName });
+    if (!supply.days) return needs('months', 'Treatment Delivery: the length of this supply (months / days) is not on record. Add the supply on the Treatment Delivery page so the rest of the plan is scheduled.');
+    const days = Math.min(supply.days, d.phaseDays - covered);
+    d.parts.push({ requestId: supply.requestId, poNumber: supply.poNumber, days, months: days / 30, startDate: startDay, offsetDays: covered, source: 'transit', addedAt: now, addedByName: byName });
     Object.assign(d, { setupNeededAt: null, setupNeededWhy: '' });
     const result = applyPlan(patient, stage, { byName, holidays, now });
-    log(patient, user, stage.number, `next supply of ${months} month(s) started on ${startDay}: ${noticeOf(result)}`);
-    return { status: 'extended', ...result, notice: `Treatment Delivery: the next ${months} month(s) of the plan are scheduled. ${noticeOf(result)}.` };
+    log(patient, user, stage.number, `next supply of ${L(days)} started on ${startDay}: ${noticeOf(result)}`);
+    return { status: 'extended', ...result, notice: `Treatment Delivery: the next ${L(days)} of the plan ${isAre(days)} scheduled. ${noticeOf(result)}.` };
   }
 
   if (!ticks.components.length) return needs('components', 'Treatment Delivery: the section D ticks of this phase are not on record, so no sessions were made. Set the plan up on the Treatment Delivery page.');
-  if (!supply.months) return needs('months', 'Treatment Delivery: the months of medicine supplied are not on record, so no sessions were made. Set the plan up on the Treatment Delivery page.');
-  // The plan is as long as the phase (settings: 6 months), whatever months this purchase order carries; the later
-  // purchase orders of the phase add theirs. A phase whose first supply started before this page existed ("rest"
-  // with no plan before it): only the supply that starts now is planned.
-  const planMonths = D.planLengthOf(supply, rules);
-  const result = createPlan(patient, stage, { components: ticks.components, source: ticks.source, startDay, months: supply.months, planMonths, requestId: supply.requestId, poNumber: supply.poNumber, partSource: 'transit', byName, rules, holidays, now });
-  log(patient, user, stage.number, `plan made from the start date ${startDay} (${supply.months} of ${planMonths} month(s)): ${noticeOf(result)}`);
+  if (!supply.days) return needs('months', 'Treatment Delivery: the length of medicine supplied (months / days) is not on record, so no sessions were made. Set the plan up on the Treatment Delivery page.');
+  // The plan is as long as the phase (settings: 6 months), whatever this purchase order carries; the later purchase
+  // orders of the phase add theirs. A custom package of a Mental Health patient (45 days ...) is the whole phase. A
+  // phase whose first supply started before this page existed ("rest" with no plan before it): only the supply that
+  // starts now is planned.
+  const planDays = D.planLengthOf(supply, rules, patient.category);
+  const result = createPlan(patient, stage, { components: ticks.components, source: ticks.source, startDay, days: supply.days, planDays, requestId: supply.requestId, poNumber: supply.poNumber, partSource: 'transit', byName, rules, holidays, now });
+  log(patient, user, stage.number, `plan made from the start date ${startDay} (${L(supply.days)} of ${L(planDays)}): ${noticeOf(result)}`);
   // The next supply was already with the patient when the treatment started (both handed over together): its start
   // date is asked for at once.
   const more = await supplyReceived(patient, stage, user, now);
@@ -280,7 +292,7 @@ const followParts = (patient, stage, index, before, { byName, holidays, now }) =
     if (part.source !== 'receipt') break;
     const request = requests.find((item) => requestKey(item) === part.requestId);
     const receivedAt = plain(request?.courier)?.deliveredAt || null;
-    if (part.startDate !== S.autoStartDay({ startDate: previousBefore, months: previous.months }, receivedAt)) break;
+    if (part.startDate !== S.autoStartDay({ startDate: previousBefore, days: previous.days, months: previous.months }, receivedAt)) break;
     const next = S.autoStartDay(previous, receivedAt);
     if (next === part.startDate) break;
     previousBefore = part.startDate;
@@ -320,13 +332,14 @@ const phasePos = async (patientId, phase) => (dbUp()
   ? require('../models/PurchaseOrder').find({ patient: patientId, phase, status: { $ne: 'cancelled' } }).select(PO_FIELDS).lean()
   : null);
 
-const createPlan = (patient, stage, { components, source, startDay, months, planMonths, requestId, poNumber, partSource, byName, rules, holidays, now }) => {
+// `days`: the medicine in hand; `planDays`: the whole phase (both in days).
+const createPlan = (patient, stage, { components, source, startDay, days, planDays, requestId, poNumber, partSource, byName, rules, holidays, now }) => {
   const d = ensure(stage);
   Object.assign(d, {
     components, componentsSource: d.componentsSource || source || 'manual', componentsSetAt: d.componentsSetAt || now, componentsSetByName: d.componentsSetByName || byName,
-    setupNeededAt: null, setupNeededWhy: '', planMonths, phaseDays: planMonths * 30, rules,
+    setupNeededAt: null, setupNeededWhy: '', planMonths: planDays / 30, phaseDays: planDays, rules,
   });
-  d.parts.push({ requestId, poNumber, months, startDate: startDay, offsetDays: 0, source: partSource, addedAt: now, addedByName: byName });
+  d.parts.push({ requestId, poNumber, days, months: days / 30, startDate: startDay, offsetDays: 0, source: partSource, addedAt: now, addedByName: byName });
   return applyPlan(patient, stage, { byName, holidays, now });
 };
 
@@ -395,22 +408,25 @@ const planView = async (patient, number, user, now = new Date()) => {
   const famKeys = new Set(pairs.filter(({ entry }) => entry.delivery.template === 'fam' && !(entry.status === 'cancelled' && !entry.delivery.rescheduledTo)).map(({ entry }) => entry.delivery.key));
   const startDate = stage.transit?.medicineStartDate ? D.dayOf(stage.transit.medicineStartDate) : '';
   const nextSupply = needsSupply(stage) ? S.nextSupplyOf({ stage, pos: await phasePos(patient._id, stage.number), now }) : null;
+  const setupPlanDays = supply.days ? D.planLengthOf(supply, rules, patient.category) : rules.phaseMonths * 30;
   return {
     patient: { id: String(patient._id), name: patient.patientName, code: patient.patientCode || '', phone: String(patient.number || ''), pccId: pccIdOf(patient), pccName: patient.assignedDoctor?.name || '' },
     phase: stage.number, purchaseOrder: stage.purchaseOrder || '', status, statusLabel: STATUS_LABELS[status],
     canAct: mayAct(user, patient), isAdmin: isAdminLike(user),
     setup: {
       needed: status === 'setup' || status === 'none', why: d?.setupNeededWhy || '',
-      components: ticks.components, source: ticks.source, startDate, months: supply.months, planMonths: supply.months ? D.planLengthOf(supply, rules) : rules.phaseMonths,
+      components: ticks.components, source: ticks.source, startDate,
+      // The supply in hand and the whole phase, in days (months for older screens); a whole package is its own phase.
+      days: supply.days, months: supply.months, planDays: setupPlanDays, planMonths: setupPlanDays / 30, wholePackage: D.isWholePackage(supply, patient.category),
       options: COMPONENTS.map((c) => ({ key: c.key, label: c.label, scope: c.scope })),
     },
     delivery: hasPlan ? {
       components: d.components.map((key) => ({ key, label: D.COMPONENT_LABEL[key] || key })), componentsSource: d.componentsSource || '', componentsSetAt: iso(d.componentsSetAt), componentsSetByName: d.componentsSetByName || '',
-      planMonths: d.planMonths, phaseDays: d.phaseDays, coveredDays: D.coveredDays(d.parts), endDate: D.phaseEndDay(d), followUpsPromised: d.followUpsPromised || 0,
+      planMonths: d.planMonths, phaseDays: d.phaseDays, coveredDays: D.coveredDays(d.parts), planText: L(d.phaseDays), coveredText: L(D.coveredDays(d.parts)), endDate: D.phaseEndDay(d), followUpsPromised: d.followUpsPromised || 0,
       // "No further supply in this phase": the phase ends with the medicine on record.
       supplyClosed: d.supplyClosedAt ? { at: iso(d.supplyClosedAt), byName: d.supplyClosedByName || '', note: d.supplyClosedNote || '' } : null,
       canCloseSupply: !d.supplyClosedAt && D.coveredDays(d.parts) < d.phaseDays,
-      parts: d.parts.map((part, index) => ({ index, requestId: part.requestId || '', poNumber: part.poNumber || '', months: part.months, startDate: part.startDate, endDate: D.addDays(part.startDate, part.months * 30 - 1), offsetDays: part.offsetDays || 0, source: part.source || 'transit', addedAt: iso(part.addedAt), addedByName: part.addedByName || '' })),
+      parts: d.parts.map((part, index) => ({ index, requestId: part.requestId || '', poNumber: part.poNumber || '', days: D.partDays(part), months: D.partDays(part) / 30, lengthText: L(D.partDays(part)), startDate: part.startDate, endDate: D.addDays(part.startDate, D.partDays(part) - 1), offsetDays: part.offsetDays || 0, source: part.source || 'transit', addedAt: iso(part.addedAt), addedByName: part.addedByName || '' })),
       generatedAt: iso(d.generatedAt), generatedByName: d.generatedByName || '',
       reschedulesUsed: d.reschedulesUsed || 0, rescheduleLimit: rules.rescheduleLimit, confirmWindowDays: rules.confirmWindowDays,
       skipped: (d.skipped || []).map((item) => ({ key: item.key, title: item.title, day: item.day, reason: item.reason || '' })),
@@ -420,7 +436,7 @@ const planView = async (patient, number, user, now = new Date()) => {
       .sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime)),
     tasks: hasPlan ? (d.tasks || []).map((task) => ({ key: task.key, title: task.title, day: task.day, dueDate: iso(task.dueDate), doneAt: iso(task.doneAt), doneByName: task.doneByName || '', note: task.note || '', due: !task.doneAt && Boolean(task.dueDate) && D.dayOf(task.dueDate) <= D.dayOf(now) })) : [],
     tracker: hasPlan ? D.trackerOf({
-      components: d.components, sessions: entries.map((entry) => ({ state: D.stateOf(entry, now), delivery: entry.delivery })), followUpsPromised: d.followUpsPromised, planMonths: d.planMonths,
+      components: d.components, sessions: entries.map((entry) => ({ state: D.stateOf(entry, now), delivery: entry.delivery })), followUpsPromised: d.followUpsPromised, planMonths: Math.floor(d.phaseDays / 30),
       explanationDone: Boolean(stage.transit?.explanationCompletedAt), familyDone: family.filter((entry) => entry.status === 'completed').length, familyBooked: family.filter((entry) => entry.status !== 'cancelled').length, queries,
     }) : [],
     alerts: hasPlan ? D.alertsOf({ delivery: d, sessions: entries, now, rules, supply: nextSupply }) : [],
@@ -475,9 +491,9 @@ const worklistRows = (user) => cached(`delivery:worklist:${seesAll(user) ? 'all'
       patientId: String(patient._id), patientName: patient.patientName, patientCode: patient.patientCode || '', phone: String(patient.number || ''), pccName: patient.assignedDoctor?.name || '',
       phase: stage.number, purchaseOrder: stage.purchaseOrder || '', status, statusLabel: STATUS_LABELS[status], setupNeededAt: iso(d.setupNeededAt), setupNeededWhy: d.setupNeededWhy || '',
       startDate: d.parts?.[0]?.startDate || (stage.transit?.medicineStartDate ? D.dayOf(stage.transit.medicineStartDate) : ''), endDate: hasPlan ? D.phaseEndDay(d) : null,
-      planMonths: d.planMonths || 0, coveredMonths: Math.round(D.coveredDays(d.parts) / 30),
+      planMonths: d.planMonths || 0, coveredMonths: Math.round(D.coveredDays(d.parts) / 30), planText: d.phaseDays ? L(d.phaseDays) : '', coveredText: L(D.coveredDays(d.parts)) || 'none',
       progress: D.progressOf(entries, now), alerts: hasPlan ? D.alertsOf({ delivery: d, sessions: entries, now, rules, supply: nextSupply }) : [],
-      nextSupply: nextSupply ? { stage: nextSupply.stage, level: nextSupply.level, text: nextSupply.text, headline: nextSupply.headline, daysLeft: nextSupply.daysLeft, monthsLeft: nextSupply.monthsLeft, poNumber: nextSupply.poNumber, owner: nextSupply.owner } : null,
+      nextSupply: nextSupply ? { stage: nextSupply.stage, level: nextSupply.level, text: nextSupply.text, headline: nextSupply.headline, daysLeft: nextSupply.daysLeft, monthsLeft: nextSupply.monthsLeft, leftText: nextSupply.leftText, poNumber: nextSupply.poNumber, owner: nextSupply.owner } : null,
       open: open.map(brief), nextPhase: hasPlan ? { ...nextPhaseOf(d, entries, rules, now), history: undefined } : null,
     });
   }
@@ -509,7 +525,7 @@ const getPlan = asyncHandler(async (req, res) => {
   const { patientId, number } = req.params;
   if (!mongoose.isValidObjectId(patientId)) fail('Patient not found', 404);
   const patient = await Patient.findById(patientId)
-    .select(`patientName patientCode number assignedDoctor approvalStatus isActive stages.number stages.purchaseOrder stages.delivery stages.followUps stages.familySessions stages.transit.medicineStartDate stages.transit.explanationCompletedAt ${REQUEST_FIELDS}`)
+    .select(`patientName patientCode number category assignedDoctor approvalStatus isActive stages.number stages.purchaseOrder stages.delivery stages.followUps stages.familySessions stages.transit.medicineStartDate stages.transit.explanationCompletedAt ${REQUEST_FIELDS}`)
     .populate('assignedDoctor', 'name').lean();
   if (!patient) fail('Patient not found', 404);
   if (!mayAct(req.user, patient)) fail('This patient is not assigned to you', 403);
@@ -517,10 +533,9 @@ const getPlan = asyncHandler(async (req, res) => {
 });
 
 // ---- Set-up ---------------------------------------------------------------------------------------------------------
-const wholeNumber = (value, min, max) => { const n = Number(value); return Number.isInteger(n) && n >= min && n <= max ? n : 0; };
 
-// @route POST /api/delivery/patients/:patientId/:number/setup   { components, startDate?, months?, planMonths? }
-// Makes the plan of a phase that has none (ticks or months were not on record, or an older phase), or corrects the
+// @route POST /api/delivery/patients/:patientId/:number/setup   { components, startDate?, months?, days?, planMonths?, planDays? }
+// Makes the plan of a phase that has none (ticks or length were not on record, or an older phase), or corrects the
 // ticks of a running plan (Admin / Manager).
 const setupPlan = asyncHandler(async (req, res) => {
   const { patient, stage } = await load(req);
@@ -543,20 +558,21 @@ const setupPlan = asyncHandler(async (req, res) => {
   const startDay = transitDay || String(req.body.startDate || '');
   if (!D.validDay(startDay)) fail('Choose the medicine start date');
   if (D.diffDays(startDay, D.dayOf(now)) > 60) fail('The start date can be at most 60 days ahead');
-  const months = supply.months || wholeNumber(req.body.months, 1, 12);
-  if (!months) fail('Enter the months of medicine supplied (1 to 12)');
-  const derived = supply.months ? D.planLengthOf(supply, rules) : 0;
-  const planMonths = derived || wholeNumber(req.body.planMonths, months, 12) || Math.max(months, rules.phaseMonths);
+  const days = supply.days || typedDays(req.body.months, req.body.days);
+  if (!days) fail('Enter the months / days of medicine supplied (1 day to 12 months)');
+  const derived = supply.days ? D.planLengthOf(supply, rules, patient.category) : 0;
+  const typedPlan = typedDays(req.body.planMonths, req.body.planDays);
+  const planDays = derived || (typedPlan >= days ? typedPlan : 0) || Math.max(days, rules.phaseMonths * 30);
   const result = createPlan(patient, stage, {
-    components, source: 'manual', startDay, months, planMonths, requestId: transitDay ? supply.requestId : '', poNumber: supply.poNumber,
+    components, source: 'manual', startDay, days, planDays, requestId: transitDay ? supply.requestId : '', poNumber: supply.poNumber,
     partSource: transitDay ? 'transit' : 'manual', byName, rules, holidays, now,
   });
   Object.assign(stage.delivery, { components, componentsSource: 'manual', componentsSetAt: now, componentsSetByName: byName });
-  log(patient, req.user, stage.number, `plan set up from ${startDay} (${months} of ${planMonths} month(s)): ${noticeOf(result)}`);
+  log(patient, req.user, stage.number, `plan set up from ${startDay} (${L(days)} of ${L(planDays)}): ${noticeOf(result)}`);
   return respond(req, res, patient, stage.number, { message: `Plan made: ${noticeOf(result)}.` });
 });
 
-// @route POST /api/delivery/patients/:patientId/:number/parts   { startDate, months } | { index, startDate }
+// @route POST /api/delivery/patients/:patientId/:number/parts   { startDate, months, days } | { index, startDate }
 // The next supply of medicine started (when its start date did not come through the Medicine Explanations page),
 // or the start date of a supply added here is corrected.
 const savePart = asyncHandler(async (req, res) => {
@@ -583,20 +599,20 @@ const savePart = asyncHandler(async (req, res) => {
     return respond(req, res, patient, stage.number, { message: `Start date corrected. ${result.moved} session(s) moved; sessions already confirmed, moved or done were not touched.` });
   }
   const covered = D.coveredDays(d.parts);
-  if (covered >= d.phaseDays) fail(`The ${d.planMonths} month(s) of this plan are already covered by the supplies on record`);
+  if (covered >= d.phaseDays) fail(`The ${L(d.phaseDays)} of this plan are already covered by the supplies on record`);
   if (d.supplyClosedAt) fail('This phase is closed as "no further supply". Reopen it first.');
-  const left = Math.ceil((d.phaseDays - covered) / 30);
-  const months = wholeNumber(req.body.months, 1, 12);
-  if (!months) fail('Enter the months of medicine in this supply');
-  if (months > left) fail(`Only ${left} month(s) of the plan are left`);
+  const left = d.phaseDays - covered;
+  const days = typedDays(req.body.months, req.body.days);
+  if (!days) fail('Enter the months / days of medicine in this supply');
+  if (days > left) fail(`Only ${L(left)} of the plan ${isAre(left)} left`);
   if (startDay <= d.parts[d.parts.length - 1].startDate) fail('The next supply cannot start before the earlier one');
   // The request this supply is (sent by the tracker), so its start date is not asked for again on Medicine Explanations.
   const named = S.openSupplies(stage).find((request) => requestKey(request) === text(req.body.requestId, 80));
-  d.parts.push({ requestId: named ? requestKey(named) : '', poNumber: text(req.body.poNumber, 80) || named?.poNumber || '', months, startDate: startDay, offsetDays: covered, source: 'manual', addedAt: now, addedByName: req.user.name });
+  d.parts.push({ requestId: named ? requestKey(named) : '', poNumber: text(req.body.poNumber, 80) || named?.poNumber || '', days, months: days / 30, startDate: startDay, offsetDays: covered, source: 'manual', addedAt: now, addedByName: req.user.name });
   if (named) stampStart(stage, requestKey(named), startDay, req.user, now);
   Object.assign(d, { setupNeededAt: null, setupNeededWhy: '' });
   const result = applyPlan(patient, stage, { byName: req.user.name, holidays, now });
-  log(patient, req.user, stage.number, `next supply of ${months} month(s) added from ${startDay}: ${noticeOf(result)}`);
+  log(patient, req.user, stage.number, `next supply of ${L(days)} added from ${startDay}: ${noticeOf(result)}`);
   return respond(req, res, patient, stage.number, { message: `Next supply added: ${noticeOf(result)}.` });
 });
 
@@ -622,9 +638,8 @@ const closeSupply = asyncHandler(async (req, res) => {
   const note = text(req.body.note, 500);
   if (note.length < 3) fail('Write why no further supply is coming in this phase');
   Object.assign(d, { supplyClosedAt: now, supplyClosedByName: req.user.name, supplyClosedNote: note });
-  const months = Math.round(covered / 30);
-  log(patient, req.user, stage.number, `closed as "no further supply" with ${months} of ${d.planMonths} month(s) of medicine: ${note}`);
-  return respond(req, res, patient, stage.number, { message: `Closed: the phase ends with the ${months} month${months === 1 ? '' : 's'} of medicine on record.` });
+  log(patient, req.user, stage.number, `closed as "no further supply" with ${L(covered)} of ${L(d.phaseDays)} of medicine: ${note}`);
+  return respond(req, res, patient, stage.number, { message: `Closed: the phase ends with the ${L(covered)} of medicine on record.` });
 });
 
 // ---- Sessions -------------------------------------------------------------------------------------------------------

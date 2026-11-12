@@ -26,7 +26,7 @@ const GROUPS = [
     ['nextCounsellingDay', 'Next-phase counselling and approval', ''],
   ]],
   ['Phase length', [
-    ['phaseMonths', 'Months in a treatment phase', 'The medicine can come in any split (1 + 5, 2 + 4, 3 + 3 ...): the plan is made for the whole phase and scheduled supply by supply'],
+    ['phaseMonths', 'Months in a treatment phase', 'The medicine can come in any split of months / days (1 + 5, 2 + 4, 3 + 3 ...): the plan is made for the whole phase and scheduled supply by supply. A custom package of a Mental Health patient (45 days ...) is a phase of its own length'],
   ]],
   ['Calendar and limits', [
     ['defaultHour', 'Usual session hour (24 h)', 'Saturday, Sunday and Tuesday start at 2 pm'],

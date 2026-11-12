@@ -6,6 +6,8 @@ import Badge from '../ui/Badge.jsx';
 import Modal from '../ui/Modal.jsx';
 import { Section } from '../ui/Layout.jsx';
 import { LEVEL_CLASS, WEEKDAYS, errText, field, fmtDT, fmtDay, istDay, nowLocal, toIso } from './deliveryUi.js';
+import LengthFields, { lengthBody, lengthDays, lengthFields } from '../medicine/LengthFields.jsx';
+import { lengthText } from '../../constants/supplyPlans.js';
 
 const Err = ({ text }) => (text ? <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{text}</p> : null);
 
@@ -124,7 +126,7 @@ export function PromiseTracker({ plan, onCorrect }) {
 const SUPPLY_SOURCE = { manual: 'Start date added here', receipt: 'Dated on the day the patient received this medicine', transit: 'Start date from Medicine Explanations' };
 const TRACK_CLASS = { ...LEVEL_CLASS, info: 'border-cardline bg-[#F7F9F6] text-charcoal/75' };
 
-// The medicine supplies the plan is built on. Sessions exist only for the months of medicine in hand. A phase can get
+// The medicine supplies the plan is built on. Sessions exist only for the medicine in hand. A phase can get
 // its medicine in any split (1 + 5, 2 + 4, 1 + 2 + 3 ...): every later supply has its own purchase order, the tracker
 // follows it (PO, payment, medicine, receipt), and nothing is dated by itself. Once the patient has it the PCC fills
 // its medicine start date on the Medicine Explanations page (no new explanation) and the plan goes on from that day.
@@ -133,9 +135,10 @@ export function SupplyParts({ plan, act }) {
   const d = plan.delivery;
   const next = plan.nextSupply;
   const closed = d.supplyClosed;
-  const left = Math.max(0, Math.ceil((d.phaseDays - d.coveredDays) / 30));
-  // The form starts with the months and the purchase order of the awaited supply, never with a date.
-  const suggested = () => ({ startDate: '', months: next?.suggest?.months ? String(next.suggest.months) : '', poNumber: next?.suggest?.poNumber || '', requestId: next?.suggest?.requestId || '' });
+  // The days of the phase still without medicine.
+  const left = Math.max(0, d.phaseDays - d.coveredDays);
+  // The form starts with the length and the purchase order of the awaited supply, never with a date.
+  const suggested = () => ({ startDate: '', length: lengthFields(next?.suggest?.days || 0), poNumber: next?.suggest?.poNumber || '', requestId: next?.suggest?.requestId || '' });
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(suggested);
   const [fixing, setFixing] = useState(null);
@@ -153,8 +156,11 @@ export function SupplyParts({ plan, act }) {
 
   const add = async (event) => {
     event.preventDefault();
+    const days = lengthDays(form.length);
+    if (!days) { setError('Enter the months / days of medicine in this supply'); return; }
+    if (days > left) { setError(`Only ${lengthText(left)} of the plan ${left === 30 || left === 1 ? 'is' : 'are'} left`); return; }
     setBusy(true); setError('');
-    try { await act('parts', { startDate: form.startDate, months: Number(form.months), poNumber: form.poNumber, requestId: form.requestId }); setAdding(false); }
+    try { await act('parts', { startDate: form.startDate, ...lengthBody(form.length), poNumber: form.poNumber, requestId: form.requestId }); setAdding(false); }
     catch (err) { setError(errText(err)); }
     finally { setBusy(false); }
   };
@@ -168,13 +174,13 @@ export function SupplyParts({ plan, act }) {
 
   return (
     <Section title="Medicine supply and plan dates" icon={Package}>
-      <p className="mb-2 text-xs text-charcoal/60">Plan of <b>{d.planMonths} month(s)</b>: {Math.round(d.coveredDays / 30)} month(s) of medicine started{left > 0 ? (closed ? `, ${left} month(s) not coming (closed below)` : `, ${left} month(s) still to come`) : ''}. Sessions are made only for the medicine in hand; the months can come in any split, each supply on its own purchase order.</p>
+      <p className="mb-2 text-xs text-charcoal/60">Plan of <b>{d.planText}</b>: {d.coveredText ? `${d.coveredText} of medicine` : 'no medicine'} started{left > 0 ? (closed ? `, ${lengthText(left)} not coming (closed below)` : `, ${lengthText(left)} still to come`) : ''}. Sessions are made only for the medicine in hand; the medicine can come in any split of months / days, each supply on its own purchase order.</p>
       <ul className="space-y-2">
         {d.parts.map((part) => (
           <li key={part.index} className="rounded-lg border border-cardline bg-white px-3 py-2.5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0 text-sm">
-                <p className="font-medium text-charcoal">Supply {part.index + 1}: {part.months} month(s){part.poNumber ? ` · ${part.poNumber}` : ''}</p>
+                <p className="font-medium text-charcoal">Supply {part.index + 1}: {part.lengthText}{part.poNumber ? ` · ${part.poNumber}` : ''}</p>
                 <p className="text-xs text-charcoal/65">{fmtDay(part.startDate)} to {fmtDay(part.endDate)}</p>
                 <p className="text-[11px] text-charcoal/50">{SUPPLY_SOURCE[part.source] || SUPPLY_SOURCE.transit}{part.addedByName ? ` by ${part.addedByName}` : ''}{part.addedAt ? ` on ${fmtDT(part.addedAt)}` : ''}</p>
               </div>
@@ -194,7 +200,7 @@ export function SupplyParts({ plan, act }) {
 
       {left > 0 && next && (
         <div className={`mt-3 rounded-lg border px-3 py-2.5 ${TRACK_CLASS[next.level] || TRACK_CLASS.info}`}>
-          <p className="text-sm font-bold">Next supply: {next.monthsLeft} month(s) of medicine still to come{next.poNumber ? ` · ${next.poNumber}` : ''}</p>
+          <p className="text-sm font-bold">Next supply: {next.leftText} of medicine still to come{next.poNumber ? ` · ${next.poNumber}` : ''}</p>
           <p className="mt-0.5 text-xs">{next.headline}. {next.text}{next.owner ? ` (with ${next.owner})` : ''}.</p>
           <ol className="mt-2 flex flex-wrap gap-1.5">
             {next.steps.map((step) => (
@@ -227,7 +233,7 @@ export function SupplyParts({ plan, act }) {
             <form onSubmit={add} className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-3">
                 <label className="block text-sm font-medium text-charcoal">Medicine start date *<input type="date" required value={form.startDate} onChange={(e) => setForm((old) => ({ ...old, startDate: e.target.value }))} className={`mt-1.5 ${field}`} />{next?.runsOut && <span className="mt-1 block text-[11px] font-normal text-charcoal/55">Medicine in hand runs till {fmtDay(next.runsOut)}. Fill the day the patient really starts this supply.</span>}</label>
-                <label className="block text-sm font-medium text-charcoal">Months in this supply *<select required value={form.months} onChange={(e) => setForm((old) => ({ ...old, months: e.target.value }))} className={`mt-1.5 ${field}`}><option value="">Select</option>{Array.from({ length: left }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+                <LengthFields label="Medicine in this supply" required value={form.length} onChange={(length) => setForm((old) => ({ ...old, length }))} maxMonths={Math.max(1, Math.min(12, Math.floor(left / 30)))} hint={`At most ${lengthText(left)}`} />
                 <label className="block text-sm font-medium text-charcoal">PO number<input maxLength={80} value={form.poNumber} onChange={(e) => setForm((old) => ({ ...old, poNumber: e.target.value }))} placeholder="Optional" className={`mt-1.5 ${field}`} /></label>
               </div>
               <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => setAdding(false)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Making sessions...' : 'Add supply and make sessions'}</Button></div>
@@ -236,7 +242,7 @@ export function SupplyParts({ plan, act }) {
         </div>
       )}
 
-      {/* The remaining months get no medicine (the parent stopped, or the phase was sold shorter): closed with a reason. */}
+      {/* The rest of the phase gets no medicine (the parent stopped, or the phase was sold shorter): closed with a reason. */}
       {d.canCloseSupply && plan.canAct && !next?.requestId && !adding && (
         <div className="mt-2">
           {!closing ? (
@@ -244,7 +250,7 @@ export function SupplyParts({ plan, act }) {
           ) : (
             <form onSubmit={(e) => { e.preventDefault(); setClosed(true); }} className="space-y-2 rounded-lg border border-cardline bg-white px-3 py-2.5">
               <label className="block text-sm font-medium text-charcoal">Why is no further supply coming? *<input autoFocus required minLength={3} maxLength={500} value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="e.g. parent stopped after 3 months" className={`mt-1.5 ${field}`} /></label>
-              <p className="text-[11px] text-charcoal/55">The phase then ends with the {Math.round(d.coveredDays / 30)} month(s) of medicine on record and its next-phase options open. Nothing is removed; it can be reopened.</p>
+              <p className="text-[11px] text-charcoal/55">The phase then ends with the {d.coveredText || 'no'} medicine on record and its next-phase options open. Nothing is removed; it can be reopened.</p>
               <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => setClosing(false)}>Cancel</Button><Button type="submit" disabled={busy || closeNote.trim().length < 3}>{busy ? 'Saving...' : 'Close the supply of this phase'}</Button></div>
             </form>
           )}

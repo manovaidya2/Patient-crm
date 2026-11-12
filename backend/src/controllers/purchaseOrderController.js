@@ -48,7 +48,7 @@ const parseSupply = (body, { required = false } = {}) => {
   const [plan, part] = body.supplyKey ? String(body.supplyKey).split(':') : [body.supplyPlan, body.supplyPart];
   if (!plan && !part) { if (required) fail('Select the supply category (6 months / 1+5 / 2+4 / custom months)'); return null; }
   const option = supplyOption(plan, part);
-  if (!option) fail(plan === 'CUSTOM' ? 'Custom supply: choose the months of medicine' : 'Select a valid supply category');
+  if (!option) fail(plan === 'CUSTOM' ? 'Custom supply: choose the months / days of medicine (1 day to 12 months)' : 'Select a valid supply category');
   return option;
 };
 const { fixedReadyDate, readyDateFromPostCounselling, canOverrideFixed } = require('../utils/medicineDelay');

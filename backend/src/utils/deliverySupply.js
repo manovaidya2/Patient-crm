@@ -53,7 +53,7 @@ const receivedSupplies = (stage) => openSupplies(stage).filter(isReceived)
 // The earliest sensible start day of the next supply, shown as a hint beside the date the PCC fills (never saved by
 // itself): the day after the medicine in hand ends, or the day the patient received it when that is later.
 function autoStartDay(previous, receivedAt) {
-  const afterPrevious = D.addDays(previous.startDate, Number(previous.months || 0) * 30);
+  const afterPrevious = D.addDays(previous.startDate, D.partDays(previous));
   const got = receivedAt ? D.dayOf(receivedAt) : '';
   return got && got > afterPrevious ? got : afterPrevious;
 }
@@ -76,7 +76,9 @@ function nextSupplyOf({ stage, pos = null, now = new Date() }) {
   const last = d.parts[d.parts.length - 1];
   const runsOut = D.dateOfDay(covered, d.parts);
   const daysLeft = runsOut ? D.diffDays(runsOut, today) : null;
-  const monthsLeft = Math.ceil((d.phaseDays - covered) / 30);
+  // The days of the phase still without medicine (months rounded up, for older screens).
+  const leftDays = Math.max(0, d.phaseDays - covered);
+  const monthsLeft = Math.ceil(leftDays / 30);
 
   const request = openSupplies(stage)[0] || null;
   const key = requestKey(request);
@@ -88,7 +90,9 @@ function nextSupplyOf({ stage, pos = null, now = new Date() }) {
     ? free.find((item) => item.medicineRequestId === key || (request.poNumber && item.poNumber === request.poNumber)) || null
     : [...free].sort((a, b) => time(b.createdAt) - time(a.createdAt))[0] || null;
   const poNumber = po?.poNumber || request?.poNumber || '';
-  const months = D.partMonthsOf(request?.supplyPlan, request?.supplyPart) || D.partMonthsOf(po?.supplyPlan, po?.supplyPart) || 0;
+  // The days of medicine on the awaited supply (0 when its purchase order does not say).
+  const days = D.partDaysOf(request?.supplyPlan, request?.supplyPart) || D.partDaysOf(po?.supplyPlan, po?.supplyPart) || 0;
+  const months = days / 30;
 
   let stageKey;
   if (request) {
@@ -97,7 +101,7 @@ function nextSupplyOf({ stage, pos = null, now = new Date() }) {
   } else if (po) stageKey = po.status === 'verified' ? 'paid' : po.status === 'rejected' ? 'po_sent_back' : 'po_made';
   else stageKey = pos ? 'no_po' : 'unknown';
   const rank = RANK[stageKey];
-  const rest = `the remaining ${monthsLeft} month${s(monthsLeft)}`;
+  const rest = `the remaining ${D.lengthText(leftDays)}`;
   const text = {
     no_po: `The purchase order for ${rest} of medicine is not made yet`,
     unknown: `The medicine for ${rest} is not requested yet`,
@@ -109,9 +113,9 @@ function nextSupplyOf({ stage, pos = null, now = new Date() }) {
     ready: 'Medicine is ready: it has to be released to In Transit',
     released: 'Medicine is released: In Transit has to hand it over / dispatch it',
     dispatched: 'Medicine is dispatched: In Transit confirms the receipt with the patient',
-    received: months
+    received: days
       ? 'The patient has the medicine: the PCC fills its medicine start date on the Medicine Explanations page (no new explanation), and the rest of the plan is scheduled from that day'
-      : 'The patient has the medicine, but its months are not on record: the PCC fills its months and medicine start date (no new explanation)',
+      : 'The patient has the medicine, but its length is not on record: the PCC fills its months / days and medicine start date (no new explanation)',
   }[stageKey];
   const headline = daysLeft == null ? 'Medicine in hand'
     : daysLeft >= 0 ? `Medicine in hand runs till ${runsOut} (${daysLeft} day${s(daysLeft)} left)`
@@ -128,7 +132,7 @@ function nextSupplyOf({ stage, pos = null, now = new Date() }) {
   const step = (stepKey, label, from, at = null, note = '') => ({ key: stepKey, label, done: rank >= RANK[from], at: rank >= RANK[from] && at ? new Date(at).toISOString() : null, note });
   return {
     stage: stageKey, level, text, headline, owner: OWNER[stageKey] || '',
-    runsOut, daysLeft, monthsLeft, months, poNumber, poStatus: po?.status || '', requestId: key,
+    runsOut, daysLeft, monthsLeft, leftDays, leftText: D.lengthText(leftDays), months, days, lengthText: D.lengthText(days), poNumber, poStatus: po?.status || '', requestId: key,
     received: stageKey === 'received', receivedAt: stageKey === 'received' && courier.deliveredAt ? new Date(courier.deliveredAt).toISOString() : null,
     steps: [
       step('po', 'Purchase order', 'po_made', po?.createdAt, poNumber),
@@ -138,8 +142,9 @@ function nextSupplyOf({ stage, pos = null, now = new Date() }) {
       step('sent', 'Handed over / dispatched', 'dispatched', courier.dispatchedAt || courier.deliveredAt),
       step('received', 'Received by the patient', 'received', courier.deliveredAt),
     ],
-    // What the "add this supply" form starts with: the months and the purchase order, never a date.
-    suggest: { months: Math.min(months || monthsLeft, monthsLeft), startDate: '', earliest, poNumber, requestId: key },
+    // What the "add this supply" form starts with: its length (days, at most what the phase still misses) and the
+    // purchase order, never a date.
+    suggest: { days: Math.min(days || leftDays, leftDays), months: Math.min(days || leftDays, leftDays) / 30, startDate: '', earliest, poNumber, requestId: key },
   };
 }
 

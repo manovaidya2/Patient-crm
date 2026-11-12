@@ -141,9 +141,9 @@ test('a request that only replaces a cancelled one keeps the round', () => {
 const pcc = { name: 'Dr Asha', role: 'assistant_doctor' };
 const receive = (request, value) => Object.assign(request, { status: 'sent_to_courier', courier: { status: 'delivered', deliveredAt: day(value), deliveredByName: 'Transit A' } });
 // What saving "Medicine start date of this supply" on the Medicine Explanations page does to the phase.
-const fill = (patient, stage, request, value, now, { note = null, months } = {}) => {
+const fill = (patient, stage, request, value, now, { note = null, months, days } = {}) => {
   stampStart(stage, T.requestKey(request), value, pcc, now, note);
-  return startDelivery(patient, stage, pcc, now, { request, months });
+  return startDelivery(patient, stage, pcc, now, { request, months, days });
 };
 const number = (stage) => stage.followUps.forEach((f, i) => { if (!f._id) f._id = `e${i}`; });
 const standing = ({ later, needed, pending, done, date }) => ({ later, needed, pending, done, date });
@@ -179,7 +179,7 @@ test('the receipt of the second supply dates nothing: the plan waits for the PCC
   assert.deepEqual(standing(T.supplyStartOf(stage, request)), { later: true, needed: true, pending: true, done: false, date: null });
   const next = S.nextSupplyOf({ stage, pos: [PO1, PO2], now: day('2026-12-08') });
   assert.deepEqual([next.stage, next.owner, next.months, next.monthsLeft, next.level], ['received', 'PCC', 5, 5, 'amber']);
-  assert.deepEqual(next.suggest, { months: 5, startDate: '', earliest: '2026-12-12', poNumber: 'PO-2', requestId: 'r2' });
+  assert.deepEqual(next.suggest, { days: 150, months: 5, startDate: '', earliest: '2026-12-12', poNumber: 'PO-2', requestId: 'r2' });
   assert.match(next.text, /the PCC fills its medicine start date on the Medicine Explanations page \(no new explanation\)/);
   // The case the Medicine Explanations page reads.
   const item = T.buildTransitCase(patient, stage, day('2026-12-08'));
@@ -343,16 +343,64 @@ test('months not on record: nothing is scheduled until the PCC tells the months 
   const a = await blank();
   const next = S.nextSupplyOf({ stage: a.stage, pos: null, now: day('2026-12-08') });
   assert.equal(next.stage, 'received');
-  assert.match(next.text, /its months are not on record/);
+  assert.match(next.text, /its length is not on record: the PCC fills its months \/ days/);
   assert.deepEqual([next.suggest.months, next.suggest.startDate, next.suggest.requestId], [5, '', 'r2']);
   assert.equal(T.buildTransitCase(a.patient, a.stage, day('2026-12-08')).supplyStart.months, 0, 'the page asks for the months');
-  await assert.rejects(fill(a.patient, a.stage, a.request, '2026-12-12', day('2026-12-09')), /The months of this supply are not on record\. Choose how many months of medicine it is\./);
+  await assert.rejects(fill(a.patient, a.stage, a.request, '2026-12-12', day('2026-12-09')), /The length of this supply is not on record\. Enter its months \/ days of medicine\./);
   assert.equal(a.stage.delivery.parts.length, 1);
   const b = await blank();
   const result = await fill(b.patient, b.stage, b.request, '2026-12-12', day('2026-12-09'), { months: 3 });
   assert.deepEqual([result.status, result.months, result.monthsLeft], ['extended', 3, 2]);
   const c = await blank();
   assert.equal((await fill(c.patient, c.stage, c.request, '2026-12-12', day('2026-12-09'), { months: 9 })).months, 5, 'never more than the phase still needs');
+  const e = await blank();
+  const inDays = await fill(e.patient, e.stage, e.request, '2026-12-12', day('2026-12-09'), { months: 1, days: 15 });
+  assert.deepEqual([inDays.status, inDays.days, inDays.leftDays], ['extended', 45, 105], 'months and days: 1 month 15 days');
+  assert.match(inDays.notice, /the next 1 month 15 days of the plan are scheduled from 2026-12-12\. .*3 months 15 days of the phase still wait for medicine\./);
+  const f = await blank();
+  await assert.rejects(fill(f.patient, f.stage, f.request, '2026-12-12', day('2026-12-09'), { months: 12, days: 5 }), /The length of this supply is not on record/, 'more than 12 months is not a length');
+});
+
+test('a supply in days: an Autism phase given as 45 days, then 4 months 15 days', async () => {
+  const { patient, stage, first } = make();
+  Object.assign(first, { supplyPlan: 'C0m45d', supplyPart: 'full' });
+  assert.equal((await startDelivery(patient, stage, user, NOW)).status, 'created');
+  const d = stage.delivery;
+  assert.deepEqual([d.phaseDays, d.parts[0].days, d.parts[0].months], [180, 45, 1.5], 'the phase of the settings, 45 days in hand');
+  assert.ok(lastDay(stage) <= '2026-12-26', 'no session beyond the 45 days in hand');
+  const next = S.nextSupplyOf({ stage, pos: null, now: NOW });
+  assert.deepEqual([next.leftDays, next.leftText, next.runsOut], [135, '4 months 15 days', '2026-12-26']);
+  assert.match(next.text, /the remaining 4 months 15 days/);
+  const request = custom('r2', 'PO-2', 'C4m15d', '2026-12-10');
+  stage.medicineRequests.push(receive(request, '2026-12-20'));
+  assert.equal(T.buildTransitCase(patient, stage, day('2026-12-21')).supplyStart.lengthText, '4 months 15 days');
+  const result = await fill(patient, stage, request, '2026-12-27', day('2026-12-21'));
+  assert.deepEqual([result.status, result.days, result.leftDays], ['extended', 135, 0]);
+  assert.match(result.notice, /the next 4 months 15 days of the plan are scheduled from 2026-12-27/);
+  assert.deepEqual(d.parts.map((p) => [p.requestId, p.days, p.offsetDays, p.startDate]), [['r1', 45, 0, '2026-11-12'], ['r2', 135, 45, '2026-12-27']]);
+  assert.equal(D.supplyDone(d), true);
+  assert.equal(D.phaseEndDay(d), D.addDays('2026-12-27', 134), 'day 180 of the phase is the last day of the second supply');
+  assert.ok(lastDay(stage) <= D.phaseEndDay(d));
+});
+
+test('a Mental Health custom package of 45 days is the whole phase: follow-ups and tasks fit in its 45 days', async () => {
+  const { patient, stage, first } = make();
+  patient.category = 'mental_health';
+  Object.assign(first, { supplyPlan: 'C0m45d', supplyPart: 'full' });
+  assert.equal((await startDelivery(patient, stage, user, NOW)).status, 'created');
+  const d = stage.delivery;
+  assert.deepEqual([d.phaseDays, d.planMonths, D.supplyDone(d), D.phaseEndDay(d)], [45, 1.5, true, '2026-12-26']);
+  assert.ok(lastDay(stage) <= '2026-12-26', 'everything inside the 45 days');
+  const followUps = stage.followUps.filter((f) => f.delivery?.template === 'fu');
+  assert.equal(followUps.length, D.followUpCount(45, D.cleanRules(d.rules)), 'follow-ups scaled to 45 days');
+  assert.ok(followUps.length >= 2 && followUps.length < 15);
+  assert.equal(d.tasks.find((t) => t.key === 'task:phaseReview').day, 45, 'the phase review on its last day');
+  assert.equal(S.nextSupplyOf({ stage, pos: null, now: NOW }), null, 'no further supply is waited for');
+  // A fixed plan stays a 6 month phase for Mental Health too; Autism / ADHD custom supplies are parts of the phase.
+  assert.equal(D.isWholePackage({ supplyPlan: '1+5', supplyPart: 'first' }, 'mental_health'), false);
+  assert.equal(D.isWholePackage({ supplyPlan: 'C0m45d', supplyPart: 'full' }, 'autism_adhd'), false);
+  assert.equal(D.planLengthOf({ supplyPlan: 'C2', supplyPart: 'full', days: 60, planDays: 60 }, {}, 'mental_health'), 60);
+  assert.equal(D.planLengthOf({ supplyPlan: 'C2', supplyPart: 'full', days: 60, planDays: 60 }, {}, 'autism_adhd'), 180);
 });
 
 test('"no further supply": a closed phase asks for nothing, and a new medicine request reopens it', async () => {

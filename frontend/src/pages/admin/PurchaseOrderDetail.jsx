@@ -299,7 +299,7 @@ function PoSignedTick({ po, onDone }) {
   const pending = (po.phasePendingPayments || []).filter((p) => p.onThisPo).length || pay.pendingCount || 0;
   const paidOk = !pending && (Number(pay.amountPaid || 0) > 0 || Number(pay.remaining || 0) <= 0);
   const rs = (n) => `Rs ${Number(n || 0).toLocaleString('en-IN')}`;
-  const preview = `${po.supplyMonths ? `${po.supplyMonths} month${po.supplyMonths === 1 ? '' : 's'} of medicine (${po.supplyLabel})` : 'Medicine'} given for ${rs(pay.amountPaid)} paid of ${rs(pay.totalAmount)}; balance ${rs(pay.remaining)} on ${po.poNumber}`;
+  const preview = `${po.supplyText ? `${po.supplyText} of medicine (${po.supplyLabel})` : 'Medicine'} given for ${rs(pay.amountPaid)} paid of ${rs(pay.totalAmount)}; balance ${rs(pay.remaining)} on ${po.poNumber}`;
   const save = async (signed) => {
     setBusy(true); setError('');
     try {

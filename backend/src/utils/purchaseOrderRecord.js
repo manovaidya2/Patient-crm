@@ -1,6 +1,6 @@
 // Purchase order / payment record (paper page 3, sections F, G and H) filled after the post-counselling record.
 // The approved program fee comes from the post-counselling record (section E); everything here is fixed in code.
-const { SUPPLY_OPTIONS, AGE_BANDS, CUSTOM_PICK_LABEL, customOption, supplyOptionByLabel, ageBandFor } = require('../constants/supplyPlans');
+const { SUPPLY_OPTIONS, AGE_BANDS, CUSTOM_PICK_LABEL, CUSTOM_MAX_DAYS, isCustomPick, customLengthOk, customOption, supplyOptionByLabel, ageBandFor } = require('../constants/supplyPlans');
 const { applyParts } = require('./paymentParts');
 const { parseUtrEntries, resolveUtrs } = require('./utrEntries');
 const { parseSplits, resolveSplit } = require('./splitPayment');
@@ -55,8 +55,10 @@ const SECTION_H = [
   // Generated on conversion (PO-1234); shown read-only on the paper.
   { key: 'poNo', label: 'PO No.', type: 'auto' },
   { key: 'supplyOrder', label: 'Medicine supply on this PO', type: 'single', options: [...SUPPLY_OPTIONS.map((option) => option.label), CUSTOM_PICK_LABEL], wide: true },
-  // Only for a custom supply: how many months of medicine. Saved into the supply label ("Custom: 4 months").
-  { key: 'supplyMonths', label: 'Custom supply: months of medicine (1 - 12)', type: 'text', showWhen: { key: 'supplyOrder', custom: true } },
+  // Only for a custom supply: how long the medicine is, in months and days (a Mental Health package can be 45 days).
+  // Saved into the supply label ("Custom: 4 months", "Custom: 45 days", "Custom: 1 month 15 days").
+  { key: 'supplyMonths', label: 'Custom supply: months (0 - 12)', type: 'text', numeric: true, showWhen: { key: 'supplyOrder', custom: true } },
+  { key: 'supplyDays', label: 'Custom supply: days (0 - 360)', type: 'text', numeric: true, showWhen: { key: 'supplyOrder', custom: true } },
   // The patient's age for this phase; the dose age group is worked out from it (never picked by hand). Both are
   // read-only for In Transit and the Medicine Department.
   { key: 'patientAge', label: 'Patient age (this phase)', type: 'text' },
@@ -142,7 +144,7 @@ const cleanPurchase = (raw = {}, approvedFee) => {
   for (const field of ALL_FIELDS) {
     const value = raw?.[field.key];
     if (field.type === 'check') values[field.key] = value === true || value === 'true';
-    else if (field.type === 'single') values[field.key] = field.options.includes(value) || (field.key === 'supplyOrder' && supplyOptionByLabel(value)?.custom) ? value : '';
+    else if (field.type === 'single') values[field.key] = field.options.includes(value) || (field.key === 'supplyOrder' && (supplyOptionByLabel(value)?.custom || isCustomPick(value))) ? value : '';
     else if (field.type === 'money') values[field.key] = money(value, field.label);
     else if (field.type === 'due' || field.type === 'dueNote') continue; // worked out after the loop
     else if (field.type === 'utrs' || field.type === 'splits') continue; // worked out after the loop
@@ -182,16 +184,22 @@ const cleanPurchase = (raw = {}, approvedFee) => {
   if (Number(values.amountReceivedNow || 0) > Number(approvedFee || 0)) throw fail('The amount received cannot be more than the approved program fee');
   applyParts(values, raw, approvedFee);
   values.ageGroup = AGE_BANDS[ageBandFor(values.patientAge)] || '';
-  // Custom supply: the months typed become the supply label. Without months the paper stays "Custom (choose months)"
-  // (a draft); converting then asks for the supply.
-  const customPicked = values.supplyOrder === CUSTOM_PICK_LABEL || Boolean(supplyOptionByLabel(values.supplyOrder)?.custom);
+  // Custom supply: the months and days typed become the supply label. Without them the paper stays
+  // "Custom (months / days)" (a draft); converting then asks for the supply.
+  const saved = supplyOptionByLabel(values.supplyOrder);
+  const customPicked = isCustomPick(values.supplyOrder) || Boolean(saved?.custom);
   if (customPicked) {
-    const typed = String(values.supplyMonths || '').trim();
-    const months = typed ? Number(typed) : supplyOptionByLabel(values.supplyOrder)?.months || 0;
-    if (typed && (!Number.isInteger(months) || months < 1 || months > 12)) throw fail('Custom supply: enter the months of medicine, 1 to 12');
-    values.supplyMonths = months ? String(months) : '';
-    values.supplyOrder = months ? customOption(months).label : CUSTOM_PICK_LABEL;
-  } else values.supplyMonths = '';
+    const typedMonths = String(values.supplyMonths ?? '').trim();
+    const typedDays = String(values.supplyDays ?? '').trim();
+    const typed = typedMonths !== '' || typedDays !== '';
+    const months = typed ? Number(typedMonths || 0) : saved?.customMonths || 0;
+    const days = typed ? Number(typedDays || 0) : saved?.customDays || 0;
+    if (typed && !customLengthOk(months, days)) throw fail(`Custom supply: enter the months (0 to 12) and days of medicine, from 1 day to ${CUSTOM_MAX_DAYS / 30} months in all`);
+    const option = typed || saved ? customOption(months, days) : null;
+    values.supplyMonths = option ? String(months) : '';
+    values.supplyDays = option ? String(days) : '';
+    values.supplyOrder = option ? option.label : CUSTOM_PICK_LABEL;
+  } else { values.supplyMonths = ''; values.supplyDays = ''; }
   return { values, totals: totals(values, approvedFee) };
 };
 

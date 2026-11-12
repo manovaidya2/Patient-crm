@@ -22,23 +22,61 @@ const AGE_BANDS = {
   '70+': 'Above 70 years',
 };
 
-// Custom supply: the Post Counselor chooses the months (1-12). It is stored as plan "C<months>" with part "full", so it
-// travels through every PO, request and job like the fixed plans. It has no Formulation Master: the Medicine
-// Department makes this patient's formulation at the formulation check (same way as 0-3 years).
-const CUSTOM_PLAN = /^C([1-9]|1[0-2])$/;
-const CUSTOM_PICK_LABEL = 'Custom (choose months)';
-const customMonths = (plan) => { const m = CUSTOM_PLAN.exec(String(plan || '')); return m ? Number(m[1]) : 0; };
-const customOption = (months) => ({ key: `C${months}:full`, plan: `C${months}`, part: 'full', months, days: months * 30, label: `Custom: ${months} month${months === 1 ? '' : 's'}`, custom: true });
-const isValidPlan = (plan) => plan === '' || plan == null || Boolean(SUPPLY_PLANS[plan]) || customMonths(plan) > 0;
+// A length of medicine in days, as people say it: "6 months", "20 days", "1 month 15 days" (a month is 30 days).
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const lengthText = (days) => {
+  const n = Math.round(Number(days) || 0);
+  if (n <= 0) return '';
+  if (n % 30 === 0) return plural(n / 30, 'month');
+  return n < 30 ? plural(n, 'day') : `${plural(Math.floor(n / 30), 'month')} ${plural(n % 30, 'day')}`;
+};
+
+// Custom supply: the Post Counselor chooses its length in months and days (a Mental Health package can be 45 days),
+// at most 12 months in all. It is stored as plan "C<months>" (whole months, as before) or "C<months>m<days>d"
+// ("C1m15d", "C0m45d") with part "full", so it travels through every PO, request and job like the fixed plans. It has
+// no Formulation Master: the Medicine Department makes this patient's formulation at the formulation check (same way
+// as 0-3 years).
+const CUSTOM_MAX_DAYS = 360;
+const CUSTOM_PICK_LABEL = 'Custom (months / days)';
+// Papers saved before days could be chosen still say "Custom (choose months)".
+const isCustomPick = (label) => label === CUSTOM_PICK_LABEL || label === 'Custom (choose months)';
+const customPlanOf = (months, days = 0) => (days ? `C${months}m${days}d` : `C${months}`);
+const customLengthOk = (months, days) => Number.isInteger(months) && Number.isInteger(days) && months >= 0 && months <= 12 && days >= 0
+  && months * 30 + days >= 1 && months * 30 + days <= CUSTOM_MAX_DAYS;
+// { months, days, total } of a custom plan ("C1m15d" -> 1, 15, 45), else null. Only the written form is valid.
+const customLength = (plan) => {
+  const m = /^C(\d{1,2})(?:m(\d{1,3})d)?$/.exec(String(plan || ''));
+  if (!m) return null;
+  const months = Number(m[1]);
+  const days = Number(m[2] || 0);
+  if (!customLengthOk(months, days) || customPlanOf(months, days) !== plan) return null;
+  return { months, days, total: months * 30 + days };
+};
+const customDays = (plan) => customLength(plan)?.total || 0;
+// The whole months of a custom plan (0 for a fixed plan; a plan of days only, "C0m45d", has 0 too: see customDays).
+const customMonths = (plan) => customLength(plan)?.months || 0;
+const isCustomPlan = (plan) => Boolean(customLength(plan));
+const customLabel = (months, days = 0) => `Custom: ${[months ? plural(months, 'month') : '', days ? plural(days, 'day') : ''].filter(Boolean).join(' ')}`;
+// `months` is the length in months (45 days -> 1.5); `days` the whole length; customMonths / customDays as typed.
+const customOption = (months, days = 0) => {
+  const plan = customPlanOf(months, days);
+  const total = months * 30 + days;
+  return { key: `${plan}:full`, plan, part: 'full', months: total / 30, days: total, label: customLabel(months, days), custom: true, customMonths: months, customDays: days };
+};
+const isValidPlan = (plan) => plan === '' || plan == null || Boolean(SUPPLY_PLANS[plan]) || isCustomPlan(plan);
 
 const supplyOption = (plan, part) => {
-  const months = customMonths(plan);
-  if (months && (!part || part === 'full')) return customOption(months);
+  const custom = customLength(plan);
+  if (custom && (!part || part === 'full')) return customOption(custom.months, custom.days);
   return SUPPLY_OPTIONS.find((o) => o.plan === plan && o.part === part) || null;
 };
 const supplyOptionByLabel = (label) => {
-  const m = /^Custom: (\d{1,2}) months?$/i.exec(String(label || '').trim());
-  if (m && customMonths(`C${Number(m[1])}`)) return customOption(Number(m[1]));
+  const m = /^Custom: (?:(\d{1,2}) months?)? ?(?:(\d{1,3}) days?)?$/i.exec(String(label || '').trim());
+  if (m && (m[1] || m[2])) {
+    const months = Number(m[1] || 0);
+    const days = Number(m[2] || 0);
+    return customLengthOk(months, days) ? customOption(months, days) : null;
+  }
   return SUPPLY_OPTIONS.find((o) => o.label === label) || null;
 };
 const supplyLabel = (plan, part) => supplyOption(plan, part)?.label || '';
@@ -61,4 +99,7 @@ const ageBandFor = (age) => {
 // The PO paper keeps the age group as its label ("Above 4 - 12 years").
 const ageBandByLabel = (label) => Object.keys(AGE_BANDS).find((key) => AGE_BANDS[key] === label) || '';
 
-module.exports = { SUPPLY_PLANS, SUPPLY_OPTIONS, AGE_BANDS, CUSTOM_PICK_LABEL, customMonths, customOption, isValidPlan, supplyOption, supplyOptionByLabel, supplyLabel, ageBandFor, ageBandByLabel };
+module.exports = {
+  SUPPLY_PLANS, SUPPLY_OPTIONS, AGE_BANDS, CUSTOM_PICK_LABEL, CUSTOM_MAX_DAYS, isCustomPick, customLengthOk, customLength, customDays, customMonths, isCustomPlan,
+  customOption, isValidPlan, supplyOption, supplyOptionByLabel, supplyLabel, lengthText, ageBandFor, ageBandByLabel,
+};

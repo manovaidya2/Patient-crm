@@ -95,7 +95,7 @@ const createConvertedPatient = async (args) => {
   // In Transit and the Medicine Department cannot change these later, so post counselling must decide them now.
   const plan = args.values || {};
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(plan.medicineReadyDate || ''))) throw fail('Fill the medicine ready expected date on the PO paper');
-  if (!supplyOptionByLabel(plan.supplyOrder)) throw fail('Select the medicine supply on the PO paper (6 months / 1+5 / 2+4, or custom with the months)');
+  if (!supplyOptionByLabel(plan.supplyOrder)) throw fail('Select the medicine supply on the PO paper (6 months / 1+5 / 2+4, or custom with the months / days)');
   if (!ageBandByLabel(plan.ageGroup)) throw fail('Enter the patient age on the PO paper (from 3 years; the age group comes from it)');
   // The age written on the PO paper is the patient's age for this phase.
   if (String(plan.patientAge || '').trim()) args = { ...args, input: { ...args.input, age: String(plan.patientAge).trim() } };

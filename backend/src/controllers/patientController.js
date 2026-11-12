@@ -1515,24 +1515,29 @@ const getPatientPurchaseOrders = asyncHandler(async (req, res) => {
   if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   const PurchaseOrder = require('../models/PurchaseOrder');
   const pos = await PurchaseOrder.find({ patient: patient._id }).select('poNumber phase amount status source paymentIds medicineRequestId createdAt createdByName supplyPlan supplyPart previousPoNumber carriedForwardToNumber carriedForwardAmount ownPaymentsOnly').sort({ createdAt: 1 }).lean();
-  const { supplyOption } = require('../constants/supplyPlans');
+  const { supplyOption, lengthText } = require('../constants/supplyPlans');
+  // "Month 1", "Months 2-6"; "Days 1-45" when a supply is not whole months.
+  const rangeText = (from, to) => (!from ? '' : (from - 1) % 30 === 0 && to % 30 === 0
+    ? (to - from + 1 === 30 ? `Month ${to / 30}` : `Months ${(from - 1) / 30 + 1}-${to / 30}`)
+    : `Days ${from}-${to}`);
   const { pickRequest } = require('../utils/transitFlow');
   const phases = {};
   for (const stage of patient.stages || []) {
     const phasePos = pos.filter((po) => po.phase === stage.number);
     if (!phasePos.length) continue;
     const onPo = new Set();
-    // Which months of the phase each PO's medicine covers, in order (cancelled / rejected POs send nothing).
-    let monthsSoFar = 0;
+    // Which months / days of the phase each PO's medicine covers, in order (cancelled / rejected POs send nothing).
+    let daysSoFar = 0;
     const requests = [...(stage.medicineRequests || []), ...(stage.medicineRequest?.status && stage.medicineRequest.status !== 'not_requested' ? [stage.medicineRequest] : [])];
     const current = pickRequest(stage);
     const t = stage.transit || {};
     const purchaseOrders = phasePos.map((po) => {
       const option = supplyOption(po.supplyPlan, po.supplyPart);
-      const months = option?.months || 0;
-      const counts = months > 0 && !['rejected', 'cancelled'].includes(po.status);
-      const fromMonth = counts ? monthsSoFar + 1 : 0;
-      if (counts) monthsSoFar += months;
+      const days = option?.days || 0;
+      const months = days / 30;
+      const counts = days > 0 && !['rejected', 'cancelled'].includes(po.status);
+      const fromDay = counts ? daysSoFar + 1 : 0;
+      if (counts) daysSoFar += days;
       const request = requests.find((r) => String(r.purchaseOrderId || '') === String(po._id) || (po.medicineRequestId && (r.requestId || 'legacy') === po.medicineRequestId));
       const courier = request?.courier || {};
       const isCurrent = Boolean(request && current && (current.requestId || 'legacy') === (request.requestId || 'legacy'));
@@ -1551,7 +1556,10 @@ const getPatientPurchaseOrders = asyncHandler(async (req, res) => {
       return {
         id: String(po._id), poNumber: po.poNumber, amount: Number(po.amount || 0), status: po.status, source: po.source || '', createdAt: po.createdAt, createdByName: po.createdByName || '',
         medicineRequestId: po.medicineRequestId || '', paymentIds: mine.map((p) => String(p._id)),
-        supply: { label: option?.label || '', months, fromMonth, toMonth: counts ? monthsSoFar : 0 },
+        supply: {
+          label: option?.label || '', months, days, text: lengthText(days), fromDay, toDay: counts ? daysSoFar : 0, range: counts ? rangeText(fromDay, daysSoFar) : '',
+          fromMonth: counts ? Math.floor((fromDay - 1) / 30) + 1 : 0, toMonth: counts ? Math.ceil(daysSoFar / 30) : 0,
+        },
         medicine, previousPoNumber: po.previousPoNumber || '', carriedForwardToNumber: po.carriedForwardToNumber || '', carriedForwardAmount: Number(po.carriedForwardAmount || 0),
         payment: { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, pendingAmount: pay.pendingAmount },
       };
