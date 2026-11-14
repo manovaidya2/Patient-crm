@@ -26,3 +26,16 @@ test('explicit extension overrides the deadline while preserving the final-verif
   assert.equal(view.overdue, false);
   assert.equal(view.needsTransitAction, true);
 });
+
+test('an existing release record overrides stale ready/accepted status and retains the original release details', () => {
+  const view = releaseView({ status: 'ready', releaseRequest: { acceptedAt: '2026-11-13T12:00:00Z' }, stages: [
+    { key: 'final', doneAt: '2026-11-13T10:00:00Z' },
+    { key: 'release', doneAt: '2026-10-30T06:11:31Z', doneByName: 'Meena', doneByRole: 'medicine_department', notes: 'Original handover note' },
+  ] });
+  assert.equal(view.state, 'released');
+  assert.equal(view.needsTransitAction, false);
+  assert.equal(view.releasedByName, 'Meena');
+  assert.equal(view.releasedByRole, 'medicine_department');
+  assert.equal(view.releasedAt, '2026-10-30T06:11:31.000Z');
+  assert.equal(view.releaseNotes, 'Original handover note');
+});

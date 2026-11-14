@@ -109,7 +109,9 @@ function urgency(readyByDate, now = new Date()) {
 }
 
 function buildJobView(jobDoc, { stocks = [], payment = null, master = null, includeEvents = false, dispatch = {}, now = new Date() } = {}) {
-  const job = plain(jobDoc);
+  const rawJob = plain(jobDoc);
+  const released = rawJob.status !== 'cancelled' && (rawJob.stages || []).some((s) => s.key === 'release' && s.doneAt);
+  const job = released ? { ...rawJob, status: 'released', currentStage: STAGES.length } : rawJob;
   const done = new Map((job.stages || []).map((s) => [s.key, s]));
   const final = done.get('final');
   const doctor = done.get('doctor');

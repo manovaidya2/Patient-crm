@@ -231,8 +231,8 @@ const buildJobList = async (status, user) => {
   const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean();
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
-  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
-  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, finalVerification: v.finalVerification, actionBy: jobActionBy(jobs[i], handedOver, { user, finalPcc }), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
+  all.forEach((j) => { const status = releaseView(j)?.state === 'released' ? 'released' : j.status; counts[status] += 1; if (jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))) { counts.mine[status] += 1; counts.mine.all += 1; } });
+  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, finalVerification: v.finalVerification, releaseRequest: v.releaseRequest, actionBy: jobActionBy(jobs[i], handedOver, { user, finalPcc }), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
 };
 
 // Who has to act on a job now: the roles of its current stage (whoever resumes it while on hold; nobody once released).
@@ -242,7 +242,7 @@ const jobActionBy = (job, handedOver, { user, finalPcc } = {}) => {
     ? roles.filter((r) => r !== ROLES.ASSISTANT_DOCTOR) : roles;
   if (job.status === 'cancelled') return [];
   const release = releaseView(job);
-  const stageOwners = () => job.status === 'ready' && release
+  const stageOwners = () => release?.state === 'released' ? [] : job.status === 'ready' && release
     ? release.state === 'cancelled' ? [] : release.needsTransitAction ? [ROLES.ADMIN, ROLES.IN_TRANSIT] : [ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT]
     : stageRoles(STAGES[job.currentStage || 0], job);
   // Receipt is the final-check PCC's pending work, including boxes requested after release.
@@ -250,7 +250,7 @@ const jobActionBy = (job, handedOver, { user, finalPcc } = {}) => {
     const currentRoles = job.status === 'released' || handedOver?.has(String(job.requestId)) ? [] : stageOwners();
     return scoped([...new Set([...currentRoles, ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR])]);
   }
-  if (job.status === 'released' || job.status === 'cancelled') return [];
+  if (job.status === 'released' || release?.state === 'released' || job.status === 'cancelled') return [];
   if (handedOver?.has(String(job.requestId))) return [];
   // Sent back for a correction: In Transit's turn until the request is corrected.
   if (job.returned?.at) return [ROLES.ADMIN, ROLES.IN_TRANSIT];
@@ -263,6 +263,7 @@ const getJob = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(String(req.params.id))) fail('Job not found', 404);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await reconcileCompletedRelease(job);
   await respond(res, job);
 });
 
@@ -300,10 +301,28 @@ const requireOrder = (job, key) => {
   return STAGES[index];
 };
 
+// Legacy stage counters can disagree with a saved release record. Preserve its original actor/time.
+const reconcileCompletedRelease = async (job) => {
+  if (job.status === 'cancelled') return false;
+  const completed = job.stages.some((s) => s.key === 'release' && s.doneAt);
+  if (!completed && job.status !== 'released') return false;
+  if (job.status !== 'released' || job.currentStage !== STAGES.length) {
+    job.status = 'released'; job.currentStage = STAGES.length;
+    await job.save();
+  }
+  return true;
+};
+
 // @route POST /api/medicine-jobs/:id/stages/:key   (multipart: photoA[], photoB[]) body: checks (JSON), fields (JSON), notes, consumption (JSON), chits (JSON)
 const completeStage = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  if (req.params.key === 'release') {
+    if (!stageRoles(STAGES[STAGE_INDEX.release], job).includes(stepRole(req.user))) fail('Only the Medicine Department can release medicine', 403);
+    if (await reconcileCompletedRelease(job)) return respond(res, job);
+    // An old counter beyond the shortened stage list is not evidence of an actual release.
+    if (job.status === 'ready' && job.currentStage > STAGE_INDEX.release) job.currentStage = STAGE_INDEX.release;
+  }
   const stage = requireOrder(job, req.params.key);
   const roles = stageRoles(stage, job);
   if (!roles.includes(stepRole(req.user))) fail(`${stage.label} is done by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403);
@@ -609,6 +628,7 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
   if (req.user.role !== owner && !isAdminLike(req.user)) fail(action === 'accept' ? 'Only the Medicine Department can accept a release request' : 'Only In Transit can request release or update the release follow-up', 403);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  if (await reconcileCompletedRelease(job)) return respond(res, job);
   if (job.status !== 'ready') fail('Only medicine that passed final verification can enter the release request flow', 409);
   if (job.hold?.active) fail('Resume the job before updating the release request', 409);
   const now = new Date();
@@ -616,6 +636,8 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
   if (!view) fail('Final verification must be complete before requesting release', 409);
   if (!job.releaseRequest) job.releaseRequest = {};
   const flow = job.releaseRequest;
+  if (!flow.cancellations) flow.cancellations = [];
+  if (!flow.extensions) flow.extensions = [];
   flow.startedAt = view.startedAt;
   flow.deadlineAt = view.deadlineAt;
   const notes = clean(req.body?.notes, 2000);
@@ -642,7 +664,7 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
         cancelledAt: null, cancelledByName: '', cancelReason: '', requestedAt: null, requestedByName: '', requestNote: '',
         acceptedAt: null, acceptedByName: '', paymentSnapshot: null, transitPaymentVerifiedAt: null, transitPaymentVerifiedByName: '', transitPaymentFingerprint: '' });
       event(job, req.user, 'Medicine release request reopened', `${notes} · extended ${days} day(s), new deadline ${deadline.toISOString()}`);
-    } else if (view.state !== 'awaiting_request') {
+    } else if (view.state !== 'awaiting_request' && !(action === 'cancel' && view.state === 'requested')) {
       fail('This release request has already been requested, accepted or cancelled', 409);
     } else if (action === 'extend') {
       const days = Number(req.body?.days);
@@ -653,7 +675,7 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
       flow.deadlineAt = deadline;
       event(job, req.user, 'Medicine release deadline extended', `${days} day(s); new deadline ${deadline.toISOString()} · ${notes}`);
     } else if (action === 'cancel') {
-      if (!view.overdue) fail('The cancel option is available once the release follow-up deadline passes', 409);
+      if (view.state !== 'requested' && !view.overdue) fail('The cancel option is available once the release follow-up deadline passes', 409);
       if (!notes) fail('Write the reason for cancelling the release request');
       flow.cancelledAt = now; flow.cancelledByName = req.user.name; flow.cancelReason = notes;
       flow.cancellations.push({ at: now, byName: req.user.name, reason: notes });
@@ -699,7 +721,7 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
 });
 
 const listReleaseRequests = asyncHandler(async (req, res) => {
-  const jobs = await MedicineJob.find({ status: 'ready' }).select('-events -formulation -chits -consumption -photos').sort({ 'stages.doneAt': 1, createdAt: 1 }).lean();
+  const jobs = await MedicineJob.find({ status: { $in: ['ready', 'released'] } }).select('-events -formulation -chits -consumption -photos').sort({ 'stages.doneAt': 1, createdAt: 1 }).lean();
   res.json({ success: true, items: jobs.map((j) => buildJobView(j)).filter((v) => v.releaseRequest) });
 });
 

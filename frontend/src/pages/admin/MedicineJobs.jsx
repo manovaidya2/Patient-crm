@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Pill } from 'lucide-react';
 import { DelayChips } from '../../components/medicine/MedicineDelay.jsx';
 import FinalVerificationStatus from '../../components/medicine/FinalVerificationStatus.jsx';
-import MedicineBoxReceipt from '../../components/medicine/MedicineBoxReceipt.jsx';
+import MedicineBoxReceipt, { formatBoxReceiptTime } from '../../components/medicine/MedicineBoxReceipt.jsx';
 import MedicineReleaseFlow from '../../components/medicine/MedicineReleaseFlow.jsx';
 import api from '../../api/axios.js';
 import Badge from '../../components/ui/Badge.jsx';
@@ -49,6 +49,7 @@ export default function MedicineJobs() {
   useEffect(() => { const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
   // Live: any job change updates the queue at once.
   useLiveEvent('medicine-job:changed', () => load());
+  const visibleReleaseRequests = releaseRequests.filter((row) => row.releaseRequest?.state !== 'released' && (user?.role !== ROLES.MEDICINE_DEPARTMENT || ['requested', 'accepted', 'cancelled'].includes(row.releaseRequest?.state)));
   return (
     <div className="space-y-4">
       <PageHeader icon={Pill} title="Fulfilment queue"
@@ -59,11 +60,11 @@ export default function MedicineJobs() {
       <section className="space-y-3 rounded-xl border border-cardline bg-white p-4">
         <h2 className="font-bold text-charcoal">Medicine release requests</h2>
         <p className="text-xs text-charcoal/65">In Transit requests release or updates the follow-up within 20 days of final verification. The Medicine Department checks payment, accepts and releases.</p>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{releaseRequests.filter((row) => user?.role !== ROLES.MEDICINE_DEPARTMENT || ['requested', 'accepted', 'cancelled'].includes(row.releaseRequest.state)).map((row) => <article key={row.id} className="space-y-2 rounded-lg border border-cardline p-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleReleaseRequests.map((row) => <article key={row.id} className="space-y-2 rounded-lg border border-cardline p-3">
           <button type="button" className="text-left font-bold text-sage hover:underline" onClick={() => navigate(`/admin/medicine-jobs/${row.id}`)}>{row.patientName} · {row.patientCode}</button>
           <MedicineReleaseFlow job={row} onSaved={load} />
         </article>)}</div>
-        {!releaseRequests.some((row) => user?.role !== ROLES.MEDICINE_DEPARTMENT || ['requested', 'accepted', 'cancelled'].includes(row.releaseRequest.state)) && <p className="text-sm text-charcoal/60">No medicine release requests waiting here.</p>}
+        {!visibleReleaseRequests.length && <p className="text-sm text-charcoal/60">No medicine release requests waiting here.</p>}
       </section>
       <section className="space-y-3 rounded-xl border border-cardline bg-white p-4">
         <h2 className="font-bold text-charcoal">Receive medicine box <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{boxRequests.length} pending</span></h2>
@@ -100,6 +101,7 @@ export default function MedicineJobs() {
                       <span className="flex gap-0.5" aria-hidden="true">{Array.from({ length: j.totalStages }, (_, i) => <i key={i} className={`h-1 flex-1 rounded-full ${i < at ? 'bg-[#2F8F5B]' : i === at ? 'bg-[#F97316]' : 'bg-[#EFE3CF]'}`} />)}</span>
                       <span className={`text-[11.5px] ${mine ? 'font-bold text-[#C2410C]' : 'text-charcoal/65'}`}>{j.status === 'released' ? 'Released to In Transit' : `${j.currentStage + 1}. ${j.currentLabel}`}{j.readyByDate ? ` · ready by ${day(j.readyByDate)}` : ''}</span>
                       <FinalVerificationStatus verification={j.finalVerification} />
+                      {j.status === 'released' && <span className="block rounded-lg bg-emerald-50 px-2.5 py-2 text-[11.5px] text-emerald-900"><b className="block">Medicine released — completed</b><span className="block">{j.releaseRequest?.releasedByName || 'Name not recorded'} · {j.releaseRequest?.releasedAt ? formatBoxReceiptTime(j.releaseRequest.releasedAt) : 'Release time not recorded'}</span></span>}
                     </button>
                   );
                 })}

@@ -47,3 +47,13 @@ test('open jobs follow completed stage keys after QC is disabled and keep active
   assert.equal(updates.get('held').hold.stageKey, 'final');
   assert.equal(updates.get('held').hold.reason, 'Doctor HOLD: Seal leaking');
 });
+
+test('v9 repairs completed releases marked ready without replacing original release evidence', async () => {
+  const original = { ...completed('release'), doneByName: 'Meena', notes: 'Delivered to In Transit' };
+  const updates = database([{ _id: 'stale', stagesVersion: 8, status: 'ready', currentStage: 12, stages: [completed('final'), original] }]);
+  await migrateJobStages();
+  const update = updates.get('stale');
+  assert.equal(update.status, 'released');
+  assert.equal(update.currentStage, STAGES.length);
+  assert.deepEqual(update.stages.find((s) => s.key === 'release'), original);
+});

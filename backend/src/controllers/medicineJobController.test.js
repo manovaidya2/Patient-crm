@@ -498,6 +498,56 @@ test('release request requires an explicit current payment review; screenshots a
   assert.ok(requested.job.events.some((e) => e.action === 'In Transit verified release payments'));
 });
 
+test('already released legacy jobs return completed status on accept/release without repeating the handover', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  const originalTime = new Date('2026-10-30T06:11:31Z');
+  jobs[0].status = 'ready'; jobs[0].currentStage = 12;
+  jobs[0].releaseRequest = { acceptedAt: new Date(), acceptedByName: 'Admin' };
+  jobs[0].stages.push({ key: 'final', doneAt: new Date(), doneByName: pcc.name });
+  jobs[0].stages.push({ key: 'release', doneAt: originalTime, doneByName: med.name, doneByRole: med.role, notes: 'Original box handover' });
+  const accepted = await call(controller.updateReleaseRequest, { params: { id, action: 'accept' }, user: med });
+  assert.equal(accepted.job.status, 'released');
+  assert.equal(accepted.job.releaseRequest.state, 'released');
+  assert.equal(accepted.job.releaseRequest.releasedAt, originalTime.toISOString());
+  assert.equal(accepted.job.releaseRequest.releasedByName, med.name);
+  assert.deepEqual(controller.jobActionBy(jobs[0]), []);
+  const eventCount = jobs[0].events.length;
+  const repeated = await complete(id, 'release', {}, { notes: 'Second click should not replace original notes' });
+  assert.equal(repeated.job.releaseRequest.state, 'released');
+  assert.equal(repeated.job.releaseRequest.releaseNotes, 'Original box handover');
+  assert.equal(repeated.job.releaseRequest.releasedAt, originalTime.toISOString());
+  assert.equal(jobs[0].events.length, eventCount, 'no duplicate release event');
+  assert.equal(jobs[0].currentStage, STAGES.length);
+  assert.equal(jobs[0].stages.filter((s) => s.key === 'release').length, 1);
+});
+
+test('In Transit can cancel a pending release request before acceptance but cannot cancel an accepted request', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  jobs[0].status = 'ready'; jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'release');
+  jobs[0].stages.push({ key: 'final', doneAt: new Date(), doneByName: pcc.name });
+  jobs[0].releaseRequest = { startedAt: new Date(), requestedAt: new Date(), requestedByName: transit.name };
+  const action = (name, body = {}, user = transit) => call(controller.updateReleaseRequest, { params: { id, action: name }, body, user });
+  await assert.rejects(action('cancel'), /reason for cancelling/);
+  const cancelled = await action('cancel', { notes: 'Patient asked to wait' });
+  assert.equal(cancelled.job.releaseRequest.overdue, false, 'cancellation does not require waiting twenty days once a request has been sent');
+  assert.equal(cancelled.job.releaseRequest.state, 'cancelled');
+  assert.equal(cancelled.job.releaseRequest.cancelledByName, transit.name);
+  await assert.rejects(action('accept', {}, med), /open release request/);
+  await action('reopen', { days: 7, notes: 'Patient is ready now' });
+  const review = await call(controller.getReleasePayments, { params: { id }, user: transit });
+  await action('verify-payment', { fingerprint: review.fingerprint, confirmed: true });
+  await action('request');
+  const accepted = await action('accept', {}, med);
+  assert.equal(accepted.job.releaseRequest.state, 'accepted');
+  await assert.rejects(action('cancel', { notes: 'Too late to cancel' }), /already been requested, accepted or cancelled/);
+  assert.equal(jobs[0].releaseRequest.cancelledAt, null);
+  assert.equal(jobs[0].releaseRequest.cancellations.length, 1, 'rejected cancellation does not create another cancellation');
+});
+
 test('the formulation sheet can be corrected until preparation; master values stay beside the change', async () => {
   const { patient, stocks } = setup();
   const { job } = await open(patient);

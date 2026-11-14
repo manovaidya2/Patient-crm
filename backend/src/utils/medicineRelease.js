@@ -9,14 +9,15 @@ const FOLLOWUP_STATUSES = {
 function releaseView(job, now = new Date()) {
   const saved = job.releaseRequest || {};
   const final = (job.stages || []).find((s) => s.key === 'final' && s.doneAt);
+  const released = (job.stages || []).find((s) => s.key === 'release' && s.doneAt);
   const startedAt = saved.startedAt || final?.doneAt;
-  if (!startedAt) return null;
-  const deadline = saved.deadlineAt ? new Date(saved.deadlineAt) : new Date(new Date(startedAt).getTime() + 20 * DAY_MS);
-  const state = job.status === 'released' ? 'released' : saved.cancelledAt ? 'cancelled' : saved.acceptedAt ? 'accepted' : saved.requestedAt ? 'requested' : 'awaiting_request';
+  if (!startedAt && !released && job.status !== 'released') return null;
+  const deadline = saved.deadlineAt ? new Date(saved.deadlineAt) : startedAt ? new Date(new Date(startedAt).getTime() + 20 * DAY_MS) : null;
+  const state = job.status === 'released' || (released && job.status !== 'cancelled') ? 'released' : saved.cancelledAt ? 'cancelled' : saved.acceptedAt ? 'accepted' : saved.requestedAt ? 'requested' : 'awaiting_request';
   const iso = (v) => v ? new Date(v).toISOString() : null;
   return {
-    state, startedAt: iso(startedAt), deadlineAt: iso(deadline), daysLeft: Math.ceil((deadline - now) / DAY_MS),
-    overdue: now >= deadline, needsTransitAction: job.status === 'ready' && state === 'awaiting_request',
+    state, startedAt: iso(startedAt), deadlineAt: iso(deadline), daysLeft: deadline ? Math.ceil((deadline - now) / DAY_MS) : null,
+    overdue: Boolean(deadline && now >= deadline), needsTransitAction: job.status === 'ready' && state === 'awaiting_request',
     followupStatus: saved.followupStatus || '', followupLabel: FOLLOWUP_STATUSES[saved.followupStatus] || '',
     statusUpdatedAt: iso(saved.statusUpdatedAt), statusUpdatedByName: saved.statusUpdatedByName || '',
     transitPaymentVerifiedAt: iso(saved.transitPaymentVerifiedAt), transitPaymentVerifiedByName: saved.transitPaymentVerifiedByName || '',
@@ -26,7 +27,7 @@ function releaseView(job, now = new Date()) {
     cancellations: ((saved.cancellations || []).length ? saved.cancellations : saved.cancelledAt ? [{ at: saved.cancelledAt, byName: saved.cancelledByName, reason: saved.cancelReason }] : [])
       .map((c) => ({ at: iso(c.at), byName: c.byName || '', reason: c.reason || '' })),
     reopenedAt: iso(saved.reopenedAt), reopenedByName: saved.reopenedByName || '',
-    releasedAt: iso((job.stages || []).find((s) => s.key === 'release')?.doneAt),
+    releasedAt: iso(released?.doneAt), releasedByName: released?.doneByName || '', releasedByRole: released?.doneByRole || '', releaseNotes: released?.notes || '',
     extensions: (saved.extensions || []).map((e) => ({ at: iso(e.at), byName: e.byName, days: e.days, previousDeadline: iso(e.previousDeadline), deadlineAt: iso(e.deadlineAt), reason: e.reason })),
   };
 }

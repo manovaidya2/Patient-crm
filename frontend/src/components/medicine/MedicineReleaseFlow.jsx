@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import api from '../../api/axios.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { ROLES, isAdminLike } from '../../constants/roles.js';
+import { ROLES, ROLE_LABELS, isAdminLike } from '../../constants/roles.js';
 import { formatBoxReceiptTime as when } from './MedicineBoxReceipt.jsx';
 import Button from '../ui/Button.jsx';
 import ReleasePaymentReview from './ReleasePaymentReview.jsx';
 
-const labels = { awaiting_request: 'Waiting for In Transit release request', requested: 'Release requested — waiting for Medicine Department', accepted: 'Payment checked — request accepted', cancelled: 'Release request cancelled', released: 'Medicine released' };
+const labels = { awaiting_request: 'Waiting for In Transit release request', requested: 'Release requested — waiting for Medicine Department', accepted: 'Payment checked — request accepted', cancelled: 'Release request cancelled', released: 'Medicine released — completed' };
 const statuses = [['waiting_for_payment', 'Waiting for payment'], ['patient_not_ready', 'Patient not ready'], ['waiting_for_collection', 'Waiting for collection'], ['ready_to_request', 'Ready to request release']];
 const input = 'w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm';
 
@@ -21,7 +21,7 @@ export default function MedicineReleaseFlow({ job, onSaved }) {
   const [paymentVerified, setPaymentVerified] = useState(false);
   const flow = job.releaseRequest;
   if (!flow) return <p className="text-sm text-charcoal/60">Release follow-up starts after the final verification check.</p>;
-  const available = job.status === 'ready' && !job.hold;
+  const available = job.status === 'ready' && flow.state !== 'released' && !job.hold;
   const transit = available && (user?.role === ROLES.IN_TRANSIT || isAdminLike(user));
   const medicine = available && (user?.role === ROLES.MEDICINE_DEPARTMENT || isAdminLike(user));
   const release = job.stages.find((s) => s.key === 'release');
@@ -49,10 +49,12 @@ export default function MedicineReleaseFlow({ job, onSaved }) {
         {flow.paymentSnapshot && <p>Payment at acceptance: paid ₹{flow.paymentSnapshot.amountPaid} · balance ₹{flow.paymentSnapshot.remaining} · {flow.paymentSnapshot.pendingCount} pending</p>}
         {(flow.cancellations || []).map((c, i) => <p key={`cancel-${i}`} className="text-red-800">Release request cancelled by <b>{c.byName}</b> · {when(c.at)} · {c.reason}</p>)}
         {flow.reopenedAt && <p>Requested again by {flow.reopenedByName} · {when(flow.reopenedAt)} · payment review required before sending</p>}
-        {flow.releasedAt && <p>Released · {when(flow.releasedAt)}</p>}
+        {flow.state === 'released' && <p className="font-semibold text-emerald-900">Released by {flow.releasedByName || 'Not recorded'}{flow.releasedByRole ? ` (${ROLE_LABELS[flow.releasedByRole] || flow.releasedByRole})` : ''} · {flow.releasedAt ? when(flow.releasedAt) : 'Release time not recorded'}</p>}
+        {flow.releaseNotes && <p>Release notes: {flow.releaseNotes}</p>}
         {flow.extensions.map((e, i) => <p key={i}>Extended {e.days} day(s) by {e.byName} · {when(e.at)} · new deadline {when(e.deadlineAt)} · {e.reason}</p>)}
       </div>
-      {(transit && ['awaiting_request', 'cancelled'].includes(flow.state) || medicine && ['requested', 'accepted'].includes(flow.state)) && <label className="block space-y-1"><span>Notes / reason</span><textarea className={input} maxLength={2000} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>}
+      {(transit && ['awaiting_request', 'requested', 'cancelled'].includes(flow.state) || medicine && ['requested', 'accepted'].includes(flow.state)) && <label className="block space-y-1"><span>Notes / reason</span><textarea className={input} maxLength={2000} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>}
+      {transit && flow.state === 'requested' && <Button variant="outline" disabled={busy || !notes.trim()} onClick={() => act('cancel')}>{busy ? 'Cancelling...' : 'Cancel release request'}</Button>}
       {transit && flow.state === 'cancelled' && <div className="space-y-2">
         <p className="text-xs text-charcoal/65">The patient stays in this queue. To request again, enter a reason and extend the deadline, then review payment before sending the new request.</p>
         <div className="flex flex-wrap items-end gap-2"><label className="w-36 space-y-1"><span>Extend by days</span><input type="number" className={input} min={1} max={365} value={days} onChange={(e) => setDays(e.target.value)} /></label><Button disabled={busy || !notes.trim() || Number(days) < 1 || Number(days) > 365} onClick={() => act('reopen')}>{busy ? 'Reopening...' : 'Request again'}</Button></div>
@@ -70,7 +72,7 @@ export default function MedicineReleaseFlow({ job, onSaved }) {
           {flow.overdue && <Button variant="outline" disabled={busy || !notes.trim()} onClick={() => act('cancel')}>Cancel release request</Button>}
         </div>
       </>}
-      {(user?.role === ROLES.MEDICINE_DEPARTMENT || isAdminLike(user)) && ['requested', 'accepted', 'released'].includes(flow.state) && <ReleasePaymentReview jobId={job.id} readOnly />}
+      {([ROLES.MEDICINE_DEPARTMENT, ROLES.IN_TRANSIT].includes(user?.role) || isAdminLike(user)) && ['requested', 'accepted', 'released'].includes(flow.state) && <ReleasePaymentReview jobId={job.id} readOnly />}
       {medicine && flow.state === 'requested' && <Button disabled={busy} onClick={() => act('accept')}>{busy ? 'Checking payment...' : 'Verify payment & accept request'}</Button>}
       {medicine && flow.state === 'accepted' && release && <div className="space-y-2">
         {release.checks.map((check, i) => <label key={check} className="flex items-start gap-2"><input type="checkbox" className="mt-1 accent-sage" checked={Boolean(ticks[i])} onChange={(e) => setTicks((old) => ({ ...old, [i]: e.target.checked }))} />{check}</label>)}

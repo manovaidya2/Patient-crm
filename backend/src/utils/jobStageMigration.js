@@ -20,7 +20,7 @@ const STAGES = ['accept', 'formula', 'review', 'stock', 'prepare', 'fill', 'pack
   .map((key) => ACTIVE_STAGES.find((s) => s.key === key) || { key });
 const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
 
-const STAGES_VERSION = 8;
+const STAGES_VERSION = 9;
 
 const migrateJobStages = async () => {
   const old = await MedicineJob.collection.find({ $or: [{ stagesVersion: { $exists: false } }, { stagesVersion: { $lt: STAGES_VERSION } }] })
@@ -81,18 +81,22 @@ const migrateJobStages = async () => {
     }
     // v8: QC and doctor final verification are disabled. The assigned PCC now makes the final decision.
     // Keep historical doctor/QC records; an unfinished old final check must be verified again with the new checklist.
-    if (job.status === 'open') {
+    if (version < 8 && job.status === 'open' && !stages.some((s) => s.key === 'release' && s.doneAt)) {
       stages = stages.filter((s) => s.key !== 'final' || s.fields?.result === 'PASS');
       const done = new Set(stages.filter((s) => s.doneAt).map((s) => s.key));
       const next = ACTIVE_STAGES.findIndex((s) => !done.has(s.key));
       current = next < 0 ? ACTIVE_INDEX.final : Math.min(next, ACTIVE_INDEX.final);
     } else if (job.status === 'ready') current = ACTIVE_INDEX.release;
     else if (job.status === 'released') current = ACTIVE_STAGES.length;
+    // v9: a saved release record is completed even when an old counter/status still says ready.
+    const released = job.status !== 'cancelled' && stages.some((s) => s.key === 'release' && s.doneAt);
+    if (released) current = ACTIVE_STAGES.length;
+    const statusChanged = released && job.status !== 'released';
     const hold = job.hold?.active && ['doctor', 'qc'].includes(job.hold.stageKey)
       ? { ...job.hold, stageKey: job.hold.stageKey === 'doctor' ? 'final' : 'pack1' } : null;
-    const changed = reweighed || Boolean(hold) || current !== (job.currentStage || 0) || stages.length !== (job.stages || []).length;
+    const changed = statusChanged || reweighed || Boolean(hold) || current !== (job.currentStage || 0) || stages.length !== (job.stages || []).length;
     if (changed) moved += 1;
-    const update = { $set: { stagesVersion: STAGES_VERSION, ...(changed ? { stages, currentStage: current } : {}), ...(hold ? { hold } : {}) } };
+    const update = { $set: { stagesVersion: STAGES_VERSION, ...(changed ? { stages, currentStage: current } : {}), ...(statusChanged ? { status: 'released' } : {}), ...(hold ? { hold } : {}) } };
     if (events.length) update.$push = { events: { $each: events } };
     await MedicineJob.collection.updateOne({ _id: job._id }, update);
   }
