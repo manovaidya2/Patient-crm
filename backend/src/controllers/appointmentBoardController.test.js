@@ -10,6 +10,8 @@ const { RECEPTION_IDS } = require('../utils/receptionFlow');
 const pcc = { _id: new mongoose.Types.ObjectId(), name: 'Sakshi', role: 'assistant_doctor' };
 const otherPcc = { _id: new mongoose.Types.ObjectId(), name: 'Neha', role: 'assistant_doctor' };
 const reception = { _id: new mongoose.Types.ObjectId(), name: 'Prachi', role: 'receptionist' };
+const medicine = { _id: new mongoose.Types.ObjectId(), name: 'Meena', role: 'medicine_department' };
+const postCounselor = { _id: new mongoose.Types.ObjectId(), name: 'Riya', role: 'post_counselor' };
 const makeEntry = (withId = true) => {
   const entry = new Management({ appointmentDate: '2026-11-04', appointmentCode: 'APT-1', values: withId ? { [RECEPTION_IDS.patientId]: 'V-041126-11' } : {} });
   entry.save = async () => entry;
@@ -62,6 +64,106 @@ test('any PCC ticks history start, then history taken, once the patient has arri
   await withStubs(notArrived, async () => {
     const r = await run(controller.markHistory, { params: { id: String(notArrived._id) }, body: { step: 'started' }, user: pcc });
     assert.match(r.error.message, /arrival/);
+  });
+});
+
+test('Medicine Department ticks OPD start and complete with operator/date; other departments cannot edit', async () => {
+  const entry = makeEntry();
+  await withStubs(entry, async () => {
+    const audits = [];
+    SalesSheetAudit.create = async (value) => { audits.push(value); return {}; };
+    const mark = (step, user = medicine, done = true) => run(controller.markOpd, { params: { id: String(entry._id) }, body: { step, done }, user });
+    for (const user of [pcc, reception, { ...medicine, role: 'in_transit' }]) {
+      assert.equal((await mark('started', user)).error.statusCode, 403);
+    }
+    assert.match((await mark('completed')).error.message, /OPD start/);
+    const before = Date.now();
+    const started = await mark('started');
+    assert.equal(started.error, null);
+    assert.equal(started.body.row.opdStarted.byName, medicine.name);
+    assert.ok(new Date(started.body.row.opdStarted.at).getTime() >= before);
+    assert.equal(started.body.row.canMarkOpd, true);
+    assert.equal(started.body.row.canMarkHistory, false, 'OPD access does not grant PCC history access');
+    const repeated = await mark('started', { ...medicine, name: 'Other medicine operator' });
+    assert.deepEqual(repeated.body.row.opdStarted, started.body.row.opdStarted, 'a retry preserves the original operator/time');
+    const completed = await mark('completed');
+    assert.equal(completed.body.row.opdCompleted.byName, medicine.name);
+    assert.ok(new Date(completed.body.row.opdCompleted.at).getTime() >= new Date(started.body.row.opdStarted.at).getTime());
+    assert.match((await mark('started', medicine, false)).error.message, /Untick "OPD complete" first/);
+    const readOnly = controller.rowOf(entry.toObject(), null, pcc);
+    assert.equal(readOnly.canMarkOpd, false);
+    assert.equal(readOnly.opdCompleted.byName, medicine.name, 'everyone sees the actual OPD status');
+    assert.deepEqual(audits.map((a) => a.action), ['OPD started', 'OPD completed']);
+    assert.equal(String(audits[0].changedBy), String(medicine._id));
+    assert.match(audits[0].details, /APT-1/);
+  });
+});
+
+test('OPD requires arrival and keeps the history undo window', async () => {
+  const noArrival = makeEntry(false);
+  await withStubs(noArrival, async () => {
+    const result = await run(controller.markOpd, { params: { id: String(noArrival._id) }, body: { step: 'started' }, user: medicine });
+    assert.match(result.error.message, /arrival/);
+  });
+  const entry = makeEntry();
+  entry.visitFlow = { opdStartedAt: new Date(Date.now() - 40 * 60000), opdStartedByName: medicine.name, historyStartedAt: new Date(), historyStartedByName: pcc.name };
+  await withStubs(entry, async () => {
+    const req = { params: { id: String(entry._id) }, body: { step: 'started', done: false }, user: medicine };
+    assert.equal((await run(controller.markOpd, req)).error.statusCode, 403);
+    const admin = { _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' };
+    const undone = await run(controller.markOpd, { ...req, user: admin });
+    assert.equal(undone.error, null);
+    assert.equal(undone.body.row.opdStarted, null);
+    assert.equal(undone.body.row.historyStarted.byName, pcc.name, 'OPD writes preserve the history fields');
+  });
+});
+
+test('Post Counselor marks counselling start/complete with dates and audit; other departments only see it', async () => {
+  const entry = makeEntry();
+  entry.visitFlow = { historyStartedAt: new Date(), historyStartedByName: pcc.name, opdStartedAt: new Date(), opdStartedByName: medicine.name };
+  await withStubs(entry, async () => {
+    const audits = [];
+    SalesSheetAudit.create = async (value) => { audits.push(value); return {}; };
+    const mark = (step, user = postCounselor, done = true) => run(controller.markPostCounselling, { params: { id: String(entry._id) }, body: { step, done }, user });
+    for (const user of [pcc, reception, medicine]) assert.equal((await mark('started', user)).error.statusCode, 403);
+    assert.match((await mark('completed')).error.message, /Post Counselling start/);
+    const before = Date.now();
+    const started = await mark('started');
+    assert.equal(started.error, null);
+    assert.equal(started.body.row.postCounsellingStarted.byName, postCounselor.name);
+    assert.ok(new Date(started.body.row.postCounsellingStarted.at).getTime() >= before);
+    const repeated = await mark('started', { ...postCounselor, name: 'Another counselor' });
+    assert.deepEqual(repeated.body.row.postCounsellingStarted, started.body.row.postCounsellingStarted);
+    const completed = await mark('completed');
+    assert.equal(completed.body.row.postCounsellingCompleted.byName, postCounselor.name);
+    assert.ok(new Date(completed.body.row.postCounsellingCompleted.at) >= new Date(started.body.row.postCounsellingStarted.at));
+    assert.equal(completed.body.row.canMarkPostCounselling, true);
+    assert.equal(completed.body.row.canMarkHistory, false);
+    assert.equal(completed.body.row.canMarkOpd, false);
+    assert.equal(completed.body.row.historyStarted.byName, pcc.name);
+    assert.equal(completed.body.row.opdStarted.byName, medicine.name);
+    assert.match((await mark('started', postCounselor, false)).error.message, /Untick "Post Counselling complete" first/);
+    const readOnly = controller.rowOf(entry.toObject(), null, medicine);
+    assert.equal(readOnly.canMarkPostCounselling, false);
+    assert.equal(readOnly.postCounsellingCompleted.byName, postCounselor.name);
+    assert.deepEqual(audits.map((a) => a.action), ['Post counselling started', 'Post counselling completed']);
+  });
+});
+
+test('post counselling ticks require arrival and follow the history undo window', async () => {
+  const noArrival = makeEntry(false);
+  await withStubs(noArrival, async () => {
+    const result = await run(controller.markPostCounselling, { params: { id: String(noArrival._id) }, body: { step: 'started' }, user: postCounselor });
+    assert.match(result.error.message, /arrival/);
+  });
+  const entry = makeEntry();
+  entry.visitFlow = { postCounsellingStartedAt: new Date(Date.now() - 40 * 60000), postCounsellingStartedByName: postCounselor.name };
+  await withStubs(entry, async () => {
+    const req = { params: { id: String(entry._id) }, body: { step: 'started', done: false }, user: postCounselor };
+    assert.equal((await run(controller.markPostCounselling, req)).error.statusCode, 403);
+    const undone = await run(controller.markPostCounselling, { ...req, user: { _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' } });
+    assert.equal(undone.error, null);
+    assert.equal(undone.body.row.postCounsellingStarted, null);
   });
 });
 

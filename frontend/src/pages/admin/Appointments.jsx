@@ -9,7 +9,7 @@ import { PageHeader } from '../../components/ui/Layout.jsx';
 import { downloadXlsx } from '../../utils/xlsx.js';
 
 // "Appointments": each appointment of the chosen dates and how the visit went - Patient ID (and when it was made),
-// arrival, registration sent to the Post Counselor, history started / taken (ticked by a PCC) and the package bought.
+// arrival, registration sent to the Post Counselor, PCC history, Medicine Department OPD and the package bought.
 // Reception's and post counselling's columns fill by themselves; a PCC ticks the history here. Everyone can see it; it
 // exports to Excel (.xlsx) with the columns picked.
 const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -21,7 +21,7 @@ const Stamp = ({ at, by }) => (at ? <p className="mt-0.5 text-[11px] leading-4 t
 const Empty = () => <span className="text-charcoal/30">—</span>;
 
 // The table: [title, width class]
-const HEAD = [['#', 'w-[110px]'], ['Patient', 'w-[220px]'], ['Patient ID', 'w-[150px]'], ['Arrival', 'w-[100px]'], ['Registration → Post Counselor', 'w-[190px]'], ['History start', 'w-[120px]'], ['History taken', 'w-[120px]'], ['Package', 'w-[240px]'], ['Purchase order', 'w-[180px]'], ['Medicine', 'w-[190px]'], ['Delivery', 'w-[200px]'], ['Treatment', 'w-[150px]']];
+const HEAD = [['#', 'w-[110px]'], ['Patient', 'w-[220px]'], ['Patient ID', 'w-[150px]'], ['Arrival', 'w-[100px]'], ['Registration → Post Counselor', 'w-[190px]'], ['History start', 'w-[120px]'], ['History taken', 'w-[120px]'], ['OPD start', 'w-[160px]'], ['OPD complete', 'w-[160px]'], ['Post Counselling start', 'w-[180px]'], ['Post Counselling complete', 'w-[180px]'], ['Package', 'w-[240px]'], ['Purchase order', 'w-[180px]'], ['Medicine', 'w-[190px]'], ['Delivery', 'w-[200px]'], ['Treatment', 'w-[150px]']];
 const cellClass = 'border border-[#E8DFCB] px-3 py-2.5 align-top';
 
 // Export columns (picked in the dialog): key, header, Excel width, value.
@@ -45,6 +45,14 @@ const EXPORT_COLUMNS = [
   ['historyStartBy', 'History start by', 16, (r) => r.historyStarted?.byName],
   ['historyTaken', 'History taken', 20, (r) => dateTime(r.historyTaken?.at)],
   ['historyTakenBy', 'History taken by', 16, (r) => r.historyTaken?.byName],
+  ['opdStart', 'OPD start', 23, (r) => dateTime(r.opdStarted?.at)],
+  ['opdStartBy', 'OPD start by', 18, (r) => r.opdStarted?.byName],
+  ['opdComplete', 'OPD complete', 23, (r) => dateTime(r.opdCompleted?.at)],
+  ['opdCompleteBy', 'OPD complete by', 18, (r) => r.opdCompleted?.byName],
+  ['postCounsellingStart', 'Post Counselling start', 23, (r) => dateTime(r.postCounsellingStarted?.at)],
+  ['postCounsellingStartBy', 'Post Counselling start by', 23, (r) => r.postCounsellingStarted?.byName],
+  ['postCounsellingComplete', 'Post Counselling complete', 23, (r) => dateTime(r.postCounsellingCompleted?.at)],
+  ['postCounsellingCompleteBy', 'Post Counselling complete by', 23, (r) => r.postCounsellingCompleted?.byName],
   ['outcome', 'Outcome', 16, outcomeText],
   ['treatment', 'Treatment', 26, (r) => r.package?.treatment],
   ['supply', 'Supply', 16, (r) => r.package?.supply],
@@ -118,6 +126,40 @@ function HistoryTick({ row, step, onSaved, onError }) {
   );
 }
 
+function OpdTick({ row, step, onSaved, onError }) {
+  const value = step === 'completed' ? row.opdCompleted : row.opdStarted;
+  const [busy, setBusy] = useState(false);
+  const blocked = !row.patientId || (step === 'completed' && !row.opdStarted) || (step === 'started' && Boolean(row.opdCompleted));
+  const stamp = value ? <p className="mt-0.5 text-[11px] leading-4 text-charcoal/55">{dateTime(value.at)} · {value.byName}</p> : null;
+  const toggle = async () => {
+    setBusy(true); onError('');
+    try { const { data } = await api.post(`/appointments-board/${row.id}/opd`, { step, done: !value }); onSaved(data.row); }
+    catch (err) { onError(err.response?.data?.message || 'Could not save OPD status'); }
+    finally { setBusy(false); }
+  };
+  if (!row.canMarkOpd) return value ? <><span className="font-bold text-emerald-700">✓ Done</span>{stamp}</> : <Empty />;
+  return <label className={`inline-flex flex-col ${blocked ? 'opacity-40' : 'cursor-pointer'}`} title={!row.patientId ? 'Reception marks the arrival first' : step === 'completed' && !row.opdStarted ? 'Tick OPD start first' : step === 'started' && row.opdCompleted ? 'Untick OPD complete first' : ''}>
+    <input type="checkbox" aria-label={step === 'completed' ? `OPD complete for ${row.patientName}` : `OPD start for ${row.patientName}`} className="h-4 w-4 accent-[#5B7B65]" checked={Boolean(value)} disabled={busy || blocked} onChange={toggle} />{stamp}
+  </label>;
+}
+
+function PostCounsellingTick({ row, step, onSaved, onError }) {
+  const value = step === 'completed' ? row.postCounsellingCompleted : row.postCounsellingStarted;
+  const [busy, setBusy] = useState(false);
+  const blocked = !row.patientId || (step === 'completed' && !row.postCounsellingStarted) || (step === 'started' && Boolean(row.postCounsellingCompleted));
+  const stamp = value ? <p className="mt-0.5 text-[11px] leading-4 text-charcoal/55">{dateTime(value.at)} · {value.byName}</p> : null;
+  const toggle = async () => {
+    setBusy(true); onError('');
+    try { const { data } = await api.post(`/appointments-board/${row.id}/post-counselling`, { step, done: !value }); onSaved(data.row); }
+    catch (err) { onError(err.response?.data?.message || 'Could not save post counselling status'); }
+    finally { setBusy(false); }
+  };
+  if (!row.canMarkPostCounselling) return value ? <><span className="font-bold text-emerald-700">✓ Done</span>{stamp}</> : <Empty />;
+  return <label className={`inline-flex flex-col ${blocked ? 'opacity-40' : 'cursor-pointer'}`} title={!row.patientId ? 'Reception marks the arrival first' : step === 'completed' && !row.postCounsellingStarted ? 'Tick Post Counselling start first' : step === 'started' && row.postCounsellingCompleted ? 'Untick Post Counselling complete first' : ''}>
+    <input type="checkbox" aria-label={step === 'completed' ? `Post Counselling complete for ${row.patientName}` : `Post Counselling start for ${row.patientName}`} className="h-4 w-4 accent-[#5B7B65]" checked={Boolean(value)} disabled={busy || blocked} onChange={toggle} />{stamp}
+  </label>;
+}
+
 export default function Appointments() {
   const [from, setFrom] = useState(istToday);
   const [to, setTo] = useState(istToday);
@@ -151,7 +193,7 @@ export default function Appointments() {
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       <div className="overflow-x-auto rounded-[12px] border border-[#E8DFCB] bg-white">
-        <table className="w-full min-w-[1980px] table-fixed border-collapse text-left text-[13px]">
+        <table className="w-full min-w-[2660px] table-fixed border-collapse text-left text-[13px]">
           <colgroup>{HEAD.map(([h, w]) => <col key={h} className={w} />)}</colgroup>
           <thead className="bg-[#F6F0E3] text-[11px] font-bold uppercase tracking-wide text-charcoal/70">
             <tr>{HEAD.map(([h]) => <th key={h} className="border border-[#E8DFCB] px-3 py-2.5 align-middle">{h}</th>)}</tr>
@@ -173,6 +215,10 @@ export default function Appointments() {
                 <td className={cellClass}>{r.registration?.at ? <><p className="font-semibold text-emerald-800">✓ {r.registration.to}</p><Stamp at={r.registration.at} by={r.registration.byName} /></> : r.registration?.draft ? <span className="text-xs text-amber-800">Saved, not sent</span> : <Empty />}</td>
                 <td className={cellClass}><HistoryTick row={r} step="started" onSaved={replace} onError={setError} /></td>
                 <td className={cellClass}><HistoryTick row={r} step="taken" onSaved={replace} onError={setError} /></td>
+                <td className={cellClass}><OpdTick row={r} step="started" onSaved={replace} onError={setError} /></td>
+                <td className={cellClass}><OpdTick row={r} step="completed" onSaved={replace} onError={setError} /></td>
+                <td className={cellClass}><PostCounsellingTick row={r} step="started" onSaved={replace} onError={setError} /></td>
+                <td className={cellClass}><PostCounsellingTick row={r} step="completed" onSaved={replace} onError={setError} /></td>
                 <td className={`${cellClass} text-xs`}>
                   {r.package ? <div className="space-y-0.5"><p className="font-bold text-emerald-800">Package bought</p><p className="text-charcoal/80">{r.package.treatment}{r.package.supply ? ` · ${r.package.supply}` : ''}</p><p>{money(r.package.fee)}{r.package.plan ? ` · ${r.package.plan}` : ''}</p><p>Paid {money(r.package.paid)} · Due <b className={r.package.due ? 'text-[#C2410C]' : ''}>{money(r.package.due)}</b></p></div>
                     : r.outcome === 'not_purchased' ? <span className="font-semibold text-[#9F1D1D]">Not purchased</span> : <Empty />}
@@ -198,7 +244,7 @@ export default function Appointments() {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-charcoal/55">Any PCC ticks "History start" and "History taken" (the time and who ticked are saved). Patient ID, arrival, registration and package come in by themselves. <Link to="/admin/appointment-management" className="font-semibold text-sage">Appointment Management</Link></p>
+      <p className="text-xs text-charcoal/55">Any PCC ticks "History start" and "History taken". The Medicine Department ticks OPD start/complete; the Post Counselor ticks Post Counselling start/complete. Each tick saves the date, time and operator. Patient ID, arrival, registration and package come in by themselves. <Link to="/admin/appointment-management" className="font-semibold text-sage">Appointment Management</Link></p>
       <Modal open={exporting} onClose={() => setExporting(false)} title="Export appointments" className="max-w-xl">
         {exporting && <ExportDialog rows={rows} from={from} to={to} onClose={() => setExporting(false)} />}
       </Modal>

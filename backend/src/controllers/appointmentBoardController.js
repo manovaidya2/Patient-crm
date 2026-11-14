@@ -9,8 +9,7 @@ const { SALES_IDS, RECEPTION_IDS } = require('../utils/receptionFlow');
 // "Appointments": one row per appointment of the chosen dates (the ones Sales confirmed and sent to Reception, and the
 // ones Reception added), following the visit: Patient ID (and when it was made), arrival, released by Reception to a
 // PCC, registration sent to the Post Counselor, history started / taken (ticked by any PCC), and the package bought.
-// Everything is read from the records the other screens already write; only the release and the two history ticks are
-// set here.
+// The release, PCC history ticks and Medicine Department OPD ticks are set here; other columns use existing records.
 const RELEASE_TIME_COLUMN = '6aba54d27172140c6badb055'; // Reception details "Release Time", kept in step
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const day = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
@@ -77,6 +76,10 @@ const rowOf = (entry, idAt, user, po = null) => {
     registration: reg.status === 'sent' ? { at: iso(reg.sentAt), to: reg.postCounselorName || '', byName: reg.sentByName || '' } : reg.status === 'draft' ? { draft: true } : null,
     historyStarted: flow.historyStartedAt ? { at: iso(flow.historyStartedAt), byName: flow.historyStartedByName || '' } : null,
     historyTaken: flow.historyTakenAt ? { at: iso(flow.historyTakenAt), byName: flow.historyTakenByName || '' } : null,
+    opdStarted: flow.opdStartedAt ? { at: iso(flow.opdStartedAt), byName: flow.opdStartedByName || '' } : null,
+    opdCompleted: flow.opdCompletedAt ? { at: iso(flow.opdCompletedAt), byName: flow.opdCompletedByName || '' } : null,
+    postCounsellingStarted: flow.postCounsellingStartedAt ? { at: iso(flow.postCounsellingStartedAt), byName: flow.postCounsellingStartedByName || '' } : null,
+    postCounsellingCompleted: flow.postCounsellingCompletedAt ? { at: iso(flow.postCounsellingCompletedAt), byName: flow.postCounsellingCompletedByName || '' } : null,
     outcome: pc.outcome?.kind || '',
     package: converted ? {
       treatment: purchase.values?.orderedTreatment || '', supply: purchase.values?.supplyOrder || '', plan: purchase.plan || pc.record?.e?.paymentPlan || '',
@@ -87,6 +90,8 @@ const rowOf = (entry, idAt, user, po = null) => {
     // Who may do what on this row.
     canRelease: isAdminLike(user) || user.role === ROLES.RECEPTIONIST,
     canMarkHistory: isAdminLike(user) || user.role === ROLES.ASSISTANT_DOCTOR,
+    canMarkOpd: isAdminLike(user) || user.role === ROLES.MEDICINE_DEPARTMENT,
+    canMarkPostCounselling: isAdminLike(user) || user.role === ROLES.POST_COUNSELOR,
   };
 };
 
@@ -160,4 +165,48 @@ const markHistory = asyncHandler(async (req, res) => {
   res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
 });
 
-module.exports = { listBoard, releasePatient, markHistory, rowOf, progressOf };
+// OPD ticks belong to the Medicine Department; they keep the same arrival/order/undo rules as history.
+const markOpd = asyncHandler(async (req, res) => {
+  if (!isAdminLike(req.user) && req.user.role !== ROLES.MEDICINE_DEPARTMENT) fail('Only the Medicine Department marks OPD start and completion', 403);
+  const entry = await loadEntry(req);
+  const flow = entry.visitFlow || {};
+  if (!mapValue(entry.values, RECEPTION_IDS.patientId)) fail('Mark the arrival first (the Patient ID is made there)');
+  const step = req.body?.step;
+  if (!['started', 'completed'].includes(step)) fail('Choose OPD start or OPD complete');
+  const done = req.body.done !== false && req.body.done !== 'false';
+  const [atKey, byKey] = step === 'completed' ? ['opdCompletedAt', 'opdCompletedByName'] : ['opdStartedAt', 'opdStartedByName'];
+  if (done && step === 'completed' && !flow.opdStartedAt) fail('Tick "OPD start" first');
+  if (!done && step === 'started' && flow.opdCompletedAt) fail('Untick "OPD complete" first');
+  if (!done && !isAdminLike(req.user) && flow[atKey] && Date.now() - new Date(flow[atKey]).getTime() > 30 * 60000) fail('Only the admin can undo this after 30 minutes', 403);
+  // A repeated checkbox save must preserve the actual first tick and its operator.
+  if (Boolean(flow[atKey]) === done) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
+  const now = new Date();
+  entry.visitFlow = { ...(flow.toObject ? flow.toObject() : flow), [atKey]: done ? now : null, [byKey]: done ? req.user.name : '' };
+  await entry.save();
+  await audit(req, entry, done ? `OPD ${step}` : `OPD ${step} undone`, `Appointment ${entry.appointmentCode} · ${now.toISOString()}`);
+  emitChanged(req);
+  res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
+});
+
+const markPostCounselling = asyncHandler(async (req, res) => {
+  if (!isAdminLike(req.user) && req.user.role !== ROLES.POST_COUNSELOR) fail('Only a Post Counselor marks post counselling start and completion', 403);
+  const entry = await loadEntry(req);
+  const flow = entry.visitFlow || {};
+  if (!mapValue(entry.values, RECEPTION_IDS.patientId)) fail('Mark the arrival first (the Patient ID is made there)');
+  const step = req.body?.step;
+  if (!['started', 'completed'].includes(step)) fail('Choose Post Counselling start or complete');
+  const done = req.body.done !== false && req.body.done !== 'false';
+  const [atKey, byKey] = step === 'completed' ? ['postCounsellingCompletedAt', 'postCounsellingCompletedByName'] : ['postCounsellingStartedAt', 'postCounsellingStartedByName'];
+  if (done && step === 'completed' && !flow.postCounsellingStartedAt) fail('Tick "Post Counselling start" first');
+  if (!done && step === 'started' && flow.postCounsellingCompletedAt) fail('Untick "Post Counselling complete" first');
+  if (!done && !isAdminLike(req.user) && flow[atKey] && Date.now() - new Date(flow[atKey]).getTime() > 30 * 60000) fail('Only the admin can undo this after 30 minutes', 403);
+  if (Boolean(flow[atKey]) === done) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
+  const now = new Date();
+  entry.visitFlow = { ...(flow.toObject ? flow.toObject() : flow), [atKey]: done ? now : null, [byKey]: done ? req.user.name : '' };
+  await entry.save();
+  await audit(req, entry, done ? `Post counselling ${step}` : `Post counselling ${step} undone`, `Appointment ${entry.appointmentCode} · ${now.toISOString()}`);
+  emitChanged(req);
+  res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
+});
+
+module.exports = { listBoard, releasePatient, markHistory, markOpd, markPostCounselling, rowOf, progressOf };

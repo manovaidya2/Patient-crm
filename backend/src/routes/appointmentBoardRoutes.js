@@ -9,5 +9,7 @@ router.use(protect);
 router.get('/', controller.listBoard);
 router.post('/:id/release', controller.releasePatient);
 router.post('/:id/history', controller.markHistory);
+router.post('/:id/opd', controller.markOpd);
+router.post('/:id/post-counselling', controller.markPostCounselling);
 
 module.exports = router;
