@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, CalendarClock, CheckCircle2, RefreshCw, Sun } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
@@ -26,6 +26,7 @@ const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good 
 
 // My day: every open task of this role, from the same rules as the orange counts, grouped by urgency.
 export default function MyDay() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [data, setData] = useStaleState('my-day', null);
   const [error, setError] = useState('');
@@ -60,7 +61,7 @@ export default function MyDay() {
             const [label, hint] = PAGES[s.page] || [s.page, ''];
             const on = page === s.page;
             return (
-              <button key={s.page} type="button" aria-pressed={on} onClick={() => setPage(on ? '' : s.page)} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition hover:shadow-sm ${on ? 'border-charcoal bg-charcoal text-white' : 'border-[#FED7AA] bg-[#FFF7ED]'}`}>
+              <button key={s.page} type="button" aria-pressed={on} onClick={() => s.page === '/admin/record-room-overdue' ? navigate(s.page) : setPage(on ? '' : s.page)} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition hover:shadow-sm ${on ? 'border-charcoal bg-charcoal text-white' : 'border-[#FED7AA] bg-[#FFF7ED]'}`}>
                 <span className={`flex h-10 min-w-10 items-center justify-center rounded-xl px-2 font-display text-lg font-extrabold ${on ? 'bg-white text-charcoal' : 'bg-[#F97316] text-white'}`}>{s.count > 99 ? '99+' : s.count}</span>
                 <span className="min-w-0"><span className="block truncate text-[13px] font-bold">{label}</span><span className={`block truncate text-[11.5px] ${on ? 'text-white/75' : 'text-[#9A3412]'}`}>{hint}</span></span>
               </button>

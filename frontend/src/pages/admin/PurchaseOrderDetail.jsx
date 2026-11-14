@@ -56,6 +56,7 @@ const smallLink = 'inline-flex items-center gap-1 text-xs font-semibold text-sag
 // What each timeline step shows on the right: what is filled at that step, or where its status is seen.
 const STEP_SECTIONS = {
   created: ['patient', 'po'],
+  exception: ['patient', 'po', 'payments'],
   details: ['patient', 'po'],
   payment: ['payments'],
   requested: ['medicine'],
@@ -709,9 +710,9 @@ function HandoverPanel({ po, step, onChanged }) {
 export function PurchaseOrderView({ poId, showPatientLink = true }) {
   const { user } = useAuth();
   const role = user?.role;
-  const canVerify = VERIFY_ROLES.includes(role);
   const canCreate = CREATE_ROLES.includes(role);
   const [po, setPo] = useStaleState(`purchase-order:${poId}`, null);
+  const canVerify = VERIFY_ROLES.includes(role) && !po?.exceptionPayment?.pending;
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [payOpen, setPayOpen] = useState(false);
@@ -837,6 +838,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {role === ROLES.ADMIN && <Button size="sm" variant="outline" className="border-[#8C3B2E]/40 text-[#8C3B2E] hover:bg-[#8C3B2E]/5" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }}><Trash2 size={14} />Delete PO</Button>}
         </div>
       </header>
+      {po.exceptionPayment && <div className={`rounded-lg border p-3 text-sm ${po.exceptionPayment.pending ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+        {po.exceptionPayment.pending ? <>Exception payment: waiting for Doctor approval before the next PO step. {(role === ROLES.DOCTOR || role === ROLES.ADMIN) && <Link className="font-semibold underline" to="/admin/exception-payments">Open Exception Payment</Link>}</> : <>Exception payment approved by {po.exceptionPayment.approvedByName} · {poDateTime(po.exceptionPayment.approvedAt)}</>}
+      </div>}
       <details className="rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-2.5" open={(po.patientDocuments || []).length > 0}>
         <summary className="cursor-pointer text-sm font-bold text-charcoal">Patient file (Records Room) · {(po.patientDocuments || []).length ? `${po.patientDocuments.length} document${po.patientDocuments.length === 1 ? '' : 's'}` : 'not scanned yet'}</summary>
         <PatientFile documents={po.patientDocuments || []} className="mt-2" />

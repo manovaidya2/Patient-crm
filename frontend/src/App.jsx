@@ -14,6 +14,7 @@ const TeamMembers = lazy(() => import('./pages/admin/TeamMembers.jsx'));
 const AllPatients = lazy(() => import('./pages/admin/AllPatients.jsx'));
 const InactivePatients = lazy(() => import('./pages/admin/InactivePatients.jsx'));
 const PatientApprovals = lazy(() => import('./pages/admin/PatientApprovals.jsx'));
+const ExceptionPayments = lazy(() => import('./pages/admin/ExceptionPayments.jsx'));
 const PatientDetails = lazy(() => import('./pages/admin/PatientDetails.jsx'));
 const PatientsByStage = lazy(() => import('./pages/admin/PatientsByStage.jsx'));
 const Accounts = lazy(() => import('./pages/admin/Accounts.jsx'));
@@ -75,6 +76,7 @@ const Enquiries = lazy(() => import('./pages/admin/Enquiries.jsx'));
 const TeamChat = lazy(() => import('./pages/admin/TeamChat.jsx'));
 const KnowledgeLibrary = lazy(() => import('./pages/admin/KnowledgeLibrary.jsx'));
 const RecordRoom = lazy(() => import('./pages/admin/RecordRoom.jsx'));
+const RecordRoomOverdue = lazy(() => import('./pages/admin/RecordRoomOverdue.jsx'));
 const ReceptionRegister = lazy(() => import('./pages/admin/ReceptionRegister.jsx'));
 const CrmHistory = lazy(() => import('./pages/admin/CrmHistory.jsx'));
 const HrDashboard = lazy(() => import('./pages/hr/HrDashboard.jsx'));
@@ -178,6 +180,7 @@ function App() {
         <Route path="in-transit" element={<Navigate to="/admin/purchase-orders" replace />} />
         <Route path="purchase-orders" element={<ProtectedRoute roles={PURCHASE_ORDER_ROLES}><PurchaseOrders /></ProtectedRoute>} />
         <Route path="medicine-jobs" element={<ProtectedRoute roles={MEDICINE_JOB_ROLES}><MedicineJobs /></ProtectedRoute>} />
+        <Route path="exception-payments" element={<ProtectedRoute roles={[ROLES.DOCTOR, ROLES.ADMIN]}><ExceptionPayments /></ProtectedRoute>} />
         <Route path="medicine-jobs/:id" element={<ProtectedRoute roles={MEDICINE_JOB_ROLES}><MedicineJobPage /></ProtectedRoute>} />
         <Route path="stocks" element={<ProtectedRoute roles={STOCK_ROLES}><Stocks /></ProtectedRoute>} />
         <Route path="my-day" element={<ProtectedRoute roles={ADMIN_LAYOUT_ROLES}><MyDay /></ProtectedRoute>} />
@@ -480,9 +483,13 @@ function App() {
           }
         />
         <Route
+          path="record-room-overdue"
+          element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER]}><RecordRoomOverdue /></ProtectedRoute>}
+        />
+        <Route
           path="record-room/*"
           element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.RECEPTIONIST]}>
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST]}>
               <RecordRoom />
             </ProtectedRoute>
           }

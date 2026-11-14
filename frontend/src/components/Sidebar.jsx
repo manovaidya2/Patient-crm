@@ -87,6 +87,7 @@ import BrandLogo from './BrandLogo.jsx';
 
 // Pages shown at the very top of a role's menu, in this order.
 const ROLE_FIRST_PAGES = {
+  [ROLES.DOCTOR]: ['/admin/my-day', '/admin/exception-payments'],
   [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/treatment-not-given', '/admin/post-counseling-done'],
 };
 
@@ -113,6 +114,7 @@ export const navItems = [
   { to: '/admin/team-chat', icon: MessagesSquare, label: 'Team Chat', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/enquiries', icon: MessageSquareWarning, label: 'Enquiries & Escalations', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   { to: '/admin/record-room', icon: FolderArchive, label: 'Record Room', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
+  { to: '/admin/record-room-overdue', icon: FolderArchive, label: 'Record Room Overdue', roles: [ROLES.ADMIN, ROLES.MANAGER], group: 'reception' },
   { to: '/admin/visitors', icon: DoorOpen, label: 'Visitor Register', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/incoming-couriers', icon: PackagePlus, label: 'Incoming Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
   { to: '/admin/outgoing-couriers', icon: PackageMinus, label: 'Outgoing Couriers', roles: [ROLES.ADMIN, ROLES.RECEPTIONIST], group: 'reception' },
@@ -128,6 +130,7 @@ export const navItems = [
   { to: '/admin/treatment-not-given', icon: Ban, label: 'Treatment Not Given', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/package-not-bought', icon: UserMinus, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR], group: 'postcounselling' },
   { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
+  { to: '/admin/exception-payments', icon: ShieldCheck, label: 'Exception Payment', roles: [ROLES.DOCTOR, ROLES.ADMIN], group: 'care' },
   { to: '/admin/followups', icon: PhoneCall, label: 'Follow-ups', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
   { to: '/admin/family-sessions', icon: HeartHandshake, label: 'Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR], group: 'care' },
   { to: '/admin/patient-improvement', icon: TrendingUp, label: 'Patient Improvement', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.DOCTOR, ROLES.DIGITAL_MARKETING], group: 'care' },
@@ -466,17 +469,17 @@ const Sidebar = ({ mobile = false, onClose }) => {
         const countOf = (item) => (item.to === '/admin/my-day' ? 0 : Number(taskCounts[item.to] || 0));
         const hrItem = visibleNavItems.find((item) => item.type === 'hr');
         // Order inside the menu: home pages, the role's own work, patient pages, then reference pages at the bottom.
-        const TOP = ['/admin/my-day', '/admin/team-pending', '/admin'];
+        const TOP = ['/admin/my-day', ...(user?.role === ROLES.DOCTOR ? ['/admin/exception-payments'] : []), '/admin/team-pending', '/admin'];
         const REFERENCE = ['/admin/knowledge-library', '/admin/enquiries'];
         const top = visibleNavItems.filter((item) => TOP.includes(item.to));
         const reference = visibleNavItems.filter((item) => REFERENCE.includes(item.to));
         const patientPages = visibleNavItems.filter((item) => !item.group && item.type !== 'hr' && !TOP.includes(item.to) && !REFERENCE.includes(item.to));
-        const workPages = visibleNavItems.filter((item) => item.group);
+        const workPages = visibleNavItems.filter((item) => item.group && !TOP.includes(item.to));
         const home = HOME_GROUP[user?.role];
         // Admin and Doctor see every department, so every department keeps its own group.
         const fullMenu = isAdminLike(user) || user?.role === ROLES.DOCTOR;
         const allGroups = NAV_GROUPS
-          .map((group) => ({ group, items: visibleNavItems.filter((item) => item.group === group.key) }))
+          .map((group) => ({ group, items: workPages.filter((item) => item.group === group.key) }))
           .filter((g) => g.items.length);
         const groups = allGroups.filter((g) => fullMenu || g.items.length > 2 || g.group.key === home)
           .sort((a, b) => (b.group.key === home) - (a.group.key === home));

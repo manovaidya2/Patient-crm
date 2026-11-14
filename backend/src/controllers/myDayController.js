@@ -38,6 +38,12 @@ const requestItems = async (page, statuses, detailOf, extra = () => true) => {
 };
 
 const COLLECTORS = {
+  async '/admin/record-room-overdue'() {
+    const { overdueRecords, uploadTiming } = require('../utils/recordRoomOverdue');
+    return (await overdueRecords(LIMIT)).map((record) => item('/admin/record-room-overdue', String(record._id), record.patientName,
+      `${record.patientId || record.appointmentId || ''} · Paper upload overdue · Reception: ${record.createdByName || 'Name not recorded'}`,
+      uploadTiming(record).uploadDueAt, `/admin/record-room-overdue?record=${record._id}`));
+  },
   async '/admin/purchase-orders'(user) {
     const pos = await loadPoViews();
     return [...pos.filter((po) => po.actionBy.includes(stepRole(user)))

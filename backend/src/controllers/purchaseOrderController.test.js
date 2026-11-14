@@ -8,6 +8,7 @@ const { nextPoNumber, createWithPoNumber } = require('../utils/poNumber');
 const { buildPoView } = require('../utils/purchaseOrderFlow');
 const { migrateLegacyPurchaseOrders } = require('../utils/purchaseOrderMigration');
 const { ageBandFor, supplyOption, SUPPLY_OPTIONS } = require('../constants/supplyPlans');
+const { STAGE_INDEX: MEDICINE_STAGE_INDEX } = require('../utils/medicineJobFlow');
 
 afterEach(() => mock.restoreAll());
 const transit = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
@@ -77,6 +78,55 @@ const shot = { url: '/uploads/payments/1-2.png', fileName: 'proof.png' };
 const paperBody = (patient, { phase = '1', fee = '42000', supplyKey = '6M:full', ...values } = {}) => ({
   patientId: String(patient._id), phase, fee,
   purchase: { mode: 'Cash', supplyOrder: SUPPLY_OPTIONS.find((o) => o.key === supplyKey)?.label || '', poDate: '2026-10-22', orderedTreatment: `Autism / Phase ${phase}`, ...values },
+});
+
+test('exception payment waits for Doctor approval before normal PO verification, without approving payments', async () => {
+  const patient = makePatient();
+  const docs = memoryPos();
+  const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Dr Garg', role: 'doctor' };
+  const created = await call(controller.createPurchaseOrder, { user: counselor, body: { ...paperBody(patient, { amountReceivedNow: '5000', cashReceiver: 'Prachi' }), exceptionPayment: true, exceptionPaymentReason: 'Doctor approval for payment exception' } });
+  const po = created.purchaseOrder;
+  assert.equal(po.exceptionPayment.pending, true);
+  assert.equal(po.exceptionPayment.requestedByName, counselor.name);
+  assert.equal(po.steps.find((s) => s.key === 'exception').state, 'current');
+  assert.equal(po.steps.find((s) => s.key === 'details').state, 'todo');
+  assert.deepEqual(po.actionBy, ['doctor']);
+  assert.equal(patient.approvalStatus, 'pending');
+  for (const handler of [controller.verifyDetails, controller.verifyPayment, controller.requestMedicine, controller.activatePhase]) {
+    await assert.rejects(call(handler, { params: { id: po.id } }), /Doctor must verify the exception payment/);
+  }
+  for (const user of [transit, counselor, { ...doctor, role: 'admin' }]) {
+    await assert.rejects(call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true }, user }), /Only the Doctor/);
+  }
+  await assert.rejects(call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: false }, user: doctor }), /Confirm that you reviewed/);
+  const approved = (await call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true, notes: 'Exception reviewed and approved' }, user: doctor })).purchaseOrder;
+  assert.equal(approved.exceptionPayment.pending, false);
+  assert.equal(approved.exceptionPayment.approvedByName, doctor.name);
+  assert.ok(approved.exceptionPayment.approvedAt);
+  assert.equal(patient.approvalStatus, 'approved');
+  assert.equal(patient.approvedByName, doctor.name);
+  assert.equal(docs[0].status, 'pending', 'Doctor exception approval does not skip the existing PO verification');
+  assert.equal(docs[0].detailsVerifiedAt, null);
+  assert.equal(patient.stages[0].payments[0].approvalStatus, 'pending', 'existing payment verification is still required');
+  assert.equal(approved.steps.find((s) => s.key === 'details').state, 'current');
+  const repeated = (await call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true }, user: doctor })).purchaseOrder;
+  assert.equal(repeated.exceptionPayment.approvedAt, approved.exceptionPayment.approvedAt);
+  await call(controller.verifyDetails, { params: { id: po.id } });
+  const verified = (await call(controller.verifyPayment, { params: { id: po.id } })).purchaseOrder;
+  assert.equal(verified.status, 'verified');
+  assert.equal(verified.canRequestMedicine, true);
+});
+
+test('an unticked exception checkbox keeps the normal PO verification flow unchanged', async () => {
+  const patient = makePatient();
+  memoryPos();
+  const po = (await call(controller.createPurchaseOrder, { user: counselor, body: { ...paperBody(patient), exceptionPayment: false } })).purchaseOrder;
+  assert.equal(po.exceptionPayment, null);
+  assert.ok(!po.steps.some((s) => s.key === 'exception'));
+  assert.equal(po.steps.find((s) => s.key === 'details').state, 'current');
+  await call(controller.verifyDetails, { params: { id: po.id } });
+  const verified = (await call(controller.verifyPayment, { params: { id: po.id } })).purchaseOrder;
+  assert.equal(verified.status, 'verified');
 });
 
 test('creating a PO from the PO paper generates the number, saves the payment as pending and links it', async () => {
@@ -286,7 +336,7 @@ test('after the medicine is accepted the timeline runs in two tracks, each with 
   assert.match(view.steps.find((s) => s.key === 'handover').waitText, /release/);
   assert.ok(!view.actionBy.includes('in_transit'));
   // Parcel packed: the final verification check (fulfilment step 11) is for the final-check PCC.
-  view = buildPoView(po, patient, { job: { status: 'open', currentStage: 10 } });
+  view = buildPoView(po, patient, { job: { status: 'open', currentStage: MEDICINE_STAGE_INDEX.final } });
   assert.deepEqual(now(), ['ready', 'handover']);
   assert.ok(view.actionBy.includes('assistant_doctor') && !view.actionBy.includes('medicine_department'));
   // Before the medicine is accepted there is one "now" step.

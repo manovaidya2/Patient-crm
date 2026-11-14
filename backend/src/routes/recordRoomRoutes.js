@@ -6,6 +6,7 @@ const controller = require('../controllers/recordRoomController');
 
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.RECEPTIONIST));
+router.get('/overdue', authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.RECEPTIONIST), controller.overdue);
 router.get('/', controller.list);
 router.get('/lookup', controller.lookup);
 router.get('/summary', controller.summary);

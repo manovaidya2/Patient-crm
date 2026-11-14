@@ -67,6 +67,16 @@ const purchaseOrderSchema = new mongoose.Schema(
     carriedForwardAmount: { type: Number, default: 0 },
     carriedForwardAt: { type: Date, default: null },
     status: { type: String, enum: PO_STATUSES, default: 'pending', index: true },
+    exceptionPayment: {
+      required: { type: Boolean, default: false },
+      reason: { type: String, trim: true, default: '', maxlength: 2000 },
+      requestedAt: { type: Date, default: null },
+      requestedByName: { type: String, default: '' },
+      approvedAt: { type: Date, default: null },
+      approvedByName: { type: String, default: '' },
+      approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      approvalNotes: { type: String, default: '', maxlength: 2000 },
+    },
     // In Transit verifies in two steps: first the PO paper / patient details, then the payment. Both done = 'verified'.
     detailsVerifiedAt: { type: Date, default: null },
     detailsVerifiedByName: { type: String, trim: true, default: '' },

@@ -55,6 +55,7 @@ const { fixedReadyDate, readyDateFromPostCounselling, canOverrideFixed } = requi
 const { patientDocuments } = require('../utils/patientDocuments');
 const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
 const { cleanCaseCategory, patientCaseCategory } = require('../utils/caseCategory');
+const { assertExceptionApproved } = require('../utils/paymentException');
 const event = (po, user, action, details = '') => po.events.push({ at: new Date(), action, details, byName: user.name, byRole: user.role });
 const logActivity = (patient, user, action, details = '') => patient.activityLog.push({ action, details, actorName: user.name, actorRole: user.role });
 
@@ -364,6 +365,7 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     paperImages: paper.paperImages || [], status: 'pending', source: 'manual', createdByName: req.user.name, createdByRole: req.user.role,
     // Starts fresh: only its own payments count (never the phase's earlier payments made without a PO).
     ownPaymentsOnly: true,
+    ...(body.exceptionPayment === true ? { exceptionPayment: { required: true, reason: longText(body.exceptionPaymentReason), requestedAt: new Date(), requestedByName: req.user.name } } : {}),
     ...(previous ? { previousPo: previous.noPo ? null : previous.id, previousPoNumber: previous.poNumber } : {}),
     events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${previous ? ` | balance of ${previous.poNumber}` : ''}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
   });
@@ -467,6 +469,7 @@ const addPurchaseOrderPayment = asyncHandler(async (req, res) => {
 // accounts approval is approved with it (same as "Approve patient" on Patient Details).
 const verifyDetails = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
+  assertExceptionApproved(po);
   if (po.status !== 'pending') fail(po.status === 'verified' ? 'This purchase order is already verified' : 'Only a purchase order waiting for verification can be verified', 409);
   if (po.detailsVerifiedAt) fail('The PO details are already verified. Verify the payment next', 409);
   const patient = await loadPatient(po.patient);
@@ -488,6 +491,7 @@ const verifyDetails = asyncHandler(async (req, res) => {
 // payments (an extra payment in that phase), so the phase balance and the ledgers count them from now on.
 const verifyPayment = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
+  assertExceptionApproved(po);
   if (po.status !== 'pending') fail(po.status === 'verified' ? 'This purchase order is already verified' : 'Only a purchase order waiting for verification can be verified', 409);
   if (!po.detailsVerifiedAt) fail('Verify the PO details first');
   const patient = await loadPatient(po.patient);
@@ -586,6 +590,7 @@ const updatePlan = asyncHandler(async (req, res) => {
 // One medicine request per purchase order, sent to Medicine Department with the supply category and age band.
 const requestMedicine = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
+  assertExceptionApproved(po);
   if (po.status !== 'verified') fail(po.detailsVerifiedAt ? 'Verify the payment of this PO first' : 'Verify the PO details and the payment first');
   const patient = await loadPatient(po.patient);
   if (patient.isActive === false) fail('This patient is closed');
@@ -646,6 +651,7 @@ const requestMedicine = asyncHandler(async (req, res) => {
 // What post counselling fixed (supply, age group, ready date) stays as it is, as when the request was sent.
 const updateMedicineRequest = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
+  assertExceptionApproved(po);
   const patient = await loadPatient(po.patient);
   const stage = stageOf(patient, po.phase);
   const request = findRequest(stage, po.medicineRequestId);
@@ -805,6 +811,7 @@ const deletePurchaseOrder = asyncHandler(async (req, res) => {
 
 const activatePhase = asyncHandler(async (req, res) => {
   const po = await loadPo(req.params.id);
+  assertExceptionApproved(po);
   if (po.status !== 'verified') fail('Verify the purchase order first');
   const patient = await loadPatient(po.patient);
   if ((patient.currentStage || 1) === po.phase) fail(`Phase ${po.phase} is already the current phase`, 409);
@@ -817,7 +824,33 @@ const activatePhase = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
-module.exports = { readyNotDelivered, listReadyNotDelivered,
+const listPaymentExceptions = asyncHandler(async (req, res) => {
+  const filter = { 'exceptionPayment.required': true, status: { $nin: ['cancelled', 'rejected'] } };
+  if (req.query.view !== 'all') filter['exceptionPayment.approvedAt'] = req.query.view === 'approved' ? { $ne: null } : null;
+  res.json({ success: true, items: await loadPoViews(filter) });
+});
+
+const approvePaymentException = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.DOCTOR) fail('Only the Doctor can verify an exception payment', 403);
+  const po = await loadPo(req.params.id);
+  if (!po.exceptionPayment?.required) fail('This PO does not require exception payment verification');
+  const patient = await loadPatient(po.patient);
+  if (po.exceptionPayment.approvedAt) return respond(res, po, patient);
+  if (po.status !== 'pending') fail('Only a pending PO can receive exception payment approval', 409);
+  if (req.body?.confirmed !== true) fail('Confirm that you reviewed this payment exception');
+  const now = new Date();
+  Object.assign(po.exceptionPayment, { approvedAt: now, approvedBy: req.user._id, approvedByName: req.user.name, approvalNotes: longText(req.body?.notes) });
+  if ((patient.approvalStatus || 'approved') === 'pending') {
+    Object.assign(patient, { approvalStatus: 'approved', approvedAt: now, approvedByName: req.user.name });
+    logActivity(patient, req.user, 'Patient approved', `Doctor verified exception payment for ${po.poNumber}`);
+  }
+  event(po, req.user, 'Exception payment approved by Doctor', po.exceptionPayment.approvalNotes);
+  logActivity(patient, req.user, 'Exception payment approved', po.poNumber);
+  await patient.save(); await po.save();
+  await respond(res, po, patient);
+});
+
+module.exports = { listPaymentExceptions, approvePaymentException, readyNotDelivered, listReadyNotDelivered,
   courierHandovers, listCourierHandovers,
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   loadPoViews, revertStep, deletePurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,

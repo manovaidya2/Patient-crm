@@ -8,6 +8,11 @@ import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 
 export const poInput = 'w-full min-w-0 rounded-lg border border-cardline bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/15';
 
+const categoryOf = (value) => value === 'mental_health' ? 'mental_health' : value === 'other' ? 'other' : 'autism_adhd';
+const categoryLabel = (category, other = '') => category === 'mental_health' ? 'Mental Health' : category === 'other' ? (other.trim() || 'Other') : 'Autism';
+const phaseDuration = (category, days = '30') => category === 'autism_adhd' ? '6 months' : category === 'mental_health' ? '45 days' : Number(days) === 30 ? '1 month (30 days)' : `${days || '—'} days`;
+const treatmentLabel = (category, other, days, phase) => `${categoryLabel(category, other)} / Phase ${phase} (${phaseDuration(category, days)})`;
+
 export const Chip = ({ active, onClick, children, title, disabled = false }) => (
   <button type="button" title={title} aria-pressed={active} onClick={onClick} disabled={disabled} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed ${active ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/75 hover:border-sage/60 disabled:opacity-40'}`}>
     {active && <Check size={12} />}{children}
@@ -57,6 +62,9 @@ function PatientPicker({ value, onChange }) {
 export default function CreatePurchaseOrderModal({ open, onClose, onCreated, patient: fixedPatient = null, fromPoId: presetFrom = '' }) {
   const [patient, setPatient] = useState(fixedPatient);
   const [phase, setPhase] = useState(String(fixedPatient?.currentStage || 1));
+  const [category, setCategory] = useState(() => categoryOf(fixedPatient?.category));
+  const [otherCategory, setOtherCategory] = useState('');
+  const [otherPhaseDays, setOtherPhaseDays] = useState('30');
   const [fee, setFee] = useState('');
   // A new PO made from a previous PO: its value is that PO's unpaid balance (e.g. the rest of the months).
   const [fromPoId, setFromPoId] = useState('');
@@ -65,10 +73,14 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [exceptionPayment, setExceptionPayment] = useState(false);
+  const [exceptionPaymentReason, setExceptionPaymentReason] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setPatient(fixedPatient); setPhase(String(fixedPatient?.currentStage || 1)); setFee(''); setFromPoId(''); setError('');
+    setCategory(categoryOf(fixedPatient?.category)); setOtherCategory(''); setOtherPhaseDays('30');
+    setExceptionPayment(false); setExceptionPaymentReason('');
   }, [open, fixedPatient]);
   // Load the prefilled paper whenever the patient changes (phase only changes the "ordered treatment" default).
   useEffect(() => {
@@ -77,8 +89,10 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
     api.get('/purchase-orders/form', { params: { patient: patient.id, phase }, skipCache: true })
       .then(({ data }) => {
         if (cancelled) return;
-        setForm(data); setValues(data.values);
         const preset = presetFrom && (data.previous || []).find((p) => p.id === presetFrom);
+        const initialCategory = categoryOf(data.contacts?.category || patient.category);
+        setCategory(initialCategory); setOtherCategory(''); setOtherPhaseDays('30');
+        setForm(data); setValues({ ...data.values, orderedTreatment: treatmentLabel(initialCategory, '', '30', preset?.phase || phase) });
         if (preset) { setFromPoId(preset.id); setFee(String(preset.balance)); setPhase(String(preset.phase)); }
       })
       .catch((err) => { if (!cancelled) setError(err.response?.data?.message || 'Could not open the PO form'); });
@@ -86,7 +100,17 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
   }, [open, patient]); // eslint-disable-line react-hooks/exhaustive-deps
   const choosePhase = (value) => {
     setPhase(value);
-    setValues((current) => (current ? { ...current, orderedTreatment: String(current.orderedTreatment || '').replace(/Phase \d$/, `Phase ${value}`) } : current));
+    setValues((current) => (current ? { ...current, orderedTreatment: String(current.orderedTreatment || '').replace(/Phase \d+(?: \(.*\))?$/, `Phase ${value} (${phaseDuration(category, otherPhaseDays)})`) } : current));
+  };
+
+  // These are PO labels only; phase numbers, supply, payments and treatment scheduling keep their existing flow.
+  const chooseCategory = (value) => {
+    setCategory(value);
+    setValues((current) => current ? { ...current, orderedTreatment: treatmentLabel(value, otherCategory, otherPhaseDays, phase) } : current);
+  };
+  const changeOther = (name, days) => {
+    setOtherCategory(name); setOtherPhaseDays(days);
+    setValues((current) => current ? { ...current, orderedTreatment: treatmentLabel('other', name, days, phase) } : current);
   };
 
   const previousOptions = form?.previous || [];
@@ -99,13 +123,15 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
   const feeNumber = fromPo ? fromPo.balance : Number(String(fee).replace(/,/g, '')) || 0;
   const submit = async () => {
     if (!patient) { setError('Select the patient'); return; }
+    if (category === 'other' && !otherCategory.trim()) { setError('Write the patient category for Other'); return; }
+    if (category === 'other' && (!Number.isInteger(Number(otherPhaseDays)) || Number(otherPhaseDays) < 1 || Number(otherPhaseDays) > 3650)) { setError('Enter the phase duration in whole days (1 to 3650)'); return; }
     if (!(feeNumber > 0)) { setError('Enter the PO value (approved fee)'); return; }
     if (!values?.supplyOrder) { setError('Select the medicine supply on this PO (section H)'); return; }
     // No first payment is fine; the mode is asked only when an amount is received now.
     if (Number(values?.amountReceivedNow || 0) > 0 && !values?.mode) { setError('Select the payment mode of the amount received (section F)'); return; }
     setSaving(true); setError('');
     try {
-      const { data } = await api.post('/purchase-orders', { patientId: patient.id, phase, fee: feeNumber, purchase: values, ...(fromPo ? { fromPoId: fromPo.id } : {}) });
+      const { data } = await api.post('/purchase-orders', { patientId: patient.id, phase, fee: feeNumber, purchase: values, ...(fromPo ? { fromPoId: fromPo.id } : {}), ...(exceptionPayment ? { exceptionPayment: true, exceptionPaymentReason } : {}) });
       onCreated?.(data.purchaseOrder);
     } catch (err) { setError(err.response?.data?.message || 'Could not create the purchase order'); } finally { setSaving(false); }
   };
@@ -130,15 +156,28 @@ export default function CreatePurchaseOrderModal({ open, onClose, onCreated, pat
         )}
         {patient && (
           <div className="grid gap-3 sm:grid-cols-2">
+            <FieldLabel label="Patient category" required><select className={poInput} value={category} onChange={(e) => chooseCategory(e.target.value)}><option value="autism_adhd">Autism</option><option value="mental_health">Mental Health</option><option value="other">Other</option></select></FieldLabel>
+            {category === 'other' ? <>
+              <FieldLabel label="Other patient category" required><input className={poInput} value={otherCategory} maxLength={100} onChange={(e) => changeOther(e.target.value, otherPhaseDays)} placeholder="Write the patient category" /></FieldLabel>
+              <FieldLabel label="Phase duration (days)" required><input type="number" className={poInput} min={1} max={3650} step={1} value={otherPhaseDays} onChange={(e) => changeOther(otherCategory, e.target.value)} /><span className="block text-xs text-charcoal/55">Default: 1 month (30 days)</span></FieldLabel>
+            </> : <FieldLabel label="Phase duration"><input className={`${poInput} bg-[#F6F0E3]`} value={phaseDuration(category)} readOnly /></FieldLabel>}
+          </div>
+        )}
+        {patient && (
+          <div className="grid gap-3 sm:grid-cols-2">
             <FieldLabel label="Phase" required>
               <select className={poInput} value={phase} onChange={(e) => choosePhase(e.target.value)}>
-                {STAGES.map((n) => <option key={n} value={n}>{STAGE_LABELS[n]}{Number(patient.currentStage) === n ? ' (current)' : ''}</option>)}
+                {STAGES.map((n) => <option key={n} value={n}>{STAGE_LABELS[n]} · {categoryLabel(category, otherCategory)} · {phaseDuration(category, otherPhaseDays)}{Number(patient.currentStage) === n ? ' (current)' : ''}</option>)}
               </select>
             </FieldLabel>
             <FieldLabel label={fromPo ? `PO value (balance of ${fromPo.poNumber})` : 'PO value / approved fee (Rs)'} required><input className={poInput} inputMode="decimal" value={fromPo ? String(fromPo.balance) : fee} disabled={Boolean(fromPo)} onChange={(e) => setFee(e.target.value)} placeholder="e.g. 42000" /></FieldLabel>
           </div>
         )}
         {patient && !values && !error && <p className="py-6 text-center text-sm text-charcoal/55">Opening the PO form...</p>}
+        {patient && <section className="space-y-2 rounded-lg border border-cardline bg-white p-3">
+          <label className="flex items-start gap-2 text-sm font-semibold text-charcoal"><input type="checkbox" className="mt-1 h-4 w-4 accent-sage" checked={exceptionPayment} disabled={saving} onChange={(e) => setExceptionPayment(e.target.checked)} />Exception payment — Doctor verification required</label>
+          {exceptionPayment && <><p className="text-xs text-charcoal/65">This PO goes to the Doctor's Exception Payment page first. Further PO verification starts after Doctor approval.</p><FieldLabel label="Exception reason / notes (optional)"><textarea className={poInput} rows={2} maxLength={2000} value={exceptionPaymentReason} onChange={(e) => setExceptionPaymentReason(e.target.value)} /></FieldLabel></>}
+        </section>}
         {values && form && (
           <PurchaseOrderForm
             defs={form.definitions} values={values} fee={feeNumber} contacts={form.contacts} editable

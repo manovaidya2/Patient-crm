@@ -4,7 +4,9 @@ import useTaskCounts from '../hooks/useTaskCounts.js';
 
 // What each count means, in the words of the person who has to act on it.
 export const PAGES = {
+  '/admin/record-room-overdue': ['Record Room Overdue', 'Same-day paper uploads still pending from Reception'],
   '/admin/purchase-orders': ['Purchase Orders', 'POs waiting on your step'],
+  '/admin/exception-payments': ['Exception Payment', 'Payment exceptions waiting for Doctor approval'],
   '/admin/patient-approvals': ['Patient Approvals', 'Patients / payments to approve'],
   '/admin/payments': ['Payments', 'Payments to verify'],
   '/admin/accounts/consultations': ['Consultation Ledger', 'Consultation receipts to verify'],

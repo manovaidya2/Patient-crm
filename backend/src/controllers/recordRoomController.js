@@ -6,6 +6,7 @@ const Patient = require('../models/Patient');
 const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { writeImagesPdf } = require('../utils/simplePdf');
+const { uploadTiming, overdueRecords, overdueCount } = require('../utils/recordRoomOverdue');
 
 const uploadsRoot = path.resolve(__dirname, '../../uploads');
 const treatmentStatus = (value = 'bought') => {
@@ -20,6 +21,7 @@ const filePath = (url) => {
 };
 const removeFile = async (url) => { const target = filePath(url); if (target) { try { await fs.promises.unlink(target); } catch (error) { if (error.code !== 'ENOENT') console.warn(error.message); } } };
 const serialize = (record) => ({
+  ...uploadTiming(record),
   id: String(record._id), patientId: record.patientId, patientName: record.patientName, appointmentId: record.appointmentId,
   shelfNumber: record.shelfNumber || '', fileNumber: record.fileNumber || '',
   indexNumber: record.indexNumber || '',
@@ -29,6 +31,12 @@ const serialize = (record) => ({
   pdfUrl: record.pdfUrl, pdfName: record.pdfName, pdfPageCount: record.pdfPageCount, pdfUpdatedAt: record.pdfUpdatedAt,
   issueHistory: (record.issueHistory || []).map((item) => ({ id: String(item._id), paperName: item.paperName || 'Patient file', issuedAt: item.issuedAt, issuedByName: item.issuedByName, givenTo: item.givenTo, reason: item.reason, returnedAt: item.returnedAt, returnedByName: item.returnedByName, returnNotes: item.returnNotes, returnCondition: item.returnCondition || '', problemDetails: item.problemDetails || '' })),
   createdAt: record.createdAt, createdByName: record.createdByName,
+});
+
+const overdue = asyncHandler(async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const [records, total] = await Promise.all([overdueRecords(25, (page - 1) * 25), overdueCount()]);
+  res.json({ success: true, records: records.map(serialize), total, page });
 });
 
 const list = asyncHandler(async (req, res) => {
@@ -243,4 +251,4 @@ const collect = asyncHandler(async (req, res) => {
   await record.save(); res.json({ success: true, record: serialize(record) });
 });
 
-module.exports = { list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, deleteDocument, issue, collect };
+module.exports = { overdue, list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, deleteDocument, issue, collect };

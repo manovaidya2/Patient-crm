@@ -13,6 +13,7 @@ const { STAGE_INDEX, STAGES: JOB_STAGES } = require('./medicineJobFlow');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
+const { exceptionPending } = require('./paymentException');
 
 // The PO paper exactly as it was filled (sections F, G, H), for the PO details page.
 const PAPER_SECTIONS = [['F', 'Payment collection & instalment plan', 'sectionF'], ['G', 'EMI details', 'sectionG'], ['H', 'Purchase order & patient / guardian consent', 'sectionH']];
@@ -148,6 +149,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = t
   const pccStep = { key: 'pcc', group: 'treatment', branch: 'transit', label: 'Schedule explanation & assign PCC', phaseFact: refill, done: refill || (pccAssigned && Boolean(explanationAt)), at: iso(phaseOwner && !refill ? t.assignedAt : null), by: phaseOwner && !refill ? t.assignedByName : '', text: refill ? FIRST_SUPPLY : [pccName, explanationAt ? `explanation ${shortDay(explanationAt)}` : ''].filter(Boolean).join(' · '), waitText: 'In Transit fixes the medicine explanation date and the PCC who explains it' };
   const steps = [
     { key: 'created', group: 'verification', label: 'Create PO', done: true, at: iso(po.createdAt), by: po.createdByName, text: { conversion: 'From post-counselling conversion', manual: 'Added manually', legacy: 'Existing PO (before this system)' }[po.source] || '' },
+    ...(po.exceptionPayment?.required ? [{ key: 'exception', group: 'verification', label: 'Doctor verifies exception payment', done: !exceptionPending(po), at: iso(po.exceptionPayment.approvedAt), by: po.exceptionPayment.approvedByName || '', text: po.exceptionPayment.approvalNotes || po.exceptionPayment.reason || '', waitText: 'Doctor approval is required before regular PO verification' }] : []),
     {
       key: 'details', group: 'verification', label: po.status === 'rejected' ? 'PO sent back' : 'Verify PO details',
       done: detailsVerified(po), failed: po.status === 'rejected' || po.status === 'cancelled',
@@ -268,6 +270,7 @@ const TRANSIT = ['admin', 'in_transit'];
 const VERIFY = ['admin', 'doctor', 'in_transit'];
 const MED = ['admin', 'doctor', 'medicine_department'];
 function actionByOf(po, stepKey, canRequest, step = null) {
+  if (exceptionPending(po) && !['cancelled', 'rejected'].includes(po.status)) return ['doctor'];
   if (po.status === 'rejected') return po.source === 'conversion' ? ['admin', 'post_counselor'] : ['admin', 'doctor', 'post_counselor', 'in_transit'];
   if (po.status === 'cancelled') return [];
   switch (stepKey) {
@@ -334,7 +337,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
   });
   const stageKey = stageKeyOf(po, steps);
   const reqStatus = request ? req.status : '';
-  const canRequestMedicine = po.status === 'verified' && (!request || reqStatus === 'cancelled');
+  const canRequestMedicine = !exceptionPending(po) && po.status === 'verified' && (!request || reqStatus === 'cancelled');
   // Said on the page when the request button is not offered, so nobody wonders why.
   const requestBlockedReason = canRequestMedicine
     ? ((patient.approvalStatus || 'approved') !== 'approved' ? 'Approve the patient first' : t.removedAt ? `Phase ${po.phase} was removed from In Transit${t.removedByName ? ` by ${t.removedByName}` : ''}${t.removedReason ? ` (${t.removedReason})` : ''} - the admin can restore it` : t.holdActive ? `Phase ${po.phase} is on hold${t.holdReason ? `: ${t.holdReason}` : ''} - resume it to continue` : '')
@@ -353,6 +356,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     previousPo: po.previousPo || po.previousPoNumber ? { id: po.previousPo ? String(po.previousPo) : '', poNumber: po.previousPoNumber || '' } : null,
     carriedForward: po.carriedForwardTo ? { id: String(po.carriedForwardTo), poNumber: po.carriedForwardToNumber || '', amount: Number(po.carriedForwardAmount || 0), at: iso(po.carriedForwardAt) } : null,
     status: po.status,
+    exceptionPayment: po.exceptionPayment?.required ? { required: true, pending: exceptionPending(po), reason: po.exceptionPayment.reason || '', requestedAt: iso(po.exceptionPayment.requestedAt), requestedByName: po.exceptionPayment.requestedByName || '', approvedAt: iso(po.exceptionPayment.approvedAt), approvedByName: po.exceptionPayment.approvedByName || '', approvalNotes: po.exceptionPayment.approvalNotes || '' } : null,
     stageKey,
     patientId: String(patient._id || po.patient || ''),
     patientName: patient.patientName || po.patientName || '',
@@ -395,6 +399,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     rejectedByName: po.rejectedByName || '',
     rejectReason: po.rejectReason || '',
     payments,
+    ...(po.exceptionPayment?.required ? { exceptionPayments: (patient.stages || []).flatMap((phase) => (phase.payments || []).map((payment) => ({ ...formatPayment(payment), phase: phase.number, onThisPo: ids.has(String(payment._id)) }))) } : {}),
     linkedPayment: linked,
     phasePayment: { totalAmount: phasePay.totalAmount, amountPaid: phasePay.amountPaid, remaining: phasePay.remaining, pendingCount: phasePay.pendingCount },
     // This PO alone: its value, what is verified on it, its balance (the phase may have other POs).

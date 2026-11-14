@@ -1,5 +1,6 @@
 const Patient = require('../models/Patient');
 const MedicineJob = require('../models/MedicineJob');
+const PurchaseOrder = require('../models/PurchaseOrder');
 const StockItem = require('../models/StockItem');
 const Enquiry = require('../models/Enquiry');
 const ConsultationReceipt = require('../models/ConsultationReceipt');
@@ -17,7 +18,9 @@ const { explanationOwner } = require('./transitController');
 // has a list endpoint, that same handler is run, so the badge always matches what the page lists.
 const { ADMIN, DOCTOR, MANAGER, POST_COUNSELOR, IN_TRANSIT, MEDICINE_DEPARTMENT, ASSISTANT_DOCTOR } = ROLES;
 const PAGES = {
+  '/admin/record-room-overdue': [ADMIN, MANAGER],
   '/admin/purchase-orders': [ADMIN, DOCTOR, POST_COUNSELOR, IN_TRANSIT, MANAGER],
+  '/admin/exception-payments': [ADMIN, DOCTOR],
   '/admin/patient-approvals': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
   '/admin/payments': [ADMIN, DOCTOR, IN_TRANSIT, MANAGER],
   '/admin/accounts/consultations': [ADMIN, DOCTOR, ROLES.RECEPTIONIST, MANAGER],
@@ -77,6 +80,8 @@ const scheduleReminders = async (user) => {
 };
 
 const COUNTERS = {
+  async '/admin/record-room-overdue'() { return require('../utils/recordRoomOverdue').overdueCount(); },
+  async '/admin/exception-payments'() { return PurchaseOrder.countDocuments({ 'exceptionPayment.required': true, 'exceptionPayment.approvedAt': null, status: 'pending' }); },
   // POs whose current step is this role's (verify, request, schedule, payment, handover, PCC, correction, release...).
   async '/admin/purchase-orders'(user) {
     return (await loadPoViews()).filter((po) => po.actionBy.includes(stepRole(user))).length;

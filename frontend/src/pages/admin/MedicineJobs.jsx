@@ -34,6 +34,9 @@ export default function MedicineJobs() {
   const [releaseRequests, setReleaseRequests] = useStaleState('medicine-release-requests', []);
   const [view, setView] = useState('board');
   const [onlyMine, setOnlyMine] = useState(false);
+  const [search, setSearch] = useState('');
+  const [stageFilter, setStageFilter] = useState('all');
+  const [attention, setAttention] = useState('all');
   const [error, setError] = useState('');
   const hasItems = useRef(false);
   hasItems.current = Boolean(items?.length);
@@ -49,13 +52,35 @@ export default function MedicineJobs() {
   useEffect(() => { const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
   // Live: any job change updates the queue at once.
   useLiveEvent('medicine-job:changed', () => load());
-  const visibleReleaseRequests = releaseRequests.filter((row) => row.releaseRequest?.state !== 'released' && (user?.role !== ROLES.MEDICINE_DEPARTMENT || ['requested', 'accepted', 'cancelled'].includes(row.releaseRequest?.state)));
+  const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matchesPatient = (job) => {
+    const text = [job.patientName, job.patientCode, job.poNumber].filter(Boolean).join(' ').toLowerCase();
+    return terms.every((term) => text.includes(term));
+  };
+  const filteredItems = (items || []).filter((job) => {
+    if (!matchesPatient(job) || (onlyMine && !roleAllowed(job.actionBy || [], user))) return false;
+    const stage = job.status === 'released' ? job.totalStages : job.currentStage;
+    if (stageFilter !== 'all') {
+      const [, from, to] = BOARD[Number(stageFilter)];
+      if (stage < from || stage > to) return false;
+    }
+    return attention === 'all' || (attention === 'hold' ? Boolean(job.hold) : attention === 'due' ? dueSoon(job) : job.urgency?.level === attention);
+  });
+  const visibleBoxRequests = boxRequests.filter(matchesPatient);
+  const visibleReleaseRequests = releaseRequests.filter((row) => matchesPatient(row) && row.releaseRequest?.state !== 'released' && (user?.role !== ROLES.MEDICINE_DEPARTMENT || ['requested', 'accepted', 'cancelled'].includes(row.releaseRequest?.state)));
   return (
     <div className="space-y-4">
       <PageHeader icon={Pill} title="Fulfilment queue"
         subtitle={items ? `${items.length} job(s) · ${items.filter((j) => roleAllowed(j.actionBy || [], user)).length} waiting on you · ${items.filter(dueSoon).length} due within 24 h. Each medicine request is an 11-stage job, soonest ready-by date first. Open a job to work its current stage.` : 'Each medicine request as an 11-stage job, soonest ready-by date first. Open a job to work its current stage.'}
         actions={<div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="View">{[['board', 'Board'], ['list', 'List']].map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)} className={`rounded-full border px-3.5 py-1.5 text-xs font-bold ${view === k ? 'border-charcoal bg-charcoal text-white' : 'border-[#DED2BD] bg-white text-charcoal hover:bg-[#FBF7ED]'}`}>{l}</button>)}<button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine((v) => !v)} className={`rounded-full border px-3.5 py-1.5 text-xs font-bold ${onlyMine ? 'border-[#F97316] bg-[#F97316] text-white' : 'border-[#DED2BD] bg-white text-charcoal hover:bg-[#FBF7ED]'}`}>Only mine</button></div>} />
       <div className="flex flex-wrap gap-1.5">{[['open', 'In fulfilment'], ['ready', 'Ready - awaiting release'], ['released', 'Released'], ['all', 'All']].map(([v, l]) => <Chip key={v} active={status === v} onClick={() => setStatus(v)}>{l}{counts && <span className="ml-1 opacity-70">{counts[v] ?? 0}</span>}{counts?.mine?.[v] > 0 && <span className="ml-1.5 rounded-full bg-orange-500 px-1.5 py-px text-[10px] font-bold text-white" title="Waiting for you">{counts.mine[v]}</span>}</Chip>)}</div>
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-cardline bg-white p-3">
+        <label className="min-w-52 flex-1 space-y-1 text-xs font-semibold"><span>Search patient / PO</span><input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Patient name, patient ID or PO number" className="block w-full rounded-lg border border-cardline px-3 py-2 text-sm font-normal" /></label>
+        <label className="space-y-1 text-xs font-semibold"><span>Queue stage</span><select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="block rounded-lg border border-cardline bg-white px-3 py-2 text-sm font-normal"><option value="all">All stages</option>{BOARD.map(([title], i) => <option key={i} value={i}>{title}</option>)}</select></label>
+        <label className="space-y-1 text-xs font-semibold"><span>Attention</span><select value={attention} onChange={(e) => setAttention(e.target.value)} className="block rounded-lg border border-cardline bg-white px-3 py-2 text-sm font-normal"><option value="all">All jobs</option><option value="hold">On hold</option><option value="breached">Overdue</option><option value="due">Due within 24 h</option><option value="risk">Due within 48 h</option></select></label>
+        {(search || stageFilter !== 'all' || attention !== 'all' || onlyMine) && <button type="button" className="rounded-lg border border-cardline px-3 py-2 text-sm font-semibold text-sage" onClick={() => { setSearch(''); setStageFilter('all'); setAttention('all'); setOnlyMine(false); }}>Clear filters</button>}
+        {items !== null && <span className="py-2 text-xs text-charcoal/65">Showing {filteredItems.length} of {items.length} jobs</span>}
+      </div>
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       <section className="space-y-3 rounded-xl border border-cardline bg-white p-4">
         <h2 className="font-bold text-charcoal">Medicine release requests</h2>
@@ -67,9 +92,9 @@ export default function MedicineJobs() {
         {!visibleReleaseRequests.length && <p className="text-sm text-charcoal/60">No medicine release requests waiting here.</p>}
       </section>
       <section className="space-y-3 rounded-xl border border-cardline bg-white p-4">
-        <h2 className="font-bold text-charcoal">Receive medicine box <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{boxRequests.length} pending</span></h2>
+        <h2 className="font-bold text-charcoal">Receive medicine box <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{visibleBoxRequests.length} pending</span></h2>
         <p className="text-xs text-charcoal/65">Requests from the Medicine Department after final verification. The assigned final verification PCC confirms receipt here.</p>
-        {!boxRequests.length ? <p className="text-sm text-charcoal/60">No medicine box receipt requests pending.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{boxRequests.map((row) => <article key={row.id} className="space-y-2 rounded-lg border border-amber-200 p-3">
+        {!visibleBoxRequests.length ? <p className="text-sm text-charcoal/60">No medicine box receipt requests pending.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleBoxRequests.map((row) => <article key={row.id} className="space-y-2 rounded-lg border border-amber-200 p-3">
           <button type="button" className="text-left font-bold text-sage hover:underline" onClick={() => navigate(`/admin/medicine-jobs/${row.id}`)}>{row.patientName} · {row.patientCode}</button>
           <p className="text-xs text-charcoal/65">Phase {row.phase}{row.poNumber ? ` · PO ${row.poNumber}` : ''}</p>
           <MedicineBoxReceipt job={row} onSaved={load} />
@@ -78,7 +103,7 @@ export default function MedicineJobs() {
       {view === 'board' && items !== null && (
         <div className="grid items-stretch gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           {BOARD.map(([title, from, to], col) => {
-            const list = items.filter((j) => (j.status === 'released' ? j.totalStages : j.currentStage) >= from && (j.status === 'released' ? j.totalStages : j.currentStage) <= to && (!onlyMine || roleAllowed(j.actionBy || [], user)));
+            const list = filteredItems.filter((j) => (j.status === 'released' ? j.totalStages : j.currentStage) >= from && (j.status === 'released' ? j.totalStages : j.currentStage) <= to);
             const mineHere = list.filter((j) => roleAllowed(j.actionBy || [], user)).length;
             const [accent, hint] = BOARD_LOOK[col];
             return (
@@ -116,8 +141,8 @@ export default function MedicineJobs() {
         <table className="w-full text-sm"><thead className="bg-offwhite-200 text-[11px] uppercase tracking-wide text-charcoal/55"><tr><th className="px-3 py-2 text-left">Patient</th><th className="px-3 py-2 text-left">PO · supply</th><th className="px-3 py-2 text-left">Ready by</th><th className="px-3 py-2 text-left">Current stage</th><th className="px-3 py-2 text-left">Progress</th></tr></thead>
           <tbody>
             {items === null ? <tr><td colSpan={5} className="p-6 text-center text-charcoal/55">Loading...</td></tr>
-              : !items.length ? <tr><td colSpan={5} className="p-6 text-center text-charcoal/55">No jobs here.</td></tr>
-                : items.map((j) => { const [ul, ut] = URG[j.urgency?.level] || URG.normal; return (
+              : !filteredItems.length ? <tr><td colSpan={5} className="p-6 text-center text-charcoal/55">No jobs match these filters.</td></tr>
+                : filteredItems.map((j) => { const [ul, ut] = URG[j.urgency?.level] || URG.normal; return (
                   <tr key={j.id} className={`cursor-pointer border-t border-cardline ${roleAllowed(j.actionBy || [], user) ? 'bg-orange-50/70 shadow-[inset_3px_0_0_#f97316] hover:bg-orange-50' : 'hover:bg-sage/5'}`} onClick={() => navigate(`/admin/medicine-jobs/${j.id}`)}>
                     <td className="px-3 py-2"><b>{j.patientName}</b><div className="text-xs text-charcoal/55">{j.patientCode} · Phase {j.phase}</div></td>
                     <td className="px-3 py-2"><span className="font-mono text-xs font-bold">{j.poNumber || '-'}</span><div className="text-xs text-charcoal/60">{j.supplyLabel || '-'}{j.ageBandLabel ? ` · ${j.ageBandLabel}` : ''}</div></td>
