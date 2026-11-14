@@ -304,7 +304,7 @@ function App() {
         />
         <Route path="final-check" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineFinalCheck /></ProtectedRoute>} />
         <Route path="settings" element={<ProtectedRoute roles={[ROLES.ADMIN]}><SettingsPage /></ProtectedRoute>} />
-        <Route path="treatment-papers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><TreatmentPapers /></ProtectedRoute>} />
+        <Route path="treatment-papers" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT]}><TreatmentPapers /></ProtectedRoute>} />
         <Route path="self-pickup-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><SelfPickupSchedule /></ProtectedRoute>} />
         <Route path="transit-follow-ups" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><TransitFollowUps /></ProtectedRoute>} />
         <Route path="incoming-calls" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.IN_TRANSIT]}><IncomingCallLog /></ProtectedRoute>} />

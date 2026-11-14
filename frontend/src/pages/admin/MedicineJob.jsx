@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock3, ExternalLink, FileText, Lock, PauseCircle, BellRing, Pill, PlayCircle, Printer, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock3, ExternalLink, FileText, Lock, PauseCircle, BellRing, Pill, PlayCircle, Printer, RefreshCw, RotateCcw, ShieldCheck, PackageCheck } from 'lucide-react';
 import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
@@ -18,6 +18,9 @@ import { DelayChips, DelayTable, FixedNote } from '../../components/medicine/Med
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import { DosePaperUpload, DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
+import DoctorVerificationCheck from '../../components/medicine/DoctorVerificationCheck.jsx';
+import MedicineBoxReceipt, { formatBoxReceiptTime } from '../../components/medicine/MedicineBoxReceipt.jsx';
+import MedicineReleaseFlow from '../../components/medicine/MedicineReleaseFlow.jsx';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -144,11 +147,11 @@ function DoneList({ stage, job }) {
 }
 
 // Step 10: the doctor verifies steps 7, 8 and 9 together - what each recorded and the dose-paper pages.
-const VERIFIED_BY_DOCTOR = ['pack1', 'qc', 'photos', 'pack2', 'final'];
+const VERIFIED_BY_DOCTOR = ['pack1', 'photos', 'pack2'];
 function VerifySteps({ job }) {
   return (
     <div className="space-y-3 rounded-lg border border-sage/30 bg-[#F3F6F2] p-3">
-      <p className="text-sm font-bold text-charcoal">Verify steps 7, 8 and 9</p>
+      <p className="text-sm font-bold text-charcoal">Verify packing and treatment-paper records</p>
       {VERIFIED_BY_DOCTOR.map((key) => {
         const st = job.stages.find((x) => x.key === key);
         if (!st) return null;
@@ -339,7 +342,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {stage.key === 'pack1' && <DosePaperUpload part="overview" job={job} files={files} setFiles={setFiles} disabled={!canAct} />}
       {stage.key === 'photos' && <DosePaperUpload part="papers" job={job} files={files} setFiles={setFiles} rows={paperRows} setRows={setPaperRows} removed={removedPapers} setRemoved={setRemovedPapers} disabled={!canAct} />}
-      {stage.key === 'doctor' && <VerifySteps job={job} />}
+      {stage.key === 'final' && <VerifySteps job={job} />}
       {stage.key === 'release' && job.payment && (
         <div className={`rounded-lg px-3 py-2 text-sm ${job.payment.releasable ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
           <b>{job.payment.releasable ? 'Payment cleared by In Transit.' : 'Release blocked.'}</b> Phase {job.phase}: {money(job.payment.amountPaid)} verified of {money(job.payment.totalAmount)}{job.payment.remaining > 0 ? `, balance ${money(job.payment.remaining)}` : ''}{job.payment.pendingCount ? `, ${job.payment.pendingCount} payment(s) pending verification` : ''}{!job.payment.patientApproved ? ', patient not approved' : ''}{job.payment.hold ? ', phase on hold' : ''}.
@@ -398,7 +401,8 @@ export default function MedicineJobPage() {
 
   // `view`: a stage index, or 'request' for step 0. A job not accepted yet opens on step 0 (the request).
   const showRequest = Boolean(job) && (view === 'request' || (view == null && job.currentStage === 0 && job.status === 'open'));
-  const shown = useMemo(() => (job && !showRequest ? job.stages[typeof view === 'number' ? view : Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view, showRequest]);
+  const showBoxReceipt = view === 'medicine-box';
+  const shown = useMemo(() => (job && !showRequest && !showBoxReceipt ? job.stages[typeof view === 'number' ? view : Math.min(job.currentStage, job.totalStages - 1)] : null), [job, view, showRequest, showBoxReceipt]);
   if (!job) return <div className="space-y-3"><button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-medium text-sage"><ArrowLeft size={15} /> Back</button>{error ? <ErrorText>{error}</ErrorText> : <p className="p-6 text-center text-sm text-charcoal/55">Loading job...</p>}</div>;
   const isCurrent = shown && shown.state === 'current';
   const stageCanAct = (canAct || [ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR].includes(user?.role)) && isCurrent && !job.hold && job.status !== 'released' && roleAllowed(shown.roles, user);
@@ -410,9 +414,8 @@ export default function MedicineJobPage() {
   const ageLocked = Boolean(job.fixedPlan?.ageBand) && !isAdminLike(user);
   // While the doctor makes the formulation (step 2), the Medicine Department's step is locked and blurred.
   const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
-  // Step 8 (quality check, the Manager) and step 9 (treatment papers, the PCC) are locked and blurred for the Medicine
-  // Department, who can ring the alarm of whoever has the step.
-  const RING_FOR = { qc: { who: 'the Manager', what: 'verify the quality check' }, photos: { who: 'the PCC', what: 'make the treatment papers' }, final: { who: 'the PCC', what: 'do the final verification check' } };
+  // Other departments' steps are locked; treatment papers are now done here by the Medicine Department.
+  const RING_FOR = { qc: { who: 'the Manager', what: 'verify the quality check' }, /* photos: { who: 'the PCC', what: 'make the treatment papers' }, */ final: { who: 'the PCC', what: 'do the final verification check' } };
   const ringFor = job.status === 'open' && !job.hold && user?.role === ROLES.MEDICINE_DEPARTMENT ? RING_FOR[job.currentKey] : null;
   const waitingForTransit = Boolean(ringFor);
   const lockedStep = (waitingForDoctor && shown?.key === 'formula') || (waitingForTransit && shown?.key === job.currentKey);
@@ -461,10 +464,16 @@ export default function MedicineJobPage() {
           {job.stages.map((s, i) => {
             const mine = s.state === 'current' && roleAllowed(s.roles, user);
             return (
-              <button key={s.key} type="button" onClick={() => setView(i)} aria-current={shown?.key === s.key ? 'step' : undefined} className={`grid shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[12.5px] transition lg:w-full ${s.state === 'current' ? 'bg-[#FFF1E6] ring-1 ring-[#FDBA74]' : 'hover:bg-[#FBF7ED]'} ${shown?.key === s.key && s.state !== 'current' ? 'bg-[#F3F6F2] ring-1 ring-sage/40' : ''}`}>
+              <div key={s.key} className="shrink-0 lg:w-full">
+              <button type="button" onClick={() => setView(i)} aria-current={shown?.key === s.key ? 'step' : undefined} className={`grid w-full shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[12.5px] transition lg:w-full ${s.state === 'current' ? 'bg-[#FFF1E6] ring-1 ring-[#FDBA74]' : 'hover:bg-[#FBF7ED]'} ${shown?.key === s.key && s.state !== 'current' ? 'bg-[#F3F6F2] ring-1 ring-sage/40' : ''}`}>
                 <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold ${s.state === 'done' ? 'bg-[#2F8F5B] text-white' : s.state === 'current' ? 'bg-[#F97316] text-white' : 'border-[1.5px] border-[#D9CFBA] text-[#B4AA95]'}`}>{s.state === 'done' ? <Check size={12} /> : s.n}</span>
                 <span className="min-w-0"><span className={`block truncate ${s.state === 'todo' ? 'text-[#8a9094]' : s.state === 'current' ? 'font-extrabold text-charcoal' : 'font-semibold text-charcoal'}`}>{s.label}</span><span className={`block truncate text-[11px] ${mine ? 'font-bold text-[#C2410C]' : s.state === 'todo' ? 'text-[#b4b9bc]' : 'text-charcoal/60'}`}>{s.state === 'done' ? `${s.doneByName} · ${dateTime(s.doneAt)}` : mine ? `Your stage · ${s.roles.map((r) => ROLE_LABELS[r]).join(' / ')}` : s.roles.map((r) => ROLE_LABELS[r]).join(' / ')}</span></span>
               </button>
+              {s.key === 'final' && <button type="button" onClick={() => setView('medicine-box')} aria-current={showBoxReceipt ? 'step' : undefined} className={`grid w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[12.5px] ${showBoxReceipt ? 'bg-[#F3F6F2] ring-1 ring-sage/40' : 'hover:bg-[#FBF7ED]'}`}>
+                <span className={`flex h-6 w-6 items-center justify-center rounded-full ${job.boxReceipt?.status === 'received' ? 'bg-[#2F8F5B] text-white' : 'border-[1.5px] border-[#D9CFBA] text-[#B4AA95]'}`}>{job.boxReceipt?.status === 'received' ? <Check size={12} /> : <Clock3 size={12} />}</span>
+                <span><span className={`block ${job.boxReceipt ? 'font-semibold text-charcoal' : 'text-[#8a9094]'}`}>Receive medicine box</span><span className={`block text-[11px] ${job.boxReceipt ? 'text-charcoal/60' : 'text-[#b4b9bc]'}`}>{job.boxReceipt?.status === 'received' ? `${job.boxReceipt.receivedByName} · ${formatBoxReceiptTime(job.boxReceipt.receivedAt)}` : job.boxReceipt ? 'Request pending with assigned final-check PCC' : 'Not requested'}</span></span>
+              </button>}
+              </div>
             );
           })}
         </nav>
@@ -494,6 +503,7 @@ export default function MedicineJobPage() {
           )}
           <div className={lockedStep ? 'pointer-events-none select-none space-y-3.5 opacity-70 blur-[3px]' : 'space-y-3.5'} aria-hidden={lockedStep || undefined}>
           {showRequest && <><RequestStep job={job} onNext={() => setView(0)} /><ChatQueries jobId={job.id} compact /></>}
+          {showBoxReceipt && <Section title="Receive medicine box" icon={PackageCheck}><MedicineBoxReceipt job={job} onSaved={setJob} /></Section>}
           {shown && (
             <Section tone={stageCanAct ? 'action' : undefined} title={`${shown.n} · ${shown.label}`} icon={shown.state === 'done' ? CheckCircle2 : shown.state === 'current' ? ShieldCheck : Clock3} action={<span className="text-xs text-charcoal/50">{shown.hi} · {shown.sop}</span>}>
               <p className="mb-3 text-sm text-charcoal/70">{shown.purpose}</p>
@@ -516,7 +526,7 @@ export default function MedicineJobPage() {
                   {shown.key === 'prepare' && <ul className="font-mono text-xs">{job.consumption.map((c) => <li key={c.key || c.code}>{c.outside ? <>{c.name}: {num(c.actual)} {c.unit} made without Stocks (sheet {num(c.planned)})</> : <>{c.code}{c.key ? ` (${c.name})` : ''}: {num(c.actual)} {c.unit} drawn (sheet {num(c.planned)}{c.sheetUnit && c.sheetUnit !== c.unit ? ` ${c.sheetUnit}` : ''})</>}</li>)}</ul>}
                   {shown.key === 'fill' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{job.chits.map((c) => <ChitCard key={c.key} chit={c} patientName={job.patientName} checked disabled onToggle={() => {}} />)}</div>}
                   {shown.key === 'photos' && <DosePapersView job={job} />}
-                  {shown.key === 'doctor' && <VerifySteps job={job} />}
+                  {shown.key === 'final' && <VerifySteps job={job} />}
                 </div>
               ) : shown.state === 'todo' ? (
                 <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />Opens after "{job.stages[job.currentStage]?.label}". Done by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>
@@ -533,10 +543,12 @@ export default function MedicineJobPage() {
                       {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart)) && <Button size="sm" className="mt-2" onClick={saveSupply}>Rebuild sheet</Button>}
                     </div>
                   )}
-                  {!stageCanAct && !job.hold && job.status !== 'released' && <p className="mb-3 flex items-center gap-2 rounded-lg bg-offwhite-200 px-3 py-2 text-sm font-semibold text-charcoal/70"><Lock size={14} />View only: this stage is filled by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}
-                  <StageWork key={shown.key} job={job} stage={shown} canAct={stageCanAct} onDone={done} onError={setError} />
+                  {shown.key !== 'release' && !stageCanAct && !job.hold && job.status !== 'released' && <p className="mb-3 flex items-center gap-2 rounded-lg bg-offwhite-200 px-3 py-2 text-sm font-semibold text-charcoal/70"><Lock size={14} />View only: this stage is filled by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}
+                  {shown.key !== 'release' && <StageWork key={shown.key} job={job} stage={shown} canAct={stageCanAct} onDone={done} onError={setError} />}
                 </>
               )}
+              {shown.key === 'final' && <DoctorVerificationCheck key={job.id} job={job} />}
+              {shown.key === 'release' && <MedicineReleaseFlow key={job.id} job={job} onSaved={setJob} />}
             </Section>
           )}
           </div>

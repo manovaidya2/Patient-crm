@@ -14,13 +14,17 @@
 //            job between the papers and the release goes to the first of those not done; a doctor check done before
 //            the final check is asked again after it.
 const MedicineJob = require('../models/MedicineJob');
-const { STAGES, STAGE_INDEX } = require('./medicineJobFlow');
+const { STAGES: ACTIVE_STAGES, STAGE_INDEX: ACTIVE_INDEX } = require('./medicineJobFlow');
+// Keep historical indices for the v1-v7 migrations even when stages are disabled.
+const STAGES = ['accept', 'formula', 'review', 'stock', 'prepare', 'fill', 'pack1', 'qc', 'photos', 'pack2', 'final', 'doctor', 'release']
+  .map((key) => ACTIVE_STAGES.find((s) => s.key === key) || { key });
+const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
 
-const STAGES_VERSION = 7;
+const STAGES_VERSION = 8;
 
 const migrateJobStages = async () => {
   const old = await MedicineJob.collection.find({ $or: [{ stagesVersion: { $exists: false } }, { stagesVersion: { $lt: STAGES_VERSION } }] })
-    .project({ currentStage: 1, stages: 1, stagesVersion: 1, status: 1 }).toArray();
+    .project({ currentStage: 1, stages: 1, stagesVersion: 1, status: 1, hold: 1 }).toArray();
   let moved = 0;
   for (const job of old) {
     const version = job.stagesVersion || 1;
@@ -75,9 +79,20 @@ const migrateJobStages = async () => {
       const next = [STAGE_INDEX.pack2, STAGE_INDEX.final, STAGE_INDEX.doctor].find((i) => !keys.has(STAGES[i].key));
       if (next !== undefined) current = next;
     }
-    const changed = reweighed || current !== (job.currentStage || 0) || stages.length !== (job.stages || []).length;
+    // v8: QC and doctor final verification are disabled. The assigned PCC now makes the final decision.
+    // Keep historical doctor/QC records; an unfinished old final check must be verified again with the new checklist.
+    if (job.status === 'open') {
+      stages = stages.filter((s) => s.key !== 'final' || s.fields?.result === 'PASS');
+      const done = new Set(stages.filter((s) => s.doneAt).map((s) => s.key));
+      const next = ACTIVE_STAGES.findIndex((s) => !done.has(s.key));
+      current = next < 0 ? ACTIVE_INDEX.final : Math.min(next, ACTIVE_INDEX.final);
+    } else if (job.status === 'ready') current = ACTIVE_INDEX.release;
+    else if (job.status === 'released') current = ACTIVE_STAGES.length;
+    const hold = job.hold?.active && ['doctor', 'qc'].includes(job.hold.stageKey)
+      ? { ...job.hold, stageKey: job.hold.stageKey === 'doctor' ? 'final' : 'pack1' } : null;
+    const changed = reweighed || Boolean(hold) || current !== (job.currentStage || 0) || stages.length !== (job.stages || []).length;
     if (changed) moved += 1;
-    const update = { $set: { stagesVersion: STAGES_VERSION, ...(changed ? { stages, currentStage: current } : {}) } };
+    const update = { $set: { stagesVersion: STAGES_VERSION, ...(changed ? { stages, currentStage: current } : {}), ...(hold ? { hold } : {}) } };
     if (events.length) update.$push = { events: { $each: events } };
     await MedicineJob.collection.updateOne({ _id: job._id }, update);
   }

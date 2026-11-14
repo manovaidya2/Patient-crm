@@ -147,7 +147,7 @@ const AdminLayout = () => {
         {/* The Manager's alarm, rung by the Medicine Department while a kit waits on the quality check (step 8). */}
         {user?.role === ROLES.MANAGER && <TransitAlarm user={user} />}
         {/* The PCC who makes treatment papers: the Medicine Department rings it while a kit waits (step 9). */}
-        {user?.role === ROLES.ASSISTANT_DOCTOR && <><PaperAlarm user={user} /><PaperAlarm user={user} kind="final" /></>}
+        {user?.role === ROLES.ASSISTANT_DOCTOR && <>{/* <PaperAlarm user={user} /> */}<PaperAlarm user={user} kind="final" /></>}
         {/* Team Chat alarm: a member rang this person for something important. */}
         {user && user.role !== ROLES.HR && <ChatAlarmSiren user={user} />}
         {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}

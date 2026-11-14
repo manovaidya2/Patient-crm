@@ -30,10 +30,10 @@ const PAGES = {
   '/admin/all-expenses': [ADMIN, DOCTOR],
   '/admin/clinic-expenses': [ROLES.RECEPTIONIST, MANAGER],
   '/admin/medicine-purchases': [MEDICINE_DEPARTMENT, MANAGER],
-  '/admin/treatment-papers': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
+  '/admin/treatment-papers': [ADMIN, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/final-check': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   '/admin/medicine-requests': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
-  '/admin/medicine-jobs': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
+  '/admin/medicine-jobs': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER, IN_TRANSIT, ASSISTANT_DOCTOR],
   '/admin/medicine-made': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
@@ -125,7 +125,7 @@ const COUNTERS = {
     const { courierHandovers } = require('./purchaseOrderController');
     return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode !== 'pickup').length;
   },
-  // Kits waiting for their treatment papers (fulfilment step 9), for the PCC the admin chose.
+  // Kits waiting for the Medicine Department to make treatment papers.
   async '/admin/treatment-papers'(user) { return require('./treatmentPaperController').pendingPaperCount(user); },
   // Parcels waiting for the final verification check (step 11), for the PCC the admin chose.
   async '/admin/final-check'(user) { return require('./treatmentPaperController').pendingPaperCount(user, 'final'); },
@@ -140,9 +140,10 @@ const COUNTERS = {
   // Old-flow medicine (made without a fulfilment job, or already handed over) is complete, not pending.
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return countRequests(['made'], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
-    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
+    const finalPcc = user.role === ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
+    const jobs = await MedicineJob.find({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] }).select('status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver).includes(stepRole(user))).length;
+    return jobs.filter((j) => jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))).length;
   },
   // Stock items at or below their minimum level (or expired).
   async '/admin/stocks'() {
@@ -214,7 +215,7 @@ const getTaskCounts = asyncHandler(async (req, res) => {
 const PER_PERSON = new Set(['/admin/patient-queries', '/admin/treatment-delivery', '/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
 const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs']);
 const UNCACHED = new Set(['/admin/team-chat', '/admin/enquiries']);
-const scopeOf = (page, user) => (PER_PERSON.has(page) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');
+const scopeOf = (page, user) => (PER_PERSON.has(page) || (page === '/admin/medicine-jobs' && user.role === ASSISTANT_DOCTOR) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');
 const shared = (kind, page, user, fn) => (UNCACHED.has(page) ? fn() : cached(`${kind}|${page}|${scopeOf(page, user)}`, fn));
 const countOf = (page, user) => shared('count', page, user, () => COUNTERS[page](user));
 

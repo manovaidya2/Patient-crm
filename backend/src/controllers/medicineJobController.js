@@ -22,6 +22,9 @@ const { getMaster } = require('../utils/formulationMasterStore');
 const { emitMedicineJobChanged } = require('../realtime/salesSheetSocket');
 const { moveStock } = require('./stockController');
 const { linkNewMedicines, NEW_MEDICINE_OPENING } = require('../utils/newSheetStock');
+const { DAY_MS, FOLLOWUP_STATUSES, releaseView } = require('../utils/medicineRelease');
+const { releasePaymentReview } = require('../utils/releasePaymentReview');
+const { phasePurchaseOrders } = require('../utils/poPayment');
 
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
@@ -220,26 +223,39 @@ const listJobs = asyncHandler(async (req, res) => {
   res.json({ ...full, items: limit ? full.items.slice(0, limit) : full.items, total: full.items.length });
 });
 const buildJobList = async (status, user) => {
+  const finalPcc = user.role === ROLES.ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
   const filter = status === 'all' ? {} : { status };
   const jobs = await MedicineJob.find(filter).select('-events -formulation -chits -consumption').sort({ readyByDate: 1, createdAt: -1 }).limit(500).lean();
   const items = jobs.map((j) => buildJobView(j));
   // Chip counts (and how many wait for this role) across the open / ready / released lists.
-  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber').lean();
+  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean();
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
-  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver).includes(stepRole(user))) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
-  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, actionBy: jobActionBy(jobs[i], handedOver), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
+  all.forEach((j) => { counts[j.status] += 1; if (jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))) { counts.mine[j.status] += 1; counts.mine.all += 1; } });
+  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, finalVerification: v.finalVerification, actionBy: jobActionBy(jobs[i], handedOver, { user, finalPcc }), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
 };
 
 // Who has to act on a job now: the roles of its current stage (whoever resumes it while on hold; nobody once released).
 // `handedOver` (optional): request ids whose medicine already reached the patient in the old flow; those jobs are done.
-const jobActionBy = (job, handedOver) => {
+const jobActionBy = (job, handedOver, { user, finalPcc } = {}) => {
+  const scoped = (roles) => user?.role === ROLES.ASSISTANT_DOCTOR && finalPcc?.id !== String(user._id)
+    ? roles.filter((r) => r !== ROLES.ASSISTANT_DOCTOR) : roles;
+  if (job.status === 'cancelled') return [];
+  const release = releaseView(job);
+  const stageOwners = () => job.status === 'ready' && release
+    ? release.state === 'cancelled' ? [] : release.needsTransitAction ? [ROLES.ADMIN, ROLES.IN_TRANSIT] : [ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT]
+    : stageRoles(STAGES[job.currentStage || 0], job);
+  // Receipt is the final-check PCC's pending work, including boxes requested after release.
+  if (job.boxReceipt?.requestedAt && !job.boxReceipt.receivedAt && !job.hold?.active) {
+    const currentRoles = job.status === 'released' || handedOver?.has(String(job.requestId)) ? [] : stageOwners();
+    return scoped([...new Set([...currentRoles, ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR])]);
+  }
   if (job.status === 'released' || job.status === 'cancelled') return [];
   if (handedOver?.has(String(job.requestId))) return [];
   // Sent back for a correction: In Transit's turn until the request is corrected.
   if (job.returned?.at) return [ROLES.ADMIN, ROLES.IN_TRANSIT];
   if (job.hold?.active) return JOB_ROLES;
-  return stageRoles(STAGES[job.currentStage || 0], job);
+  return scoped(stageOwners());
 };
 
 // @route GET /api/medicine-jobs/:id
@@ -291,10 +307,15 @@ const completeStage = asyncHandler(async (req, res) => {
   const stage = requireOrder(job, req.params.key);
   const roles = stageRoles(stage, job);
   if (!roles.includes(stepRole(req.user))) fail(`${stage.label} is done by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403);
+  if (stage.key === 'final') {
+    await require('./treatmentPaperController').assertKindPcc('final', req.user);
+    const packer = job.stages.find((s) => s.key === 'pack2');
+    if (packer?.doneByName && packer.doneByName.trim().toLowerCase() === String(req.user.name || '').trim().toLowerCase()) fail('The final check must be done by someone other than the Packing-2 operator');
+  }
   const body = req.body || {};
   const checks = parseJson(body.checks, []);
-  if (!Array.isArray(checks) || stage.checks.some((_, i) => checks[i] !== true)) fail('Tick every point of the checklist');
   const fields = parseJson(body.fields, {}) || {};
+  if (!(stage.key === 'final' && fields.result === 'HOLD') && (!Array.isArray(checks) || stage.checks.some((_, i) => checks[i] !== true))) fail('Tick every point of the checklist');
   for (const f of stage.fields) {
     const v = fields[f.key];
     if (f.required && (v === undefined || v === null || String(v).trim() === '')) fail(`${f.label} is required`);
@@ -422,15 +443,18 @@ const completeStage = asyncHandler(async (req, res) => {
     }
     Object.assign(request, { lastMedicineCheckedByName: req.user.name });
   }
-  if (stage.key === 'doctor' && fields.result === 'HOLD') {
+  if (stage.key === 'final' && fields.result === 'HOLD') {
     // Back to Packing-2 after correction; the notes say what has to be corrected (older jobs sent it as remarks).
     const why = notes || clean(fields.remarks, 500);
     if (!why) fail('Write in the notes what has to be corrected');
     job.currentStage = STAGE_INDEX.pack2;
     // The parcel (step 10) and the final check (step 11) are done again.
     job.stages = job.stages.filter((s) => !['pack2', 'final'].includes(s.key));
-    Object.assign(job.hold, { active: true, reason: `Doctor HOLD: ${why}`, at: now, byName: req.user.name, stageKey: 'doctor' });
-    event(job, req.user, 'Doctor hold', why);
+    job.doctorVerification = undefined;
+    job.boxReceipt = undefined;
+    job.releaseRequest = undefined;
+    Object.assign(job.hold, { active: true, reason: `Final check HOLD: ${why}`, at: now, byName: req.user.name, stageKey: 'final' });
+    event(job, req.user, 'Final verification hold', why);
     await job.save();
     return respond(res, job);
   }
@@ -441,7 +465,7 @@ const completeStage = asyncHandler(async (req, res) => {
     if (a.length) { job.photos.overview = a; job.markModified('photos'); }
   }
   if (stage.key === 'photos') {
-    // The treatment papers, made by the PCC the admin chose: a name for each and its pages (body.papers = [{ name, slot }]
+    // The treatment papers, made by the Medicine Department: a name for each and its pages (body.papers = [{ name, slot }]
     // with the pages under paper_<slot>). Papers uploaded before stay (e.g. redone after a doctor HOLD) unless named in
     // body.removePapers; a paper added again with the same name replaces them.
     await require('./treatmentPaperController').assertPaperPcc(req.user);
@@ -465,29 +489,25 @@ const completeStage = asyncHandler(async (req, res) => {
     job.markModified('photos');
     detail = job.photos.paperSets.map((p) => `${p.name}: ${p.files.length} page(s)`).join(' | ');
   }
-  if (stage.key === 'final') {
-    // The PCC the admin chose for the final medicine check (Settings).
-    await require('./treatmentPaperController').assertKindPcc('final', req.user);
-    const packer = job.stages.find((s) => s.key === 'pack2');
-    if (packer?.doneByName && packer.doneByName.trim().toLowerCase() === String(req.user.name || '').trim().toLowerCase()) fail('The final check must be done by someone other than the Packing-2 operator');
-    detail = 'Final verification check done - the doctor verifies next';
-  }
-  // The doctor's PASS (step 12) makes the medicine READY: it waits for the full payment and the release.
-  if (stage.key === 'doctor' && fields.result === 'PASS') {
+  // The assigned PCC's final PASS makes the medicine READY for payment clearance and release.
+  if (stage.key === 'final' && fields.result === 'PASS') {
     const prep = job.stages.find((s) => s.key === 'prepare');
     const photos = job.photos.overview || [];
     Object.assign(request, {
       status: 'made', madeAt: now, madeByName: prep?.fields?.preparerName || prep?.doneByName || req.user.name,
       packagedByName: job.stages.find((s) => s.key === 'pack2')?.doneByName || req.user.name,
-      lastMedicineCheckedByName: job.stages.find((s) => s.key === 'final')?.doneByName || req.user.name, packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: now,
+      lastMedicineCheckedByName: req.user.name, packagingDetailsFilledByName: req.user.name, packagingDetailsFilledAt: now,
       medicineImageUrl: photos[0]?.url || request.medicineImageUrl || null, medicineImageFileName: photos[0]?.fileName || request.medicineImageFileName || '',
       medicineImages: [...(request.medicineImages || []), ...photos.filter((p) => !(request.medicineImages || []).some((m) => m.url === p.url))],
     });
     job.status = 'ready';
-    logActivity(patient, req.user, `Medicine made for Phase ${job.phase}`, `Doctor final verification by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
+    job.releaseRequest = { startedAt: now };
+    logActivity(patient, req.user, `Medicine made for Phase ${job.phase}`, `Final verification by ${req.user.name}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
     detail = 'Medicine READY - awaiting payment clearance and release';
   }
   if (stage.key === 'release') {
+    if (!job.releaseRequest?.requestedAt) fail('In Transit must request medicine release first', 409);
+    if (!job.releaseRequest?.acceptedAt || job.releaseRequest?.cancelledAt) fail('The Medicine Department must verify payment and accept the release request first', 409);
     const pay = await paymentOf(patient, phaseEntry, request);
     if (!pay.patientApproved) fail('In Transit must approve the patient before release');
     if (pay.hold) fail('This phase is on hold or removed in In Transit', 409);
@@ -565,6 +585,178 @@ const returnToTransit = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
+const reviewPaymentsOf = async (job) => {
+  const context = await loadPatientAndRequest(job);
+  const phasePos = await phasePurchaseOrders(context.patient._id, context.stage.number);
+  return { ...context, phasePos, review: releasePaymentReview(context.patient, context.stage, context.request, phasePos) };
+};
+
+const getReleasePayments = asyncHandler(async (req, res) => {
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  const { review } = await reviewPaymentsOf(job);
+  const { scopedPayments, ...details } = review;
+  res.json({ success: true, patientName: job.patientName, ...details,
+    verified: Boolean(job.releaseRequest?.transitPaymentVerifiedAt && job.releaseRequest.transitPaymentFingerprint === review.fingerprint),
+    verifiedAt: job.releaseRequest?.transitPaymentVerifiedAt || null, verifiedByName: job.releaseRequest?.transitPaymentVerifiedByName || '',
+  });
+});
+
+// In Transit requests release or follows up; Medicine Department checks payment and accepts.
+const updateReleaseRequest = asyncHandler(async (req, res) => {
+  const action = req.params.action;
+  const owner = action === 'accept' ? ROLES.MEDICINE_DEPARTMENT : ROLES.IN_TRANSIT;
+  if (req.user.role !== owner && !isAdminLike(req.user)) fail(action === 'accept' ? 'Only the Medicine Department can accept a release request' : 'Only In Transit can request release or update the release follow-up', 403);
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  if (job.status !== 'ready') fail('Only medicine that passed final verification can enter the release request flow', 409);
+  if (job.hold?.active) fail('Resume the job before updating the release request', 409);
+  const now = new Date();
+  const view = releaseView(job, now);
+  if (!view) fail('Final verification must be complete before requesting release', 409);
+  if (!job.releaseRequest) job.releaseRequest = {};
+  const flow = job.releaseRequest;
+  flow.startedAt = view.startedAt;
+  flow.deadlineAt = view.deadlineAt;
+  const notes = clean(req.body?.notes, 2000);
+  if (action === 'accept') {
+    if (view.state !== 'requested') fail('An open release request from In Transit is required before acceptance', 409);
+    const { patient, stage, request } = await loadPatientAndRequest(job);
+    const pay = await paymentOf(patient, stage, request);
+    if (!pay.patientApproved) fail('In Transit must approve the patient first');
+    if (pay.hold) fail('This phase is on hold or removed in In Transit', 409);
+    if (!require('../utils/poPayment').paymentCleared(pay)) fail(pay.pendingCount ? 'Verify the pending payment(s) before accepting release' : 'A verified payment is required before accepting release');
+    flow.acceptedAt = now; flow.acceptedByName = req.user.name;
+    flow.paymentSnapshot = { checkedAt: now.toISOString(), checkedByName: req.user.name, totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount };
+    event(job, req.user, 'Medicine release request accepted', `Payment checked: paid ${pay.amountPaid}, balance ${pay.remaining}${notes ? ` · ${notes}` : ''}`);
+  } else {
+    if (action === 'reopen') {
+      if (view.state !== 'cancelled') fail('Only a cancelled release request can be requested again', 409);
+      const days = Number(req.body?.days);
+      if (!Number.isInteger(days) || days < 1 || days > 365) fail('Enter an extension of 1 to 365 days for the new request');
+      if (!notes) fail('Write the reason for requesting release again');
+      if (!flow.cancellations.length && flow.cancelledAt) flow.cancellations.push({ at: flow.cancelledAt, byName: flow.cancelledByName, reason: flow.cancelReason });
+      const deadline = new Date(Math.max(now.getTime(), new Date(view.deadlineAt).getTime()) + days * DAY_MS);
+      flow.extensions.push({ at: now, byName: req.user.name, days, previousDeadline: view.deadlineAt, deadlineAt: deadline, reason: notes });
+      Object.assign(flow, { deadlineAt: deadline, reopenedAt: now, reopenedByName: req.user.name,
+        cancelledAt: null, cancelledByName: '', cancelReason: '', requestedAt: null, requestedByName: '', requestNote: '',
+        acceptedAt: null, acceptedByName: '', paymentSnapshot: null, transitPaymentVerifiedAt: null, transitPaymentVerifiedByName: '', transitPaymentFingerprint: '' });
+      event(job, req.user, 'Medicine release request reopened', `${notes} · extended ${days} day(s), new deadline ${deadline.toISOString()}`);
+    } else if (view.state !== 'awaiting_request') {
+      fail('This release request has already been requested, accepted or cancelled', 409);
+    } else if (action === 'extend') {
+      const days = Number(req.body?.days);
+      if (!Number.isInteger(days) || days < 1 || days > 365) fail('Enter an extension of 1 to 365 days');
+      if (!notes) fail('Write the reason for extending the deadline');
+      const deadline = new Date(Math.max(now.getTime(), new Date(view.deadlineAt).getTime()) + days * DAY_MS);
+      flow.extensions.push({ at: now, byName: req.user.name, days, previousDeadline: view.deadlineAt, deadlineAt: deadline, reason: notes });
+      flow.deadlineAt = deadline;
+      event(job, req.user, 'Medicine release deadline extended', `${days} day(s); new deadline ${deadline.toISOString()} · ${notes}`);
+    } else if (action === 'cancel') {
+      if (!view.overdue) fail('The cancel option is available once the release follow-up deadline passes', 409);
+      if (!notes) fail('Write the reason for cancelling the release request');
+      flow.cancelledAt = now; flow.cancelledByName = req.user.name; flow.cancelReason = notes;
+      flow.cancellations.push({ at: now, byName: req.user.name, reason: notes });
+      event(job, req.user, 'Medicine release request cancelled', notes);
+    } else if (action === 'status' || action === 'request' || action === 'verify-payment') {
+      if (view.overdue) fail('The 20-day follow-up deadline has passed. Extend the deadline or cancel the release request.', 409);
+      if (action === 'verify-payment') {
+        const { patient, stage, request, phasePos, review } = await reviewPaymentsOf(job);
+        if (req.body?.confirmed !== true) fail('Confirm that you checked the payment details and available screenshots');
+        if (!req.body?.fingerprint || req.body.fingerprint !== review.fingerprint) fail('Payment details changed. Reload and check the latest payment details and screenshots.', 409);
+        if ((patient.approvalStatus || 'approved') !== 'approved') fail('Approve the patient before verifying release payments');
+        if (stage.transit?.holdActive || stage.transit?.removedAt) fail('This phase is on hold or removed in In Transit', 409);
+        let approved = 0;
+        for (const payment of review.scopedPayments) {
+          if (payment.approvalStatus === 'pending') {
+            Object.assign(payment, { approvalStatus: 'approved', approvedAt: now, approvedByName: req.user.name });
+            logActivity(patient, req.user, `Payment approved for Phase ${stage.number}`, `${payment.amount} · medicine release payment review`);
+            approved += 1;
+          }
+        }
+        const checked = releasePaymentReview(patient, stage, request, phasePos);
+        if (!require('../utils/poPayment').paymentCleared(checked.summary)) fail('A verified payment is required before requesting medicine release');
+        flow.transitPaymentVerifiedAt = now; flow.transitPaymentVerifiedByName = req.user.name; flow.transitPaymentFingerprint = checked.fingerprint;
+        event(job, req.user, 'In Transit verified release payments', `${approved} payment(s) approved; paid ${checked.summary.amountPaid}, balance ${checked.summary.remaining}${notes ? ` · ${notes}` : ''}`);
+        await patient.save();
+      } else if (action === 'request') {
+        const { review } = await reviewPaymentsOf(job);
+        if (!flow.transitPaymentVerifiedAt || flow.transitPaymentFingerprint !== review.fingerprint) fail('Verify the current payment details and screenshots before requesting medicine release', 409);
+        if (!require('../utils/poPayment').paymentCleared(review.summary)) fail('Verify the pending payment(s) before requesting medicine release');
+        flow.requestedAt = now; flow.requestedByName = req.user.name; flow.requestNote = notes;
+        event(job, req.user, 'Medicine release requested', notes || 'In Transit requested release from the Medicine Department');
+      } else {
+        const status = String(req.body?.status || '');
+        if (!FOLLOWUP_STATUSES[status]) fail('Choose a valid release follow-up status');
+        flow.followupStatus = status; flow.statusUpdatedAt = now; flow.statusUpdatedByName = req.user.name;
+        event(job, req.user, 'Medicine release follow-up updated', `${FOLLOWUP_STATUSES[status]}${notes ? ` · ${notes}` : ''}`);
+      }
+    } else fail('Unknown release action');
+  }
+  job.markModified('releaseRequest');
+  await job.save();
+  await respond(res, job);
+});
+
+const listReleaseRequests = asyncHandler(async (req, res) => {
+  const jobs = await MedicineJob.find({ status: 'ready' }).select('-events -formulation -chits -consumption -photos').sort({ 'stages.doneAt': 1, createdAt: 1 }).lean();
+  res.json({ success: true, items: jobs.map((j) => buildJobView(j)).filter((v) => v.releaseRequest) });
+});
+
+// Medicine Department requests a box handover; the assigned final-check PCC records receipt.
+// This records custody independently of the existing payment/release gates.
+const updateBoxReceipt = asyncHandler(async (req, res) => {
+  const receiving = req.params.action === 'receive';
+  if (receiving) {
+    if (req.user.role !== ROLES.ASSISTANT_DOCTOR) fail('Only the assigned final-check PCC can confirm receipt', 403);
+    await require('./treatmentPaperController').assertKindPcc('final', req.user);
+  } else {
+    if (req.user.role !== ROLES.MEDICINE_DEPARTMENT && !isAdminLike(req.user)) fail('Only the Medicine Department can request box receipt', 403);
+    if (!(await require('./treatmentPaperController').getKindPcc('final'))) fail('Choose the final verification PCC in Settings before requesting box receipt', 409);
+  }
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  if (job.status === 'cancelled' || job.hold?.active) fail('Resume the job before requesting or confirming box receipt', 409);
+  if (!job.stages.some((s) => s.key === 'final' && s.doneAt)) fail('Complete the final verification check first', 409);
+  if (job.boxReceipt?.receivedAt) fail('This medicine box has already been received', 409);
+  if (receiving) {
+    if (!job.boxReceipt?.requestedAt) fail('The Medicine Department must request box receipt first', 409);
+    Object.assign(job.boxReceipt, { receivedAt: new Date(), receivedBy: req.user._id, receivedByName: req.user.name, receivedNote: clean(req.body?.notes, 2000) });
+    event(job, req.user, 'Medicine box received', job.boxReceipt.receivedNote || 'Assigned final-check PCC confirmed receipt of the medicine box');
+  } else {
+    if (job.boxReceipt?.requestedAt) fail('A request to receive this medicine box is already pending', 409);
+    job.boxReceipt = { requestedAt: new Date(), requestedBy: req.user._id, requestedByName: req.user.name, requestNote: clean(req.body?.notes, 2000) };
+    event(job, req.user, 'Medicine box receipt requested', job.boxReceipt.requestNote || 'Medicine Department asked the assigned final-check PCC to receive the medicine box');
+  }
+  await job.save();
+  await respond(res, job);
+});
+
+const listBoxReceipts = asyncHandler(async (req, res) => {
+  const jobs = await MedicineJob.find({ status: { $ne: 'cancelled' }, 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null })
+    .select('patientName patientCode phase poNumber boxReceipt hold').sort({ 'boxReceipt.requestedAt': 1 }).lean();
+  res.json({ success: true, items: jobs.map((j) => ({ id: String(j._id), patientName: j.patientName, patientCode: j.patientCode, phase: j.phase, poNumber: j.poNumber, hold: j.hold?.active ? j.hold.reason : '', boxReceipt: buildJobView(j).boxReceipt })) });
+});
+
+// @route POST /api/medicine-jobs/:id/doctor-verification
+// The assigned PCC records their confirmation after checking the kit with the doctor.
+const confirmDoctorVerification = asyncHandler(async (req, res) => {
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  if (req.user.role !== ROLES.ASSISTANT_DOCTOR) fail('Only the assigned final-check PCC can confirm doctor verification', 403);
+  await require('./treatmentPaperController').assertKindPcc('final', req.user);
+  if (job.status === 'cancelled' || job.hold?.active) fail('Doctor verification cannot be confirmed for a cancelled job or a job on hold', 409);
+  if ((job.currentStage || 0) < STAGE_INDEX.final && !job.stages.some((s) => s.key === 'final' && s.doneAt)) fail('Complete Packing-2 before confirming doctor verification', 409);
+  if (job.doctorVerification?.confirmedAt) fail('Doctor verification is already confirmed', 409);
+  const doctorName = clean(req.body?.doctorName, 120);
+  if (!doctorName) fail('Enter the name of the doctor who verified the kit');
+  if (req.body?.confirmed !== true) fail('Confirm that you verified the kit with the doctor');
+  job.doctorVerification = { doctorName, confirmedAt: new Date(), confirmedBy: req.user._id, confirmedByName: req.user.name, notes: clean(req.body?.notes, 2000) };
+  event(job, req.user, 'Doctor final verification confirmed', `Verified with ${doctorName}${job.doctorVerification.notes ? ` - ${job.doctorVerification.notes}` : ''}`);
+  await job.save();
+  await respond(res, job);
+});
+
 // @route POST /api/medicine-jobs/:id/hold   body: { reason }
 const holdJob = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
@@ -622,7 +814,8 @@ const getPatientFile = asyncHandler(async (req, res) => {
 // The Medicine Department rings the Manager's alarm when a job waits on the quality check, or the PCC's when it waits
 // for the treatment papers / final check. (Route name kept from when the quality check was In Transit's.)
 const QC_STAGE_KEYS = ['qc'];
-const PCC_STAGE_KEYS = ['photos', 'final'];
+// Treatment papers are done by the Medicine Department; only the final check needs the PCC's alarm.
+const PCC_STAGE_KEYS = [/* 'photos', */ 'final'];
 const RING_STAGE_KEYS = [...QC_STAGE_KEYS, ...PCC_STAGE_KEYS];
 const ringTransit = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
@@ -671,4 +864,4 @@ const doctorAlarms = asyncHandler(async (req, res) => {
   res.json({ success: true, alarms });
 });
 
-module.exports = { ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };
+module.exports = { getReleasePayments, listReleaseRequests, updateReleaseRequest, listBoxReceipts, updateBoxReceipt, confirmDoctorVerification, ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };

@@ -121,7 +121,22 @@ test('opening a request creates the job with the formulation, stock needs and ch
   assert.equal(again.job.id, job.id, 'opening again returns the same job');
 });
 
-test('the thirteen stages run in order with their gates; preparation draws from stock; release needs full payment', async () => {
+test('Medicine Department completes treatment papers without a PCC assignment', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'photos');
+  mock.method(InventorySetting, 'findOne', () => { throw Error('Treatment papers must not read PCC assignment'); });
+  await assert.rejects(complete(job.id, 'photos', {}, {}, pcc), /done by/);
+  const result = await complete(job.id, 'photos', { givenAt: new Date().toISOString() }, {
+    papers: JSON.stringify([{ name: 'Medicine paper', slot: 0 }]),
+    files: { paper_0: [file] },
+  }, med);
+  assert.equal(result.job.currentKey, 'pack2');
+  assert.equal(result.job.photos.paperSets[0].name, 'Medicine paper');
+  assert.equal(result.job.stages.find((s) => s.key === 'photos').doneByName, med.name);
+});
+
+test('the eleven stages run in order; assigned PCC verification makes medicine ready; release needs payment', async () => {
   const { patient, stage, stocks, txs } = setup({ paid: 10000 });
   const { job } = await open(patient);
   const id = job.id;
@@ -161,29 +176,18 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   await assert.rejects(complete(id, 'pack1', {}, { files: {} }), /all medicines together/);
   v = (await complete(id, 'pack1', {}, { files: { photoA: [file] } })).job;
   assert.equal(v.photos.overview.length, 1);
-  assert.equal(v.currentKey, 'qc');
-  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, med), /done by manager/);
-  await assert.rejects(complete(id, 'qc', { result: 'PASS' }, {}, transit), /done by manager/, 'not In Transit any more');
-  // While it waits, the Medicine Department rings the Manager's alarm; the Manager sees why.
-  v = (await call(controller.ringTransit, { params: { id }, body: { note: 'Kit ready on table 2' } })).job;
-  assert.equal(v.transitAlarm.stageKey, 'qc');
-  const rung = await call(controller.transitAlarms, { user: manager });
-  assert.ok(rung.alarms.some((a) => a.id === id && a.note === 'Kit ready on table 2' && a.step === 'Quality check'));
-  v = (await complete(id, 'qc', { result: 'PASS' }, {}, manager)).job;
-  assert.ok(!(await call(controller.transitAlarms, { user: manager })).alarms.some((a) => a.id === id), 'the alarm stops once the step is done');
-  // Step 9: the treatment papers, by the PCC the admin chose (every page of each paper). The Medicine Department cannot.
+  // QC is disabled; the Medicine Department makes the treatment papers next.
   assert.equal(v.currentKey, 'photos');
   mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
-  await assert.rejects(complete(id, 'photos', {}, { files: {} }), /done by/);
-  await assert.rejects(complete(id, 'photos', { givenAt: new Date().toISOString() }, { files: {} }, otherPcc), /Aditi makes the treatment papers/);
-  await assert.rejects(complete(id, 'photos', {}, { files: {} }, pcc), /given to the Medicine Department at is required/);
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }, pcc), /done by/);
+  await assert.rejects(complete(id, 'photos', {}, { files: {} }), /given to the Medicine Department at is required/);
   const given = { givenAt: new Date().toISOString() };
-  await assert.rejects(complete(id, 'photos', { givenAt: new Date(Date.now() + 86400000).toISOString() }, { files: {} }, pcc), /cannot be in the future/);
-  await assert.rejects(complete(id, 'photos', given, { files: {} }, pcc), /Add the treatment papers/);
+  await assert.rejects(complete(id, 'photos', { givenAt: new Date(Date.now() + 86400000).toISOString() }, { files: {} }), /cannot be in the future/);
+  await assert.rejects(complete(id, 'photos', given, { files: {} }), /Add the treatment papers/);
   // Papers are named on the page; each needs its pages.
-  await assert.rejects(complete(id, 'photos', given, { papers: JSON.stringify([{ name: '', slot: 0 }]) }, pcc), /name of each paper/);
-  await assert.rejects(complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]) }, pcc), /Upload the pages of "Diet Plan"/);
-  v = (await complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { paper_0: [file, file, file], paper_1: [file] } }, pcc)).job;
+  await assert.rejects(complete(id, 'photos', given, { papers: JSON.stringify([{ name: '', slot: 0 }]) }), /name of each paper/);
+  await assert.rejects(complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Diet Plan', slot: 0 }]) }), /Upload the pages of "Diet Plan"/);
+  v = (await complete(id, 'photos', given, { papers: JSON.stringify([{ name: 'Medicine Paper', slot: 0 }, { name: 'Diet Plan', slot: 1 }]), files: { paper_0: [file, file, file], paper_1: [file] } })).job;
   assert.deepEqual(v.photos.paperSets.map((p) => p.name), ['Medicine Paper', 'Diet Plan']);
   assert.equal(v.photos.paperSets[0].files.length, 3, 'every page of a paper is kept');
   // Step 10 Packing-2, the parcel with the treatment papers (Medicine Department).
@@ -200,37 +204,61 @@ test('the thirteen stages run in order with their gates; preparation draws from 
   assert.equal(v.hold.reason, 'Final check not OK: seal broken');
   await assert.rejects(complete(id, 'final', {}, {}, pcc), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Resealed' } })).job;
-  v = (await complete(id, 'final', {}, {}, pcc)).job;
-  assert.equal(v.status, 'open', 'not ready until the doctor verifies');
-  // Step 12, the doctor's final verification; a HOLD sends it back to Packing-2 and the final check is done again.
-  assert.equal(v.currentKey, 'doctor');
-  await assert.rejects(complete(id, 'doctor', { result: 'PASS' }, {}, med), /done by/);
-  await assert.rejects(complete(id, 'doctor', { result: 'HOLD' }, {}, doctor), /what has to be corrected/);
-  v = (await complete(id, 'doctor', { result: 'HOLD' }, { notes: 'Pouch 2 leaking' }, doctor)).job;
-  assert.equal(v.hold.reason, 'Doctor HOLD: Pouch 2 leaking');
+  await assert.rejects(complete(id, 'final', {}, {}, pcc), /Decision is required/);
+  await assert.rejects(complete(id, 'final', { result: 'HOLD' }, {}, pcc), /what has to be corrected/);
+  await assert.rejects(complete(id, 'final', { result: 'PASS' }, { checks: '[]' }, pcc), /Tick every point/);
+  v = (await complete(id, 'final', { result: 'HOLD' }, { checks: '[]', notes: 'Pouch 2 leaking' }, pcc)).job;
+  assert.equal(v.hold.reason, 'Final check HOLD: Pouch 2 leaking');
   assert.equal(v.currentKey, 'pack2');
   await assert.rejects(complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 }, {}, med2), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Pouch repacked' } })).job;
   v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.9 }, {}, med2)).job;
-  v = (await complete(id, 'final', {}, {}, pcc)).job;
   // The photo and the papers stay through the HOLD.
   assert.equal(v.photos.paperSets[0].files.length, 3);
   assert.equal(v.photos.overview.length, 1);
-  v = (await complete(id, 'doctor', { result: 'PASS' }, {}, doctor)).job;
+  v = (await complete(id, 'final', { result: 'PASS' }, {}, pcc)).job;
   assert.equal(v.status, 'ready');
   assert.equal(stage.medicineRequests[0].status, 'made', 'In Transit sees the medicine as made');
+  assert.equal(stage.medicineRequests[0].lastMedicineCheckedByName, pcc.name);
+  assert.equal(v.currentKey, 'release', 'no doctor final verification remains');
+  assert.equal(v.finalVerification.result, 'PASS');
+  assert.equal(v.finalVerification.doctorVerification, null, 'final PASS does not automatically confirm verification with the doctor');
   assert.equal(stage.medicineRequests[0].medicineImages.length, 1, 'Photo A becomes the medicine photo');
   // Release needs no pending payment; a verified part payment is enough (the balance can go to a next PO).
+  await assert.rejects(complete(id, 'release', {}), /In Transit must request/);
+  await assert.rejects(call(controller.updateReleaseRequest, { params: { id, action: 'request' }, user: transit }), /Verify the current payment details/);
+  const review = await call(controller.getReleasePayments, { params: { id }, user: transit });
+  v = (await call(controller.updateReleaseRequest, { params: { id, action: 'verify-payment' }, user: transit, body: { fingerprint: review.fingerprint, confirmed: true } })).job;
+  assert.equal(v.releaseRequest.transitPaymentVerifiedByName, transit.name);
+  v = (await call(controller.updateReleaseRequest, { params: { id, action: 'request' }, user: transit, body: { notes: 'Release requested by family' } })).job;
+  assert.equal(v.releaseRequest.state, 'requested');
+  assert.equal(v.releaseRequest.requestedByName, transit.name);
+  assert.ok(v.releaseRequest.requestedAt);
+  const medicineReview = await call(controller.getReleasePayments, { params: { id }, user: med });
+  assert.equal(medicineReview.verified, true);
+  assert.equal(medicineReview.verifiedByName, transit.name);
+  assert.ok(medicineReview.verifiedAt);
+  assert.ok(medicineReview.payments.length > 0);
+  await assert.rejects(complete(id, 'release', {}), /verify payment and accept/);
   stage.payments.push({ amount: 5000, approvalStatus: 'pending' });
+  await assert.rejects(call(controller.updateReleaseRequest, { params: { id, action: 'accept' } }), /Verify the pending payment/);
+  stage.payments[stage.payments.length - 1].approvalStatus = 'approved';
+  v = (await call(controller.updateReleaseRequest, { params: { id, action: 'accept' } })).job;
+  assert.equal(v.releaseRequest.state, 'accepted');
+  assert.equal(v.releaseRequest.acceptedByName, med.name);
+  assert.ok(v.releaseRequest.acceptedAt);
+  assert.equal(v.releaseRequest.requestedByName, transit.name, 'the request sender stays visible after acceptance');
+  stage.payments.push({ amount: 1, approvalStatus: 'pending' });
   await assert.rejects(complete(id, 'release', {}), /Verify the pending payment/);
   stage.payments[stage.payments.length - 1].approvalStatus = 'approved';
   v = (await complete(id, 'release', {})).job;
+  assert.equal(v.releaseRequest.state, 'released');
   assert.equal(v.status, 'released');
   assert.equal(stage.medicineRequests[0].status, 'sent_to_courier');
   assert.ok(stage.transit.financialReleasedAt);
   assert.equal(v.progress, 100);
   const summary = jobSummary(v);
-  assert.equal(summary.stages.filter((s) => s.state === 'done').length, 13, 'In Transit sees all thirteen steps done');
+  assert.equal(summary.stages.filter((s) => s.state === 'done').length, 11, 'In Transit sees all eleven active steps done');
 });
 
 test('stock stage refuses a shortage unless a shortage request is raised', async () => {
@@ -255,6 +283,219 @@ test('job view marks urgency from the ready date', () => {
   assert.equal(buildJobView({ ...base, readyByDate: new Date('2026-10-21') }, { now }).urgency.level, 'breached');
   assert.equal(buildJobView({ ...base, readyByDate: new Date('2026-10-22') }, { now }).urgency.level, 'critical');
   assert.equal(buildJobView({ ...base, readyByDate: new Date('2026-10-30') }, { now }).urgency.level, 'normal');
+});
+
+test('verification display preserves historical doctor records and does not mark an old partial checklist verified', () => {
+  const doneAt = new Date();
+  const base = { _id: new mongoose.Types.ObjectId(), stages: [{ key: 'final', doneAt, doneByName: 'Aditi', checks: [true, true, true, true, true], fields: {} }], status: 'ready' };
+  assert.equal(buildJobView(base).finalVerification.doctorVerification, null);
+  const legacy = buildJobView({ ...base, stages: [...base.stages, { key: 'doctor', doneAt, doneByName: doctor.name, doneByRole: doctor.role, fields: { result: 'PASS' } }] });
+  assert.equal(legacy.finalVerification.doctorVerification.doneByName, doctor.name);
+  assert.equal(legacy.finalVerification.doctorVerification.confirmedByPcc, false);
+  assert.equal(buildJobView({ ...base, stages: [] }).finalVerification, null);
+});
+
+test('only the assigned final-check PCC confirms doctor verification explicitly; HOLD clears it', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
+  const confirm = (user, body) => call(controller.confirmDoctorVerification, { params: { id }, user, body });
+  await assert.rejects(confirm(med, { doctorName: doctor.name, confirmed: true }), /Only the assigned/);
+  await assert.rejects(confirm({ _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' }, { doctorName: doctor.name, confirmed: true }), /Only the assigned/);
+  await assert.rejects(confirm(manager, { doctorName: doctor.name, confirmed: true }), /Only the assigned/);
+  await assert.rejects(confirm(otherPcc, { doctorName: doctor.name, confirmed: true }), /Aditi does the final medicine check/);
+  await assert.rejects(confirm(pcc, { doctorName: doctor.name, confirmed: true }), /Complete Packing-2/);
+  jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'final');
+  await assert.rejects(confirm(pcc, { confirmed: true }), /name of the doctor/);
+  await assert.rejects(confirm(pcc, { doctorName: doctor.name, confirmed: false }), /Confirm that you verified/);
+  const result = await confirm(pcc, { doctorName: doctor.name, confirmed: true, notes: 'Prescription and kit checked with doctor' });
+  assert.equal(result.job.doctorVerification.confirmedByPcc, true);
+  assert.equal(result.job.doctorVerification.doctorName, doctor.name);
+  assert.equal(result.job.doctorVerification.doneByName, pcc.name);
+  assert.ok(result.job.doctorVerification.doneAt);
+  assert.equal(String(jobs[0].doctorVerification.confirmedBy), String(pcc._id));
+  await assert.rejects(confirm(pcc, { doctorName: doctor.name, confirmed: true }), /already confirmed/);
+  const held = await complete(id, 'final', { result: 'HOLD' }, { notes: 'Repack parcel' }, pcc);
+  assert.equal(held.job.doctorVerification, null);
+  assert.equal(held.job.currentKey, 'pack2');
+});
+
+test('assigned PCC can record doctor confirmation for an old completed and released job', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  jobs[0].status = 'released'; jobs[0].currentStage = STAGES.length;
+  jobs[0].stages.push({ key: 'final', doneAt: new Date(), doneByName: 'Old request', snapshot: { oldFlow: true } });
+  mock.method(InventorySetting, 'findOne', () => ({ lean: async () => ({ value: { id: String(pcc._id), name: pcc.name } }) }));
+  const result = await call(controller.confirmDoctorVerification, { params: { id: job.id }, user: pcc, body: { doctorName: doctor.name, confirmed: true } });
+  assert.equal(result.job.status, 'released');
+  assert.equal(result.job.finalVerification.doctorVerification.confirmedByPcc, true);
+  assert.equal(result.job.finalVerification.doctorVerification.doctorName, doctor.name);
+});
+
+test('Medicine Department requests box receipt and only the assigned final-check PCC receives it', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  let assigned = { id: String(pcc._id), name: pcc.name };
+  mock.method(InventorySetting, 'findOne', () => ({ lean: async () => assigned ? { value: assigned } : null }));
+  const change = (action, user, notes = '') => call(controller.updateBoxReceipt, { params: { id: job.id, action }, user, body: { notes } });
+  await assert.rejects(change('request', transit), /Only the Medicine Department/);
+  await assert.rejects(change('receive', med), /Only the assigned final-check PCC/);
+  await assert.rejects(change('receive', transit), /Only the assigned final-check PCC/);
+  await assert.rejects(change('receive', otherPcc), /Aditi does the final medicine check/);
+  await assert.rejects(change('request', med), /final verification check first/);
+  jobs[0].stages.push({ key: 'final', doneAt: new Date(), doneByName: pcc.name, fields: { result: 'PASS' } });
+  jobs[0].status = 'ready'; jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'release');
+  await assert.rejects(change('receive', pcc), /must request box receipt first/);
+  assigned = null;
+  await assert.rejects(change('request', med), /Choose the final verification PCC/);
+  assigned = { id: String(pcc._id), name: pcc.name };
+  const requested = await change('request', med, 'Box ready at packing desk');
+  assert.equal(requested.job.boxReceipt.status, 'pending');
+  assert.equal(requested.job.boxReceipt.requestedByName, med.name);
+  assert.equal(requested.job.boxReceipt.requestNote, 'Box ready at packing desk');
+  assert.equal(requested.job.status, 'ready');
+  assert.equal(requested.job.currentKey, 'release', 'receipt request does not bypass release or payment gates');
+  assert.equal(String(jobs[0].boxReceipt.requestedBy), String(med._id));
+  await assert.rejects(change('request', med), /already pending/);
+  jobs[0].hold.active = true;
+  await assert.rejects(change('receive', pcc), /Resume the job/);
+  jobs[0].hold.active = false;
+  const beforeReceipt = Date.now();
+  const received = await change('receive', pcc, 'One sealed medicine box received');
+  assert.equal(received.job.boxReceipt.status, 'received');
+  assert.equal(received.job.boxReceipt.receivedByName, pcc.name);
+  assert.equal(received.job.boxReceipt.receivedNote, 'One sealed medicine box received');
+  assert.ok(received.job.boxReceipt.receivedAt);
+  assert.ok(new Date(received.job.boxReceipt.receivedAt).getTime() >= beforeReceipt);
+  assert.ok(new Date(received.job.boxReceipt.receivedAt).getTime() <= Date.now());
+  assert.equal(received.job.status, 'ready', 'receiving does not release medicine');
+  assert.ok(received.job.events.some((e) => e.action === 'Medicine box receipt requested'));
+  assert.ok(received.job.events.some((e) => e.action === 'Medicine box received'));
+  await assert.rejects(change('receive', pcc), /already been received/);
+  await assert.rejects(change('request', med), /already been received/);
+});
+
+test('box receipt queue selects pending requests across all job statuses', async () => {
+  let filter;
+  mock.method(MedicineJob, 'find', (query) => {
+    filter = query;
+    return { select: () => ({ sort: () => ({ lean: async () => [{ _id: new mongoose.Types.ObjectId(), patientName: 'Aarav', phase: 1, boxReceipt: { requestedAt: new Date(), requestedByName: med.name } }] }) }) };
+  });
+  const result = await call(controller.listBoxReceipts, { user: transit });
+  assert.deepEqual(filter.status, { $ne: 'cancelled' });
+  assert.equal(filter['boxReceipt.receivedAt'], null);
+  assert.deepEqual(filter['boxReceipt.requestedAt'], { $ne: null });
+  assert.equal(result.items[0].boxReceipt.status, 'pending');
+  assert.equal(result.items[0].patientName, 'Aarav');
+});
+
+test('pending box receipt belongs to the assigned final-check PCC until confirmed, including released jobs', () => {
+  const base = { status: 'ready', currentStage: STAGES.findIndex((s) => s.key === 'release'), poNumber: 'PO-1', requestId: 'r1', boxReceipt: { requestedAt: new Date() } };
+  assert.ok(controller.jobActionBy(base).includes('assistant_doctor'));
+  assert.ok(controller.jobActionBy(base).includes('medicine_department'), 'the original release owner still sees their work');
+  assert.ok(controller.jobActionBy({ ...base, status: 'released' }).includes('assistant_doctor'));
+  assert.ok(controller.jobActionBy(base, new Set(['r1'])).includes('assistant_doctor'));
+  assert.ok(!controller.jobActionBy(base).includes('in_transit'));
+  const finalPcc = { id: String(pcc._id), name: pcc.name };
+  assert.ok(controller.jobActionBy(base, new Set(), { user: pcc, finalPcc }).includes('assistant_doctor'));
+  assert.ok(!controller.jobActionBy(base, new Set(), { user: otherPcc, finalPcc }).includes('assistant_doctor'));
+  assert.ok(!controller.jobActionBy({ ...base, boxReceipt: { ...base.boxReceipt, receivedAt: new Date() } }).includes('assistant_doctor'));
+  assert.deepEqual(controller.jobActionBy({ ...base, status: 'cancelled' }), []);
+});
+
+test('In Transit can update release status or extend an overdue final-verification deadline; cancellation is explicit', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  const finalAt = new Date(Date.now() - 21 * 86400000);
+  jobs[0].stages.push({ key: 'final', doneAt: finalAt, doneByName: pcc.name, fields: { result: 'PASS' } });
+  jobs[0].status = 'ready'; jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'release');
+  const change = (action, body = {}, user = transit) => call(controller.updateReleaseRequest, { params: { id, action }, body, user });
+  await assert.rejects(change('request', {}, med), /Only In Transit/);
+  await assert.rejects(change('accept', {}, transit), /Only the Medicine Department/);
+  await assert.rejects(change('request'), /20-day follow-up deadline/);
+  await assert.rejects(change('status', { status: 'waiting_for_payment' }), /20-day follow-up deadline/);
+  await assert.rejects(change('extend', { days: 7 }), /reason/);
+  await assert.rejects(change('extend', { days: 0, notes: 'Wait' }), /1 to 365/);
+  const extended = await change('extend', { days: 7, notes: 'Family asked to wait a week' });
+  assert.equal(extended.job.releaseRequest.overdue, false);
+  assert.equal(extended.job.releaseRequest.startedAt, finalAt.toISOString());
+  assert.equal(extended.job.releaseRequest.extensions[0].byName, transit.name);
+  const deadline = extended.job.releaseRequest.deadlineAt;
+  const updated = await change('status', { status: 'waiting_for_payment', notes: 'Payment expected this week' });
+  assert.equal(updated.job.releaseRequest.followupLabel, 'Waiting for payment');
+  assert.equal(updated.job.releaseRequest.statusUpdatedByName, transit.name);
+  assert.equal(updated.job.releaseRequest.deadlineAt, deadline, 'status changes do not silently reset the final-verification deadline');
+  await assert.rejects(change('cancel', { notes: 'Cancel now' }), /once the release follow-up deadline passes/);
+  jobs[0].releaseRequest.deadlineAt = new Date(Date.now() - 1000);
+  const cancelled = await change('cancel', { notes: 'Family did not confirm within the deadline' });
+  assert.equal(cancelled.job.releaseRequest.state, 'cancelled');
+  assert.equal(cancelled.job.status, 'ready', 'cancelling release follow-up does not discard prepared medicine or payments');
+  assert.ok(!controller.jobActionBy(jobs[0]).includes('in_transit'));
+  assert.ok(cancelled.job.events.some((e) => e.action === 'Medicine release deadline extended'));
+  assert.ok(cancelled.job.events.some((e) => e.action === 'Medicine release request cancelled'));
+  const cancelledAt = cancelled.job.releaseRequest.cancelledAt;
+  mock.method(MedicineJob, 'find', () => ({ select: () => ({ sort: () => ({ lean: async () => [jobs[0].toObject()] }) }) }));
+  const queue = await call(controller.listReleaseRequests, { user: transit });
+  assert.equal(queue.items.length, 1, 'cancelled release stays in the same queue');
+  assert.equal(queue.items[0].releaseRequest.state, 'cancelled');
+  assert.equal(queue.items[0].releaseRequest.cancellations[0].byName, transit.name);
+  assert.equal(queue.items[0].releaseRequest.cancellations[0].at, cancelledAt);
+  await assert.rejects(change('reopen', { days: 7, notes: 'Family confirmed' }, med), /Only In Transit/);
+  await assert.rejects(change('reopen', { days: 7 }), /reason for requesting release again/);
+  const reopened = await change('reopen', { days: 7, notes: 'Family confirmed collection; requesting again' });
+  assert.equal(reopened.job.releaseRequest.state, 'awaiting_request');
+  assert.equal(reopened.job.releaseRequest.overdue, false);
+  assert.equal(reopened.job.releaseRequest.startedAt, finalAt.toISOString(), 'reopening preserves the original final verification date');
+  assert.equal(reopened.job.releaseRequest.reopenedByName, transit.name);
+  assert.equal(reopened.job.releaseRequest.cancellations[0].at, cancelledAt, 'cancellation history stays visible after reopening');
+  assert.ok(controller.jobActionBy(jobs[0]).includes('in_transit'));
+  await assert.rejects(change('request'), /Verify the current payment details/);
+  const payment = await call(controller.getReleasePayments, { params: { id }, user: transit });
+  await change('verify-payment', { fingerprint: payment.fingerprint, confirmed: true });
+  const again = await change('request', { notes: 'New release request after payment review' });
+  assert.equal(again.job.releaseRequest.state, 'requested');
+  assert.equal(again.job.releaseRequest.requestedByName, transit.name);
+  assert.equal(again.job.releaseRequest.cancellations[0].at, cancelledAt);
+  assert.ok(again.job.events.some((e) => e.action === 'Medicine release request reopened'));
+});
+
+test('release request requires an explicit current payment review; screenshots and all phases are visible', async () => {
+  const { patient, stage, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  jobs[0].stages.push({ key: 'final', doneAt: new Date(), doneByName: pcc.name });
+  jobs[0].status = 'ready'; jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'release');
+  stage.payments.push({ amount: 2500, approvalStatus: 'pending', paymentMode: 'online', utr: 'UTR-123', payToBankName: 'Clinic bank', screenshotFiles: [{ url: '/uploads/payments/proof.png', fileName: 'proof.png' }] });
+  const otherStage = patient.stages.find((s) => s.number !== stage.number);
+  otherStage.payments.push({ amount: 800, approvalStatus: 'pending', paymentMode: 'cash' });
+  const review = () => call(controller.getReleasePayments, { params: { id }, user: transit });
+  const action = (name, body = {}, user = transit) => call(controller.updateReleaseRequest, { params: { id, action: name }, user, body });
+  await assert.rejects(action('request'), /Verify the current payment details/);
+  let details = await review();
+  assert.equal(details.verified, false);
+  assert.ok(details.payments.some((p) => p.forRelease && p.utr === 'UTR-123' && p.bank === 'Clinic bank' && p.screenshots[0].url === '/uploads/payments/proof.png'));
+  assert.ok(details.payments.some((p) => p.phase === otherStage.number && !p.forRelease));
+  await assert.rejects(action('verify-payment', { fingerprint: details.fingerprint, confirmed: false }), /Confirm that you checked/);
+  await assert.rejects(action('verify-payment', { fingerprint: details.fingerprint, confirmed: true }, med), /Only In Transit/);
+  const pending = stage.payments[stage.payments.length - 1];
+  pending.screenshotFiles.push({ url: '/uploads/payments/proof-2.png', fileName: 'proof-2.png' });
+  await assert.rejects(action('verify-payment', { fingerprint: details.fingerprint, confirmed: true }), /Payment details changed/);
+  details = await review();
+  await action('verify-payment', { fingerprint: details.fingerprint, confirmed: true });
+  assert.equal(pending.approvalStatus, 'approved');
+  assert.equal(pending.approvedByName, transit.name);
+  assert.equal(otherStage.payments[otherStage.payments.length - 1].approvalStatus, 'pending', 'payments of other phases are not approved');
+  assert.equal((await review()).verified, true);
+  pending.amount += 100;
+  assert.equal((await review()).verified, false);
+  await assert.rejects(action('request'), /Verify the current payment details/);
+  details = await review();
+  await action('verify-payment', { fingerprint: details.fingerprint, confirmed: true });
+  const requested = await action('request');
+  assert.equal(requested.job.releaseRequest.state, 'requested');
+  assert.ok(requested.job.events.some((e) => e.action === 'In Transit verified release payments'));
 });
 
 test('the formulation sheet can be corrected until preparation; master values stay beside the change', async () => {

@@ -15,9 +15,9 @@ const TEAM_PAGES = {
   [ROLES.DOCTOR]: ['/admin/medicine-jobs', E],
   [ROLES.RECEPTIONIST]: ['/admin/accounts/consultations', E],
   [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/package-not-bought', '/admin/purchase-orders', E],
-  [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/patient-approvals', '/admin/payments', '/admin/accounts/refunds', '/admin/self-pickup-schedule', '/admin/courier', E],
+  [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/medicine-jobs', '/admin/patient-approvals', '/admin/payments', '/admin/accounts/refunds', '/admin/self-pickup-schedule', '/admin/courier', E],
   [ROLES.MEDICINE_DEPARTMENT]: ['/admin/medicine-requests', '/admin/medicine-jobs', '/admin/medicine-made', '/admin/stocks', E],
-  [ROLES.ASSISTANT_DOCTOR]: ['/admin/treatment-papers', '/admin/final-check', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', E],
+  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-jobs', '/admin/final-check', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', E],
   [ROLES.SALES_TEAM]: [E],
   [ROLES.DIGITAL_MARKETING]: [E],
 };
@@ -72,7 +72,7 @@ const buildTeam = async () => {
     const personTotals = new Map(people.map((u) => [String(u._id), 0]));
     const sections = [];
     for (const page of pages) {
-      if (PERSONAL_PAGES.has(page)) {
+      if (PERSONAL_PAGES.has(page) || (role === ROLES.ASSISTANT_DOCTOR && page === '/admin/medicine-jobs')) {
         // One list per person; each item says whose it is.
         const results = [];
         for (const u of people) { results.push({ u, ...(await run(page, u)) }); await breathe(); }

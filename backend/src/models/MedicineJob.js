@@ -57,7 +57,7 @@ const medicineJobSchema = new mongoose.Schema(
     medicines: { type: String, trim: true, default: '' },
     caseCategory: { type: String, trim: true, default: '' },
     // 2: the stage list with the doctor's formulation step (older jobs are moved on startup, see utils/jobStageMigration).
-    stagesVersion: { type: Number, default: 7 },
+    stagesVersion: { type: Number, default: 8 },
     // The Medicine Department rang the alarm of whoever has the step: the Manager (quality check) or the PCC.
     transitAlarm: {
       at: { type: Date, default: null },
@@ -72,6 +72,47 @@ const medicineJobSchema = new mongoose.Schema(
     status: { type: String, enum: ['open', 'ready', 'released', 'cancelled'], default: 'open', index: true },
     currentStage: { type: Number, default: 0 },
     stages: { type: [stageRecordSchema], default: [] },
+    releaseRequest: {
+      transitPaymentVerifiedAt: { type: Date, default: null },
+      transitPaymentVerifiedByName: { type: String, default: '' },
+      transitPaymentFingerprint: { type: String, default: '' },
+      startedAt: { type: Date, default: null },
+      deadlineAt: { type: Date, default: null },
+      requestedAt: { type: Date, default: null },
+      requestedByName: { type: String, default: '' },
+      requestNote: { type: String, default: '' },
+      acceptedAt: { type: Date, default: null },
+      acceptedByName: { type: String, default: '' },
+      paymentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+      followupStatus: { type: String, default: '' },
+      statusUpdatedAt: { type: Date, default: null },
+      statusUpdatedByName: { type: String, default: '' },
+      cancelledAt: { type: Date, default: null },
+      cancelledByName: { type: String, default: '' },
+      cancelReason: { type: String, default: '' },
+      cancellations: { type: [{ at: Date, byName: String, reason: String, _id: false }], default: [] },
+      reopenedAt: { type: Date, default: null },
+      reopenedByName: { type: String, default: '' },
+      extensions: { type: [{ at: Date, byName: String, days: Number, previousDeadline: Date, deadlineAt: Date, reason: String, _id: false }], default: [] },
+    },
+    boxReceipt: {
+      requestedAt: { type: Date, default: null },
+      requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      requestedByName: { type: String, trim: true, default: '' },
+      requestNote: { type: String, trim: true, default: '' },
+      receivedAt: { type: Date, default: null },
+      receivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      receivedByName: { type: String, trim: true, default: '' },
+      receivedNote: { type: String, trim: true, default: '' },
+    },
+    // The assigned PCC explicitly confirms that they verified the kit with the doctor.
+    doctorVerification: {
+      doctorName: { type: String, trim: true, default: '' },
+      confirmedAt: { type: Date, default: null },
+      confirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      confirmedByName: { type: String, trim: true, default: '' },
+      notes: { type: String, trim: true, default: '' },
+    },
     // Sent back to In Transit before acceptance (request unclear); cleared when In Transit corrects the request.
     returned: {
       reason: { type: String, trim: true, default: '' },

@@ -12,6 +12,7 @@ const { handedOverRequestIds, activeJobRequestIds, madeStillPending } = require(
 const { explanationOwner } = require('./transitController');
 const { PAGES, stepRole, shared, countOf } = require('./taskCountController');
 const { STAGES } = require('../utils/medicineJobFlow');
+const { releaseView } = require('../utils/medicineRelease');
 
 // "My day": the same open work the orange counts show, as a list of items - who, what, when due, and where to act.
 // Every item comes from the current state of a record, so it leaves the list by itself once the work is done.
@@ -82,9 +83,24 @@ const COLLECTORS = {
   async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status]); },
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
-    const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] } }).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key').lean();
+    const finalPcc = user.role === ROLES.ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
+    const jobs = await MedicineJob.find({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] }).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key boxReceipt releaseRequest stages.key stages.doneAt').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver).includes(stepRole(user))).map((j) => item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${j.hold?.active ? `On hold: ${j.hold.reason}` : STAGES[j.currentStage || 0]?.key === 'formula' ? `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (custom)' : ''}` : `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`}`, j.readyByDate, `/admin/medicine-jobs/${j._id}`));
+    return jobs.filter((j) => jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))).map((j) => {
+      const release = releaseView(j);
+      let detail = `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`;
+      let due = j.readyByDate;
+      if (j.hold?.active) detail = `On hold: ${j.hold.reason}`;
+      else if (j.boxReceipt?.requestedAt && !j.boxReceipt.receivedAt && user.role === ROLES.ASSISTANT_DOCTOR) detail = `Receive medicine box · requested by ${j.boxReceipt.requestedByName}`;
+      else if (release?.needsTransitAction && user.role === ROLES.IN_TRANSIT) {
+        detail = release.overdue ? 'Medicine release overdue — cancel or extend the deadline' : `Request medicine release or update status · ${release.daysLeft} day(s) left`;
+        if (release.followupLabel) detail += ` · ${release.followupLabel}`;
+        due = release.deadlineAt;
+      } else if (j.status === 'ready' && release?.state === 'requested') detail = `Medicine release requested by ${release.requestedByName} — check payment and accept`;
+      else if (j.status === 'ready' && release?.state === 'accepted') detail = 'Release request accepted — release medicine';
+      else if (STAGES[j.currentStage || 0]?.key === 'formula') detail = `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (custom)' : ''}`;
+      return item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${detail}`, due, `/admin/medicine-jobs/${j._id}`);
+    });
   },
   async '/admin/stocks'() {
     const items = await StockItem.find({ isActive: { $ne: false } }).lean();

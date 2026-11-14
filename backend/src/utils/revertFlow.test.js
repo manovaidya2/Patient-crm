@@ -52,6 +52,8 @@ test('the finished case has every step done', () => {
 
 test('reverting "Medicine ready" undoes everything after it, keeps preparation, and records what was cleared', async () => {
   const c = finishedCase();
+  c.job.doctorVerification = { doctorName: 'Dr Garg', confirmedAt: new Date(), confirmedByName: 'Aditi' };
+  c.job.boxReceipt = { requestedAt: new Date(), requestedByName: 'Meena', receivedAt: new Date(), receivedByName: 'Transit' };
   const returned = [];
   const ctx = { ...c, steps: stepsOf(c), returnStock: async (line) => returned.push(line.code), reason: 'Wrong parcel', user, now: new Date() };
   const { reverted, snapshot } = await revertPoFrom('ready', ctx);
@@ -67,19 +69,23 @@ test('reverting "Medicine ready" undoes everything after it, keeps preparation, 
   assert.equal(c.stage.payments[1].approvalStatus, 'pending', 'the balance payment goes back to pending');
   assert.equal(c.stage.payments[0].approvalStatus, 'approved', "the PO's own verified payment stays");
   assert.equal(c.job.status, 'open');
+  assert.ok(!c.job.doctorVerification?.confirmedAt, 'reverted kit needs fresh doctor confirmation');
+  assert.equal(snapshot.ready.doctorVerification.doctorName, 'Dr Garg', 'previous confirmation is kept in the revert snapshot');
+  assert.ok(!c.job.boxReceipt?.requestedAt, 'a reverted kit needs a fresh box receipt request');
+  assert.equal(snapshot.ready.boxReceipt.receivedByName, 'Transit', 'previous receipt stays in the revert snapshot');
   // Back to the doctor's final verification (step 12); the final check (step 11) stays done.
-  assert.equal(c.job.currentStage, STAGE_INDEX.doctor);
-  assert.equal(c.job.stages.length, STAGE_INDEX.doctor);
+  assert.equal(c.job.currentStage, STAGE_INDEX.final);
+  assert.equal(c.job.stages.length, STAGE_INDEX.final);
   assert.equal(c.job.consumption[0].txId !== null, true, 'preparation is before "ready": stock stays drawn');
   assert.deepEqual(returned, []);
   assert.equal(snapshot.explained.transit.explanationNote, 'Explained', 'the explanation is kept in its own step');
   assert.deepEqual(snapshot.released.stages.map((s) => s.key), ['release'], 'the release record is kept in the snapshot');
-  assert.deepEqual(snapshot.ready.stages.map((s) => s.key), ['doctor'], 'the doctor final-verification record is kept in the snapshot');
+  assert.deepEqual(snapshot.ready.stages.map((s) => s.key), ['final'], 'the final-verification record is kept in the snapshot');
   assert.equal(snapshot.fullpay.payments.length, 1);
   assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted']);
   // The final check is open again on the Medicine Dept track, for In Transit to confirm.
   assert.equal(stepsOf(c).find((s) => s.key === 'ready').state, 'current');
-  assert.match(stepsOf(c).find((s) => s.key === 'ready').waitText, /Step 12 Doctor final verification: the doctor/);
+  assert.match(stepsOf(c).find((s) => s.key === 'ready').waitText, /Step 10 Final verification check: the PCC/);
 });
 
 test('reverting "PO details verify" takes the whole case back: request cancelled, job cancelled, stock returned, payments pending', async () => {

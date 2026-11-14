@@ -23,6 +23,19 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
   const snapshot = { stages: removed.map(plain), currentStage: job.currentStage, status: job.status };
   job.stages = job.stages.filter((s) => (STAGE_INDEX[s.key] ?? -1) < stageIndex);
   job.markModified('stages');
+  if (job.releaseRequest?.startedAt) {
+    snapshot.releaseRequest = plain(job.releaseRequest);
+    // Reopening a completed release needs a fresh In Transit request; a new final check starts a fresh clock.
+    job.releaseRequest = stageIndex <= STAGE_INDEX.final ? undefined : { startedAt: job.releaseRequest.startedAt, deadlineAt: job.releaseRequest.deadlineAt };
+  }
+  if (stageIndex <= STAGE_INDEX.final && job.boxReceipt?.requestedAt) {
+    snapshot.boxReceipt = plain(job.boxReceipt);
+    job.boxReceipt = undefined;
+  }
+  if (stageIndex <= STAGE_INDEX.final && job.doctorVerification?.confirmedAt) {
+    snapshot.doctorVerification = plain(job.doctorVerification);
+    job.doctorVerification = undefined;
+  }
   if (gone.has('prepare') && (job.consumption || []).some((c) => c.txId)) {
     snapshot.consumption = plain(job.consumption);
     for (const line of job.consumption) {
@@ -49,8 +62,8 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
       clear(request, ['sentToCourierAt', 'sentToCourierByName']);
       if (phaseEntry?.transit) { snapshot.transit = take(phaseEntry.transit, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']); clear(phaseEntry.transit, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']); }
     }
-    // The doctor's final verification (step 12) makes the medicine; undoing it (or anything before) un-makes it.
-    if (gone.has('doctor') && request.status === 'made') {
+    // The assigned PCC's final verification makes the medicine; undoing it un-makes it.
+    if (gone.has('final') && request.status === 'made') {
       request.status = 'in_process';
       clear(request, ['madeAt', 'madeByName', 'packagedByName', 'lastMedicineCheckedByName', 'packagingDetailsFilledByName', 'packagingDetailsFilledAt']);
     }
@@ -59,7 +72,7 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
       clear(request, ['inProcessAt', 'inProcessByName']);
     }
   }
-  job.status = gone.has('doctor') ? 'open' : gone.has('release') ? 'ready' : job.status;
+  job.status = gone.has('final') ? 'open' : gone.has('release') ? 'ready' : job.status;
   job.currentStage = stageIndex;
   snapshot.at = now;
   return snapshot;
@@ -200,7 +213,7 @@ const PO_REVERTS = {
   async ready(ctx) {
     const { request, job, stage } = ctx;
     if (!['made', 'sent_to_courier'].includes(request.status)) return null;
-    if (job && job.stages.some((s) => s.key === 'doctor')) return revertJobTo(job, STAGE_INDEX.doctor, { request, phaseEntry: ctx.scope.round ? { transit: ctx.scope.round } : null, returnStock: ctx.returnStock, now: ctx.now });
+    if (job && job.stages.some((s) => s.key === 'final')) return revertJobTo(job, STAGE_INDEX.final, { request, phaseEntry: ctx.scope.round ? { transit: ctx.scope.round } : null, returnStock: ctx.returnStock, now: ctx.now });
     const keys = ['status', 'madeAt', 'madeByName', 'packagedByName', 'lastMedicineCheckedByName', 'packagingDetailsFilledByName', 'packagingDetailsFilledAt'];
     const snapshot = { request: take(request, keys) };
     request.status = 'in_process'; clear(request, keys.slice(1));

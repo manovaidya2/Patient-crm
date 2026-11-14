@@ -3,6 +3,7 @@
 const { ROLES } = require('../constants/roles');
 const { AGE_BANDS, supplyLabel } = require('../constants/supplyPlans');
 const { medicineDelays } = require('./medicineDelay');
+const { releaseView } = require('./medicineRelease');
 
 const MED = [ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN];
 const DOC = [ROLES.DOCTOR, ROLES.ADMIN];
@@ -55,15 +56,14 @@ const STAGES = [
   // Step 8: the Manager checks the open kit the Medicine Department packed (key kept as 'qc'). HOLD puts the job on hold
   // for the Medicine Department to correct; they resume it and the Manager checks again. The Medicine Department can
   // ring an alarm on the Manager's screen while it waits.
-  { key: 'qc', n: 8, label: 'Quality check', hi: 'क्वालिटी जाँच', roles: MANAGER, sop: 'SOP S3 · HR-23-25',
+  /* { key: 'qc', n: 8, label: 'Quality check', hi: 'क्वालिटी जाँच', roles: MANAGER, sop: 'SOP S3 · HR-23-25',
     purpose: 'The Manager checks the open kit (Packing-1): identity, quantity, appearance, closure, integrity and chits. HOLD sends it back to the Medicine Department to correct.',
     checks: ['Identity: medicine code, formulation version, batch match the job', 'Quantity: actual g / ml of every pack and pack count match', 'Appearance: colour, smell, moisture, lumps, foreign particles OK', 'Closure and integrity: folds, caps, no leak, tear or loose staple', 'Chits: name, dose, timing, days, pack x/n readable and correct', 'Treatment papers (first supply) present'],
-    fields: [{ key: 'result', label: 'QC result', type: 'select', required: true, options: ['PASS', 'HOLD'] }, { key: 'findings', label: 'Findings / deviations', type: 'textarea' }] },
+    fields: [{ key: 'result', label: 'QC result', type: 'select', required: true, options: ['PASS', 'HOLD'] }, { key: 'findings', label: 'Findings / deviations', type: 'textarea' }] }, */
   // Key kept as 'photos' (older jobs carry it). Every paper that goes with the kit is photographed page by page.
-  // Step 9: the treatment papers are made by the PCC the admin chose (Make Treatment Paper page). The Medicine
-  // Department waits (locked) and can ring the PCC's alarm. Papers are added by name with every page.
-  { key: 'photos', n: 9, label: 'Make treatment papers', hi: 'ट्रीटमेंट पेपर बनाना', roles: PCC, sop: 'SOP S6',
-    purpose: 'The PCC chosen by the admin makes this kit\'s treatment papers (medicine paper, diet plan ...) from the doctor\'s formulation and adds each one with its name and every page. The doctor checks them in the next step.',
+  // PCC assignment is paused; the Medicine Department makes the treatment papers.
+  { key: 'photos', n: 9, label: 'Make treatment papers', hi: 'ट्रीटमेंट पेपर बनाना', roles: MED, sop: 'SOP S6',
+    purpose: 'The Medicine Department makes this kit\'s treatment papers (medicine paper, diet plan ...) from the doctor\'s formulation and adds each one with its name and every page.',
     checks: ['Every paper for this supply is made, with the patient name and ID on it', 'Doses and timings on the papers match the formulation from the doctor', 'Every page of every paper added and readable', 'Papers given to the Medicine Department'],
     fields: [{ key: 'givenAt', label: 'Papers given to the Medicine Department at', type: 'datetime', required: true }] },
   // Step 10: the final parcel, with the treatment papers the PCC made (step 9) inside.
@@ -74,18 +74,18 @@ const STAGES = [
   // Step 11: the final verification check, by the PCC the admin chose in Settings ("Final medicine check"), on the
   // Medicine Final Check page. The Medicine Department waits (locked) and can ring the PCC's alarm.
   { key: 'final', n: 11, label: 'Final verification check', hi: 'अंतिम जाँच', roles: PCC, sop: 'SOP S8',
-    purpose: 'The PCC chosen by the admin checks the packed parcel (with the treatment papers) against the job. The doctor verifies it next.',
-    checks: ['Patient, prescription and supply part match', 'Bottle, dropper and packet counts reconciled; lids and seals intact', 'Medicine papers: same patient name and code on each; first / repeat set complete', 'Medicine photo and every dose-paper page linked and accepted', 'Outer box intact, correct size, logo; recipient details verified'],
-    fields: [{ key: 'remarks', label: 'Remarks', type: 'textarea' }] },
+    purpose: 'The PCC chosen by the admin verifies the packed parcel, open-kit photo and treatment papers against the prescription. PASS marks the medicine READY for release after payment clearance. HOLD returns it to Packing-2 for correction and another final check.',
+    checks: ['Patient, prescription and supply part match', 'Bottle, dropper and packet counts reconciled; lids and seals intact', 'Medicine papers: same patient name and code on each; first / repeat set complete', 'Medicine photo and every dose-paper page linked and accepted', 'Outer box intact, correct size, logo; recipient details verified', 'Open-kit photo, treatment papers and parcel packing records checked', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],
+    fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }, { key: 'remarks', label: 'Remarks', type: 'textarea' }] },
   // Step 12: the doctor's final verification. PASS marks the medicine READY (released after the full payment);
   // HOLD sends it back to Packing-2 (the parcel is redone and checked again).
-  { key: 'doctor', n: 12, label: 'Doctor final verification', hi: 'डॉक्टर अंतिम सत्यापन', roles: DOC, sop: 'SOP S5',
+  /* { key: 'doctor', n: 12, label: 'Doctor final verification', hi: 'डॉक्टर अंतिम सत्यापन', roles: DOC, sop: 'SOP S5',
     purpose: 'The doctor verifies the kit against the prescription before release: the open-kit photo, the quality check, the treatment papers, the parcel and the final check (shown below). PASS marks the medicine READY; it is released to In Transit after the full payment.',
     checks: ['Open-kit photo (step 7), quality check (step 8), treatment papers (step 9), parcel (step 10) and final check (step 11) checked', 'Patient identity, age group, program and current approved order', 'Supply part correct (full 6 months, or first / rest of 1+5 / 2+4)', 'Every medicine name, code and formulation version; approved substitutions only', 'Dose, timing, route, duration per prescription; age contraindications', 'Bottle, dropper and pack counts; full / partial fills', 'Packaging safe: no leak, legible print, no metal contact', 'Treatment papers: right patient, ID and version; nothing extra or missing'],
     // A HOLD says what to correct in the stage notes; the kit goes back to Packing-2.
-    fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }] },
+    fields: [{ key: 'result', label: 'Decision', type: 'select', required: true, options: ['PASS', 'HOLD'] }] }, */
   { key: 'release', n: 12, label: 'Release to In Transit', hi: 'रिलीज़', roles: MED, sop: 'SOP S8 · SOP 2',
-    purpose: 'Hand the parcel to In Transit. Allowed only after full verified payment; the medicine stays in department custody until then.',
+    purpose: 'In Transit requests release after final verification. The Medicine Department checks payment, accepts the request and releases the parcel. In Transit has 20 days from final verification to act, or can extend the deadline with a reason.',
     checks: ['Payment verified by In Transit (checked automatically; a balance may go to the next PO)', 'Parcel and package ID match this job', 'Receiving In Transit staff recorded'],
     fields: [] },
 ];
@@ -111,6 +111,22 @@ function urgency(readyByDate, now = new Date()) {
 function buildJobView(jobDoc, { stocks = [], payment = null, master = null, includeEvents = false, dispatch = {}, now = new Date() } = {}) {
   const job = plain(jobDoc);
   const done = new Map((job.stages || []).map((s) => [s.key, s]));
+  const final = done.get('final');
+  const doctor = done.get('doctor');
+  const confirmation = job.doctorVerification;
+  const legacyDoctor = final?.doneAt && doctor?.doneAt && new Date(doctor.doneAt) >= new Date(final.doneAt)
+    && doctor.fields?.result === 'PASS' && !doctor.snapshot?.oldFlow ? doctor : null;
+  const doctorVerification = confirmation?.confirmedAt ? {
+    doneAt: iso(confirmation.confirmedAt), doneByName: confirmation.confirmedByName || '',
+    doctorName: confirmation.doctorName || '', notes: confirmation.notes || '', confirmedByPcc: true,
+  } : legacyDoctor ? {
+    doneAt: iso(legacyDoctor.doneAt), doneByName: legacyDoctor.doneByName || '', doctorName: legacyDoctor.doneByName || '',
+    notes: legacyDoctor.notes || '', confirmedByPcc: false,
+  } : null;
+  const finalVerification = final?.doneAt ? {
+    doneAt: iso(final.doneAt), doneByName: final.doneByName || '', result: final.fields?.result || 'Completed',
+    doctorVerification,
+  } : null;
   const current = job.status === 'released' ? STAGES.length : job.currentStage || 0;
   const stages = STAGES.map((s, i) => {
     const rec = done.get(s.key);
@@ -172,6 +188,14 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     chits: (job.chits || []).map((c) => ({ ...c, confirmedAt: iso(c.confirmedAt) })),
     photos: { overview: job.photos?.overview || [], papers: job.photos?.papers || [], paperSets: job.photos?.paperSets || [] },
     payment,
+    finalVerification,
+    releaseRequest: releaseView(job, now),
+    doctorVerification,
+    boxReceipt: job.boxReceipt?.requestedAt ? {
+      status: job.boxReceipt.receivedAt ? 'received' : 'pending',
+      requestedAt: iso(job.boxReceipt.requestedAt), requestedByName: job.boxReceipt.requestedByName || '', requestNote: job.boxReceipt.requestNote || '',
+      receivedAt: iso(job.boxReceipt.receivedAt), receivedByName: job.boxReceipt.receivedByName || '', receivedNote: job.boxReceipt.receivedNote || '',
+    } : null,
     stages,
     preparerName: done.get('prepare')?.fields?.preparerName || done.get('prepare')?.doneByName || '',
     // The doctor changed the Formulation Master after this sheet was built and the sheet can still be rebuilt.

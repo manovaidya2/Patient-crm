@@ -1,9 +1,5 @@
-// Fulfilment steps done by one PCC (Patient Care Coordinator, role assistant_doctor) each, chosen by the admin in
-// Settings:
-//   papers - step 9, Make Treatment Paper ("Who will make treatment paper")
-//   final  - step 11, Medicine Final Check ("Final medicine check")
-// That PCC gets every kit waiting on the step on their page; the Medicine Department waits (and can ring their alarm).
-// Until a PCC is chosen, no PCC gets the requests (only the admin sees them).
+// Treatment papers belong to the Medicine Department while PCC assignment is paused.
+// The final medicine check still belongs to the PCC chosen by the admin in Settings.
 const mongoose = require('mongoose');
 const MedicineJob = require('../models/MedicineJob');
 const User = require('../models/User');
@@ -14,7 +10,7 @@ const { STAGES, STAGE_INDEX } = require('../utils/medicineJobFlow');
 const { AGE_BANDS, supplyLabel } = require('../constants/supplyPlans');
 
 const KINDS = {
-  papers: { key: 'treatmentPaperPcc', stage: 'photos', after: 'qc', what: 'makes the treatment papers' },
+  papers: { key: 'treatmentPaperPcc', stage: 'photos', after: 'pack1', what: 'makes the treatment papers' },
   final: { key: 'finalCheckPcc', stage: 'final', after: 'pack2', what: 'does the final medicine check' },
 };
 const kindOf = (value) => (KINDS[value] ? value : 'papers');
@@ -22,11 +18,17 @@ const fail = (message, statusCode = 400) => { throw Object.assign(new Error(mess
 
 // The PCC chosen for this kind: { id, name } or null.
 const getKindPcc = async (kind = 'papers') => {
+  // Treatment-paper PCC assignment is paused; retain the saved setting for later.
+  if (kindOf(kind) === 'papers') return null;
   const doc = await InventorySetting.findOne({ key: KINDS[kindOf(kind)].key }).lean();
   return doc?.value?.id ? { id: String(doc.value.id), name: doc.value.name || '' } : null;
 };
 // Throws when a PCC other than the chosen one tries the step (the admin can always step in).
 const assertKindPcc = async (kind, user) => {
+  if (kindOf(kind) === 'papers') {
+    if (!isAdminLike(user) && user.role !== ROLES.MEDICINE_DEPARTMENT) fail('Treatment papers are made by the Medicine Department', 403);
+    return;
+  }
   if (user.role !== ROLES.ASSISTANT_DOCTOR) return;
   const pcc = await getKindPcc(kind);
   const { what } = KINDS[kindOf(kind)];
@@ -36,6 +38,7 @@ const assertKindPcc = async (kind, user) => {
 // Whether this user gets this kind's requests.
 const isKindWorker = async (kind, user) => {
   if (isAdminLike(user)) return true;
+  if (kindOf(kind) === 'papers') return user.role === ROLES.MEDICINE_DEPARTMENT;
   if (user.role !== ROLES.ASSISTANT_DOCTOR) return false;
   const pcc = await getKindPcc(kind);
   return Boolean(pcc) && pcc.id === String(user._id);
@@ -43,12 +46,14 @@ const isKindWorker = async (kind, user) => {
 
 // @route GET /api/treatment-papers/setting?kind=papers|final
 const getSetting = asyncHandler(async (req, res) => {
+  if (kindOf(req.query.kind) === 'papers') return res.json({ success: true, pcc: null, pccs: [], disabled: true });
   const pccs = await User.find({ role: ROLES.ASSISTANT_DOCTOR, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean();
   res.json({ success: true, pcc: await getKindPcc(req.query.kind), pccs: pccs.map((u) => ({ id: String(u._id), name: u.name })) });
 });
 
 // @route PUT /api/treatment-papers/setting?kind=papers|final   body: { pccId }  (admin)
 const saveSetting = asyncHandler(async (req, res) => {
+  if (kindOf(req.query.kind) === 'papers') fail('Treatment-paper assignment is paused. The Medicine Department makes the treatment papers.', 409);
   const id = String(req.body?.pccId || '');
   let value = null;
   if (id) {
@@ -92,6 +97,7 @@ const listPapers = asyncHandler(async (req, res) => {
 // @route GET /api/treatment-papers/alarms?kind=papers|final   The Medicine Department rang this PCC's alarm.
 const paperAlarms = asyncHandler(async (req, res) => {
   const kind = kindOf(req.query.kind);
+  if (kind === 'papers') return res.json({ success: true, alarms: [] });
   const { stage } = KINDS[kind];
   if (!(await isKindWorker(kind, req.user)) || isAdminLike(req.user)) return res.json({ success: true, alarms: [] });
   const jobs = await MedicineJob.find({ status: 'open', currentStage: STAGE_INDEX[stage], 'transitAlarm.stageKey': stage, 'transitAlarm.at': { $ne: null } })

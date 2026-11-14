@@ -44,8 +44,10 @@ export default function Settings() {
   return (
     <div className="space-y-4">
       <PageHeader icon={SettingsIcon} title="Settings" subtitle="Who does what in the CRM." />
+      {/* Treatment-paper assignment paused; the Medicine Department makes the papers.
       <PccPicker kind="papers" title="Who will make treatment paper" nowText="makes the treatment papers" description="Every treatment-paper request (fulfilment step 9, after the quality check) goes only to the PCC chosen here, on their Make Treatment Paper page. No other PCC gets it." />
-      <PccPicker kind="final" title="Final medicine check" nowText="does the final medicine check" description="Every final verification check (fulfilment step 11, after the parcel is packed with the treatment papers) goes only to the PCC chosen here, on their Medicine Final Check page. The doctor verifies it after." />
+      */}
+      <PccPicker kind="final" title="Final medicine check" nowText="does the final medicine check" description="Every final verification check, after the parcel is packed with the treatment papers, goes only to the PCC chosen here, on their Medicine Final Check page. Their PASS makes the medicine ready for release after payment clearance." />
     </div>
   );
 }

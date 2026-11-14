@@ -6,8 +6,9 @@ import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
 import { PageHeader } from '../../components/ui/Layout.jsx';
 import FinalCheckForm from '../../components/medicine/FinalCheckForm.jsx';
+import DoctorVerificationCheck from '../../components/medicine/DoctorVerificationCheck.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { isAdminLike } from '../../constants/roles.js';
+import { isAdminLike, ROLES } from '../../constants/roles.js';
 
 // Medicine Final Check: fulfilment step 11. Every parcel packed with its treatment papers (step 10) waits here for the
 // final verification check, done by the PCC the admin chose in Settings ("Final medicine check"). The doctor verifies
@@ -15,13 +16,14 @@ import { isAdminLike } from '../../constants/roles.js';
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
 const when = (v) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 
-function CheckHere({ row, onDone }) {
+function CheckHere({ row, onDone, allowDoctorConfirmation }) {
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => { api.get(`/medicine-jobs/${row.id}`, { skipCache: true }).then(({ data }) => setJob(data.job)).catch((err) => setError(err.response?.data?.message || 'Could not load the job')); }, [row.id]);
   if (!job) return <p className="mt-3 text-sm text-charcoal/60">{error || 'Loading...'}</p>;
+  if (job.stages.some((s) => s.key === 'final' && s.state === 'done')) return <DoctorVerificationCheck job={job} allowConfirmation={allowDoctorConfirmation} onSaved={setJob} />;
   if (job.currentKey !== 'final' || job.status !== 'open' || job.hold) return <p className="mt-3 rounded-lg bg-[#FBF7ED] px-3 py-2 text-sm text-charcoal/70">{job.hold ? `On hold: ${job.hold.reason}` : 'This parcel is not at the final check any more.'}</p>;
-  return <div className="mt-3 border-t border-cardline pt-4"><FinalCheckForm job={job} documents={job.patientDocuments || []} onDone={onDone} /></div>;
+  return <div className="mt-3 border-t border-cardline pt-4"><FinalCheckForm job={job} documents={job.patientDocuments || []} onDone={onDone} allowDoctorConfirmation={allowDoctorConfirmation} /></div>;
 }
 
 export default function MedicineFinalCheck() {
@@ -41,7 +43,7 @@ export default function MedicineFinalCheck() {
   const rows = data?.rows || [];
   return (
     <div className="space-y-4">
-      <PageHeader icon={ClipboardCheck} title="Medicine Final Check" subtitle="Fulfilment step 11: the parcel is packed with its treatment papers; check it against the job. The doctor verifies it next." actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw size={15} />Refresh</Button>} />
+      <PageHeader icon={ClipboardCheck} title="Medicine Final Check" subtitle="Verify the parcel, packing records and treatment papers. PASS makes the medicine ready; HOLD returns it to Packing-2 for correction." actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw size={15} />Refresh</Button>} />
       {data && isAdminLike(user) && <p className={`rounded-lg px-4 py-3 text-sm ${data.pcc ? 'bg-[#FBF7ED] text-charcoal/75' : 'bg-[#FFF1E6] font-semibold text-[#C2410C]'}`}>{data.pcc ? <>The final check is done by <b>{data.pcc.name}</b>.</> : 'No PCC is chosen yet: no PCC gets these requests.'} <Link to="/admin/settings" className="font-semibold text-sage hover:underline">Change in Settings</Link></p>}
       {data && !data.mine && <p className="rounded-lg bg-[#FBF7ED] px-4 py-3 text-sm text-charcoal/75">{data.pcc ? <>The final check is done by <b>{data.pcc.name}</b> (chosen by the admin).</> : 'The admin has not chosen who does the final check yet.'}</p>}
       <div className="flex flex-wrap gap-2">
@@ -64,11 +66,11 @@ export default function MedicineFinalCheck() {
                   {view === 'done' && <p className="mt-1 text-xs text-charcoal/65">Checked by {r.doneByName} · {when(r.doneAt)}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {view === 'pending' && data.mine && <Button size="sm" onClick={() => { setNotice(''); setOpenRow((o) => (o === r.id ? '' : r.id)); }}><ChevronDown size={14} className={openRow === r.id ? 'rotate-180' : ''} />{openRow === r.id ? 'Close' : 'Check here'}</Button>}
+                  {data.mine && <Button size="sm" onClick={() => { setNotice(''); setOpenRow((o) => (o === r.id ? '' : r.id)); }}><ChevronDown size={14} className={openRow === r.id ? 'rotate-180' : ''} />{openRow === r.id ? 'Close' : view === 'pending' ? 'Check here' : 'Doctor verification'}</Button>}
                   <Link to={`/admin/medicine-jobs/${r.id}`}><Button size="sm" variant="outline"><ExternalLink size={14} />{view === 'pending' ? 'Open in fulfilment' : 'View'}</Button></Link>
                 </div>
               </div>
-              {openRow === r.id && view === 'pending' && <CheckHere row={r} onDone={(msg) => { setOpenRow(''); setNotice(msg); load(); }} />}
+              {openRow === r.id && <CheckHere row={r} allowDoctorConfirmation={data.mine && user?.role === ROLES.ASSISTANT_DOCTOR} onDone={(msg) => { setOpenRow(''); setNotice(msg); load(); }} />}
             </article>
           ))}
         </div>

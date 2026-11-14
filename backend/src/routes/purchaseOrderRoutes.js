@@ -18,8 +18,8 @@ router.get('/form', authorize(...PO_CREATE_ROLES), getPurchaseOrderForm);
 router.post('/upload', authorize(...PO_CREATE_ROLES), uploadPaymentScreenshot.array('screenshot', 10), uploadPaperFiles);
 router.post('/', authorize(...PO_CREATE_ROLES), createPurchaseOrder);
 router.get('/:id', authorize(...PO_VIEW_ROLES), getPurchaseOrder);
-// The PCC reads it on Medicine Explanations too.
-router.get('/:id/post-counselling', authorize(...PO_VIEW_ROLES, ROLES.ASSISTANT_DOCTOR), require('../controllers/postCounselingRecordController').getRecordForPo);
+// The Medicine Department reads the treatment components while making papers; the PCC reads it on Medicine Explanations.
+router.get('/:id/post-counselling', authorize(...PO_VIEW_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.MEDICINE_DEPARTMENT), require('../controllers/postCounselingRecordController').getRecordForPo);
 router.patch('/:id', authorize(...PO_CREATE_ROLES), poFiles, updatePurchaseOrder);
 router.post('/:id/payments', authorize(...PO_CREATE_ROLES), poFiles, addPurchaseOrderPayment);
 router.post('/:id/verify-details', authorize(...PO_VERIFY_ROLES), verifyDetails);

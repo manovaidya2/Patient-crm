@@ -7,11 +7,8 @@ import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
 import { PageHeader } from '../../components/ui/Layout.jsx';
-import { useAuth } from '../../context/AuthContext.jsx';
-import { isAdminLike } from '../../constants/roles.js';
 
-// Make Treatment Paper: fulfilment step 9. Every kit that passed the quality check waits here for its treatment papers,
-// made by the PCC the admin chooses (the setting at the top, admin only). Opening a row opens the job's step 9.
+// Make Treatment Paper: the Medicine Department makes the papers after Packing-1.
 const pad = (n) => String(n).padStart(2, '0');
 const localNow = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
@@ -81,7 +78,6 @@ function PaperWork({ row, onDone }) {
 }
 
 export default function TreatmentPapers() {
-  const { user } = useAuth();
   const [view, setView] = useState('pending');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -97,10 +93,13 @@ export default function TreatmentPapers() {
   const rows = data?.rows || [];
   return (
     <div className="space-y-4">
-      <PageHeader icon={FileText} title="Make Treatment Paper" subtitle="Fulfilment step 9: the kit passed the quality check; make its treatment papers (each paper by name, every page). The doctor checks them next." actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw size={15} />Refresh</Button>} />
+      <PageHeader icon={FileText} title="Make Treatment Paper" subtitle="The Medicine Department makes the treatment papers after Packing-1. Add each paper by name with every page." actions={<Button variant="outline" size="sm" onClick={load}><RefreshCw size={15} />Refresh</Button>} />
+      {/* PCC assignment is paused.
       {data && isAdminLike(user) && <p className={`rounded-lg px-4 py-3 text-sm ${data.pcc ? 'bg-[#FBF7ED] text-charcoal/75' : 'bg-[#FFF1E6] font-semibold text-[#C2410C]'}`}>{data.pcc ? <>Treatment papers are made by <b>{data.pcc.name}</b>.</> : 'No PCC is chosen yet: no PCC gets these requests.'} <Link to="/admin/settings" className="font-semibold text-sage hover:underline">Change in Settings</Link></p>}
       {data && !data.mine && <p className="rounded-lg bg-[#FBF7ED] px-4 py-3 text-sm text-charcoal/75">{data.pcc ? <>Treatment papers are made by <b>{data.pcc.name}</b> (chosen by the admin).</> : 'The admin has not chosen who makes the treatment papers yet.'}</p>}
       {data?.mine && data.pcc && !isAdminLike(user) && <p className="text-sm text-charcoal/65">You make the treatment papers (chosen by the admin).</p>}
+      */}
+      {data && <p className="rounded-lg bg-[#FBF7ED] px-4 py-3 text-sm text-charcoal/75">Treatment papers are made by the Medicine Department.</p>}
       <div className="flex flex-wrap gap-2">
         {[['pending', 'To make'], ['done', 'Made']].map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} className={`rounded-full border px-4 py-1.5 text-sm font-semibold ${view === key ? 'border-sage bg-sage text-white' : 'border-cardline bg-white text-charcoal/70 hover:border-sage/60'}`}>{label}</button>)}
       </div>
@@ -116,7 +115,7 @@ export default function TreatmentPapers() {
               <div className="min-w-0">
                 <p className="font-display text-base font-bold text-charcoal">{r.patientName} <span className="text-sm font-normal text-charcoal/60">{[r.patientCode, `Phase ${r.phase}`].join(' · ')}</span></p>
                 <p className="text-xs text-charcoal/65">{[r.poNumber && `PO ${r.poNumber}`, r.supplyLabel, r.ageBandLabel, r.readyByDate && `ready by ${day(r.readyByDate)}`].filter(Boolean).join(' · ')}</p>
-                {view === 'pending' && r.waitingSince && <p className="mt-1 text-xs text-charcoal/60">Waiting since {when(r.waitingSince)} (quality check passed)</p>}
+                {view === 'pending' && r.waitingSince && <p className="mt-1 text-xs text-charcoal/60">Waiting since {when(r.waitingSince)} (Packing-1 complete)</p>}
                 {r.alarm && view === 'pending' && <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-[#B91C1C]"><BellRing size={13} />Medicine Department rang {when(r.alarm.at)} ({r.alarm.byName}){r.alarm.note ? `: ${r.alarm.note}` : ''}</p>}
                 {view === 'done' && <p className="mt-1 text-xs text-charcoal/65">Made by {r.doneByName} · {when(r.doneAt)} · {r.papers.map((p) => `${p.name} (${p.pages} page${p.pages === 1 ? '' : 's'})`).join(', ')}</p>}
               </div>
