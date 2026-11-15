@@ -2,6 +2,12 @@ const mongoose = require('mongoose');
 const Management = require('../models/AppointmentManagementEntry');
 const SalesSheetAudit = require('../models/SalesSheetAudit');
 const User = require('../models/User');
+const Patient = require('../models/Patient');
+const MedicineJob = require('../models/MedicineJob');
+const { releaseView } = require('../utils/medicineRelease');
+const { appointmentMedicine } = require('../utils/appointmentMedicine');
+const { appointmentTreatment } = require('../utils/appointmentTreatment');
+const { appointmentSessions } = require('../utils/appointmentSessions');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { SALES_IDS, RECEPTION_IDS } = require('../utils/receptionFlow');
@@ -22,7 +28,7 @@ const emitChanged = (req) => req.app?.get?.('io')?.emit('appointments-board:chan
 // After the package: the purchase order made on the conversion and where it is now (the same view the PO page shows).
 const MED_STATUS = { requested: 'Requested', in_process: 'Being prepared', made: 'Ready', sent_to_courier: 'Released to In Transit', cancelled: 'Cancelled' };
 const PO_STATUS = { pending: 'Waiting for verification', verified: 'Verified', rejected: 'Sent back', cancelled: 'Cancelled' };
-const progressOf = (po) => {
+const progressOf = (po, job = null) => {
   if (!po) return null;
   const step = (key) => po.steps.find((s) => s.key === key) || null;
   const done = (key) => { const s = step(key); return s && s.state === 'done' ? { at: s.at || null, by: s.by || '', text: s.text || '' } : null; };
@@ -33,8 +39,63 @@ const progressOf = (po) => {
   const handover = done('handover');
   const received = done('received');
   const pickup = po.courier?.deliveryMode === 'self' || /pickup/i.test(scheduled?.text || '');
+  const release = job ? releaseView(job) : null;
+  const handoverDetails = po.handover || {};
+  const payments = [...new Map([...(handoverDetails.approvedPayments || []), ...(po.phasePendingPayments || []), ...(po.payments || [])].map((payment) => [payment.id, payment])).values()];
+  const readyNotDelivered = require('./purchaseOrderController').readyNotDeliveredFrom([po])[0] || null;
+  const deliveryMode = handoverDetails.mode || (po.courier?.deliveryMode === 'self' ? 'pickup' : po.courier?.deliveryMode) || '';
+  const delivered = po.courier?.status === 'delivered' || Boolean(received) || (pickup && Boolean(handover));
+  const sent = delivered || po.courier?.status === 'dispatched' || Boolean(handover);
+  const scheduleState = delivered ? 'delivered' : sent ? 'on_the_way' : scheduled ? 'scheduled' : 'not_scheduled';
+  const releaseLabels = { awaiting_request: 'Waiting for release request', requested: 'Release requested — awaiting Medicine Department', accepted: 'Release request accepted', released: 'Medicine released', cancelled: 'Release request cancelled' };
+  const timeline = [];
+  const event = (label, at, byName, note = '') => { if (at) timeline.push({ label, at: iso(at), byName: byName || '', note }); };
+  event('PO payment verified', po.paymentVerifiedAt, po.paymentVerifiedByName);
+  for (const call of handoverDetails.calls || []) event(`Call: ${(call.outcome || '').replace(/_/g, ' ')}`, call.at, call.byName, call.notes);
+  event('Delivery calls completed', handoverDetails.callsDoneAt, handoverDetails.callsDoneByName);
+  event('PO paper signed by patient', handoverDetails.poPaperSignedAt, handoverDetails.poPaperSignedByName, handoverDetails.poPaperSignedNote);
+  event('PCC assigned', handoverDetails.pcc?.at, handoverDetails.pcc?.byName, handoverDetails.pcc?.name);
+  event('PCC acknowledged', handoverDetails.pcc?.ackAt, handoverDetails.pcc?.ackByName);
+  event('Delivery delay noted', handoverDetails.stuckNote?.at, handoverDetails.stuckNote?.byName, handoverDetails.stuckNote?.text);
+  for (const key of ['scheduled', 'handover', 'received', 'explained', 'started']) {
+    const completed = done(key);
+    if (completed) event(step(key).label || ({ scheduled: 'Delivery scheduled', handover: 'Dispatched / handed over', received: 'Patient receipt confirmed', explained: 'Medicine explained', started: 'Treatment started' })[key], completed.at, completed.by, completed.text);
+  }
+  if (release) {
+    event('Payment reviewed for release', release.transitPaymentVerifiedAt, release.transitPaymentVerifiedByName);
+    event('Release requested', release.requestedAt, release.requestedByName, release.requestNote);
+    event('Payment checked & release accepted', release.acceptedAt, release.acceptedByName);
+    event('Medicine released', release.releasedAt, release.releasedByName, release.releaseNotes);
+    for (const cancellation of release.cancellations) event('Release request cancelled', cancellation.at, cancellation.byName, cancellation.reason);
+    event('Release request reopened', release.reopenedAt, release.reopenedByName);
+    event(release.followupLabel || 'Follow-up updated', release.statusUpdatedAt, release.statusUpdatedByName);
+    for (const extension of release.extensions) event('Release deadline extended', extension.at, extension.byName, `${extension.days} day(s)${extension.reason ? ` · ${extension.reason}` : ''}`);
+  }
+  timeline.sort((a, b) => new Date(a.at) - new Date(b.at));
   return {
     po: { id: po.id, number: po.poNumber, status: po.status, statusLabel: PO_STATUS[po.status] || po.status, total: pay.totalAmount || 0, paid: pay.amountPaid || 0, balance: pay.remaining || 0, pending: pay.pendingCount || 0 },
+    medicineDepartment: appointmentMedicine(job),
+    inTransit: {
+      patientApproval: { status: po.approvalStatus || 'unknown', at: null, byName: '' },
+      selfPickup: { selected: deliveryMode === 'pickup', state: deliveryMode === 'pickup' ? scheduleState : 'not_selected', at: handoverDetails.pickupAt || null },
+      porterCourier: { selected: Boolean(deliveryMode && deliveryMode !== 'pickup'), state: deliveryMode && deliveryMode !== 'pickup' ? scheduleState : 'not_selected', at: handoverDetails.dispatchAt || null, partner: handoverDetails.courier?.partner || handoverDetails.plannedCourier || po.courier?.courierPartner || '', tracking: handoverDetails.courier?.tracking || po.courier?.trackingNumber || '' },
+      readyNotDelivered: readyNotDelivered ? { waitingDays: readyNotDelivered.waitingDays, madeAt: readyNotDelivered.madeAt, reasons: readyNotDelivered.reasons, note: readyNotDelivered.note } : null,
+      current: transitNow?.label || '',
+      payment: { state: pay.pendingCount ? 'pending' : po.paymentVerifiedAt ? 'verified' : 'not_verified', paid: pay.amountPaid || 0, balance: pay.remaining || 0, pendingCount: pay.pendingCount || 0 },
+      payments,
+      release: release ? { state: release.state, label: releaseLabels[release.state], jobId: String(job._id), followup: release.followupLabel, deadlineAt: release.deadlineAt, daysLeft: release.daysLeft, overdue: release.overdue } : null,
+      callFollowUps: po.callFollowUps || [],
+      paperSigned: Boolean(handoverDetails.poPaperSignedAt),
+      phaseOnHold: Boolean(po.phaseHold), phaseRemoved: Boolean(po.phaseRemoved),
+      plan: {
+        mode: handoverDetails.mode || '', pickupAt: handoverDetails.pickupAt || null, dispatchAt: handoverDetails.dispatchAt || null,
+        courier: handoverDetails.plannedCourier || '', address: handoverDetails.plannedAddress || '', note: handoverDetails.planNote || handoverDetails.pickupNote || '',
+        pcc: handoverDetails.pcc?.name || '', explanationAt: handoverDetails.explanationAt || null, explanationMode: handoverDetails.explanationMode || '',
+        receiver: handoverDetails.courier?.receivedByName || '', courierNote: handoverDetails.courier?.notes || '',
+        packageImages: handoverDetails.courier?.packageImages || [], deliveryProofImages: handoverDetails.courier?.deliveryProofImages || [],
+      },
+      timeline,
+    },
     medicine: po.medicine ? {
       status: po.medicine.status, label: MED_STATUS[po.medicine.status] || po.medicine.status,
       // Before it is ready: the fulfilment step it is on (formulation, packing, quality check ...).
@@ -44,6 +105,7 @@ const progressOf = (po) => {
     delivery: {
       state: received || (pickup && handover) ? 'delivered' : handover ? 'on_the_way' : scheduled ? 'scheduled' : po.medicine ? 'not_scheduled' : '',
       text: scheduled?.text || '', scheduledAt: scheduled?.at || null, sentAt: handover?.at || null, deliveredAt: (received || (pickup ? handover : null))?.at || null,
+      scheduledByName: scheduled?.by || '', sentByName: handover?.by || '', deliveredByName: (received || (pickup ? handover : null))?.by || '',
       via: po.courier ? [po.courier.courierPartner, po.courier.trackingNumber].filter(Boolean).join(' / ') : '',
       now: transitNow ? transitNow.label : '',
     },
@@ -52,7 +114,7 @@ const progressOf = (po) => {
   };
 };
 
-const rowOf = (entry, idAt, user, po = null) => {
+const rowOf = (entry, idAt, user, po = null, job = null, patient = null) => {
   const flow = entry.visitFlow || {};
   const pc = entry.postCounseling || {};
   const reg = entry.registration || {};
@@ -61,6 +123,9 @@ const rowOf = (entry, idAt, user, po = null) => {
   const converted = pc.outcome?.kind === 'converted';
   const fee = Number(purchase.totals?.approvedProgramFee || pc.record?.totals?.approvedProgramFee || 0);
   const paid = Number(purchase.values?.amountReceivedNow || 0);
+  const approval = patient ? { status: patient.approvalStatus || 'approved', at: iso(patient.approvedAt), byName: patient.approvedByName || '' } : po ? { status: po.approvalStatus || 'unknown', at: null, byName: '' } : { status: 'unknown', at: null, byName: '' };
+  const progress = progressOf(po, job);
+  if (progress) progress.inTransit.patientApproval = approval;
   return {
     id: String(entry._id),
     appointmentDate: entry.appointmentDate,
@@ -86,7 +151,10 @@ const rowOf = (entry, idAt, user, po = null) => {
       fee, paid, due: Number(purchase.totals?.outstandingBalance ?? Math.max(fee - paid, 0)), at: iso(pc.outcome?.at), byName: pc.outcome?.byName || '',
     } : null,
     poNumber: purchase.values?.poNo || '',
-    ...(progressOf(po) || {}),
+    ...(progress || {}),
+    ...(patient || po ? { patientApproval: approval } : {}),
+    ...(patient ? { treatment: appointmentTreatment(patient, po?.phase) } : {}),
+    ...(patient ? { followUpSessions: appointmentSessions(patient, po?.phase) } : {}),
     // Who may do what on this row.
     canRelease: isAdminLike(user) || user.role === ROLES.RECEPTIONIST,
     canMarkHistory: isAdminLike(user) || user.role === ROLES.ASSISTANT_DOCTOR,
@@ -110,9 +178,21 @@ const listBoard = asyncHandler(async (req, res) => {
   // The POs made on these conversions (the PO number is written into the post-counselling purchase).
   const poNumbers = [...new Set(entries.map((e) => e.postCounseling?.purchase?.values?.poNo).filter(Boolean))];
   const { loadPoViews } = require('./purchaseOrderController');
-  const pos = poNumbers.length && mongoose.connection.readyState === 1 ? await loadPoViews({ poNumber: { $in: poNumbers } }) : [];
+  const pos = poNumbers.length && mongoose.connection.readyState === 1 ? await loadPoViews({ poNumber: { $in: poNumbers } }, { includeHandover: true }) : [];
   const poOf = new Map(pos.map((po) => [po.poNumber, po]));
-  const rows = entries.map((e) => rowOf(e, idAt.get(String(e._id)) || null, req.user, poOf.get(e.postCounseling?.purchase?.values?.poNo) || null))
+  // Fetch the existing release/payment confirmations for these POs only; no new In Transit workflow is created here.
+  const jobs = pos.length ? await MedicineJob.find({ purchaseOrder: { $in: pos.map((po) => po.id) } })
+    .select('-formulation -reverts').sort({ createdAt: -1 }).lean() : [];
+  const jobOf = new Map();
+  jobs.forEach((job) => { if (!jobOf.has(String(job.purchaseOrder))) jobOf.set(String(job.purchaseOrder), job); });
+  // Approval is the patient's own intake status, independently of whether a PO has been made yet.
+  const patientCodes = [...new Set(entries.map((entry) => mapValue(entry.values, RECEPTION_IDS.patientId)).filter(Boolean))];
+  const patients = patientCodes.length && mongoose.connection.readyState === 1 ? await Patient.find({ patientCode: { $in: patientCodes } }).select('patientCode approvalStatus approvedAt approvedByName currentStage isActive inactiveReason inactivatedAt inactivatedByName stages.number stages.status stages.date stages.notes stages.transit.activatedAt stages.transit.activatedByName stages.transit.medicineStartDate stages.transit.medicineStartSetAt stages.transit.medicineStartSetByName stages.transit.medicineStartNote stages.medicineExplainDate stages.transit.explanationMode stages.transit.explanationCompletedAt stages.transit.explanationCompletedByName stages.transit.explanationNote stages.transit.holdActive stages.transit.holdReason stages.transit.holdAt stages.transit.holdByName stages.transit.removedAt stages.transit.removedByName stages.transit.removedReason assignedDoctor stages.followUps stages.familySessions').populate('assignedDoctor', 'name').lean() : [];
+  const patientOf = new Map(patients.map((patient) => [patient.patientCode, patient]));
+  const rows = entries.map((e) => {
+    const po = poOf.get(e.postCounseling?.purchase?.values?.poNo) || null;
+    return rowOf(e, idAt.get(String(e._id)) || null, req.user, po, po ? jobOf.get(po.id) || null : null, patientOf.get(mapValue(e.values, RECEPTION_IDS.patientId)) || null);
+  })
     .sort((a, b) => (a.appointmentDate.localeCompare(b.appointmentDate)) || ((a.tokenNumber || 9999) - (b.tokenNumber || 9999)));
   const pccs = await User.find({ role: ROLES.ASSISTANT_DOCTOR, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean();
   res.json({ success: true, from, to, rows, pccs: pccs.map((u) => ({ id: String(u._id), name: u.name })) });

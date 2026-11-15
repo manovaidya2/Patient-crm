@@ -202,7 +202,10 @@ const istDayOf = (v) => new Date(v).toLocaleDateString('en-CA', { timeZone: 'Asi
 const daysSince = (v, now = new Date()) => (v ? Math.max(0, Math.round((Date.parse(istDayOf(now)) - Date.parse(istDayOf(v))) / DAY_MS)) : null);
 const readyNotDelivered = async (now = new Date()) => {
   const views = await loadPoViews({ status: 'verified', medicineRequestId: { $nin: ['', null] } }, { includeHandover: true });
-  return views.filter((v) => v.isPhaseCurrentRequest && v.medicine && ['made', 'sent_to_courier'].includes(v.medicine.status) && v.courier?.status !== 'delivered' && !v.phaseRemoved)
+  return readyNotDeliveredFrom(views, now);
+};
+const readyNotDeliveredFrom = (views, now = new Date()) => {
+  return views.filter((v) => v.status === 'verified' && v.isPhaseCurrentRequest && v.medicine && ['made', 'sent_to_courier'].includes(v.medicine.status) && v.courier?.status !== 'delivered' && !v.phaseRemoved)
     .map((v) => {
       const h = v.handover || {};
       const step = (key) => v.steps.find((s) => s.key === key);
@@ -850,7 +853,7 @@ const approvePaymentException = asyncHandler(async (req, res) => {
   await respond(res, po, patient);
 });
 
-module.exports = { listPaymentExceptions, approvePaymentException, readyNotDelivered, listReadyNotDelivered,
+module.exports = { listPaymentExceptions, approvePaymentException, readyNotDeliveredFrom, readyNotDelivered, listReadyNotDelivered,
   courierHandovers, listCourierHandovers,
   PO_VIEW_ROLES, PO_CREATE_ROLES, PO_VERIFY_ROLES,
   loadPoViews, revertStep, deletePurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderForm, uploadPaperFiles, createPurchaseOrder, updatePurchaseOrder, addPurchaseOrderPayment,

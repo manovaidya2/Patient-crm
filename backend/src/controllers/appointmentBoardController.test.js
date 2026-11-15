@@ -185,3 +185,128 @@ test('after the package: PO, medicine step, delivery and treatment come from the
   assert.equal(controller.progressOf(po).delivery.state, 'delivered');
   assert.equal(controller.progressOf(null), null);
 });
+
+test('In Transit appointment status uses actual payment, release and delivery operators/times without granting visit edits', () => {
+  const po = {
+    id: 'po-1', poNumber: 'PO-1', status: 'verified',
+    paymentVerifiedAt: '2026-11-14T05:00:00Z', paymentVerifiedByName: 'Transit A',
+    poPayment: { totalAmount: 42000, amountPaid: 10000, remaining: 32000, pendingCount: 0 },
+    steps: [
+      { key: 'scheduled', state: 'done', at: '2026-11-14T07:00:00Z', by: 'Transit B', text: 'Self pickup' },
+      { key: 'handover', state: 'done', at: '2026-11-14T08:00:00Z', by: 'Transit C' },
+    ], courier: { deliveryMode: 'self' },
+  };
+  const job = { _id: 'job-1', status: 'released', releaseRequest: {
+    transitPaymentVerifiedAt: '2026-11-14T05:10:00Z', transitPaymentVerifiedByName: 'Transit B',
+    requestedAt: '2026-11-14T05:15:00Z', requestedByName: 'Transit B',
+    acceptedAt: '2026-11-14T05:20:00Z', acceptedByName: 'Medicine A',
+  }, stages: [{ key: 'final', doneAt: '2026-11-13T05:00:00Z' }, { key: 'release', doneAt: '2026-11-14T06:00:00Z', doneByName: 'Medicine B' }] };
+  const row = controller.rowOf(makeEntry().toObject(), null, { role: 'in_transit' }, po, job);
+  assert.equal(row.inTransit.payment.state, 'verified');
+  assert.equal(row.inTransit.payment.balance, 32000, 'verification does not imply the remaining balance was collected');
+  assert.equal(row.inTransit.release.state, 'released');
+  assert.deepEqual(row.inTransit.timeline.slice(0, 5).map((event) => event.byName), ['Transit A', 'Transit B', 'Transit B', 'Medicine A', 'Medicine B']);
+  assert.equal(row.inTransit.timeline.find((event) => event.label === 'Medicine released').at, '2026-11-14T06:00:00.000Z');
+  assert.equal(row.delivery.state, 'delivered');
+  assert.equal(row.delivery.scheduledByName, 'Transit B');
+  assert.equal(row.delivery.deliveredByName, 'Transit C');
+  assert.equal(row.canMarkHistory, false);
+  assert.equal(row.canMarkOpd, false);
+  assert.equal(row.canMarkPostCounselling, false);
+});
+
+test('pending and cancelled release status remains visible, with cancellation actor/reason and no invented approval', () => {
+  const po = { id: 'po-1', steps: [], poPayment: { pendingCount: 1 }, paymentVerifiedAt: '2026-11-10T05:00:00Z' };
+  const job = { _id: 'job-1', status: 'ready', stages: [{ key: 'final', doneAt: '2026-11-13T05:00:00Z' }], releaseRequest: {} };
+  assert.equal(controller.progressOf(po, job).inTransit.release.state, 'awaiting_request');
+  job.releaseRequest = { requestedAt: '2026-11-14T05:00:00Z', requestedByName: 'Transit A', cancelledAt: '2026-11-14T06:00:00Z', cancelledByName: 'Transit B', cancelReason: 'Patient asked to wait' };
+  const view = controller.progressOf(po, job).inTransit;
+  assert.equal(view.payment.state, 'pending');
+  assert.equal(view.release.state, 'cancelled');
+  assert.equal(view.timeline.at(-1).byName, 'Transit B');
+  assert.equal(view.timeline.at(-1).note, 'Patient asked to wait');
+  assert.equal(view.timeline.some((event) => /accepted|released$/i.test(event.label)), false);
+  assert.equal(controller.progressOf(po).inTransit.release, null, 'no fulfilment job means no release approval is invented');
+});
+
+test('appointments fetch call notes, signed PO, delivery plan, PCC and delivery proof from this PO handover record', () => {
+  const po = { id: 'po-1', steps: [], phaseHold: true,
+    callFollowUps: [{ step: 'handover', label: 'Dispatch / handover', dueAt: '2026-11-16T05:00:00Z', overdue: false, lateDays: 0 }],
+    handover: {
+      calls: [{ at: '2026-11-14T05:00:00Z', byName: 'Transit A', outcome: 'call_back', notes: 'Call after 3 pm' }],
+      poPaperSignedAt: '2026-11-14T06:00:00Z', poPaperSignedByName: 'Transit B', poPaperSignedNote: 'Paper signed at clinic',
+      mode: 'pickup', pickupAt: '2026-11-16T05:00:00Z', pickupNote: 'Guardian will collect',
+      pcc: { name: 'Sakshi', at: '2026-11-14T07:00:00Z', byName: 'Transit B' }, explanationAt: '2026-11-16T05:00:00Z', explanationMode: 'clinic',
+      courier: { receivedByName: 'Guardian', packageImages: [{ url: '/uploads/parcel.jpg' }], deliveryProofImages: [{ url: '/uploads/receipt.jpg' }] },
+    },
+  };
+  const before = JSON.stringify(po);
+  const view = controller.progressOf(po).inTransit;
+  assert.equal(view.paperSigned, true);
+  assert.equal(view.phaseOnHold, true);
+  assert.equal(view.plan.mode, 'pickup');
+  assert.equal(view.plan.note, 'Guardian will collect');
+  assert.equal(view.plan.pcc, 'Sakshi');
+  assert.equal(view.plan.receiver, 'Guardian');
+  assert.equal(view.plan.deliveryProofImages[0].url, '/uploads/receipt.jpg');
+  assert.equal(view.callFollowUps[0].step, 'handover');
+  assert.deepEqual(view.timeline.map((event) => event.label), ['Call: call back', 'PO paper signed by patient', 'PCC assigned']);
+  assert.equal(view.timeline[0].note, 'Call after 3 pm');
+  assert.equal(view.timeline[1].byName, 'Transit B');
+  assert.equal(JSON.stringify(po), before, 'the appointments summary does not change the actual workflow records');
+});
+
+test('self pickup, courier schedule and Ready Not Delivered match the actual In Transit records', () => {
+  const po = { id: 'po-1', status: 'verified', isPhaseCurrentRequest: true,
+    medicine: { status: 'made', madeAt: '2026-11-14T05:00:00Z' },
+    courier: { status: 'pending', deliveryMode: 'self' },
+    steps: [{ key: 'scheduled', state: 'done', done: true, at: '2026-11-14T06:00:00Z', by: 'Transit A' }, { key: 'handover', state: 'current', done: false }],
+    handover: { mode: 'pickup', pickupAt: '2026-11-16T05:00:00Z' },
+  };
+  let summary = controller.progressOf(po).inTransit;
+  assert.equal(summary.selfPickup.state, 'scheduled');
+  assert.equal(summary.selfPickup.at, '2026-11-16T05:00:00Z');
+  assert.equal(summary.porterCourier.state, 'not_selected');
+  assert.equal(summary.readyNotDelivered.reasons[0].text, 'Waiting for the patient to collect');
+  po.handover = { mode: 'shipped', dispatchAt: '2026-11-16T05:00:00Z', plannedCourier: 'Porter' };
+  po.courier = { status: 'dispatched', deliveryMode: 'porter', dispatchedAt: '2026-11-15T05:00:00Z', trackingNumber: 'TRACK-1' };
+  summary = controller.progressOf(po).inTransit;
+  assert.equal(summary.selfPickup.state, 'not_selected');
+  assert.equal(summary.porterCourier.state, 'on_the_way');
+  assert.equal(summary.porterCourier.partner, 'Porter');
+  assert.equal(summary.porterCourier.tracking, 'TRACK-1');
+  assert.match(summary.readyNotDelivered.reasons[0].text, /receipt not confirmed/);
+  po.courier.status = 'delivered';
+  assert.equal(controller.progressOf(po).inTransit.readyNotDelivered, null);
+  assert.equal(controller.progressOf(po).inTransit.porterCourier.state, 'delivered');
+  po.courier.status = 'pending';
+  po.phaseRemoved = true;
+  assert.equal(controller.progressOf(po).inTransit.readyNotDelivered, null, 'removed phases stay out of Ready Not Delivered');
+});
+
+test('patient approval comes from patient intake status even before a PO exists', () => {
+  const entry = makeEntry().toObject();
+  const user = { role: 'in_transit' };
+  const patient = { approvalStatus: 'pending' };
+  let row = controller.rowOf(entry, null, user, null, null, patient);
+  assert.equal(row.patientApproval.status, 'pending');
+  assert.equal(row.inTransit, undefined);
+  Object.assign(patient, { approvalStatus: 'approved', approvedAt: '2026-11-15T05:00:00Z', approvedByName: 'Transit A' });
+  row = controller.rowOf(entry, null, user, null, null, patient);
+  assert.deepEqual(row.patientApproval, { status: 'approved', at: '2026-11-15T05:00:00.000Z', byName: 'Transit A' });
+  assert.equal(controller.rowOf(entry, null, user).patientApproval, undefined, 'missing data does not invent an approval or overwrite an existing displayed status');
+});
+
+test('appointment payment dropdown includes verified and pending PO payments with screenshot proofs and references', () => {
+  const verified = { id: 'pay-1', amount: 5000, status: 'approved', mode: 'online', bank: 'Clinic Bank', utr: 'UTR-1', approvedByName: 'Transit A', approvedAt: '2026-11-15T05:00:00Z', files: [{ url: '/uploads/proof.jpg', fileName: 'Payment.jpg' }] };
+  const pending = { id: 'pay-2', amount: 2000, status: 'pending', mode: 'cash', receivedBy: 'Reception', files: [] };
+  const po = { id: 'po-1', steps: [], poPayment: { amountPaid: 5000, remaining: 2000, pendingCount: 1 }, payments: [verified], handover: { approvedPayments: [verified] }, phasePendingPayments: [pending] };
+  const view = controller.progressOf(po).inTransit;
+  assert.equal(view.payments.length, 2, 'a verified payment is shown once even if it also appears in the handover');
+  assert.equal(view.payment.state, 'pending');
+  assert.equal(view.payments.find((payment) => payment.id === 'pay-1').files[0].url, '/uploads/proof.jpg');
+  assert.equal(view.payments.find((payment) => payment.id === 'pay-1').utr, 'UTR-1');
+  assert.equal(view.payments.find((payment) => payment.id === 'pay-1').approvedByName, 'Transit A');
+  assert.equal(view.payments.find((payment) => payment.id === 'pay-2').status, 'pending');
+  assert.deepEqual(controller.progressOf({ id: 'po-2', steps: [] }).inTransit.payments, []);
+});
