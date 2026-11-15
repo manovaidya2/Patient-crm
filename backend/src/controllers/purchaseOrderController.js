@@ -145,7 +145,7 @@ const buildPoViews = async (filter, { includeHandover = false } = {}) => {
     .lean();
   const byId = new Map(patients.map((p) => [String(p._id), p]));
   const MedicineJob = require('../models/MedicineJob');
-  const jobs = await MedicineJob.find({ patient: { $in: patientIds } }).select('patient phase requestId currentStage status hold').lean();
+  const jobs = await MedicineJob.find({ patient: { $in: patientIds } }).select('patient phase requestId currentStage status hold stages.key stages.doneAt stages.doneByName').lean();
   const jobOf = new Map(jobs.map((j) => [`${j.patient}-${j.phase}-${j.requestId}`, j]));
   // The POs of each patient's phase, grouped once (a filter per PO was slow with many POs).
   const phasePosOf = new Map();

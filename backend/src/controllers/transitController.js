@@ -25,6 +25,15 @@ const parseDate = (value, label) => {
 const courierOf = (request) => (request.toObject ? request.toObject() : request).courier || {};
 const fileItems = (req) => (req.files || []).map((file) => ({ url: `/uploads/transit/${file.filename}`, fileName: file.originalname }));
 const isMade = (request) => Boolean(request && ['made', 'sent_to_courier'].includes(request.status));
+// Old jobs can have a completed release while their copied patient request still says "made".
+// Reconcile only this request before a real dispatch/receipt; payment and handover checks still run below.
+const useCompletedRelease = async (patient, stage, request) => {
+  if (!request || request.status === 'sent_to_courier' || request.status === 'cancelled' || mongoose.connection.readyState !== 1) return;
+  const job = await require('../models/MedicineJob').findOne({ patient: patient._id, phase: stage.number, requestId: requestKey(request) })
+    .select('requestId status stages.key stages.doneAt stages.doneByName').lean();
+  const resolved = require('../utils/medicineRelease').requestWithCompletedRelease(request, job);
+  if (resolved?.status === 'sent_to_courier') Object.assign(request, { status: resolved.status, sentToCourierAt: resolved.sentToCourierAt, sentToCourierByName: resolved.sentToCourierByName });
+};
 const CALL_OUTCOMES = ['connected', 'not_reachable', 'busy', 'call_back', 'wrong_number'];
 const day = (value) => value.toISOString().slice(0, 10);
 
@@ -318,6 +327,7 @@ const ACTIONS = {
   // Step 11: on the day, porter or courier is picked (when only "porter / courier" was scheduled) with the delivery details.
   async dispatch({ patient, stage, request, body, req, now }) {
     needRequest(request);
+    await useCompletedRelease(patient, stage, request);
     let mode = stage.transit.fulfilmentMode;
     if (!SHIPPED_MODES.includes(mode)) fail('Delivery mode must be porter or courier');
     if (['porter', 'courier'].includes(body.sendBy)) mode = body.sendBy;
@@ -350,6 +360,7 @@ const ACTIONS = {
   },
   async confirm_received({ patient, stage, request, body, req, now }) {
     needRequest(request);
+    await useCompletedRelease(patient, stage, request);
     const mode = stage.transit.fulfilmentMode;
     const courier = courierOf(request);
     const files = fileItems(req);

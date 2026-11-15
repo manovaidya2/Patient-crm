@@ -8,6 +8,8 @@ const { releaseView } = require('../utils/medicineRelease');
 const { appointmentMedicine } = require('../utils/appointmentMedicine');
 const { appointmentTreatment } = require('../utils/appointmentTreatment');
 const { appointmentSessions } = require('../utils/appointmentSessions');
+const { loadAppointmentConsultations } = require('../utils/appointmentConsultations');
+const { loadAppointmentRecords } = require('../utils/appointmentRecords');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { SALES_IDS, RECEPTION_IDS } = require('../utils/receptionFlow');
@@ -168,7 +170,8 @@ const listBoard = asyncHandler(async (req, res) => {
   const from = day(req.query.from) ? req.query.from : istToday();
   const to = day(req.query.to) && req.query.to >= from ? req.query.to : from;
   const entries = await Management.find({ appointmentDate: { $gte: from, $lte: to }, status: { $ne: 'cancelled' } })
-    .select('appointmentDate appointmentCode tokenNumber salesValues values registration postCounseling visitFlow entryAt createdAt')
+    .select('appointmentDate appointmentCode tokenNumber salesValues values registration postCounseling visitFlow entryAt createdAt sourceAppointment consultationFee')
+    .populate('sourceAppointment', 'consultationAccount consultationFee')
     .sort({ appointmentDate: 1, tokenNumber: 1, entryAt: 1 }).lean();
   // When the Patient ID was made: the arrival audit (Reception "Arrival marked" with a Patient ID).
   const audits = entries.length && mongoose.connection.readyState === 1 ? await SalesSheetAudit.find({ rowId: { $in: entries.map((e) => e._id) }, action: { $in: ['Arrival marked', 'Online consultation marked'] } })
@@ -189,9 +192,13 @@ const listBoard = asyncHandler(async (req, res) => {
   const patientCodes = [...new Set(entries.map((entry) => mapValue(entry.values, RECEPTION_IDS.patientId)).filter(Boolean))];
   const patients = patientCodes.length && mongoose.connection.readyState === 1 ? await Patient.find({ patientCode: { $in: patientCodes } }).select('patientCode approvalStatus approvedAt approvedByName currentStage isActive inactiveReason inactivatedAt inactivatedByName stages.number stages.status stages.date stages.notes stages.transit.activatedAt stages.transit.activatedByName stages.transit.medicineStartDate stages.transit.medicineStartSetAt stages.transit.medicineStartSetByName stages.transit.medicineStartNote stages.medicineExplainDate stages.transit.explanationMode stages.transit.explanationCompletedAt stages.transit.explanationCompletedByName stages.transit.explanationNote stages.transit.holdActive stages.transit.holdReason stages.transit.holdAt stages.transit.holdByName stages.transit.removedAt stages.transit.removedByName stages.transit.removedReason assignedDoctor stages.followUps stages.familySessions').populate('assignedDoctor', 'name').lean() : [];
   const patientOf = new Map(patients.map((patient) => [patient.patientCode, patient]));
+  const [consultationPayments, recordRooms] = mongoose.connection.readyState === 1 ? await Promise.all([
+    loadAppointmentConsultations(entries),
+    loadAppointmentRecords(entries.map((entry) => ({ id: entry._id, appointmentCode: entry.appointmentCode, patientCode: mapValue(entry.values, RECEPTION_IDS.patientId), patientRef: patientOf.get(mapValue(entry.values, RECEPTION_IDS.patientId))?._id || null }))),
+  ]) : [new Map(), new Map()];
   const rows = entries.map((e) => {
     const po = poOf.get(e.postCounseling?.purchase?.values?.poNo) || null;
-    return rowOf(e, idAt.get(String(e._id)) || null, req.user, po, po ? jobOf.get(po.id) || null : null, patientOf.get(mapValue(e.values, RECEPTION_IDS.patientId)) || null);
+    return { ...rowOf(e, idAt.get(String(e._id)) || null, req.user, po, po ? jobOf.get(po.id) || null : null, patientOf.get(mapValue(e.values, RECEPTION_IDS.patientId)) || null), consultationPayment: consultationPayments.get(String(e._id)) || null, recordRoom: recordRooms.get(String(e._id)) || null };
   })
     .sort((a, b) => (a.appointmentDate.localeCompare(b.appointmentDate)) || ((a.tokenNumber || 9999) - (b.tokenNumber || 9999)));
   const pccs = await User.find({ role: ROLES.ASSISTANT_DOCTOR, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean();

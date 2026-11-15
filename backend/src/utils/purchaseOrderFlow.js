@@ -10,6 +10,7 @@ const { medicineDelays, fixedReadyDate, dispatchDelayInput, readyDateFromPostCou
 const { PO_REVERT_ORDER } = require('./revertFlow');
 const { paymentsOfPo, poPaymentSummary, paymentCleared } = require('./poPayment');
 const { STAGE_INDEX, STAGES: JOB_STAGES } = require('./medicineJobFlow');
+const { requestWithCompletedRelease } = require('./medicineRelease');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
@@ -304,7 +305,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     verifiedAmount: payments.reduce((s, p) => s + p.netAmount, 0),
   };
   const request = findRequest(stage, po.medicineRequestId);
-  const req = plain(request);
+  const req = requestWithCompletedRelease(plain(request), job ? plain(job) : null);
   const courier = plain(req.courier);
   const current = pickRequest(stage);
   const isCurrent = Boolean(request && current && requestKey(current) === requestKey(req));

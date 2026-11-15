@@ -11,6 +11,7 @@ import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import MedicineAppointmentDetails from '../../components/medicine/MedicineAppointmentDetails.jsx';
 import AppointmentPaymentDetails from '../../components/medicine/AppointmentPaymentDetails.jsx';
 import FollowUpAppointmentDetails from '../../components/FollowUpAppointmentDetails.jsx';
+import RecordRoomAppointmentDetails from '../../components/RecordRoomAppointmentDetails.jsx';
 
 // "Appointments": each appointment of the chosen dates and how the visit went - Patient ID (and when it was made),
 // arrival, registration sent to the Post Counselor, PCC history, Medicine Department OPD and the package bought.
@@ -25,7 +26,7 @@ const Stamp = ({ at, by }) => (at ? <p className="mt-0.5 text-[11px] leading-4 t
 const Empty = () => <span className="text-charcoal/30">—</span>;
 
 // The table: [title, width class]
-const HEAD = [['#', 'w-[110px]'], ['Patient', 'w-[220px]'], ['Patient ID', 'w-[150px]'], ['Arrival', 'w-[100px]'], ['Registration → Post Counselor', 'w-[190px]'], ['History start', 'w-[120px]'], ['History taken', 'w-[120px]'], ['OPD start', 'w-[160px]'], ['OPD complete', 'w-[160px]'], ['Post Counselling start', 'w-[180px]'], ['Post Counselling complete', 'w-[180px]'], ['Package', 'w-[240px]'], ['Purchase order', 'w-[180px]'], ['Medicine', 'w-[190px]'], ['In Transit', 'w-[280px]'], ['Dispatch / Pickup / Handover', 'w-[240px]'], ['Delivery', 'w-[200px]'], ['Treatment', 'w-[150px]'], ['Treatment Status', 'w-[240px]'], ['Follow-up Sessions', 'w-[300px]']];
+const HEAD = [['#', 'w-[110px]'], ['Patient', 'w-[220px]'], ['Patient ID', 'w-[150px]'], ['Arrival', 'w-[100px]'], ['Consultation Fee Payment', 'w-[240px]'], ['Record Room Papers', 'w-[260px]'], ['Registration → Post Counselor', 'w-[190px]'], ['History start', 'w-[120px]'], ['History taken', 'w-[120px]'], ['OPD start', 'w-[160px]'], ['OPD complete', 'w-[160px]'], ['Post Counselling start', 'w-[180px]'], ['Post Counselling complete', 'w-[180px]'], ['Package', 'w-[240px]'], ['Purchase order', 'w-[180px]'], ['Medicine', 'w-[190px]'], ['In Transit', 'w-[280px]'], ['Dispatch / Pickup / Handover', 'w-[240px]'], ['Delivery', 'w-[200px]'], ['Treatment', 'w-[150px]'], ['Treatment Status', 'w-[240px]'], ['Follow-up Sessions', 'w-[300px]']];
 const cellClass = 'border border-[#E8DFCB] px-3 py-2.5 align-top';
 
 // Export columns (picked in the dialog): key, header, Excel width, value.
@@ -53,6 +54,18 @@ const EXPORT_COLUMNS = [
   ['idAt', 'Patient ID made at', 20, (r) => dateTime(r.patientIdAt)],
   ['arrival', 'Arrival', 10, (r) => r.arrivalStatus],
   ['arrivalTime', 'Arrival time', 11, (r) => r.arrivalTime],
+  ['consultationFee', 'Consultation fee (Rs)', 20, (r) => r.consultationPayment?.fee ?? ''],
+  ['consultationReceived', 'Consultation fee received (Rs)', 24, (r) => r.consultationPayment?.received ?? ''],
+  ['consultationVerified', 'Consultation fee verified (Rs)', 24, (r) => r.consultationPayment?.verified ?? ''],
+  ['consultationPending', 'Consultation fee pending verification (Rs)', 28, (r) => r.consultationPayment?.pending ?? ''],
+  ['consultationDue', 'Consultation fee due (Rs)', 20, (r) => r.consultationPayment?.due ?? ''],
+  ['consultationCash', 'Consultation cash (Rs)', 20, (r) => r.consultationPayment?.byMode.cash ?? ''],
+  ['consultationOnline', 'Consultation online (Rs)', 20, (r) => r.consultationPayment?.byMode.online ?? ''],
+  ['consultationDetails', 'Consultation fee payment details', 80, (r) => r.consultationPayment?.payments.map((payment) => `${money(payment.amount)} · ${payment.modeLabel} · ${payment.status} · ${dateTime(payment.date)} · ${payment.recordedByName}${payment.utr ? ` · UTR ${payment.utr}` : ''}${payment.bank ? ` · ${payment.bank}` : ''}${payment.receivedBy ? ` · Cash received by ${payment.receivedBy}` : ''}${payment.approvedAt ? ` · Approved ${dateTime(payment.approvedAt)} by ${payment.approvedByName}` : ''}`).join('\n')],
+  ['recordRoomStatus', 'Record Room paper upload status', 28, (r) => r.recordRoom ? ({ not_registered: 'No Record Room entry', uploaded: 'Papers uploaded', partial: 'Some papers pending', pending: 'Not uploaded', overdue: 'Upload overdue' }[r.recordRoom.status]) : ''],
+  ['recordRoomUploaded', 'Record Room uploaded / total records', 28, (r) => r.recordRoom ? `${r.recordRoom.uploaded}/${r.recordRoom.total}` : ''],
+  ['recordRoomOverdue', 'Record Room overdue records', 24, (r) => r.recordRoom?.overdue ?? ''],
+  ['recordRoomDetails', 'Record Room details / uploads', 90, (r) => r.recordRoom?.entries.map((record) => `${record.patientId} · ${record.appointmentId} · ${record.uploadStatus} · Shelf ${record.shelfNumber} / File ${record.fileNumber} / Index ${record.indexNumber} · Received ${dateTime(record.firstReceivedAt)} · ${record.documents.map((file) => `${file.fileName}: ${dateTime(file.uploadedAt)} by ${file.uploadedByName}`).join(' · ')}`).join('\n')],
   ['regAt', 'Registration sent at', 20, (r) => dateTime(r.registration?.at)],
   ['postCounselor', 'Post Counselor', 18, (r) => r.registration?.to],
   ['historyStart', 'History start', 20, (r) => dateTime(r.historyStarted?.at)],
@@ -141,10 +154,10 @@ function ExportDialog({ rows, from, to, onClose }) {
     const cols = EXPORT_COLUMNS.filter(([key]) => picked.includes(key));
     if (!cols.length) return;
     try { localStorage.setItem(PICK_KEY, JSON.stringify(picked)); } catch { /* the choice is just not remembered */ }
-    const fileName = `appointments-${from}${to !== from ? `-to-${to}` : ''}`;
+    const fileName = `opd-sheets-${from}${to !== from ? `-to-${to}` : ''}`;
     const columns = cols.map(([, header, width]) => ({ header, width }));
     const data = rows.map((r) => cols.map(([, , , value]) => { const v = value(r); return v === undefined || v === null ? '' : v; }));
-    downloadXlsx({ fileName, sheetName: 'Appointments', columns, rows: data });
+    downloadXlsx({ fileName, sheetName: 'OPD Sheets', columns, rows: data });
     onClose();
   };
   return (
@@ -167,6 +180,18 @@ const scheduleLabel = (state, pickup = false) => ({ not_selected: 'Not selected'
 function PatientApproval({ value }) {
   if (!value || value.status === 'unknown') return <p className="mt-1 text-[11px] text-charcoal/50">Approval not available</p>;
   return <div className="mt-1 text-[11px]"><p className={`font-bold ${value.status === 'approved' ? 'text-emerald-800' : 'text-amber-800'}`}>{value.status === 'approved' ? 'Patient approved' : value.status === 'pending' ? 'Patient approval pending' : `Patient ${value.status}`}</p>{(value.at || value.byName) && <p className="text-charcoal/55">{dateTime(value.at)}{value.byName ? ` · ${value.byName}` : ''}</p>}</div>;
+}
+
+function ConsultationPayment({ value }) {
+  if (!value) return <Empty />;
+  return <div className="space-y-2">
+    <p className="font-bold">Consultation fee: {value.fee === null ? 'Not set' : money(value.fee)}</p>
+    <p>Received {money(value.received)}{value.due !== null ? ` · Due ${money(value.due)}` : ''}</p>
+    <p className="text-emerald-800">Verified: {money(value.verified)}</p>
+    {value.pending > 0 && <p className="font-semibold text-amber-800">Pending verification: {money(value.pending)}</p>}
+    <p className="text-charcoal/65">Cash {money(value.byMode.cash)} · Online {money(value.byMode.online)}{value.byMode.card > 0 ? ` · Card ${money(value.byMode.card)}` : ''}</p>
+    <AppointmentPaymentDetails payments={value.payments} title="Consultation payment details & screenshots" emptyMessage="No consultation fee payment recorded for this appointment." />
+  </div>;
 }
 
 function TreatmentStatus({ value }) {
@@ -330,7 +355,7 @@ export default function Appointments() {
   const load = useCallback(async () => {
     setLoading(true);
     try { const { data: res } = await api.get('/appointments-board', { params: { from, to }, skipCache: true }); setData(res); setError(''); }
-    catch (err) { setError(err.response?.data?.message || 'Appointments could not be loaded'); }
+    catch (err) { setError(err.response?.data?.message || 'OPD Sheets could not be loaded'); }
     finally { setLoading(false); }
   }, [from, to]);
   useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
@@ -344,7 +369,7 @@ export default function Appointments() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Appointments" icon={CalendarCheck2} subtitle="Each appointment and how the visit went: Patient ID, arrival, registration, history, the package, and after it the PO, medicine, delivery and treatment start."
+      <PageHeader title="OPD Sheets" icon={CalendarCheck2} subtitle="Each appointment and how the visit went: Patient ID, arrival, registration, history, the package, and after it the PO, medicine, delivery and treatment start."
         actions={<Button variant="outline" disabled={!rows.length} onClick={() => setExporting(true)}><Download size={15} />Export to Excel</Button>} />
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs font-semibold text-charcoal">From<input type="date" className="mt-1 block rounded-lg border border-cardline bg-white px-3 py-2 text-sm" value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }} /></label>
@@ -355,7 +380,7 @@ export default function Appointments() {
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       <div className="overflow-x-auto rounded-[12px] border border-[#E8DFCB] bg-white">
-        <table className="w-full min-w-[3720px] table-fixed border-collapse text-left text-[13px]">
+        <table className="w-full min-w-[4220px] table-fixed border-collapse text-left text-[13px]">
           <colgroup>{HEAD.map(([h, w]) => <col key={h} className={w} />)}</colgroup>
           <thead className="bg-[#F6F0E3] text-[11px] font-bold uppercase tracking-wide text-charcoal/70">
             <tr>{HEAD.map(([h]) => <th key={h} className="border border-[#E8DFCB] px-3 py-2.5 align-middle">{h}</th>)}</tr>
@@ -374,6 +399,8 @@ export default function Appointments() {
                 </td>
                 <td className={cellClass}>{r.patientId ? <><p className="whitespace-nowrap font-bold text-sage">{r.patientId}</p><Stamp at={r.patientIdAt} /><PatientApproval value={r.patientApproval} /></> : <Empty />}</td>
                 <td className={cellClass}>{r.arrivalStatus ? <><p className="font-semibold">{r.arrivalStatus}</p><p className="text-[11px] text-charcoal/55">{r.arrivalTime}</p></> : <Empty />}</td>
+                <td className={`${cellClass} text-xs`}><ConsultationPayment value={r.consultationPayment} /></td>
+                <td className={`${cellClass} text-xs`}><RecordRoomAppointmentDetails value={r.recordRoom} /></td>
                 <td className={cellClass}>{r.registration?.at ? <><p className="font-semibold text-emerald-800">✓ {r.registration.to}</p><Stamp at={r.registration.at} by={r.registration.byName} /></> : r.registration?.draft ? <span className="text-xs text-amber-800">Saved, not sent</span> : <Empty />}</td>
                 <td className={cellClass}><HistoryTick row={r} step="started" onSaved={replace} onError={setError} /></td>
                 <td className={cellClass}><HistoryTick row={r} step="taken" onSaved={replace} onError={setError} /></td>
@@ -411,7 +438,7 @@ export default function Appointments() {
         </table>
       </div>
       <p className="text-xs text-charcoal/55">Any PCC ticks "History start" and "History taken". The Medicine Department ticks OPD start/complete; the Post Counselor ticks Post Counselling start/complete. Each tick saves the date, time and operator. Patient ID, arrival, registration and package come in by themselves. <Link to="/admin/appointment-management" className="font-semibold text-sage">Appointment Management</Link></p>
-      <Modal open={exporting} onClose={() => setExporting(false)} title="Export appointments" className="max-w-xl">
+      <Modal open={exporting} onClose={() => setExporting(false)} title="Export OPD Sheets" className="max-w-xl">
         {exporting && <ExportDialog rows={rows} from={from} to={to} onClose={() => setExporting(false)} />}
       </Modal>
     </div>

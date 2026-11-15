@@ -32,4 +32,18 @@ function releaseView(job, now = new Date()) {
   };
 }
 
-module.exports = { DAY_MS, FOLLOWUP_STATUSES, releaseView };
+// A completed fulfilment release is authoritative when the older patient request has a stale status.
+// Never advance a cancelled request/job, or invent an operator/time when the original record has none.
+function requestWithCompletedRelease(request, job) {
+  if (!request || !job || request.status === 'cancelled' || job.status === 'cancelled') return request;
+  if (job.requestId && job.requestId !== (request.requestId || 'legacy')) return request;
+  const release = (job.stages || []).find((stage) => stage.key === 'release' && stage.doneAt);
+  if (!release && job.status !== 'released') return request;
+  return {
+    ...(request.toObject ? request.toObject() : request), status: 'sent_to_courier',
+    sentToCourierAt: release?.doneAt || request.sentToCourierAt || null,
+    sentToCourierByName: release?.doneByName || request.sentToCourierByName || '',
+  };
+}
+
+module.exports = { DAY_MS, FOLLOWUP_STATUSES, releaseView, requestWithCompletedRelease };

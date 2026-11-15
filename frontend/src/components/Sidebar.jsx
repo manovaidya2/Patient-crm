@@ -99,7 +99,7 @@ export const navItems = [
   // Every role's open work in one list (the orange counts, item by item).
   { to: '/admin/my-day', icon: Sun, label: 'My day', roles: Object.values(ROLES).filter((role) => role !== ROLES.HR) },
   // Every appointment of a day and how the visit went - for everyone.
-  { to: '/admin/appointments', icon: CalendarCheck, label: 'Appointments', roles: Object.values(ROLES) },
+  { to: '/admin/appointments', icon: CalendarCheck, label: 'OPD Sheets', roles: Object.values(ROLES) },
   // Expenses & vouchers: Admin / Doctor see both kinds together; each department has its own page in its group.
   { to: '/admin/all-expenses', icon: Receipt, label: 'All Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR] },
   { to: '/admin/clinic-expenses', icon: Receipt, label: 'Clinic Expenses', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.RECEPTIONIST], group: 'reception' },
