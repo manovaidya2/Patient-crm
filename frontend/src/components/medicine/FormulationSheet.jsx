@@ -3,6 +3,7 @@ import { customLengthOf, lengthText } from '../../constants/supplyPlans.js';
 import { Pencil, Plus, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
+import DoseChitInput, { doseTemplateComplete } from './DoseChitInput.jsx';
 import { FieldLabel, poInput } from '../purchaseOrders/CreatePurchaseOrderModal.jsx';
 
 const UNITS = ['g', 'ml', 'tablet', 'spoon', 'drop', 'piece'];
@@ -10,6 +11,9 @@ const UNITS = ['g', 'ml', 'tablet', 'spoon', 'drop', 'piece'];
 export const TIMINGS = ['सुबह -- शाम', 'सुबह (खाली पेट)', 'रात को खाने के बाद', 'सुबह -- दोपहर', 'सुबह -- दोपहर -- शाम', 'सुबह', 'दोपहर', 'शाम', 'रात', 'दोपहर -- शाम', 'सुबह -- रात', 'सुबह (खाली पेट) -- शाम', 'खाने के बाद'];
 const OTHER = '__other';
 const emptyAdd = () => ({ name: '', when: '', qty: '', unit: 'g', dose: '', containers: '', stockCode: '' });
+const GHRIT_VARIANTS = Array.from({ length: 6 }, (_, n) => ({ key: `ghritNm${n}`, code: `GH-NM-${n}`, name: `मेध्य घृत (GH-NM-${n})` }));
+const isVariant = (line, variant) => line.key === variant.key || line.ghritVariantCode === variant.code || line.stockCode === variant.code || line.name === variant.name;
+const medicineName = (line) => GHRIT_VARIANTS.find((v) => isVariant(line, v))?.name || line.name;
 const num = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number.isInteger(Number(v)) ? String(v) : String(Math.round(Number(v) * 1000) / 1000));
 
 // The Formulation Master sheet of this supply (doc style, as the printed master).
@@ -25,22 +29,48 @@ function StockPick({ value, onChange, options }) {
   );
 }
 
-export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', stockOptions = [], onSaved, onError }) {
+export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', stockOptions = [], onSaved, onError, showSelectedGhrits = false, ghritSelection, ghritSelectionPending = false, onGhritSelectionChange, onSaveGhritSelection, savingGhritSelection = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
   // Medicines added for this patient in this edit (not in the Formulation Master).
   const [adds, setAdds] = useState([]);
   if (!f) return <p className="text-sm text-charcoal/55">Set the age group and medicine supply to build the sheet.</p>;
+  const visibleLines = f.lines.filter((line) => {
+    if (showSelectedGhrits && (line.key === 'ghrit' || GHRIT_VARIANTS.some((v) => isVariant(line, v))) && (draft[line.key]?.removed ?? line.removed)) return false;
+    if (!ghritSelection) return true;
+    const variant = GHRIT_VARIANTS.find((v) => isVariant(line, v));
+    if (variant) return ghritSelection.includes(variant.code);
+    return line.key !== 'ghrit' || (!ghritSelectionPending && ghritSelection.length === 0);
+  });
+  // Patient-added variants are stored at the end; show all ghrit entries first in the sheet.
+  const isGhrit = (line) => line.key === 'ghrit' || GHRIT_VARIANTS.some((v) => isVariant(line, v));
+  const displayLines = showSelectedGhrits ? [...visibleLines.filter(isGhrit), ...visibleLines.filter((l) => !isGhrit(l))] : visibleLines;
   const startEditing = () => { setEditing(true); if (f.custom && !f.lines.length) setAdds([emptyAdd()]); };
   const d = (key) => draft[key] || {};
   const setLine = (key, patch) => setDraft((o) => ({ ...o, [key]: { ...(o[key] || {}), ...patch } }));
+  const variantSelected = (variant) => adds.some((a) => a.ghritVariantCode === variant.code) || f.lines.some((l) => isVariant(l, variant) && !(d(l.key).removed ?? l.removed));
+  const toggleVariant = (variant, checked) => {
+    const existing = f.lines.find((l) => isVariant(l, variant));
+    if (existing) setLine(existing.key, { removed: !checked });
+    else if (checked) {
+      const base = f.lines.find((l) => l.key === 'ghrit') || f.lines.find((l) => GHRIT_VARIANTS.some((v) => isVariant(l, v)));
+      setAdds((list) => [...list, { ...emptyAdd(), name: variant.name, ghritVariantCode: variant.code, unit: 'ml', qty: base ? String(base.qty) : '', when: base?.when || '', dose: base?.dose || '', containers: (base?.containers || [f.days]).join(', '), stockCode: stockOptions.some((o) => o.code === variant.code) ? variant.code : '' }]);
+    } else setAdds((list) => list.filter((a) => a.ghritVariantCode !== variant.code));
+    // Once codes are explicitly chosen, an empty selection means no ghrit.
+    const generic = f.lines.find((l) => l.key === 'ghrit');
+    if (generic) setLine(generic.key, { removed: true });
+  };
   const save = async () => {
+    if (adds.some((a) => a.name.trim() && !doseTemplateComplete(a)) || Object.values(draft).some((entry) => !doseTemplateComplete(entry))) {
+      onError?.('चुनी हुई Dose instruction की सभी मात्रा शून्य से अधिक भरें (जैसे 1/2 या 1/3)।');
+      return;
+    }
     setBusy(true); onError?.('');
     try {
       const lines = [
         ...Object.entries(draft).map(([key, v]) => ({ key, ...v, components: v.components ? Object.entries(v.components).map(([code, qty]) => ({ code, qty })) : undefined })),
-        ...adds.filter((a) => a.name.trim()).map(({ otherTiming, ...a }) => ({ add: true, ...a })),
+        ...adds.filter((a) => a.name.trim()).map(({ otherTiming, doseTemplate, doseSpoons, doseWaterCups, dosePattern, doseQuantities, customDose, ...a }) => ({ add: true, ...a })),
       ];
       const { data } = await api.patch(`/medicine-jobs/${jobId}/formulation`, { lines });
       setEditing(false); setDraft({}); setAdds([]); onSaved?.(data.job, 'Formulation sheet corrected.');
@@ -49,15 +79,20 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   if (editing) return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? 'There is no Formulation Master for this age group: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.' : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
+      <fieldset className="mb-3 rounded-lg border border-cardline bg-white/70 p-3">
+        <legend className="px-1 text-sm font-bold text-charcoal">मेध्य घृत चुनें (एक से अधिक चुन सकते हैं)</legend>
+        <div className="grid gap-2 sm:grid-cols-2">{GHRIT_VARIANTS.map((v) => <label key={v.code} className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-sage" checked={variantSelected(v)} onChange={(e) => toggleVariant(v, e.target.checked)} />{v.name}</label>)}</div>
+        <p className="mt-2 text-xs text-charcoal/55">हर चुने हुए घृत की मात्रा और dose नीचे अलग से भरें।</p>
+      </fieldset>
       <ol className="divide-y divide-dashed divide-cardline">
         {f.lines.map((l) => (
           <li key={l.key} className="grid gap-2 py-3 sm:grid-cols-2">
             <div>
-              <p className="text-sm font-bold text-charcoal">{l.n}. {l.name} <span className="font-normal text-charcoal/55">· {l.when}</span></p>
+              <p className="text-sm font-bold text-charcoal">{l.n}. {medicineName(l)} <span className="font-normal text-charcoal/55">· {l.when}</span></p>
               <label className="mt-1 flex items-center gap-2 text-xs font-semibold text-[#8C3B2E]"><input type="checkbox" className="h-4 w-4 accent-[#8C3B2E]" checked={d(l.key).removed ?? Boolean(l.removed)} onChange={(e) => setLine(l.key, { removed: e.target.checked })} />Remove this medicine for this patient</label>
               {l.fromHome ? <p className="mt-1 text-xs text-charcoal/55">घर से - nothing is packed, so there is nothing to correct here.</p>
                 : <label className="mt-1 flex items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4 accent-sage" checked={d(l.key).packed ?? l.packed} onChange={(e) => setLine(l.key, { packed: e.target.checked })} />Packed in this supply</label>}
-              {l.dose !== undefined && <FieldLabel label="Dose / chit text" className="mt-1"><textarea className={poInput} rows={2} value={d(l.key).dose ?? l.dose} onChange={(e) => setLine(l.key, { dose: e.target.value })} /></FieldLabel>}
+              {l.dose !== undefined && <div className="mt-1"><DoseChitInput value={{ dose: l.dose, doseEntries: l.doseEntries, ...d(l.key) }} onChange={(patch) => setLine(l.key, patch)} /></div>}
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {l.components ? l.components.map((c) => <FieldLabel key={c.code} label={`${c.name} (${c.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).components?.[c.code] ?? c.qty} onChange={(e) => setLine(l.key, { components: { ...(d(l.key).components || {}), [c.code]: e.target.value } })} /></FieldLabel>)
@@ -74,7 +109,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
           const setAdd = (patch) => setAdds((list) => list.map((x, n) => (n === i ? { ...x, ...patch } : x)));
           return (
             <div key={i} className="grid gap-2 rounded-lg border border-cardline bg-white/70 p-3 sm:grid-cols-2">
-              <FieldLabel label="Medicine name" required><input className={poInput} value={a.name} onChange={(e) => setAdd({ name: e.target.value })} /></FieldLabel>
+              <FieldLabel label="Medicine name" required><input className={poInput} readOnly={Boolean(a.ghritVariantCode)} value={a.name} onChange={(e) => setAdd({ name: e.target.value })} /></FieldLabel>
               <FieldLabel label="When (timing)">
                 <select className={poInput} value={a.when === '' ? '' : TIMINGS.includes(a.when) && !a.otherTiming ? a.when : OTHER} onChange={(e) => (e.target.value === OTHER ? setAdd({ when: '', otherTiming: true }) : setAdd({ when: e.target.value, otherTiming: false }))}>
                   <option value="">Select timing</option>
@@ -85,18 +120,18 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               </FieldLabel>
               <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-2">
                 <FieldLabel label="Total quantity" required><input className={poInput} type="number" step="0.001" min="0" value={a.qty} onChange={(e) => setAdd({ qty: e.target.value })} /></FieldLabel>
-                <FieldLabel label="Unit"><select className={poInput} value={a.unit} onChange={(e) => setAdd({ unit: e.target.value })}>{UNITS.map((u) => <option key={u} value={u}>{u}</option>)}</select></FieldLabel>
+                <FieldLabel label="Unit"><select className={poInput} disabled={Boolean(a.ghritVariantCode)} value={a.unit} onChange={(e) => setAdd({ unit: e.target.value })}>{UNITS.map((u) => <option key={u} value={u}>{u}</option>)}</select></FieldLabel>
               </div>
               <FieldLabel label="Packs (days each, comma separated)"><input className={poInput} value={a.containers} onChange={(e) => setAdd({ containers: e.target.value })} placeholder={`${f.days}`} /></FieldLabel>
-              <FieldLabel label="Dose / chit text" className="sm:col-span-2"><textarea className={poInput} rows={2} value={a.dose} onChange={(e) => setAdd({ dose: e.target.value })} /></FieldLabel>
+              <DoseChitInput value={a} onChange={setAdd} />
               <FieldLabel label="Drawn from Stocks"><StockPick value={a.stockCode} options={stockOptions} onChange={(code) => setAdd({ stockCode: code })} /></FieldLabel>
-              <div className="flex items-end justify-end"><Button size="sm" variant="outline" onClick={() => setAdds((list) => list.filter((_, n) => n !== i))}><X size={13} />Remove</Button></div>
+              <div className="flex items-end justify-end"><Button size="sm" variant="outline" onClick={() => a.ghritVariantCode ? toggleVariant(GHRIT_VARIANTS.find((v) => v.code === a.ghritVariantCode), false) : setAdds((list) => list.filter((_, n) => n !== i))}><X size={13} />Remove</Button></div>
             </div>
           );
         })}
         <Button size="sm" variant="outline" onClick={() => setAdds((list) => [...list, emptyAdd()])}><Plus size={13} />Add medicine</Button>
       </div>
-      <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || (!Object.keys(draft).length && !adds.some((a) => a.name.trim()))} onClick={save}>{busy ? 'Saving...' : f.custom ? 'Save formulation' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
+      <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || Object.values(draft).some((entry) => !doseTemplateComplete(entry)) || adds.some((a) => a.name.trim() && !doseTemplateComplete(a)) || (!Object.keys(draft).length && !adds.some((a) => a.name.trim()))} onClick={save}>{busy ? 'Saving...' : f.custom ? 'Save formulation' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
     </div>
   );
   return (
@@ -106,14 +141,31 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
       {f.edited && <p className="mb-2 rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900">This sheet was corrected for this patient only (the Formulation Master is unchanged); master values are shown struck through.</p>}
       <div className="border-b border-charcoal pb-2 text-center"><p className="text-xs font-bold tracking-wide">AUTISM, ADHD &amp; CHILD DEVELOPMENT</p><p className="text-base font-bold">{f.title}</p><p className="text-xs text-charcoal/60">आयु: {f.ageBandLabel} · आपूर्ति: {f.months} महीने ({f.days} दिन) · गणना: 1 महीना = 30 दिन, माप-चम्मच = 5 ml</p></div>
       <p className="mt-2 text-xs text-charcoal/60">मरीज: <b className="text-charcoal">{patientName}</b> · ID {patientCode}</p>
-      {!f.lines.length && <p className="mt-3 rounded-lg border border-dashed border-cardline px-3 py-4 text-center text-sm text-charcoal/55">No medicines on this sheet yet.</p>}
+      {canEdit && !ghritSelection && <fieldset className="mt-3 rounded-lg border border-sage/30 bg-white p-3" disabled={busy}>
+        <legend className="px-1 text-sm font-bold text-charcoal">मेध्य घृत का code चुनें (एक से अधिक चुन सकते हैं)</legend>
+        <div className="grid gap-2 sm:grid-cols-2">{GHRIT_VARIANTS.map((v) => {
+          const selected = variantSelected(v);
+          const existing = f.lines.find((l) => isVariant(l, v));
+          const added = adds.find((a) => a.ghritVariantCode === v.code);
+          const value = existing ? { ...existing, ...d(existing.key) } : added;
+          const update = (patch) => existing ? setLine(existing.key, patch) : setAdds((list) => list.map((a) => a.ghritVariantCode === v.code ? { ...a, ...patch } : a));
+          return <div key={v.code} className="rounded-lg border border-cardline p-2"><label className="flex items-center gap-2 text-sm font-semibold text-charcoal"><input type="checkbox" className="h-4 w-4 accent-sage" checked={selected} onChange={(e) => toggleVariant(v, e.target.checked)} />{v.name}</label>{selected && value && <div className="mt-2 space-y-2"><FieldLabel label="Total quantity (ml)"><input className={poInput} type="number" min="0.001" step="0.001" value={value.qty} onChange={(e) => update({ qty: e.target.value })} /></FieldLabel><FieldLabel label="Dose / chit text"><textarea className={poInput} rows={2} value={value.dose || ''} onChange={(e) => update({ dose: e.target.value })} /></FieldLabel></div>}</div>;
+        })}</div>
+        {(Object.keys(draft).length > 0 || adds.length > 0) && <div className="mt-3 flex items-center gap-2"><Button size="sm" disabled={busy || adds.some((a) => a.ghritVariantCode && !(Number(a.qty) > 0))} onClick={save}>{busy ? 'Saving...' : 'Save घृत selection'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setDraft({}); setAdds([]); }}>Cancel</Button><span className="text-xs text-charcoal/55">इस मरीज की formulation में save करें।</span></div>}
+      </fieldset>}
+      {ghritSelection && <fieldset className="mt-3 rounded-lg border border-cardline bg-white p-3" disabled={savingGhritSelection}>
+        <legend className="px-1 text-sm font-bold text-charcoal">मेध्य घृत चुनें (एक से अधिक चुन सकते हैं)</legend>
+        <ol className="divide-y divide-dashed divide-cardline">{GHRIT_VARIANTS.map((v, i) => <li key={v.code} className="py-2"><label className="flex items-center gap-2 text-sm font-semibold text-charcoal"><input type="checkbox" className="h-4 w-4 accent-sage" disabled={!onGhritSelectionChange} checked={ghritSelection.includes(v.code)} onChange={(e) => onGhritSelectionChange?.(v.code, e.target.checked)} />{i + 1}. {v.name}</label></li>)}</ol>
+        {onSaveGhritSelection && <Button size="sm" className="mt-2" disabled={savingGhritSelection} onClick={onSaveGhritSelection}>{savingGhritSelection ? 'Saving...' : 'Save selection'}</Button>}
+      </fieldset>}
+      {!visibleLines.length && <p className="mt-3 rounded-lg border border-dashed border-cardline px-3 py-4 text-center text-sm text-charcoal/55">No medicines on this sheet yet.</p>}
       <ol className="mt-3 divide-y divide-dashed divide-cardline">
-        {f.lines.map((l) => (
+        {displayLines.map((l, index) => (
           <li key={l.key} className={`grid gap-x-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${l.removed ? 'bg-[#8C3B2E]/5 opacity-70' : l.added ? 'bg-emerald-50/70' : l.edited ? 'bg-amber-50/60' : ''}`}>
             <div>
-              <p className={`text-sm font-bold text-charcoal ${l.removed ? 'line-through' : ''}`}>{l.n}. {l.name} <span className="font-normal text-charcoal/55">· {l.when}</span>{l.removed ? <span className="ml-2 rounded bg-[#8C3B2E]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8C3B2E] no-underline">removed for this patient by {l.edited?.byName}</span> : l.added ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">added for this patient by {l.added.byName}</span> : l.edited && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">corrected by {l.edited.byName}</span>}</p>
+              <p className={`text-sm font-bold text-charcoal ${l.removed ? 'line-through' : ''}`}>{showSelectedGhrits ? index + 1 : l.n}. {medicineName(l)} <span className="font-normal text-charcoal/55">· {l.when}</span>{l.removed ? <span className="ml-2 rounded bg-[#8C3B2E]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8C3B2E] no-underline">removed for this patient by {l.edited?.byName}</span> : l.added ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">added for this patient by {l.added.byName}</span> : l.edited && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">corrected by {l.edited.byName}</span>}</p>
               {l.edited && l.original?.dose && l.original.dose !== l.dose && <p className="text-xs text-charcoal/45 line-through">{l.original.dose}</p>}
-              {l.dose && <p className="text-sm text-charcoal/80">{l.dose}</p>}
+              {l.dose && <p className="whitespace-pre-line text-sm text-charcoal/80">{l.dose}</p>}
               {l.components && <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">{l.components.map((c) => <span key={c.code} className="rounded border border-cardline bg-white px-2 py-0.5">{c.name}: {num(c.qty)} {c.unit}{c.grams ? ` = ${num(c.grams)} g` : ''}{c.pinches ? ` / ${c.pinches} चुटकी` : ''}</span>)}</div>}
               {l.note && <p className="text-xs text-charcoal/55">{l.note}</p>}
               {l.honey && <p className="text-xs text-charcoal/55">शहद कुल: {num(l.honey[0])} {l.honey[1]} (औषधि से अलग, मरीज स्वयं)</p>}

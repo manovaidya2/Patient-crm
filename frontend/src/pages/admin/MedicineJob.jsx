@@ -44,7 +44,7 @@ function ChitCard({ chit, patientName, checked, onToggle, disabled }) {
       <p className="text-center text-[10px] leading-tight">Your Mind and Soul Companion<br />मनोवैद्य आयुर्वेदिक चिकित्सालय</p>
       <p className="mt-2 rounded-full border border-[#8A8494] px-3 py-0.5 text-xs">नाम &nbsp;{patientName || chit.patientName || '______________'}</p>
       <p className="my-1 text-center text-base">{chit.when}</p>
-      <p className="text-sm leading-relaxed">{chit.dose}</p>
+      <p className="whitespace-pre-line text-sm leading-relaxed">{chit.dose}</p>
       <p className="text-right"><b className="text-lg" style={{ fontFamily: 'system-ui, sans-serif' }}>{chit.days}</b> दिवस</p>
       {chit.note && <p className="text-center text-[9px]">{chit.note}</p>}
       <p className="mt-1 flex items-center justify-between font-mono text-[10px] text-[#8A8494]"><span>{chit.name} · पैक {chit.n}/{chit.of}</span><span className="flex items-center gap-1 font-sans text-xs font-semibold text-charcoal"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={checked} disabled={disabled} onChange={onToggle} />Chit on pack</span></p>
@@ -314,7 +314,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
         </div>
       )}
       {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} />}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
@@ -516,7 +516,7 @@ export default function MedicineJobPage() {
                       : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Admin: undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
                   </div>
                   <DoneList stage={shown} job={job} />
-                  {['review', 'formula'].includes(shown.key) && <FormulationSheet f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
+                  {['review', 'formula'].includes(shown.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
                   {shown.key === 'stock' && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">{shown.snapshot?.stockTable ? 'Stock as matched at completion' : 'Stock now (the table at completion was not saved for this older job)'}</p>

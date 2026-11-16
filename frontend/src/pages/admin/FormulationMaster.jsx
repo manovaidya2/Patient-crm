@@ -15,6 +15,7 @@ const qtyText = (v) => (v ? `${v.qty} ${v.unit}` : 'not given');
 
 // Edit form of one age band: six-month quantities, chit doses, शिवा-लेह packs, tablet weights and the doctor-pending points.
 function MasterForm({ band, meta, onSaved, onCancel }) {
+  const [selectedVariants, setSelectedVariants] = useState(() => Object.fromEntries(meta.items.filter((i) => i.ghritVariant).map((i) => [i.key, Boolean(band.quantities[i.key])])));
   const [form, setForm] = useState(() => ({
     quantities: Object.fromEntries(meta.items.map((i) => [i.key, band.quantities[i.key] ? { qty: String(band.quantities[i.key].qty), unit: band.quantities[i.key].unit } : { qty: '', unit: i.units[0] }])),
     doses: { ...band.doses },
@@ -45,8 +46,8 @@ function MasterForm({ band, meta, onSaved, onCancel }) {
             <thead className="bg-offwhite-200 text-[11px] uppercase tracking-wide text-charcoal/55"><tr><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-left">Quantity (6 months)</th><th className="px-3 py-2 text-left">Unit</th><th className="px-3 py-2 text-left">Document value</th></tr></thead>
             <tbody>{meta.items.map((i) => {
               const v = form.quantities[i.key];
-              return <tr key={i.key} className="border-t border-cardline"><td className="px-3 py-2 font-semibold text-charcoal">{i.label}{i.optional && <span className="block text-[11px] font-normal text-charcoal/50">Leave empty when this age group does not get it.</span>}</td>
-                <td className="px-3 py-2"><input className={`${poInput} w-32`} type="number" step="0.001" min="0" value={v.qty} onChange={(e) => set('quantities', i.key, { ...v, qty: e.target.value })} /></td>
+              return <tr key={i.key} className="border-t border-cardline"><td className="px-3 py-2 font-semibold text-charcoal">{i.label}{i.optional && <span className="block text-[11px] font-normal text-charcoal/50">{i.ghritVariant ? 'Select this variant for this age group.' : 'Leave empty when this age group does not get it.'}</span>}</td>
+                <td className="px-3 py-2">{i.ghritVariant && <label className="mb-1 flex items-center gap-2 text-xs"><input type="checkbox" checked={selectedVariants[i.key]} onChange={(e) => { setSelectedVariants((s) => ({ ...s, [i.key]: e.target.checked })); set('quantities', i.key, { ...v, qty: e.target.checked ? (form.quantities.ghrit.qty || String(band.defaults.quantities.ghrit.qty)) : '' }); }} />Select</label>}<input className={`${poInput} w-32`} disabled={i.ghritVariant && !selectedVariants[i.key]} type="number" step="0.001" min={i.ghritVariant ? '0.001' : '0'} value={v.qty} onChange={(e) => set('quantities', i.key, { ...v, qty: e.target.value })} /></td>
                 <td className="px-3 py-2">{i.units.length > 1 ? <select className={`${poInput} w-28`} value={v.unit} onChange={(e) => set('quantities', i.key, { ...v, unit: e.target.value })}>{i.units.map((u) => <option key={u} value={u}>{u}</option>)}</select> : <span className="text-charcoal/70">{v.unit}</span>}</td>
                 <td className={`px-3 py-2 text-xs ${docQty(i.key) !== (v.qty === '' ? 'not given' : `${Number(v.qty)} ${v.unit}`) ? 'font-semibold text-amber-900' : 'text-charcoal/50'}`}>{docQty(i.key)}</td></tr>;
             })}</tbody>
@@ -76,7 +77,7 @@ function MasterForm({ band, meta, onSaved, onCancel }) {
       </div>
       <FieldLabel label="Why is the master changed? (doctor's instruction / document followed)" required><input className={poInput} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="e.g. Dr Garg 22 Oct: ghrit 1 चम्मच above 4 years" /></FieldLabel>
       <ErrorText>{error}</ErrorText>
-      <div className="flex gap-2"><Button disabled={busy || !form.note.trim()} onClick={save}>{busy ? 'Saving...' : 'Save new version'}</Button><Button variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button></div>
+      <div className="flex gap-2"><Button disabled={busy || !form.note.trim() || Object.entries(selectedVariants).some(([key, selected]) => selected && !(Number(form.quantities[key].qty) > 0))} onClick={save}>{busy ? 'Saving...' : 'Save new version'}</Button><Button variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button></div>
     </div>
   );
 }
@@ -88,6 +89,8 @@ export default function FormulationMasterPage() {
   const [band, setBand] = useState('');
   const [editing, setEditing] = useState(false);
   const [supplyKey, setSupplyKey] = useState('6M:full');
+  const [ghritSelection, setGhritSelection] = useState(null);
+  const [savingGhritSelection, setSavingGhritSelection] = useState(false);
   const load = useCallback(async () => {
     try { const { data: d } = await api.get('/formulation-master', { skipCache: true }); setData(d); setBand((b) => b || d.bands[0]?.ageBand || ''); setError(''); }
     catch (err) { setError(err.response?.data?.message || 'Could not load the Formulation Master'); }
@@ -95,7 +98,29 @@ export default function FormulationMasterPage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(t); }, [notice]);
   const current = useMemo(() => data?.bands.find((b) => b.ageBand === band) || null, [data, band]);
+  useEffect(() => { setGhritSelection(null); }, [current?.ageBand, current?.version]);
   const replaceBand = (next, message) => { setData((d) => ({ ...d, bands: d.bands.map((b) => (b.ageBand === next.ageBand ? next : b)) })); setEditing(false); setNotice(message); };
+  const savedGhritSelection = (data?.items || []).filter((i) => i.ghritVariant && current?.quantities[i.key]).map((i) => i.code);
+  const selectedGhritCodes = ghritSelection ?? savedGhritSelection;
+  const toggleGhritSelection = (code, checked) => setGhritSelection((previous) => {
+    const selected = previous ?? savedGhritSelection;
+    return checked ? [...new Set([...selected, code])] : selected.filter((c) => c !== code);
+  });
+  const saveGhritSelection = async () => {
+    setSavingGhritSelection(true); setError('');
+    try {
+      const quantities = { ...current.quantities };
+      data.items.filter((i) => i.ghritVariant).forEach((i) => {
+        quantities[i.key] = selectedGhritCodes.includes(i.code) ? (quantities[i.key] || { ...(current.quantities.ghrit || current.defaults.quantities.ghrit) }) : null;
+      });
+      // An explicit empty selection means no ghrit, rather than the legacy generic entry.
+      quantities.ghrit = null;
+      const { data: result } = await api.put(`/formulation-master/${current.ageBand}`, { quantities, doses: current.doses, shivaLehSplit: current.shivaLehSplit, tabletGrams: current.tabletGrams, pendingNotes: current.pendingNotes, note: 'Updated Medhya Ghrit selection from the formulation sheet' });
+      replaceBand(result.band, 'मेध्य घृत selection saved.');
+      setGhritSelection(null);
+    } catch (err) { setError(err.response?.data?.message || 'Could not save the ghrit selection'); }
+    finally { setSavingGhritSelection(false); }
+  };
   const reset = async () => {
     if (!window.confirm(`Put the document values back for ${current.label}? The edited values stay in the history.`)) return;
     setError('');
@@ -165,7 +190,7 @@ export default function FormulationMasterPage() {
               <div className="min-w-0">
                 <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-charcoal/50"><BookOpen size={12} />Sheet a new job gets</p>
                 <div className="mb-2 flex flex-wrap gap-1.5">{data.supplyOptions.map((o) => <Chip key={o.key} active={supplyKey === o.key} onClick={() => setSupplyKey(o.key)}>{o.label}</Chip>)}</div>
-                {sheet ? <FormulationSheet f={sheet} patientName="(patient)" patientCode="-" /> : <p className="text-sm text-charcoal/55">No sheet for this supply.</p>}
+                {sheet ? <FormulationSheet f={sheet} patientName="(patient)" patientCode="-" ghritSelection={selectedGhritCodes} ghritSelectionPending={ghritSelection !== null} onGhritSelectionChange={data.canEdit ? toggleGhritSelection : undefined} onSaveGhritSelection={data.canEdit && ghritSelection !== null && [...selectedGhritCodes].sort().join(',') !== [...savedGhritSelection].sort().join(',') ? saveGhritSelection : undefined} savingGhritSelection={savingGhritSelection} /> : <p className="text-sm text-charcoal/55">No sheet for this supply.</p>}
               </div>
             </div>
           )}

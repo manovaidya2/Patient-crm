@@ -69,8 +69,10 @@ const bottles = (ml) => Math.ceil(ml / 100);
 // The editable part of the master, per age band: what the doctor can change on the Formulation Master page.
 // The values above are the document values and stay the defaults; an edited band is stored in the FormulationMaster
 // collection in this same shape (quantities as { qty, unit }).
+const GHRIT_VARIANTS = Array.from({ length: 6 }, (_, n) => ({ key: `ghritNm${n}`, code: `GH-NM-${n}`, label: `मेध्य घृत (GH-NM-${n})`, units: ['ml'], optional: true, ghritVariant: true }));
 const MASTER_ITEMS = [
-  { key: 'ghrit', label: 'मेध्य घृत (Medhya Ghrit)', units: ['ml'] },
+  { key: 'ghrit', label: 'मेध्य घृत (Medhya Ghrit)', units: ['ml'], optional: true },
+  ...GHRIT_VARIANTS,
   { key: 'shivaLeh', label: 'शिवा-लेह (Shiva-Leh)', units: ['g', 'spoon'] },
   { key: 'honey', label: 'शहद (honey, patient\'s own)', units: ['ml'] },
   { key: 'ra', label: 'RA-SW-PD-28 (noon-night mix)', units: ['tablet'] },
@@ -96,7 +98,7 @@ function defaultMasterFor(ageBand) {
   if (!BANDS.includes(ageBand)) return null;
   return {
     ageBand, version: 0, source: 'document', updatedAt: null, updatedByName: '',
-    quantities: Object.fromEntries(Object.entries(SIX_MONTH[ageBand]).map(([k, pair]) => [k, toObj(pair)])),
+    quantities: { ...Object.fromEntries(Object.entries(SIX_MONTH[ageBand]).map(([k, pair]) => [k, toObj(pair)])), ...Object.fromEntries(GHRIT_VARIANTS.map((v) => [v.key, null])) },
     doses: Object.fromEntries(MASTER_DOSES.map((d) => [d.key, DOSE[d.key][ageBand] || ''])),
     shivaLehSplit: Object.fromEntries(SPLIT_DAYS.map((d) => [String(d), [...(SHIVA_LEH_SPLIT[ageBand][d] || [d])]])),
     tabletGrams: { ...TABLET_GRAMS },
@@ -116,6 +118,7 @@ function normalizeMaster(input = {}, ageBand) {
       quantities[item.key] = null; continue;
     }
     const qty = numberOf(typeof v === 'object' ? v.qty : v, `${item.label} quantity`);
+    if (item.ghritVariant && qty <= 0) fail(`Enter a positive quantity of ${item.label}`);
     const unit = String((typeof v === 'object' && v.unit) || base.quantities[item.key]?.unit || item.units[0]).trim();
     if (!item.units.includes(unit)) fail(`${item.label}: unit must be ${item.units.join(' or ')}`);
     quantities[item.key] = { qty, unit };
@@ -171,7 +174,11 @@ function formulationFor({ ageBand, plan, part }, master = null) {
     days, containers: extra.containers || (pair ? [days] : []), ...extra,
   });
   const lines = [
-    line(1, 'ghrit', 'मेध्य घृत', 'सुबह (खाली पेट)', q.ghrit, { stockCode: STOCK.MEDHYA_GHRIT, bottles: bottles(q.ghrit[0]), dose: `सुबह खाली पेट: ${DOSE_OF('ghrit')}, दिन में एक बार। ऊपर से हल्का गुनगुना पानी आवश्यकतानुसार पीजिए, पेट भरकर नहीं।`, chitNo: 1 }),
+    ...(() => {
+      const selected = GHRIT_VARIANTS.filter((v) => q[v.key]);
+      const choices = selected.length ? selected : q.ghrit ? [{ key: 'ghrit', label: 'मेध्य घृत', code: STOCK.MEDHYA_GHRIT }] : [];
+      return choices.map((v, i) => line(i + 1, v.key, v.label, 'सुबह (खाली पेट)', q[v.key], { stockCode: v.code, bottles: bottles(q[v.key][0]), dose: `सुबह खाली पेट: ${DOSE_OF('ghrit')}, दिन में एक बार। ऊपर से हल्का गुनगुना पानी आवश्यकतानुसार पीजिए, पेट भरकर नहीं।`, chitNo: i + 1 }));
+    })(),
     line(2, 'shivaLeh', 'शिवा-लेह', 'सुबह -- शाम', q.shivaLeh, { stockCode: STOCK.SHIVA_LEH, containers: SPLIT[String(days)] || [days], dose: DOSE_OF('shivaLeh'), chitNo: 2, honey: q.honey, pending: PN.shivaLeh || undefined }),
     line(3, 'mix', 'दोपहर-रात की दवाई', 'दोपहर -- रात', [round(q.ra[0] * TG.ra + q.ry33[0] * TG.ry33 + q.ry19[0] * TG.ry19), 'g'], {
       dose: `${DOSE_OF('mix')} दवाई + 3-4 घूँट गुनगुने पानी के साथ लीजिए।`, chitNo: 3, note: NOTE_WATER, pending: PN.mix || undefined,
@@ -188,6 +195,8 @@ function formulationFor({ ageBand, plan, part }, master = null) {
     line(6, 'abhyang', 'अभ्यंग Oil', 'मालिश', null, { packed: false, fromHome: true, firstOnly: true, note: 'सरसों, नारियल, तिल या औषधीय तेल हल्के हाथों से लगाएँ। तेल घर से लेना है; पैक में नहीं देना।', containers: [] }),
     line(7, 'oil', 'मेध्य Oil', 'प्रतिदिन सुबह', q.oil, { stockCode: STOCK.OIL, bottles: bottles(q.oil[0]), dose: 'प्रतिदिन सुबह मेध्य Oil से सिर की जड़ों की मालिश करें।', chitNo: 7 }),
   ].filter((l) => !(l.firstOnly && !first));
+  // Each selected variant has its own line and chit; retain stable medicine keys.
+  if (GHRIT_VARIANTS.some((v) => q[v.key])) lines.forEach((l, i) => { l.n = i + 1; if (l.chitNo) l.chitNo = i + 1; });
   return {
     ageBand, ageBandLabel: AGE_BANDS[ageBand], plan, part, months, days, first,
     title: `${plan === '6M' ? 'SIX MONTH' : `${months} MONTH`} FORMULATION${plan === '6M' ? '' : part === 'first' ? ' | PART 1' : ' | PART 2'}`,
@@ -253,12 +262,32 @@ function chitsFor(formulation, patientName = '') {
 // patient. The master value is kept beside every change (`original`) so the correction stays visible.
 const TABLET_GRAMS_BY_CODE = { [STOCK.RA]: TABLET_GRAMS.ra, [STOCK.RY33]: TABLET_GRAMS.ry33, [STOCK.RY19]: TABLET_GRAMS.ry19 };
 const ADD_UNITS = ['g', 'ml', 'tablet', 'spoon', 'drop', 'piece'];
+// Preserve each selected instruction so reopening a prescription keeps its dropdown and quantities.
+function doseValues(input) {
+  if (input.doseEntries === undefined) {
+    const dose = String(input.dose || '').trim();
+    if (dose.length > 12000) fail('Dose text is too long');
+    return { dose };
+  }
+  if (!Array.isArray(input.doseEntries) || !input.doseEntries.length || input.doseEntries.length > 20) fail('Select between 1 and 20 dose instructions');
+  const doseEntries = input.doseEntries.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail('Invalid dose instruction');
+    const dose = String(entry.dose || '').trim();
+    if ((!dose && input.doseEntries.length > 1) || dose.length > 500) fail('Complete every dose instruction (maximum 500 characters each)');
+    const text = (key, max = 500) => String(entry[key] || '').trim().slice(0, max);
+    return { id: text('id', 80), dose, doseTemplate: text('doseTemplate', 80), dosePattern: text('dosePattern'), doseSpoons: text('doseSpoons', 40), doseWaterCups: text('doseWaterCups', 40), customDose: text('customDose'), doseQuantities: Array.isArray(entry.doseQuantities) ? entry.doseQuantities.slice(0, 250).map((q) => String(q).trim().slice(0, 40)) : [] };
+  });
+  return { doseEntries, dose: doseEntries.map((entry) => entry.dose).filter(Boolean).join('\n') };
+}
 // A medicine added for this patient only (not in the master): name, timing, quantity, dose and packs.
 function addedLine(o, formulation, n, byName) {
+  const variant = o.ghritVariantCode ? GHRIT_VARIANTS.find((v) => v.code === o.ghritVariantCode) : null;
+  if (o.ghritVariantCode && !variant) fail('Unknown ghrit variant');
   const name = String(o.name || '').trim().slice(0, 120);
   if (!name) fail('Enter the name of the medicine to add');
   const unit = String(o.unit || '').trim();
   if (!ADD_UNITS.includes(unit)) fail(`Select the unit of ${name}`);
+  if (variant && (unit !== 'ml' || name !== variant.label)) fail('Keep the selected ghrit variant name and ml unit');
   const qty = numberOf(o.qty, `${name} quantity`);
   if (!(qty > 0)) fail(`Enter the total quantity of ${name}`);
   const days = formulation.days;
@@ -267,8 +296,9 @@ function addedLine(o, formulation, n, byName) {
   const at = new Date().toISOString();
   return {
     n, key: `added-${Date.now().toString(36)}-${n}`, name, when: String(o.when || '').trim().slice(0, 80), qty, unit, packed: true, days,
-    containers: containers.length ? containers : [days], dose: String(o.dose || '').trim().slice(0, 500), chitNo,
+    containers: containers.length ? containers : [days], ...doseValues(o), chitNo,
     stockCode: String(o.stockCode || '').trim().toUpperCase().slice(0, 40) || undefined,
+    ...(variant ? { ghritVariantCode: variant.code, bottles: bottles(qty) } : {}),
     added: { byName, at }, edited: { byName, at, changes: ['added for this patient'] },
   };
 }
@@ -309,7 +339,14 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
     const next = { ...line, original: line.original || { qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined } };
     const changes = [];
     if (o.packed !== undefined && !line.fromHome) { const packed = o.packed === true || o.packed === 'true'; if (packed !== line.packed) { next.packed = packed; changes.push(packed ? 'packed' : 'not packed'); } }
-    if (o.dose !== undefined && String(o.dose).trim() !== (line.dose || '')) { next.dose = String(o.dose).trim().slice(0, 500); changes.push('dose'); }
+    if (o.dose !== undefined || o.doseEntries !== undefined) {
+      const values = doseValues(o);
+      if (values.dose !== (line.dose || '') || (o.doseEntries !== undefined && JSON.stringify(values.doseEntries) !== JSON.stringify(line.doseEntries))) {
+        Object.assign(next, values);
+        if (o.doseEntries === undefined) delete next.doseEntries;
+        changes.push('dose');
+      }
+    }
     // A medicine added for this patient can be linked to (or unlinked from) a Stocks item.
     if (o.stockCode !== undefined && line.added) {
       const code = String(o.stockCode || '').trim().toUpperCase().slice(0, 40);

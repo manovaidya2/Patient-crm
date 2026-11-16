@@ -589,6 +589,29 @@ test('the formulation sheet can be corrected until preparation; master values st
   await assert.rejects(edit([{ key: 'ghrit', qty: 10 }]), /after preparation/);
 });
 
+test('the doctor selects multiple ghrit variants with separate doses and stock, and can remove one later', async () => {
+  const { patient, stocks } = setup();
+  const { job } = await open(patient);
+  const edit = (lines) => call(controller.editFormulation, { params: { id: job.id }, body: { lines }, user: doctor });
+  let result = (await edit([
+    { key: 'ghrit', removed: true },
+    ...[0, 3].map((n) => ({ add: true, ghritVariantCode: `GH-NM-${n}`, name: `मेध्य घृत (GH-NM-${n})`, qty: n ? 40 : 60, unit: 'ml', when: 'सुबह', dose: `Dose ${n}` })),
+  ])).job;
+  const variants = result.formulation.lines.filter((l) => l.ghritVariantCode);
+  assert.equal(variants.length, 2);
+  assert.ok(variants.every((l) => l.bottles === 1));
+  assert.equal(result.consumption.some((l) => l.code === 'MEDHYA-GHRIT'), false);
+  for (const n of [0, 3]) {
+    assert.ok(stocks.some((s) => s.code === `GH-NM-${n}`));
+    assert.equal(result.consumption.find((l) => l.code === `GH-NM-${n}`).planned, n ? 40 : 60);
+    assert.ok(result.chits.some((c) => c.dose === `Dose ${n}`));
+  }
+  result = (await edit([{ key: variants[0].key, removed: true }])).job;
+  assert.equal(result.formulation.lines.filter((l) => l.ghritVariantCode).length, 1);
+  assert.equal(result.consumption.some((l) => l.code === 'GH-NM-0'), false);
+  assert.ok(result.consumption.some((l) => l.code === 'GH-NM-3'));
+});
+
 test('the doctor adds or removes a medicine for this patient only; the master stays as it is', async () => {
   const { patient } = setup();
   const { job } = await open(patient);
