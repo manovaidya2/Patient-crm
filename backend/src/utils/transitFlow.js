@@ -8,6 +8,7 @@ const { supplyLabel } = require('../constants/supplyPlans');
 const { phaseAge } = require('./phaseAge');
 const { openFollowUps } = require('./callFollowUps');
 const { medicineDelays, fixedReadyDate, dispatchDelayInput } = require('./medicineDelay');
+const { requestWithCompletedRelease } = require('./medicineRelease');
 
 const MEDICINE_ACTIVE = ['requested', 'in_process', 'made', 'sent_to_courier'];
 // shipped: porter / courier scheduled with an estimated date; porter or courier is picked at dispatch.
@@ -330,9 +331,9 @@ function supplyStartView(stage, request, state) {
 }
 
 // `payment`: the payment status of the request's PO (poPayment.paymentForRequest); the whole phase when not given.
-function buildTransitCase(patient, stage, now = new Date(), { payment = null } = {}) {
+function buildTransitCase(patient, stage, now = new Date(), { payment = null, job = null } = {}) {
   const t = roundTransit(stage);
-  const request = pickRequest(stage);
+  const request = requestWithCompletedRelease(pickRequest(stage), job);
   const courier = plain(request?.courier);
   const pay = payment || paymentSummary(stage);
   const mode = fulfilmentMode(stage, request);

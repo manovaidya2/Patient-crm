@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const User = require('../models/User');
-const { runAction, getTransitReminders, completeExplanation, setMedicineStart, rescheduleExplanation, listExplanations, removeFromTransit, restoreToTransit } = require('./transitController');
+const { runAction, getTransitCase, getTransitReminders, completeExplanation, setMedicineStart, rescheduleExplanation, listExplanations, removeFromTransit, restoreToTransit } = require('./transitController');
 const { buildTransitCase, isInTransit } = require('../utils/transitFlow');
 afterEach(() => mock.restoreAll());
 const user = { _id: new mongoose.Types.ObjectId(), name: 'Transit', role: 'in_transit' };
@@ -45,6 +45,35 @@ const confirmMode = async (patient, mode) => {
   await act(patient, { action: 'log_call', outcome: 'connected', notes: 'Delivery confirmed' });
   return act(patient, { action: 'confirm_mode', mode });
 };
+
+test('handover detail API reads the matching job release without changing saved patient or confirmation details', async () => {
+  const MedicineJob = require('../models/MedicineJob');
+  const PurchaseOrder = require('../models/PurchaseOrder');
+  const { patient, stage } = makePatient();
+  stage.medicineRequests.push({ requestId: 'released-old-request', status: 'made', requestedAt: now() });
+  Object.assign(stage.transit, { roundRequestId: 'released-old-request', fulfilmentMode: 'pickup', pickupScheduledAt: future(), callsDoneAt: now(), assignedAt: now(), poPaperSignedAt: now() });
+  stage.medicineExplainDate = future();
+  const snapshot = patient.toObject();
+  const before = JSON.stringify(snapshot);
+  mock.method(Patient, 'findById', () => ({ select: () => ({ populate: () => ({ lean: async () => snapshot }) }) }));
+  mock.method(PurchaseOrder, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
+  mock.method(MedicineJob, 'findOne', (filter) => {
+    assert.equal(String(filter.patient), String(patient._id));
+    assert.equal(filter.phase, 1);
+    assert.equal(filter.requestId, 'released-old-request');
+    return { select: () => ({ lean: async () => ({ requestId: filter.requestId, status: 'ready', stages: [{ key: 'release', doneAt: now(), doneByName: 'Medicine Dept' }] }) }) };
+  });
+  const previousState = mongoose.connection._readyState;
+  try {
+    mongoose.connection._readyState = 1;
+    const result = await invoke(getTransitCase, patient);
+    assert.equal(result.item.medicine.status, 'sent_to_courier');
+    assert.equal(result.item.nextAction, 'confirm_received');
+    assert.equal(result.item.steps.find((step) => step.key === 'handover').state, 'current');
+    assert.equal(result.item.courier.status === 'delivered', false);
+    assert.equal(JSON.stringify(snapshot), before);
+  } finally { mongoose.connection._readyState = previousState; }
+});
 test('PO without a payment enters In Transit; request requires patient and submitted payment approval', async () => {
   const { patient, stage } = makePatient(0);
   assert.equal(isInTransit(stage), true);

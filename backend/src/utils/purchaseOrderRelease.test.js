@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { buildPoView } = require('./purchaseOrderFlow');
 const { requestWithCompletedRelease } = require('./medicineRelease');
+const { buildTransitCase } = require('./transitFlow');
 
 function fixture() {
   const request = { requestId: 'request-1', status: 'made', requestedAt: '2026-11-02T12:20:00Z', madeAt: '2026-11-13T09:36:00Z', courier: {} };
@@ -48,4 +49,26 @@ test('release reconciliation is idempotent and does not invent timestamps for a 
   assert.equal(resolved.sentToCourierAt, null);
   assert.equal(resolved.sentToCourierByName, '');
   assert.deepEqual(requestWithCompletedRelease(resolved, job), resolved);
+});
+
+test('handover details use the same completed release as the PO and keep pickup confirmation pending', () => {
+  const { patient, job } = fixture();
+  const stage = patient.stages[0];
+  Object.assign(stage.transit, { callsDoneAt: '2026-11-02', assignedAt: '2026-11-02', poPaperSignedAt: '2026-11-02' });
+  stage.medicineExplainDate = '2026-11-19';
+  const before = JSON.stringify(patient);
+  const payment = { totalAmount: 1000, amountPaid: 1000, remaining: 0, pendingCount: 0, approvedCount: 1 };
+  const view = buildTransitCase(patient, stage, new Date('2026-11-16'), { job, payment });
+  assert.equal(view.medicine.status, 'sent_to_courier');
+  assert.equal(view.steps.find((s) => s.key === 'released').state, 'done');
+  assert.equal(view.steps.find((s) => s.key === 'handover').state, 'current');
+  assert.equal(view.nextAction, 'confirm_received');
+  assert.equal(view.courier.status === 'delivered', false);
+  assert.equal(view.poPaperSigned.done, true);
+  assert.equal(JSON.stringify(patient), before, 'reading the confirmation form must not rewrite request or handover records');
+  for (const override of [{ stages: [], status: 'ready' }, { status: 'cancelled' }, { requestId: 'other-request' }]) {
+    const blocked = buildTransitCase(patient, stage, new Date('2026-11-16'), { payment, job: { ...job, ...override } });
+    assert.equal(blocked.medicine.status, 'made');
+    assert.notEqual(blocked.nextAction, 'confirm_received');
+  }
 });

@@ -12,7 +12,17 @@ const { fixedReadyDate, canOverrideFixed } = require('../utils/medicineDelay');
 const { patientDocuments } = require('../utils/patientDocuments');
 const { paymentForRequest, paymentForRequestFrom, phasePurchaseOrders, poOfRequest, linkPaymentToPo, paymentCleared } = require('../utils/poPayment');
 // The case with the payment status of its medicine request's PO (other POs of the phase are paid on their own).
-const caseOf = async (patient, stage, now = new Date()) => buildTransitCase(patient, stage, now, { payment: await paymentForRequest(patient, stage, pickRequest(stage)) });
+const releaseJobOf = async (patient, stage, request) => {
+  if (!request || request.status === 'sent_to_courier' || request.status === 'cancelled' || mongoose.connection.readyState !== 1) return null;
+  return require('../models/MedicineJob').findOne({ patient: patient._id, phase: stage.number, requestId: requestKey(request) })
+    .select('requestId status stages.key stages.doneAt stages.doneByName').lean();
+};
+const caseOf = async (patient, stage, now = new Date()) => {
+  const request = pickRequest(stage);
+  // The PO timeline already reads completed job releases; its handover panel must read the same fact.
+  const job = await releaseJobOf(patient, stage, request);
+  return buildTransitCase(patient, stage, now, { payment: await paymentForRequest(patient, stage, request), job });
+};
 
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const clean = (value, max = 300) => String(value ?? '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
@@ -28,9 +38,7 @@ const isMade = (request) => Boolean(request && ['made', 'sent_to_courier'].inclu
 // Old jobs can have a completed release while their copied patient request still says "made".
 // Reconcile only this request before a real dispatch/receipt; payment and handover checks still run below.
 const useCompletedRelease = async (patient, stage, request) => {
-  if (!request || request.status === 'sent_to_courier' || request.status === 'cancelled' || mongoose.connection.readyState !== 1) return;
-  const job = await require('../models/MedicineJob').findOne({ patient: patient._id, phase: stage.number, requestId: requestKey(request) })
-    .select('requestId status stages.key stages.doneAt stages.doneByName').lean();
+  const job = await releaseJobOf(patient, stage, request);
   const resolved = require('../utils/medicineRelease').requestWithCompletedRelease(request, job);
   if (resolved?.status === 'sent_to_courier') Object.assign(request, { status: resolved.status, sentToCourierAt: resolved.sentToCourierAt, sentToCourierByName: resolved.sentToCourierByName });
 };
