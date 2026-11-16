@@ -390,6 +390,24 @@ test('box receipt queue selects pending requests across all job statuses', async
   assert.equal(result.items[0].patientName, 'Aarav');
 });
 
+test('PO job summary exposes the same box receipt status and details without adding a fulfilment stage', () => {
+  const base = { _id: new mongoose.Types.ObjectId(), patient: new mongoose.Types.ObjectId(), status: 'released', stages: [{ key: 'final', doneAt: '2026-11-16T05:00:00Z' }, { key: 'release', doneAt: '2026-11-16T05:05:00Z' }] };
+  const initial = jobSummary(base);
+  assert.equal(initial.boxReceipt, null);
+  const requested = { ...base, boxReceipt: { requestedAt: '2026-11-16T05:10:00Z', requestedByName: 'Medicine Dept', requestNote: 'Sealed box' } };
+  const pending = jobSummary(requested);
+  assert.equal(pending.boxReceipt.status, 'pending');
+  assert.equal(pending.boxReceipt.requestedByName, 'Medicine Dept');
+  assert.equal(pending.boxReceipt.requestNote, 'Sealed box');
+  const received = jobSummary({ ...requested, boxReceipt: { ...requested.boxReceipt, receivedAt: '2026-11-16T05:15:00Z', receivedByName: 'PCC', receivedNote: 'Box received' } });
+  assert.equal(received.boxReceipt.status, 'received');
+  assert.equal(received.boxReceipt.receivedByName, 'PCC');
+  assert.equal(received.boxReceipt.receivedAt, '2026-11-16T05:15:00.000Z');
+  assert.deepEqual(received.stages, initial.stages);
+  assert.equal(received.progress, initial.progress);
+  assert.equal(received.status, initial.status);
+});
+
 test('pending box receipt belongs to the assigned final-check PCC until confirmed, including released jobs', () => {
   const base = { status: 'ready', currentStage: STAGES.findIndex((s) => s.key === 'release'), poNumber: 'PO-1', requestId: 'r1', boxReceipt: { requestedAt: new Date() } };
   assert.ok(controller.jobActionBy(base).includes('assistant_doctor'));
@@ -612,6 +630,24 @@ test('the doctor selects multiple ghrit variants with separate doses and stock, 
   assert.ok(result.consumption.some((l) => l.code === 'GH-NM-3'));
 });
 
+test('inline name corrections save on the patient sheet and chits without changing inventory names', async () => {
+  const { patient, stocks } = setup();
+  const { job } = await open(patient);
+  const beforeStocks = JSON.stringify(stocks.map((s) => ({ code: s.code, name: s.name, currentStock: s.currentStock })));
+  const body = { lines: [{ key: 'ghrit', name: 'Patient ghrit name' }, { key: 'shivaLeh', name: 'Patient leh name' }] };
+  await assert.rejects(call(controller.editFormulation, { params: { id: job.id }, body, user: med }), /Only the doctor or the admin/);
+  const result = (await call(controller.editFormulation, { params: { id: job.id }, body, user: doctor })).job;
+  assert.equal(result.formulation.lines[0].name, 'Patient ghrit name');
+  assert.equal(result.formulation.lines[0].original.name, job.formulation.lines[0].name);
+  assert.equal(result.formulation.lines[0].stockCode, 'MEDHYA-GHRIT');
+  assert.equal(result.formulation.lines[0].qty, job.formulation.lines[0].qty);
+  assert.equal(result.chits.find((c) => c.itemKey === 'ghrit').name, 'Patient ghrit name');
+  assert.ok(result.events.some((e) => e.details.includes('Patient ghrit name: name')));
+  assert.equal(JSON.stringify(stocks.map((s) => ({ code: s.code, name: s.name, currentStock: s.currentStock }))), beforeStocks);
+  const reopened = (await call(controller.getJob, { params: { id: job.id }, user: doctor })).job;
+  assert.equal(reopened.formulation.lines[0].name, 'Patient ghrit name');
+});
+
 test('the doctor adds or removes a medicine for this patient only; the master stays as it is', async () => {
   const { patient } = setup();
   const { job } = await open(patient);
@@ -716,6 +752,42 @@ test('an older sheet medicine with no Stocks item: the preparer picks one or rec
   assert.deepEqual({ outside: made.outside, actual: made.actual, unit: made.unit, txId: made.txId }, { outside: true, actual: 80, unit: 'g', txId: null });
   assert.equal(v.consumption.find((c) => c.key === brahmi.key).code, 'MEDHYA-GHRIT');
 });
+test('the doctor can correct post-counselling age and supply during formulation and reopen the saved selection', async () => {
+  const { patient, stage, jobs } = setup();
+  stage.poPaper = { values: { supplyOrder: 'Full 6 months', ageGroup: 'Above 4 - 12 years' } };
+  const { job } = await open(patient);
+  assert.equal(job.fixedPlan.supply, true);
+  assert.equal(job.fixedPlan.ageBand, true);
+  const paper = JSON.stringify(stage.poPaper);
+  const change = (body, user = doctor) => call(controller.setSupply, { params: { id: job.id }, body, user });
+  const body = { ageBand: '12-70', supplyKey: '2+4:first' };
+  await assert.rejects(change(body, med), /handled by doctor/);
+  await assert.rejects(change(body, transit), /handled by doctor/);
+  let result = (await change(body)).job;
+  assert.equal(result.ageBand, '12-70');
+  assert.equal(result.supplyPlan, '2+4');
+  assert.equal(result.formulation.days, 60);
+  assert.equal(result.formulation.lines.find((l) => l.key === 'ghrit').qty, 300);
+  assert.equal(result.consumption.find((l) => l.code === 'MEDHYA-GHRIT').planned, 300);
+  result = (await call(controller.getJob, { params: { id: job.id }, user: doctor })).job;
+  assert.equal(result.ageBand, '12-70');
+  assert.equal(result.supplyPart, 'first');
+  result = (await change({ ageBand: '3-4', supplyKey: '6M:full' })).job;
+  assert.equal(result.formulation.days, 180);
+  assert.equal(result.formulation.lines.find((l) => l.key === 'ghrit').qty, 225);
+  assert.equal(JSON.stringify(stage.poPaper), paper, 'the correction belongs to this job and preserves the post-counselling paper');
+  jobs[0].hold.active = true;
+  await assert.rejects(change(body), /Resume the job/);
+  jobs[0].hold.active = false;
+  jobs[0].currentStage = STAGES.findIndex((s) => s.key === 'review');
+  await assert.rejects(change(body), /after the doctor has sent/);
+  jobs[0].currentStage = 0;
+  for (const status of ['ready', 'released', 'cancelled']) {
+    jobs[0].status = status;
+    await assert.rejects(change(body), /ready or the job is closed/);
+  }
+});
+
 test('an old request (before the fulfilment timeline, no PO): the admin and the doctor can fill every stage', async () => {
   const { patient, stage } = setup();
   Object.assign(stage.medicineRequests[0], { poNumber: '', ageBand: '', supplyPlan: '', supplyPart: '' });

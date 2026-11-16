@@ -21,6 +21,7 @@ import { ActionForm, AssignPccForm, CALL, FORMS, MODE, formKeyFor, sendAction } 
 import { useAuth } from '../../context/AuthContext.jsx';
 import { DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
+import MedicineBoxReceipt from '../../components/medicine/MedicineBoxReceipt.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 import { ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
@@ -865,8 +866,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           </Section>
         </div>
         <div className="min-w-0 space-y-3.5">
-          <div className="xl:hidden"><PoStepStrip steps={po.steps} selected={selected} onSelect={setPicked} /></div>
+          <div className="xl:hidden"><PoStepStrip steps={po.steps.flatMap((s) => s.key === 'ready' && track.some((entry) => entry.auxiliary) ? [s, ...track.filter((entry) => entry.auxiliary)] : [s])} selected={selected} onSelect={setPicked} /></div>
           {selectedStep ? <StepHeader step={selectedStep} total={po.steps.length} onAll={() => setPicked('all')} onRevert={canRevert ? setRevert : undefined} po={po} /> : <p className="rounded-lg bg-[#FBF7ED] px-3 py-2 text-xs text-charcoal/70">Showing every detail of this PO. Click a step in the timeline to see only that step.</p>}
+          {po.medicineJob && (selected === 'all' || selected === 'job:box-receipt') && <Section title="Receive medicine box" icon={Truck} action={<Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className={smallLink}><ExternalLink size={13} />Open in fulfilment</Link>}><MedicineBoxReceipt job={po.medicineJob} readOnly /></Section>}
           {/* An open "Full payment verified": exactly what is left - each pending payment to verify, or the balance to collect. */}
           {selectedStep?.key === 'fullpay' && selectedStep.state !== 'done' && (
             <Section title="To complete this step" icon={IndianRupee} className="border-2 border-[#FDBA74]">

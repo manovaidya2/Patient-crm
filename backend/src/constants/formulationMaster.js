@@ -329,15 +329,24 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
     if (o.removed !== undefined && !line.added) {
       const removed = o.removed === true || o.removed === 'true';
       if (removed !== Boolean(line.removed)) {
-        const original = line.original || { qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined, packed: line.packed };
+        const original = line.original || { name: line.name, qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined, packed: line.packed };
         if (removed) return { ...line, original: { ...original, packed: original.packed ?? line.packed }, removed: true, packed: false, edited: { byName, at: new Date().toISOString(), changes: ['removed for this patient'] } };
         const { removed: _gone, ...rest } = line;
         return { ...rest, packed: line.original?.packed ?? true, edited: { byName, at: new Date().toISOString(), changes: ['restored'] } };
       }
       if (removed) return line;
     }
-    const next = { ...line, original: line.original || { qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined } };
+    const next = { ...line, original: line.original || { name: line.name, qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined } };
     const changes = [];
+    if (o.name !== undefined) {
+      if (typeof o.name !== 'string' || !o.name.trim() || o.name.trim().length > 120) fail('Enter a medicine name of 1 to 120 characters');
+      const name = o.name.trim();
+      if (name !== line.name) {
+        next.name = name;
+        next.original = { ...next.original, name: next.original.name ?? line.name };
+        changes.push('name');
+      }
+    }
     if (o.packed !== undefined && !line.fromHome) { const packed = o.packed === true || o.packed === 'true'; if (packed !== line.packed) { next.packed = packed; changes.push(packed ? 'packed' : 'not packed'); } }
     if (o.dose !== undefined || o.doseEntries !== undefined) {
       const values = doseValues(o);

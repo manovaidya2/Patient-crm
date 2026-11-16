@@ -1,4 +1,4 @@
-import { Check, CircleDot, ClipboardList, GitFork, Pill, RotateCcw, Stethoscope, Truck, X } from 'lucide-react';
+import { Check, CircleDot, ClipboardList, GitFork, PackageCheck, Pill, RotateCcw, Stethoscope, Truck, X } from 'lucide-react';
 
 const GROUP_ICON = { verification: ClipboardList, medicine: Pill, handover: Truck, treatment: Stethoscope };
 export const poDateTime = (value) => (value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
@@ -73,11 +73,19 @@ const OWNER = { in_transit: 'In Transit', assistant_doctor: 'The PCC', doctor: '
 const ownerText = (roles = []) => `${OWNER[roles.find((r) => r !== 'admin')] || 'Medicine Department'} is on this step`;
 export function medicineTrack(steps = [], job = null) {
   if (!job?.stages?.length) return steps.filter((step) => step.branch === 'medicine');
-  return job.stages.filter((stage) => stage.key !== 'accept').map((stage) => {
+  return job.stages.filter((stage) => stage.key !== 'accept').flatMap((stage) => {
     const poStep = steps.find((step) => step.key === JOB_TO_PO_STEP[stage.key]);
-    return poStep
+    const entry = poStep
       ? { ...poStep, n: stage.n, label: stage.label, jobStage: stage }
       : { key: `job:${stage.key}`, n: stage.n, label: stage.label, state: stage.state, by: stage.doneByName, at: stage.doneAt, waitText: ownerText(stage.roles), jobStage: stage };
+    if (stage.key !== 'final') return [entry];
+    const receipt = job.boxReceipt;
+    return [entry, {
+      key: 'job:box-receipt', label: 'Receive medicine box', n: '', branch: 'medicine', auxiliary: true, phaseFact: true,
+      state: receipt?.status === 'received' ? 'done' : receipt ? 'current' : 'todo',
+      text: receipt?.status === 'received' ? 'Received' : receipt ? 'Pending — awaiting assigned final-check PCC' : 'Not requested',
+      by: receipt?.receivedByName || '', at: receipt?.receivedAt || null,
+    }];
   });
 }
 
@@ -89,11 +97,12 @@ function TrackStep({ step, last, selected, onSelect, onRevert }) {
     <li className="relative flex gap-2 pb-2.5 last:pb-0">
       {!last && <span className={`absolute left-[10px] top-[22px] bottom-0 w-0.5 ${step.state === 'done' ? 'bg-[#2F8F5B]/60' : 'bg-[#E8DFCB]'}`} aria-hidden="true" />}
       <span className={`relative z-10 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold ${dotTone[step.state] || dotTone.todo}`}>
-        {step.state === 'done' ? <Check size={11} /> : step.state === 'failed' ? <X size={11} /> : step.n}
+        {step.state === 'done' ? <Check size={11} /> : step.state === 'failed' ? <X size={11} /> : step.auxiliary ? <PackageCheck size={11} /> : step.n}
       </span>
       <div className={`relative min-w-0 flex-1 rounded-md border ${isSelected ? 'border-sage bg-sage/10 ring-2 ring-sage/15' : step.state === 'current' ? 'border-transparent bg-[#FFF1E6]' : 'border-transparent'} ${onSelect && !isSelected ? 'hover:border-cardline hover:bg-offwhite-200/70' : ''}`}>
         <Body {...(onSelect ? { type: 'button', onClick: () => onSelect(step.key), 'aria-pressed': isSelected } : {})} className={`block w-full px-2 py-1 text-left ${onRevert ? 'pr-6' : ''}`}>
           <span className={`block text-[12px] leading-snug ${step.state === 'todo' ? 'text-charcoal/55' : step.state === 'current' ? 'font-extrabold text-[#C2410C]' : 'font-semibold text-charcoal'}`}>{step.label}</span>
+          {step.auxiliary && <span className="block text-[11px] leading-snug text-charcoal/60">{step.text}</span>}
           {step.state === 'done' && (step.by || step.at) && <span className="block text-[11px] leading-snug text-charcoal/55">{[step.by, poDateTime(step.at)].filter(Boolean).join(' · ')}</span>}
           {step.state === 'current' && step.waitText && <span className="line-clamp-2 block text-[11px] font-semibold leading-snug text-[#C2410C]/85">{step.waitText}</span>}
         </Body>
@@ -150,12 +159,13 @@ export function PoTimeline({ steps = [], job = null, onRevert, selected, onSelec
           <div className="mt-1.5 grid grid-cols-2 gap-2">
             {tracks.map((track) => {
               const Icon = track.icon;
-              const done = track.steps.filter((step) => step.state === 'done').length;
+              const countedSteps = track.steps.filter((step) => !step.auxiliary);
+              const done = countedSteps.filter((step) => step.state === 'done').length;
               return (
                 <section key={track.key} aria-label={`${track.label} track`} className="min-w-0 rounded-lg border border-[#E8DFCB] bg-[#FDFBF6] p-1.5">
                   <header className="mb-2 flex items-start justify-between gap-1 border-b border-[#E8DFCB] px-1 pb-1.5">
                     <span className="min-w-0"><span className="flex items-center gap-1 text-[12px] font-extrabold text-charcoal"><Icon size={13} className="shrink-0 text-sage" />{track.label}</span><span className="block text-[10.5px] text-charcoal/50">{track.note}</span></span>
-                    <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[10.5px] font-bold text-charcoal/60">{done}/{track.steps.length}</span>
+                    <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[10.5px] font-bold text-charcoal/60">{done}/{countedSteps.length}</span>
                   </header>
                   <ol>
                     {track.steps.map((step, index) => (

@@ -4,6 +4,7 @@ import { Pencil, Plus, X } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import DoseChitInput, { doseTemplateComplete } from './DoseChitInput.jsx';
+import MedicineNameEditor from './MedicineNameEditor.jsx';
 import { FieldLabel, poInput } from '../purchaseOrders/CreatePurchaseOrderModal.jsx';
 
 const UNITS = ['g', 'ml', 'tablet', 'spoon', 'drop', 'piece'];
@@ -12,8 +13,12 @@ export const TIMINGS = ['सुबह -- शाम', 'सुबह (खाली
 const OTHER = '__other';
 const emptyAdd = () => ({ name: '', when: '', qty: '', unit: 'g', dose: '', containers: '', stockCode: '' });
 const GHRIT_VARIANTS = Array.from({ length: 6 }, (_, n) => ({ key: `ghritNm${n}`, code: `GH-NM-${n}`, name: `मेध्य घृत (GH-NM-${n})` }));
-const isVariant = (line, variant) => line.key === variant.key || line.ghritVariantCode === variant.code || line.stockCode === variant.code || line.name === variant.name;
-const medicineName = (line) => GHRIT_VARIANTS.find((v) => isVariant(line, v))?.name || line.name;
+const isVariant = (line, variant) => {
+  const code = line.ghritVariantCode || GHRIT_VARIANTS.find((v) => v.key === line.key)?.code || (/^GH-NM-[0-5]$/.test(line.stockCode || '') ? line.stockCode : '');
+  if (code) return code === variant.code;
+  return (!line.original?.name || line.name === line.original.name) && line.name === variant.name;
+};
+const medicineName = (line) => line.original?.name && line.name !== line.original.name ? line.name : GHRIT_VARIANTS.find((v) => isVariant(line, v))?.name || line.name;
 const num = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number.isInteger(Number(v)) ? String(v) : String(Math.round(Number(v) * 1000) / 1000));
 
 // The Formulation Master sheet of this supply (doc style, as the printed master).
@@ -76,6 +81,17 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
       setEditing(false); setDraft({}); setAdds([]); onSaved?.(data.job, 'Formulation sheet corrected.');
     } catch (err) { onError?.(err.response?.data?.message || 'Could not save the correction'); } finally { setBusy(false); }
   };
+  const renameMedicine = async (key, name) => {
+    setBusy(true); onError?.('');
+    try {
+      const { data } = await api.patch(`/medicine-jobs/${jobId}/formulation`, { lines: [{ key, name }] });
+      onSaved?.(data.job, 'Medicine name saved for this patient.');
+    } catch (err) {
+      const message = err.response?.data?.message || 'Could not save the medicine name';
+      onError?.(message);
+      throw new Error(message);
+    } finally { setBusy(false); }
+  };
   if (editing) return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? 'There is no Formulation Master for this age group: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.' : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
@@ -88,7 +104,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         {f.lines.map((l) => (
           <li key={l.key} className="grid gap-2 py-3 sm:grid-cols-2">
             <div>
-              <p className="text-sm font-bold text-charcoal">{l.n}. {medicineName(l)} <span className="font-normal text-charcoal/55">· {l.when}</span></p>
+              <p className="text-sm font-bold text-charcoal">{l.n}. <MedicineNameEditor name={medicineName(l)} canEdit={canEdit && !l.removed} disabled={busy} onSave={(name) => renameMedicine(l.key, name)} /> <span className="font-normal text-charcoal/55">· {l.when}</span></p>
               <label className="mt-1 flex items-center gap-2 text-xs font-semibold text-[#8C3B2E]"><input type="checkbox" className="h-4 w-4 accent-[#8C3B2E]" checked={d(l.key).removed ?? Boolean(l.removed)} onChange={(e) => setLine(l.key, { removed: e.target.checked })} />Remove this medicine for this patient</label>
               {l.fromHome ? <p className="mt-1 text-xs text-charcoal/55">घर से - nothing is packed, so there is nothing to correct here.</p>
                 : <label className="mt-1 flex items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4 accent-sage" checked={d(l.key).packed ?? l.packed} onChange={(e) => setLine(l.key, { packed: e.target.checked })} />Packed in this supply</label>}
@@ -163,7 +179,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         {displayLines.map((l, index) => (
           <li key={l.key} className={`grid gap-x-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${l.removed ? 'bg-[#8C3B2E]/5 opacity-70' : l.added ? 'bg-emerald-50/70' : l.edited ? 'bg-amber-50/60' : ''}`}>
             <div>
-              <p className={`text-sm font-bold text-charcoal ${l.removed ? 'line-through' : ''}`}>{showSelectedGhrits ? index + 1 : l.n}. {medicineName(l)} <span className="font-normal text-charcoal/55">· {l.when}</span>{l.removed ? <span className="ml-2 rounded bg-[#8C3B2E]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8C3B2E] no-underline">removed for this patient by {l.edited?.byName}</span> : l.added ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">added for this patient by {l.added.byName}</span> : l.edited && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">corrected by {l.edited.byName}</span>}</p>
+              <p className={`text-sm font-bold text-charcoal ${l.removed ? 'line-through' : ''}`}>{showSelectedGhrits ? index + 1 : l.n}. <MedicineNameEditor name={medicineName(l)} canEdit={canEdit && !l.removed} disabled={busy} onSave={(name) => renameMedicine(l.key, name)} /> <span className="font-normal text-charcoal/55">· {l.when}</span>{l.removed ? <span className="ml-2 rounded bg-[#8C3B2E]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8C3B2E] no-underline">removed for this patient by {l.edited?.byName}</span> : l.added ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">added for this patient by {l.added.byName}</span> : l.edited && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">corrected by {l.edited.byName}</span>}</p>
               {l.edited && l.original?.dose && l.original.dose !== l.dose && <p className="text-xs text-charcoal/45 line-through">{l.original.dose}</p>}
               {l.dose && <p className="whitespace-pre-line text-sm text-charcoal/80">{l.dose}</p>}
               {l.components && <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">{l.components.map((c) => <span key={c.code} className="rounded border border-cardline bg-white px-2 py-0.5">{c.name}: {num(c.qty)} {c.unit}{c.grams ? ` = ${num(c.grams)} g` : ''}{c.pinches ? ` / ${c.pinches} चुटकी` : ''}</span>)}</div>}

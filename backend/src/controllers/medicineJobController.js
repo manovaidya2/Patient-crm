@@ -56,7 +56,6 @@ const paymentOf = async (patient, stage, request) => {
   return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && require('../utils/poPayment').paymentCleared(pay) && !(stage.transit?.holdActive || stage.transit?.removedAt) };
 };
 
-const planSentFor = async (job, stage) => fixedSupplyPlan({ po: job.purchaseOrder ? await PurchaseOrder.findById(job.purchaseOrder).lean() : null, stage });
 const isoOf = (value) => (value ? new Date(value).toISOString() : null);
 
 // Step 0 of the job: the request as it came in from In Transit, with where each value came from.
@@ -272,17 +271,15 @@ const setSupply = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   needSheetOwner(req.user, job);
+  if (job.status !== 'open') fail('The supply cannot change once the medicine is ready or the job is closed');
+  if (job.hold?.active) fail('Resume the job first', 409);
   if ((job.currentStage || 0) > STAGE_INDEX.formula) fail('The supply cannot change after the doctor has sent the formulation');
   const ageBand = clean(req.body?.ageBand, 10);
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
   const [plan, part] = String(req.body?.supplyKey || '').split(':');
   const option = supplyOption(plan, part);
   if (!option) fail(plan === 'CUSTOM' ? 'Custom supply: choose the months / days of medicine (1 day to 12 months)' : 'Select the medicine supply');
-  // The supply (6 months / 1+5 / 2+4) and the age group were decided in post counselling.
-  const { stage: jobStage } = await loadPatientAndRequest(job);
-  const sent = await planSentFor(job, jobStage);
-  if (sent.plan && (option.plan !== job.supplyPlan || option.part !== job.supplyPart) && !canOverrideFixed(req.user)) fail('The medicine supply is set by post counselling on the PO paper; only the admin can change it', 403);
-  if (sent.ageBand && ageBand !== job.ageBand && !canOverrideFixed(req.user)) fail('The age group is set by post counselling on the PO paper; only the admin can change it', 403);
+  // Post counselling provides the starting values; the formulation owner can correct them for this patient.
   Object.assign(job, { ageBand, supplyPlan: option.plan, supplyPart: option.part });
   await applyFormulation(job);
   event(job, req.user, 'Supply set', `${option.label} | ${AGE_BANDS[ageBand]}`);

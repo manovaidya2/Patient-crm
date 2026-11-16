@@ -376,6 +376,7 @@ export default function MedicineJobPage() {
   const [holdText, setHoldText] = useState('');
   const [ringNote, setRingNote] = useState('');
   const [supply, setSupply] = useState({ ageBand: '', supplyKey: '' });
+  const [savingSupply, setSavingSupply] = useState(false);
   const canAct = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT], user);
 
   const load = useCallback(async () => {
@@ -397,7 +398,13 @@ export default function MedicineJobPage() {
     try { const { data } = await api.post(`/medicine-jobs/${id}/revert`, { stage: revertKey, reason: revertReason }); setRevertKey(''); setRevertReason(''); done(data.job, 'Stage reverted.'); }
     catch (err) { setError(err.response?.data?.message || 'Could not revert this stage'); }
   };
-  const saveSupply = async () => { setError(''); try { const { data } = await api.patch(`/medicine-jobs/${id}/supply`, supply); done(data.job, 'Formulation sheet rebuilt for the new supply.'); } catch (err) { setError(err.response?.data?.message || 'Could not change the supply'); } };
+  const saveSupply = async () => {
+    if (job.formulation?.edited && !window.confirm('Changing the age group or supply rebuilds this patient\'s formulation and replaces the current medicine, dose and quantity edits. Continue?')) return;
+    setSavingSupply(true); setError('');
+    try { const { data } = await api.patch(`/medicine-jobs/${id}/supply`, supply); done(data.job, 'Age group and supply saved; formulation rebuilt.'); }
+    catch (err) { setError(err.response?.data?.message || 'Could not change the supply'); }
+    finally { setSavingSupply(false); }
+  };
 
   // `view`: a stage index, or 'request' for step 0. A job not accepted yet opens on step 0 (the request).
   const showRequest = Boolean(job) && (view === 'request' || (view == null && job.currentStage === 0 && job.status === 'open'));
@@ -408,10 +415,9 @@ export default function MedicineJobPage() {
   const stageCanAct = (canAct || [ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR].includes(user?.role)) && isCurrent && !job.hold && job.status !== 'released' && roleAllowed(shown.roles, user);
   const [urgLabel, urgTone] = URGENCY[job.urgency?.level] || URGENCY.normal;
   // Supply / age group belong to the formulation check, so only that stage's owner changes them.
-  // The supply (6 months / 1+5 / 2+4) was chosen in post counselling; only the admin can change it here.
-  // Locked only when post counselling sent them (older requests without a PO paper are still chosen here).
-  const supplyLocked = Boolean(job.fixedPlan?.supply) && !isAdminLike(user);
-  const ageLocked = Boolean(job.fixedPlan?.ageBand) && !isAdminLike(user);
+  // Post counselling supplies the initial values; the Doctor/Admin can correct them during formulation.
+  const supplyLocked = savingSupply;
+  const ageLocked = savingSupply;
   // While the doctor makes the formulation (step 2), the Medicine Department's step is locked and blurred.
   const waitingForDoctor = job.currentKey === 'formula' && job.status === 'open' && user?.role === ROLES.MEDICINE_DEPARTMENT;
   // Other departments' steps are locked; treatment papers are now done here by the Medicine Department.
@@ -536,11 +542,11 @@ export default function MedicineJobPage() {
                   {['formula', 'review'].includes(shown.key) ? <PatientFile documents={job.patientDocuments || []} className="mb-4" /> : <button type="button" onClick={() => setView('request')} className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline"><FileText size={13} />Request details & patient file (step 0)</button>}
                   {shown.key === 'formula' && canChangeSupply && (
                     <div className="mb-4 rounded-lg border border-cardline bg-offwhite-200/60 p-3">
-                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">{supplyLocked || ageLocked ? 'Age group & supply (sent by post counselling)' : 'Age group & supply (choose as per the prescription)'}</p>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">Age group &amp; supply (choose as per the prescription)</p>
                       <div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={supply.ageBand === b.value} disabled={ageLocked && supply.ageBand !== b.value} onClick={() => !ageLocked && setSupply((s) => ({ ...s, ageBand: b.value }))}>{b.label}</Chip>)}</div>
                       <div className="mt-2"><SupplyChips value={supply.supplyKey} onChange={(key) => setSupply((s) => ({ ...s, supplyKey: key }))} locked={supplyLocked} /></div>
-                      {supplyLocked && <FixedNote />}
-                      {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart)) && <Button size="sm" className="mt-2" onClick={saveSupply}>Rebuild sheet</Button>}
+                      <p className="mt-2 text-xs text-charcoal/60">Doctor/Admin can correct the age group and supply before sending the formulation. Saving rebuilds the sheet for the new selection.</p>
+                      {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart)) && <Button size="sm" className="mt-2" disabled={savingSupply} onClick={saveSupply}>{savingSupply ? 'Saving...' : 'Save age group & supply'}</Button>}
                     </div>
                   )}
                   {shown.key !== 'release' && !stageCanAct && !job.hold && job.status !== 'released' && <p className="mb-3 flex items-center gap-2 rounded-lg bg-offwhite-200 px-3 py-2 text-sm font-semibold text-charcoal/70"><Lock size={14} />View only: this stage is filled by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}

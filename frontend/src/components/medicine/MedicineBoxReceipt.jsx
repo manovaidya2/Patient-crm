@@ -6,7 +6,7 @@ import Button from '../ui/Button.jsx';
 
 export const formatBoxReceiptTime = (value) => value ? new Date(value).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '';
 
-export default function MedicineBoxReceipt({ job, onSaved }) {
+export default function MedicineBoxReceipt({ job, onSaved, readOnly = false }) {
   const { user } = useAuth();
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
@@ -14,16 +14,16 @@ export default function MedicineBoxReceipt({ job, onSaved }) {
   const [assignedPccId, setAssignedPccId] = useState(null);
   const userId = String(user?.id || user?._id || '');
   useEffect(() => {
-    if (user?.role !== ROLES.ASSISTANT_DOCTOR) return undefined;
+    if (readOnly || user?.role !== ROLES.ASSISTANT_DOCTOR) return undefined;
     let active = true;
     api.get('/treatment-papers/setting', { params: { kind: 'final' } }).then(({ data }) => { if (active) setAssignedPccId(data.pcc?.id || ''); }).catch(() => { if (active) setError('Could not check the assigned final verification PCC. Refresh to retry.'); });
     return () => { active = false; };
-  }, [userId, user?.role]);
+  }, [userId, user?.role, readOnly]);
   const receipt = job.boxReceipt;
   const finalDone = job.stages?.some((s) => s.key === 'final' && s.state === 'done');
   const available = job.status !== 'cancelled' && !job.hold;
-  const canRequest = available && finalDone && !receipt && (user?.role === ROLES.MEDICINE_DEPARTMENT || isAdminLike(user));
-  const canReceive = available && receipt?.status === 'pending' && user?.role === ROLES.ASSISTANT_DOCTOR && assignedPccId === userId;
+  const canRequest = !readOnly && available && finalDone && !receipt && (user?.role === ROLES.MEDICINE_DEPARTMENT || isAdminLike(user));
+  const canReceive = !readOnly && available && receipt?.status === 'pending' && user?.role === ROLES.ASSISTANT_DOCTOR && assignedPccId === userId;
   const save = async (action) => {
     setBusy(true); setError('');
     try {

@@ -8,6 +8,26 @@ const { masterFromDoc } = require('../utils/formulationMasterStore');
 
 afterEach(() => mock.restoreAll());
 
+test('every master medicine can be renamed for one patient while stock links, quantities and master names remain intact', () => {
+  const original = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' });
+  const before = JSON.stringify(original);
+  const overrides = original.lines.map((line, i) => ({ key: line.key, name: `Patient medicine ${i + 1}` }));
+  const renamed = applyOverrides(original, overrides, { byName: 'Doctor' });
+  renamed.lines.forEach((line, i) => {
+    assert.equal(line.name, overrides[i].name);
+    assert.equal(line.original.name, original.lines[i].name);
+    assert.equal(line.stockCode, original.lines[i].stockCode);
+    assert.equal(line.qty, original.lines[i].qty);
+    assert.equal(line.dose, original.lines[i].dose);
+  });
+  assert.equal(chitsFor(renamed)[0].name, overrides[0].name);
+  assert.equal(JSON.stringify(original), before);
+  assert.equal(formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' }).lines[0].name, original.lines[0].name);
+  const again = applyOverrides(renamed, [{ key: 'ghrit', name: 'Second name' }]);
+  assert.equal(again.lines[0].original.name, original.lines[0].name);
+  for (const name of ['', '   ', {}, 'a'.repeat(121)]) assert.throws(() => applyOverrides(original, [{ key: 'ghrit', name }]), /medicine name/);
+});
+
 test('multiple dose instructions survive save, reopen, append and removal without truncating the chit', () => {
   const initial = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' });
   const entries = [0, 1, 2].map((i) => ({ id: `dose-${i}`, doseTemplate: 'custom', dose: `Instruction ${i}: ${'text '.repeat(40)}`, customDose: `Instruction ${i}` }));
