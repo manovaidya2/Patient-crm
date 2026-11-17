@@ -104,6 +104,7 @@ module.exports = {
   uploadStageRecord: createUpload('records'),
   uploadConsultationFeeProof: createUpload('consultation-fees'),
   uploadRecordRoomImages: createUpload('records', {
+    maxFileSize: 50 * 1024 * 1024,
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'],
     allowedTypeMessage: 'Only images or PDF documents are allowed',
   }),

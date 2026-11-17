@@ -3,10 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
+const { randomBytes } = require('crypto');
+const { once } = require('events');
+const express = require('express');
 const { PDFDocument } = require('pdf-lib');
 const sharp = require('sharp');
 const RecordRoom = require('../models/RecordRoom');
 const controller = require('./recordRoomController');
+const { uploadRecordRoomImages, optimizeRecordRoomImages } = require('../middleware/fileUploads');
 
 afterEach(() => mock.restoreAll());
 const directory = path.resolve(__dirname, '../../uploads/records');
@@ -197,4 +201,42 @@ test('both paper-delete routes allow Reception/Admin/Manager and deny other role
       assert.equal(allowed, ['admin', 'manager', 'receptionist'].includes(role));
     }
   }
+});
+
+test('15 MB PDF passes real multipart upload for add, single replace and replace-all', async (t) => {
+  const { record } = await setup(t);
+  assert.equal(uploadRecordRoomImages.limits.fileSize, 50 * 1024 * 1024);
+  const pdf = await PDFDocument.create();
+  pdf.addPage([200, 300]);
+  await pdf.attach(randomBytes(15 * 1024 * 1024), 'original-scan.bin');
+  const bytes = await pdf.save();
+  assert.ok(bytes.byteLength > 15 * 1024 * 1024);
+  const uploadedPaths = [];
+  const app = express();
+  const middleware = [uploadRecordRoomImages.array('documents', 30), optimizeRecordRoomImages, (req, res, next) => {
+    uploadedPaths.push(...req.files.map((file) => file.path));
+    req.user = { name: 'Reception', role: 'receptionist' };
+    next();
+  }];
+  app.post('/records/:id/documents', ...middleware, controller.uploadDocuments);
+  app.patch('/records/:id/documents/:documentId', ...middleware, controller.replaceDocument);
+  app.patch('/records/:id/documents', ...middleware, controller.replaceAllDocuments);
+  app.use((error, req, res, next) => res.status(400).json({ message: error.message }));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await Promise.all(uploadedPaths.map((target) => fs.promises.unlink(target).catch(() => {})));
+  });
+  const base = `http://127.0.0.1:${server.address().port}/records/${record._id}/documents`;
+  for (const [method, url] of [['POST', base], ['PATCH', `${base}/${record.documents[0]._id}`], ['PATCH', base]]) {
+    const form = new FormData();
+    form.append('documents', new Blob([bytes], { type: 'application/pdf' }), '15MB-record.pdf');
+    const response = await fetch(url, { method, body: form });
+    const result = await response.json();
+    assert.equal(response.status, 200, result.message);
+    assert.equal(result.success, true);
+  }
+  assert.equal(record.documents.length, 1);
+  assert.equal(record.pdfPageCount, 1);
 });

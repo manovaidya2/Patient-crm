@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, isAdminLike } from '../../constants/roles.js';
 import RecordUploadStatus from '../../components/RecordUploadStatus.jsx';
 import ReplaceRecordDocumentModal from '../../components/ReplaceRecordDocumentModal.jsx';
+import { RECORD_ROOM_UPLOAD_MAX_BYTES, RECORD_ROOM_UPLOAD_MAX_MB } from '../../constants/recordRoom.js';
 
 const base = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -183,6 +184,11 @@ export default function RecordRoom() {
     const input = event.target;
     const files = Array.from(input.files || []);
     if (!files.length) return;
+    if (files.some((file) => file.size > RECORD_ROOM_UPLOAD_MAX_BYTES)) {
+      setError(`Each image or PDF must be up to ${RECORD_ROOM_UPLOAD_MAX_MB} MB`);
+      input.value = '';
+      return;
+    }
     setSaving(true); setError('');
     try {
       const body = new FormData();
