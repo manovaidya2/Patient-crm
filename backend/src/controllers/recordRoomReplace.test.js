@@ -138,3 +138,63 @@ test('bulk replacement refuses an empty set without removing any papers', async 
   assert.equal((await replace(record, [], undefined, true)).status, 400);
   assert.deepEqual(record.documents.map((document) => document.url), old);
 });
+
+async function deletePapers(record, all) {
+  let result; let error; let status = 200;
+  await (all ? controller.deleteAllDocuments : controller.deleteDocument)({ params: { id: String(record._id), documentId: String(record.documents[0]?._id) }, user: { name: 'Prachi', role: 'receptionist' } }, { status(code) { status = code; return this; }, json(value) { result = value; } }, (err) => { error = err; });
+  return { result, error, status };
+}
+
+for (const all of [false, true]) {
+  test(`Reception deletes ${all ? 'all papers' : 'one paper'} and updates documents and PDF`, async (t) => {
+    const { record } = await setup(t);
+    record.issueHistory.push({ givenTo: 'Doctor', reason: 'Review' });
+    const history = record.issueHistory.map((item) => item.toObject());
+    const previous = record.documents.map((item) => item.toObject());
+    const previousPdf = record.pdfUrl;
+    const { result, error } = await deletePapers(record, all);
+    assert.equal(error, undefined);
+    assert.equal(result.success, true);
+    assert.equal(record.patientName, 'Test patient');
+    assert.deepEqual(record.issueHistory.map((item) => item.toObject()), history);
+    assert.equal(record.documents.length, all ? 0 : 1);
+    assert.equal(record.pdfPageCount, all ? 0 : 1);
+    await assert.rejects(fs.promises.access(diskPath(previous[0].url)));
+    await assert.rejects(fs.promises.access(diskPath(previousPdf)));
+    if (all) {
+      assert.equal(record.pdfUrl, '');
+      assert.equal(record.pdfUpdatedAt, null);
+      await assert.rejects(fs.promises.access(diskPath(previous[1].url)));
+    } else {
+      assert.equal(String(record.documents[0]._id), String(previous[1]._id));
+      assert.equal((await PDFDocument.load(await fs.promises.readFile(diskPath(record.pdfUrl)))).getPageCount(), 1);
+      await fs.promises.access(diskPath(previous[1].url));
+    }
+  });
+
+  test(`failed ${all ? 'delete-all' : 'single-paper delete'} keeps all old files and PDF`, async (t) => {
+    const { record } = await setup(t);
+    const previous = record.documents.map((item) => item.toObject());
+    const previousPdf = record.pdfUrl;
+    const bytes = await fs.promises.readFile(diskPath(previousPdf));
+    record.save = async () => { throw new Error('Save failed'); };
+    assert.ok((await deletePapers(record, all)).error);
+    assert.deepEqual(record.documents.map((item) => item.toObject()), previous);
+    assert.equal(record.pdfUrl, previousPdf);
+    assert.equal(record.pdfPageCount, 3);
+    assert.deepEqual(await fs.promises.readFile(diskPath(previousPdf)), bytes);
+    for (const document of previous) await fs.promises.access(diskPath(document.url));
+  });
+}
+
+test('both paper-delete routes allow Reception/Admin/Manager and deny other roles', () => {
+  const router = require('../routes/recordRoomRoutes');
+  for (const path of ['/:id/documents', '/:id/documents/:documentId']) {
+    const route = router.stack.find((layer) => layer.route?.path === path && layer.route.methods.delete).route;
+    for (const role of ['admin', 'manager', 'receptionist', 'doctor', 'assistant_doctor', 'sales_team']) {
+      let allowed = false;
+      route.stack[0].handle({ user: { role }, method: 'DELETE' }, { status() { return this; }, json() {} }, () => { allowed = true; });
+      assert.equal(allowed, ['admin', 'manager', 'receptionist'].includes(role));
+    }
+  }
+});

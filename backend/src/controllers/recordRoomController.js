@@ -254,17 +254,37 @@ const replaceRecordDocuments = async (req, res, all = false) => {
 const replaceDocument = asyncHandler((req, res) => replaceRecordDocuments(req, res));
 const replaceAllDocuments = asyncHandler((req, res) => replaceRecordDocuments(req, res, true));
 
-const deleteDocument = asyncHandler(async (req, res) => {
+const deleteRecordDocuments = async (req, res, all = false) => {
   const record = await RecordRoom.findById(req.params.id);
   if (!record) return res.status(404).json({ success: false, message: 'Record room entry not found' });
   const index = record.documents.findIndex((document) => String(document._id) === String(req.params.documentId));
-  if (index === -1) return res.status(404).json({ success: false, message: 'Document not found' });
-  const [document] = record.documents.splice(index, 1);
-  await rebuildPdf(record);
-  await record.save();
-  await removeFile(document.url);
+  if (!all && index === -1) return res.status(404).json({ success: false, message: 'Document not found' });
+  const previousDocuments = record.documents.map((document) => document.toObject());
+  const previousPdf = Object.fromEntries(['pdfUrl', 'pdfName', 'pdfPageCount', 'pdfUpdatedAt'].map((key) => [key, record[key]]));
+  const removed = all ? previousDocuments : [previousDocuments[index]];
+  let generatedPdf;
+  try {
+    if (all) record.documents = [];
+    else record.documents.splice(index, 1);
+    if (record.documents.length) {
+      await rebuildPdf(record, { suffix: `-${randomUUID()}`, removePrevious: false });
+      generatedPdf = record.pdfUrl;
+    } else {
+      Object.assign(record, { pdfUrl: '', pdfName: '', pdfPageCount: 0, pdfUpdatedAt: null });
+    }
+    await record.save();
+  } catch (error) {
+    record.documents = previousDocuments;
+    Object.assign(record, previousPdf);
+    if (generatedPdf) await removeFile(generatedPdf);
+    throw error;
+  }
+  await Promise.all(removed.map((document) => removeFile(document.url)));
+  if (previousPdf.pdfUrl && previousPdf.pdfUrl !== record.pdfUrl) await removeFile(previousPdf.pdfUrl);
   res.json({ success: true, record: serialize(record) });
-});
+};
+const deleteDocument = asyncHandler((req, res) => deleteRecordDocuments(req, res));
+const deleteAllDocuments = asyncHandler((req, res) => deleteRecordDocuments(req, res, true));
 
 const issue = asyncHandler(async (req, res) => {
   const givenTo = String(req.body.givenTo || '').trim();
@@ -294,4 +314,4 @@ const collect = asyncHandler(async (req, res) => {
   await record.save(); res.json({ success: true, record: serialize(record) });
 });
 
-module.exports = { overdue, list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, replaceDocument, replaceAllDocuments, deleteDocument, issue, collect };
+module.exports = { overdue, list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, replaceDocument, replaceAllDocuments, deleteDocument, deleteAllDocuments, issue, collect };
