@@ -29,7 +29,7 @@ router.post('/:id/box-receipt/:action(request|receive)', authorize(ROLES.MEDICIN
 router.post('/:id/release-request/:action(request|verify-payment|accept|status|extend|cancel|reopen)', authorize(ROLES.IN_TRANSIT, ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN), require('../controllers/medicineJobController').updateReleaseRequest);
 router.post('/:id/return', authorize(...JOB_ROLES), returnToTransit);
 router.post('/:id/ring-transit', authorize(ROLES.MEDICINE_DEPARTMENT, ROLES.ADMIN), ringTransit);
-router.post('/:id/revert', authorize(ROLES.ADMIN, ROLES.MANAGER), revertJob);
+router.post('/:id/revert', authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR), revertJob);
 router.post('/:id/resume', authorize(...JOB_ROLES), resumeJob);
 
 module.exports = router;

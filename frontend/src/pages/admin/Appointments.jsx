@@ -292,57 +292,58 @@ function InTransitStatus({ value }) {
   </div>;
 }
 
-function HistoryTick({ row, step, onSaved, onError }) {
-  const value = step === 'taken' ? row.historyTaken : row.historyStarted;
+// Saved ticks stay locked until the operator explicitly opens Edit.
+function VisitTick({ row, step, endpoint, label, value, canMark, blocked, blockedReason, history = false, onSaved, onError }) {
   const [busy, setBusy] = useState(false);
-  const blocked = !row.patientId || (step === 'taken' && !row.historyStarted);
-  const toggle = async () => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(false);
+  const [draftChanged, setDraftChanged] = useState(false);
+  const checked = editing ? draft : Boolean(value);
+  const save = async (done, edit = false) => {
+    if (busy || blocked) return;
+    const refreshTimestamp = edit && done && draftChanged;
+    if (done === Boolean(value) && !refreshTimestamp) { setEditing(false); return; }
     setBusy(true); onError('');
-    try { const { data } = await api.post(`/appointments-board/${row.id}/history`, { step, done: !value }); onSaved(data.row); }
-    catch (err) { onError(err.response?.data?.message || 'Could not save'); }
+    try {
+      const { data } = await api.post('/appointments-board/' + row.id + '/' + endpoint, { step, done, edit, refreshTimestamp });
+      onSaved(data.row);
+      setEditing(false);
+    } catch (err) { onError(err.response?.data?.message || 'Could not save ' + label); }
     finally { setBusy(false); }
   };
-  if (!row.canMarkHistory) return value ? <><span className="font-bold text-emerald-700">✓ Done</span><Stamp at={value.at} by={value.byName} /></> : <Empty />;
-  return (
-    <label className={`inline-flex flex-col ${blocked ? 'opacity-40' : 'cursor-pointer'}`} title={!row.patientId ? 'Reception marks the arrival first' : step === 'taken' && !row.historyStarted ? 'Tick History start first' : ''}>
-      <input type="checkbox" className="h-4 w-4 accent-[#5B7B65]" checked={Boolean(value)} disabled={busy || blocked} onChange={toggle} />
-      <Stamp at={value?.at} by={value?.byName} />
+  const stamp = history ? <Stamp at={value?.at} by={value?.byName} /> : value ? <p className="mt-0.5 text-[11px] leading-4 text-charcoal/55">{dateTime(value.at)} · {value.byName}</p> : null;
+  if (!canMark) return value ? <><span className="font-bold text-emerald-700">✓ Done</span>{stamp}</> : <Empty />;
+  return <div className="inline-flex flex-col items-start gap-1">
+    <label title={blocked ? blockedReason : value && !editing ? 'Use Edit to change this saved status' : label}>
+      <input type="checkbox" aria-label={label + ' for ' + row.patientName} className="h-4 w-4 accent-[#5B7B65]" checked={checked} disabled={busy || blocked || (Boolean(value) && !editing)} onChange={(e) => { if (editing) { setDraft(e.target.checked); setDraftChanged(true); } else { save(e.target.checked); } }} />
     </label>
-  );
+    {stamp}
+    {editing ? <div className="flex gap-2 text-xs font-semibold">
+      <button type="button" className="text-sage hover:underline disabled:opacity-40" disabled={busy || blocked} onClick={() => save(draft, true)}>{busy ? 'Saving...' : 'Save'}</button>
+      <button type="button" className="text-charcoal/60 hover:underline disabled:opacity-40" disabled={busy} onClick={() => { setEditing(false); onError(''); }}>Cancel</button>
+    </div> : value && <button type="button" aria-label={'Edit ' + label + ' for ' + row.patientName} title={blocked ? blockedReason : 'Edit ' + label} className="text-xs font-semibold text-sage hover:underline disabled:opacity-40" disabled={busy || blocked} onClick={() => { setDraft(Boolean(value)); setDraftChanged(false); setEditing(true); onError(''); }}>Edit</button>}
+  </div>;
 }
 
-function OpdTick({ row, step, onSaved, onError }) {
+function HistoryTick({ row, step, ...props }) {
+  const value = step === 'taken' ? row.historyTaken : row.historyStarted;
+  const blocked = !row.patientId || (step === 'taken' && !row.historyStarted) || (step === 'started' && Boolean(row.historyTaken));
+  const blockedReason = !row.patientId ? 'Reception marks the arrival first' : step === 'taken' ? 'Tick History start first' : 'Edit and untick History taken first';
+  return <VisitTick row={row} step={step} endpoint="history" label={step === 'taken' ? 'History taken' : 'History start'} value={value} canMark={row.canMarkHistory} blocked={blocked} blockedReason={blockedReason} history {...props} />;
+}
+
+function OpdTick({ row, step, ...props }) {
   const value = step === 'completed' ? row.opdCompleted : row.opdStarted;
-  const [busy, setBusy] = useState(false);
   const blocked = !row.patientId || (step === 'completed' && !row.opdStarted) || (step === 'started' && Boolean(row.opdCompleted));
-  const stamp = value ? <p className="mt-0.5 text-[11px] leading-4 text-charcoal/55">{dateTime(value.at)} · {value.byName}</p> : null;
-  const toggle = async () => {
-    setBusy(true); onError('');
-    try { const { data } = await api.post(`/appointments-board/${row.id}/opd`, { step, done: !value }); onSaved(data.row); }
-    catch (err) { onError(err.response?.data?.message || 'Could not save OPD status'); }
-    finally { setBusy(false); }
-  };
-  if (!row.canMarkOpd) return value ? <><span className="font-bold text-emerald-700">✓ Done</span>{stamp}</> : <Empty />;
-  return <label className={`inline-flex flex-col ${blocked ? 'opacity-40' : 'cursor-pointer'}`} title={!row.patientId ? 'Reception marks the arrival first' : step === 'completed' && !row.opdStarted ? 'Tick OPD start first' : step === 'started' && row.opdCompleted ? 'Untick OPD complete first' : ''}>
-    <input type="checkbox" aria-label={step === 'completed' ? `OPD complete for ${row.patientName}` : `OPD start for ${row.patientName}`} className="h-4 w-4 accent-[#5B7B65]" checked={Boolean(value)} disabled={busy || blocked} onChange={toggle} />{stamp}
-  </label>;
+  const blockedReason = !row.patientId ? 'Reception marks the arrival first' : step === 'completed' ? 'Tick OPD start first' : 'Edit and untick OPD complete first';
+  return <VisitTick row={row} step={step} endpoint="opd" label={step === 'completed' ? 'OPD complete' : 'OPD start'} value={value} canMark={row.canMarkOpd} blocked={blocked} blockedReason={blockedReason} {...props} />;
 }
 
-function PostCounsellingTick({ row, step, onSaved, onError }) {
+function PostCounsellingTick({ row, step, ...props }) {
   const value = step === 'completed' ? row.postCounsellingCompleted : row.postCounsellingStarted;
-  const [busy, setBusy] = useState(false);
   const blocked = !row.patientId || (step === 'completed' && !row.postCounsellingStarted) || (step === 'started' && Boolean(row.postCounsellingCompleted));
-  const stamp = value ? <p className="mt-0.5 text-[11px] leading-4 text-charcoal/55">{dateTime(value.at)} · {value.byName}</p> : null;
-  const toggle = async () => {
-    setBusy(true); onError('');
-    try { const { data } = await api.post(`/appointments-board/${row.id}/post-counselling`, { step, done: !value }); onSaved(data.row); }
-    catch (err) { onError(err.response?.data?.message || 'Could not save post counselling status'); }
-    finally { setBusy(false); }
-  };
-  if (!row.canMarkPostCounselling) return value ? <><span className="font-bold text-emerald-700">✓ Done</span>{stamp}</> : <Empty />;
-  return <label className={`inline-flex flex-col ${blocked ? 'opacity-40' : 'cursor-pointer'}`} title={!row.patientId ? 'Reception marks the arrival first' : step === 'completed' && !row.postCounsellingStarted ? 'Tick Post Counselling start first' : step === 'started' && row.postCounsellingCompleted ? 'Untick Post Counselling complete first' : ''}>
-    <input type="checkbox" aria-label={step === 'completed' ? `Post Counselling complete for ${row.patientName}` : `Post Counselling start for ${row.patientName}`} className="h-4 w-4 accent-[#5B7B65]" checked={Boolean(value)} disabled={busy || blocked} onChange={toggle} />{stamp}
-  </label>;
+  const blockedReason = !row.patientId ? 'Reception marks the arrival first' : step === 'completed' ? 'Tick Post Counselling start first' : 'Edit and untick Post Counselling complete first';
+  return <VisitTick row={row} step={step} endpoint="post-counselling" label={step === 'completed' ? 'Post Counselling complete' : 'Post Counselling start'} value={value} canMark={row.canMarkPostCounselling} blocked={blocked} blockedReason={blockedReason} {...props} />;
 }
 
 export default function Appointments() {
@@ -437,7 +438,7 @@ export default function Appointments() {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-charcoal/55">Any PCC ticks "History start" and "History taken". The Medicine Department ticks OPD start/complete; the Post Counselor ticks Post Counselling start/complete. Each tick saves the date, time and operator. Patient ID, arrival, registration and package come in by themselves. <Link to="/admin/appointment-management" className="font-semibold text-sage">Appointment Management</Link></p>
+      <p className="text-xs text-charcoal/55">Any PCC ticks "History start" and "History taken". The Medicine Department ticks OPD start/complete; the Post Counselor ticks Post Counselling start/complete. Each tick saves the date, time and operator. Saved ticks are locked; use Edit, then Save to change them, or Cancel to keep the original status and time. Patient ID, arrival, registration and package come in by themselves. <Link to="/admin/appointment-management" className="font-semibold text-sage">Appointment Management</Link></p>
       <Modal open={exporting} onClose={() => setExporting(false)} title="Export OPD Sheets" className="max-w-xl">
         {exporting && <ExportDialog rows={rows} from={from} to={to} onClose={() => setExporting(false)} />}
       </Modal>

@@ -275,7 +275,8 @@ function doseValues(input) {
     const dose = String(entry.dose || '').trim();
     if ((!dose && input.doseEntries.length > 1) || dose.length > 500) fail('Complete every dose instruction (maximum 500 characters each)');
     const text = (key, max = 500) => String(entry[key] || '').trim().slice(0, max);
-    return { id: text('id', 80), dose, doseTemplate: text('doseTemplate', 80), dosePattern: text('dosePattern'), doseSpoons: text('doseSpoons', 40), doseWaterCups: text('doseWaterCups', 40), customDose: text('customDose'), doseQuantities: Array.isArray(entry.doseQuantities) ? entry.doseQuantities.slice(0, 250).map((q) => String(q).trim().slice(0, 40)) : [] };
+    const doseFieldLabels = Array.isArray(entry.doseFieldLabels) ? entry.doseFieldLabels.slice(0, 250).map((label) => String(label || '').trim().slice(0, 120)) : [];
+    return { id: text('id', 80), dose, doseTemplate: text('doseTemplate', 80), dosePattern: text('dosePattern'), doseSpoons: text('doseSpoons', 40), doseWaterCups: text('doseWaterCups', 40), customDose: text('customDose'), doseFieldLabels, doseQuantities: Array.isArray(entry.doseQuantities) ? entry.doseQuantities.slice(0, 250).map((q) => String(q).trim().slice(0, 40)) : [] };
   });
   return { doseEntries, dose: doseEntries.map((entry) => entry.dose).filter(Boolean).join('\n') };
 }

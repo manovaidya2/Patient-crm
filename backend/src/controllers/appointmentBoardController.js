@@ -243,7 +243,9 @@ const markHistory = asyncHandler(async (req, res) => {
   const [atKey, byKey] = step === 'taken' ? ['historyTakenAt', 'historyTakenByName'] : ['historyStartedAt', 'historyStartedByName'];
   if (done && step === 'taken' && !flow.historyStartedAt) fail('Tick "History start" first');
   if (!done && step === 'started' && flow.historyTakenAt) fail('Untick "History taken" first');
+  if (!done && flow[atKey] && req.body.edit !== true) fail('Use Edit and Save to change a saved status', 409);
   if (!done && !isAdminLike(req.user) && flow[atKey] && Date.now() - new Date(flow[atKey]).getTime() > 30 * 60000) fail('Only the admin can undo this after 30 minutes', 403);
+  if (Boolean(flow[atKey]) === done && !(done && req.body.edit === true && req.body.refreshTimestamp === true)) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
   const now = new Date();
   entry.visitFlow = { ...(flow.toObject ? flow.toObject() : flow), [atKey]: done ? now : null, [byKey]: done ? req.user.name : '' };
   await entry.save();
@@ -264,9 +266,10 @@ const markOpd = asyncHandler(async (req, res) => {
   const [atKey, byKey] = step === 'completed' ? ['opdCompletedAt', 'opdCompletedByName'] : ['opdStartedAt', 'opdStartedByName'];
   if (done && step === 'completed' && !flow.opdStartedAt) fail('Tick "OPD start" first');
   if (!done && step === 'started' && flow.opdCompletedAt) fail('Untick "OPD complete" first');
+  if (!done && flow[atKey] && req.body.edit !== true) fail('Use Edit and Save to change a saved status', 409);
   if (!done && !isAdminLike(req.user) && flow[atKey] && Date.now() - new Date(flow[atKey]).getTime() > 30 * 60000) fail('Only the admin can undo this after 30 minutes', 403);
   // A repeated checkbox save must preserve the actual first tick and its operator.
-  if (Boolean(flow[atKey]) === done) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
+  if (Boolean(flow[atKey]) === done && !(done && req.body.edit === true && req.body.refreshTimestamp === true)) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
   const now = new Date();
   entry.visitFlow = { ...(flow.toObject ? flow.toObject() : flow), [atKey]: done ? now : null, [byKey]: done ? req.user.name : '' };
   await entry.save();
@@ -286,8 +289,9 @@ const markPostCounselling = asyncHandler(async (req, res) => {
   const [atKey, byKey] = step === 'completed' ? ['postCounsellingCompletedAt', 'postCounsellingCompletedByName'] : ['postCounsellingStartedAt', 'postCounsellingStartedByName'];
   if (done && step === 'completed' && !flow.postCounsellingStartedAt) fail('Tick "Post Counselling start" first');
   if (!done && step === 'started' && flow.postCounsellingCompletedAt) fail('Untick "Post Counselling complete" first');
+  if (!done && flow[atKey] && req.body.edit !== true) fail('Use Edit and Save to change a saved status', 409);
   if (!done && !isAdminLike(req.user) && flow[atKey] && Date.now() - new Date(flow[atKey]).getTime() > 30 * 60000) fail('Only the admin can undo this after 30 minutes', 403);
-  if (Boolean(flow[atKey]) === done) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
+  if (Boolean(flow[atKey]) === done && !(done && req.body.edit === true && req.body.refreshTimestamp === true)) return res.json({ success: true, row: rowOf(entry.toObject(), null, req.user) });
   const now = new Date();
   entry.visitFlow = { ...(flow.toObject ? flow.toObject() : flow), [atKey]: done ? now : null, [byKey]: done ? req.user.name : '' };
   await entry.save();

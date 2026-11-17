@@ -50,6 +50,26 @@ test('multiple dose instructions survive save, reopen, append and removal withou
   assert.throws(() => applyOverrides(sheet, [{ key: medicine.key, doseEntries: [{ dose: 'Filled' }, { dose: '' }] }]), /Complete every dose/);
 });
 
+test('renamed dose quantity labels survive save and reopen independently for each dose', () => {
+  const initial = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' });
+  const doseEntries = [
+    { id: 'first', doseTemplate: 'morning-decoction', doseSpoons: '1/2', doseWaterCups: '2', dose: 'First instruction', doseFieldLabels: ['Medicine amount', 'Water amount'] },
+    { id: 'second', doseTemplate: 'saved:test', dosePattern: '___ medicine', doseQuantities: ['1/3'], dose: 'Second instruction', doseFieldLabels: ['Evening amount'] },
+  ];
+  let sheet = applyOverrides(initial, [{ add: true, name: 'Label test', qty: 50, unit: 'g', doseEntries }]);
+  const medicine = sheet.lines.at(-1);
+  sheet = JSON.parse(JSON.stringify(sheet));
+  assert.deepEqual(sheet.lines.at(-1).doseEntries.map((e) => e.doseFieldLabels), doseEntries.map((e) => e.doseFieldLabels));
+  const entries = sheet.lines.at(-1).doseEntries;
+  entries[0].doseFieldLabels[0] = 'Renamed again';
+  sheet = applyOverrides(sheet, [{ key: medicine.key, doseEntries: entries }]);
+  assert.equal(sheet.lines.at(-1).doseEntries[0].doseFieldLabels[0], 'Renamed again');
+  assert.equal(sheet.lines.at(-1).doseEntries[1].doseFieldLabels[0], 'Evening amount');
+  assert.equal(chitsFor(sheet).at(-1).dose, 'First instruction\nSecond instruction');
+  assert.equal(sheet.lines.at(-1).doseEntries[0].doseSpoons, '1/2');
+  assert.equal(sheet.lines.at(-1).doseEntries[1].doseQuantities[0], '1/3');
+});
+
 test('multiple ghrit variants replace the generic ghrit and retain independent quantities, stock and chits', () => {
   const master = normalizeMaster({ quantities: { ghritNm0: { qty: 300, unit: 'ml' }, ghritNm3: { qty: 600, unit: 'ml' } } }, '4-12');
   const sheet = formulationFor({ ageBand: '4-12', plan: '1+5', part: 'first' }, { ...master, ageBand: '4-12' });

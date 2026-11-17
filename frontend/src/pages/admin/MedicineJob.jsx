@@ -390,7 +390,7 @@ export default function MedicineJobPage() {
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
   const done = (next, message) => { setJob(next); setNotice(message); setView(null); setHoldOpen(false); setHoldText(''); };
   const act = async (path, body) => { setError(''); try { const { data } = await api.post(`/medicine-jobs/${id}/${path}`, body); done(data.job, path === 'hold' ? 'Job put on hold.' : path === 'return' ? 'Sent back to In Transit with your note.' : path === 'ring-transit' ? 'Alarm rung.' : 'Job resumed.'); } catch (err) { setError(err.response?.data?.message || 'Could not save'); } };
-  // Admin undo of a completed stage (and every stage after it), with a reason.
+  // Admin/Manager revert stages; the Doctor can reopen Prescription & formulation.
   const [revertKey, setRevertKey] = useState('');
   const [revertReason, setRevertReason] = useState('');
   const runRevert = async () => {
@@ -517,9 +517,9 @@ export default function MedicineJobPage() {
                 <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-semibold">Completed by {shown.doneByName} ({ROLE_LABELS[shown.doneByRole] || shown.doneByRole}) · {dateTime(shown.doneAt)}</p>
-                    {isAdminLike(user) && job.status !== 'cancelled' && (revertKey === shown.key
+                    {(isAdminLike(user) || (user?.role === ROLES.DOCTOR && shown.key === 'formula')) && job.status !== 'cancelled' && (revertKey === shown.key
                       ? <span className="flex flex-wrap items-center gap-2"><input className={`${poInput} w-64`} placeholder="Why is this reverted?" value={revertReason} onChange={(e) => setRevertReason(e.target.value)} /><Button size="sm" disabled={!revertReason.trim()} onClick={runRevert}><RotateCcw size={13} />Revert to this stage</Button><Button size="sm" variant="outline" onClick={() => setRevertKey('')}>Cancel</Button></span>
-                      : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Admin: undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
+                      : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
                   </div>
                   <DoneList stage={shown} job={job} />
                   {['review', 'formula'].includes(shown.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}

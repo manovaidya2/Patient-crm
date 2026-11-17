@@ -83,7 +83,7 @@ const optimizeRecordRoomImages = async (req, res, next) => {
     while (cursor < files.length) {
       const index = cursor;
       cursor += 1;
-      optimized[index] = await optimizeUploadedImage(files[index]);
+      optimized[index] = files[index].mimetype === 'application/pdf' ? files[index] : await optimizeUploadedImage(files[index]);
     }
   };
   try {
@@ -103,7 +103,10 @@ const optimizeRecordRoomImages = async (req, res, next) => {
 module.exports = {
   uploadStageRecord: createUpload('records'),
   uploadConsultationFeeProof: createUpload('consultation-fees'),
-  uploadRecordRoomImages: createUpload('records', { imagesOnly: true }),
+  uploadRecordRoomImages: createUpload('records', {
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'],
+    allowedTypeMessage: 'Only images or PDF documents are allowed',
+  }),
   optimizeRecordRoomImages,
   uploadPrescription: createUpload('prescriptions'),
   uploadMedicineImage: createUpload('medicine', { imagesOnly: true }),

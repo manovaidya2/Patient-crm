@@ -108,7 +108,7 @@ test('OPD requires arrival and keeps the history undo window', async () => {
   const entry = makeEntry();
   entry.visitFlow = { opdStartedAt: new Date(Date.now() - 40 * 60000), opdStartedByName: medicine.name, historyStartedAt: new Date(), historyStartedByName: pcc.name };
   await withStubs(entry, async () => {
-    const req = { params: { id: String(entry._id) }, body: { step: 'started', done: false }, user: medicine };
+    const req = { params: { id: String(entry._id) }, body: { step: 'started', done: false, edit: true }, user: medicine };
     assert.equal((await run(controller.markOpd, req)).error.statusCode, 403);
     const admin = { _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' };
     const undone = await run(controller.markOpd, { ...req, user: admin });
@@ -159,7 +159,7 @@ test('post counselling ticks require arrival and follow the history undo window'
   const entry = makeEntry();
   entry.visitFlow = { postCounsellingStartedAt: new Date(Date.now() - 40 * 60000), postCounsellingStartedByName: postCounselor.name };
   await withStubs(entry, async () => {
-    const req = { params: { id: String(entry._id) }, body: { step: 'started', done: false }, user: postCounselor };
+    const req = { params: { id: String(entry._id) }, body: { step: 'started', done: false, edit: true }, user: postCounselor };
     assert.equal((await run(controller.markPostCounselling, req)).error.statusCode, 403);
     const undone = await run(controller.markPostCounselling, { ...req, user: { _id: new mongoose.Types.ObjectId(), name: 'Admin', role: 'admin' } });
     assert.equal(undone.error, null);
@@ -309,4 +309,66 @@ test('appointment payment dropdown includes verified and pending PO payments wit
   assert.equal(view.payments.find((payment) => payment.id === 'pay-1').approvedByName, 'Transit A');
   assert.equal(view.payments.find((payment) => payment.id === 'pay-2').status, 'pending');
   assert.deepEqual(controller.progressOf({ id: 'po-2', steps: [] }).inTransit.payments, []);
+});
+
+
+test('saved visit ticks require Edit to undo and retries preserve timestamps and operators', async () => {
+  for (const [handler, user, steps] of [
+    [controller.markHistory, pcc, [['started', 'historyStarted'], ['taken', 'historyTaken']]],
+    [controller.markOpd, medicine, [['started', 'opdStarted'], ['completed', 'opdCompleted']]],
+    [controller.markPostCounselling, postCounselor, [['started', 'postCounsellingStarted'], ['completed', 'postCounsellingCompleted']]],
+  ]) {
+    const entry = makeEntry();
+    await withStubs(entry, async () => {
+      const audits = [];
+      let saves = 0;
+      entry.save = async () => { saves++; return entry; };
+      SalesSheetAudit.create = async (value) => { audits.push(value); return {}; };
+      const mark = (step, done = true, edit = false, actor = user) => run(handler, { params: { id: String(entry._id) }, body: { step, done, edit }, user: actor });
+      for (const [step, key] of steps) {
+        const first = await mark(step);
+        assert.equal(first.error, null);
+        const stamp = first.body.row[key];
+        for (const edit of [false, true]) {
+          const repeated = await mark(step, true, edit, { ...user, name: 'Different operator' });
+          assert.deepEqual(repeated.body.row[key], stamp, 'unchanged saves preserve date/time and operator');
+        }
+        assert.equal((await mark(step, false)).error.statusCode, 409, 'a direct untick is rejected');
+        assert.equal((await mark(step, false, 'true')).error.statusCode, 409, 'Edit must be explicitly enabled');
+        assert.deepEqual(controller.rowOf(entry.toObject(), null, user)[key], stamp);
+      }
+      assert.equal(saves, 2, 'retries and rejected unticks never write');
+      assert.equal(audits.length, 2);
+      for (const [step, key] of [...steps].reverse()) {
+        const undone = await mark(step, false, true);
+        assert.equal(undone.error, null);
+        assert.equal(undone.body.row[key], null);
+      }
+      assert.equal(audits.length, 4, 'explicit corrections remain audited');
+    });
+  }
+});
+
+test('Edit re-tick saves a new timestamp and operator only when explicitly requested', async () => {
+  for (const [handler, user, prefix] of [
+    [controller.markHistory, pcc, 'historyStarted'],
+    [controller.markOpd, medicine, 'opdStarted'],
+    [controller.markPostCounselling, postCounselor, 'postCounsellingStarted'],
+  ]) {
+    const entry = makeEntry();
+    entry.visitFlow = { [`${prefix}At`]: new Date('2026-01-01T00:00:00Z'), [`${prefix}ByName`]: 'Original operator' };
+    await withStubs(entry, async () => {
+      const audits = [];
+      SalesSheetAudit.create = async (value) => { audits.push(value); return {}; };
+      const request = (edit) => run(handler, { params: { id: String(entry._id) }, body: { step: 'started', done: true, edit, refreshTimestamp: true }, user });
+      const original = controller.rowOf(entry.toObject(), null, user)[prefix];
+      assert.deepEqual((await request(false)).body.row[prefix], original, 'normal retries cannot reset the timestamp');
+      const before = Date.now();
+      const saved = await request(true);
+      assert.equal(saved.error, null);
+      assert.ok(new Date(saved.body.row[prefix].at).getTime() >= before);
+      assert.equal(saved.body.row[prefix].byName, user.name);
+      assert.equal(audits.length, 1, 'timestamp correction is audited');
+    });
+  }
 });

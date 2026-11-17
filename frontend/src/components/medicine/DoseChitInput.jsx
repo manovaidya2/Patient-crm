@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { cloneElement, useEffect, useId, useState } from 'react';
+import { Pencil } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import { FieldLabel, poInput } from '../purchaseOrders/CreatePurchaseOrderModal.jsx';
@@ -31,6 +32,28 @@ export const doseTemplateComplete = (value) => value.doseEntries
   ? value.doseEntries.length > 0 && value.doseEntries.length <= 20 && value.doseEntries.every((entry) => singleDoseComplete(entry) && (value.doseEntries.length === 1 || Boolean(entry.dose?.trim())))
   : singleDoseComplete(value);
 
+function DoseQuantityField({ label, onRename, children }) {
+  const id = useId();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const save = () => {
+    if (!draft.trim()) return;
+    onRename(draft.trim());
+    setEditing(false);
+  };
+  return <div className="space-y-1 text-sm font-medium text-charcoal">
+    <div className="flex items-center gap-1.5">
+      <label htmlFor={id}>{label}<span className="text-red-700"> *</span></label>
+      <button type="button" className="rounded p-1 text-sage hover:bg-sage/10" aria-label={`Rename ${label}`} title="Rename field" onClick={() => { setDraft(label); setEditing(true); }}><Pencil size={13} /></button>
+    </div>
+    {editing && <div className="space-y-1 rounded border border-cardline bg-white p-2">
+      <input autoFocus aria-label="Field name" className={poInput} maxLength={120} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(false); } }} />
+      <div className="flex gap-2"><Button size="sm" disabled={!draft.trim()} onClick={save}>Save name</Button><Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button></div>
+    </div>}
+    {cloneElement(children, { id })}
+  </div>;
+}
+
 function DoseInstructionInput({ value, onChange }) {
   const [templates, setTemplates] = useState([]);
   const [adding, setAdding] = useState(false);
@@ -51,13 +74,18 @@ function DoseInstructionInput({ value, onChange }) {
   }, []);
   const selected = value.doseTemplate || (value.dose ? 'custom' : '');
   const builtin = BUILTIN_DOSES.find((t) => t.id === selected);
+  const renameField = (index, label) => {
+    const labels = [...(value.doseFieldLabels || [])];
+    labels[index] = label;
+    onChange({ doseFieldLabels: labels });
+  };
   const selectTemplate = (template) => {
     const customDose = selected === 'custom' ? value.dose : value.customDose || '';
     const saved = BUILTIN_DOSES.find((t) => t.id === template) || templates.find((t) => `saved:${t.id}` === template);
     if (saved) {
-      onChange({ doseTemplate: template, customDose, dosePattern: saved.text, doseQuantities: [], dose: patternParts(saved.text).length === 1 ? saved.text : '' });
+      onChange({ doseTemplate: template, customDose, doseFieldLabels: [], dosePattern: saved.text, doseQuantities: [], dose: patternParts(saved.text).length === 1 ? saved.text : '' });
     } else {
-      onChange({ doseTemplate: template, customDose, dose: template === DECOCTION ? (positive(value.doseSpoons) && positive(value.doseWaterCups) ? instruction(value.doseSpoons, value.doseWaterCups) : '') : template === 'custom' ? customDose : '' });
+      onChange({ doseTemplate: template, customDose, doseFieldLabels: [], dose: template === DECOCTION ? (positive(value.doseSpoons) && positive(value.doseWaterCups) ? instruction(value.doseSpoons, value.doseWaterCups) : '') : template === 'custom' ? customDose : '' });
     }
   };
   const saveNewTemplate = async () => {
@@ -66,7 +94,7 @@ function DoseInstructionInput({ value, onChange }) {
       const { data } = await api.post('/formulation-master/dose-templates', { text: newText.trim() });
       const saved = data.template;
       setTemplates((previous) => [...previous.filter((t) => t.id !== saved.id), saved]);
-      onChange({ doseTemplate: `saved:${saved.id}`, customDose: selected === 'custom' ? value.dose : value.customDose || '', dosePattern: saved.text, doseQuantities: [], dose: patternParts(saved.text).length === 1 ? saved.text : '' });
+      onChange({ doseTemplate: `saved:${saved.id}`, customDose: selected === 'custom' ? value.dose : value.customDose || '', doseFieldLabels: [], dosePattern: saved.text, doseQuantities: [], dose: patternParts(saved.text).length === 1 ? saved.text : '' });
       setAdding(false); setNewText('');
       window.dispatchEvent(new Event('crm:dose-templates-changed'));
     } catch (err) { setError(err.response?.data?.message || 'Could not save the dose instruction'); }
@@ -98,18 +126,18 @@ function DoseInstructionInput({ value, onChange }) {
       </div>}
       {selected === DECOCTION && <>
         <div className="grid gap-2 sm:grid-cols-2">
-          <FieldLabel label="दवा की मात्रा (चम्मच)" required><input className={poInput} type="text" value={value.doseSpoons || ''} placeholder="जैसे 1/2, 1/3 या 0.5" onChange={(e) => setQuantity('doseSpoons', e.target.value)} /></FieldLabel>
-          <FieldLabel label="पानी की मात्रा (कप)" required><input className={poInput} type="text" value={value.doseWaterCups || ''} placeholder="जैसे 1/2, 1 या 2" onChange={(e) => setQuantity('doseWaterCups', e.target.value)} /></FieldLabel>
+          <DoseQuantityField label={value.doseFieldLabels?.[0] || 'दवा की मात्रा (चम्मच)'} onRename={(label) => renameField(0, label)}><input className={poInput} type="text" value={value.doseSpoons || ''} placeholder="जैसे 1/2, 1/3 या 0.5" onChange={(e) => setQuantity('doseSpoons', e.target.value)} /></DoseQuantityField>
+          <DoseQuantityField label={value.doseFieldLabels?.[1] || 'पानी की मात्रा (कप)'} onRename={(label) => renameField(1, label)}><input className={poInput} type="text" value={value.doseWaterCups || ''} placeholder="जैसे 1/2, 1 या 2" onChange={(e) => setQuantity('doseWaterCups', e.target.value)} /></DoseQuantityField>
         </div>
         <p className="rounded-lg border border-cardline bg-offwhite-100 p-3 text-sm text-charcoal/80">{instruction(value.doseSpoons, value.doseWaterCups)}</p>
         {!doseTemplateComplete(value) && <p className="text-xs text-charcoal/55">दोनों मात्रा भरें (जैसे 1/2 या 1/3); मात्रा शून्य से अधिक होनी चाहिए।</p>}
       </>}
       {(builtin || selected.startsWith('saved:')) && <>
-        {patternParts(value.dosePattern).length > 1 && <div className="grid gap-2 sm:grid-cols-2">{patternParts(value.dosePattern).slice(1).map((_, i) => <FieldLabel key={i} label={builtin?.labels[i] || `मात्रा ${i + 1}`} required><input className={poInput} type="text" placeholder="जैसे 1/2, 1/3 या 1" value={value.doseQuantities?.[i] || ''} onChange={(e) => {
+        {patternParts(value.dosePattern).length > 1 && <div className="grid gap-2 sm:grid-cols-2">{patternParts(value.dosePattern).slice(1).map((_, i) => <DoseQuantityField key={`${selected}-${i}`} label={value.doseFieldLabels?.[i] || builtin?.labels[i] || `मात्रा ${i + 1}`} onRename={(label) => renameField(i, label)}><input className={poInput} type="text" placeholder="जैसे 1/2, 1/3 या 1" value={value.doseQuantities?.[i] || ''} onChange={(e) => {
           const amounts = [...(value.doseQuantities || [])]; amounts[i] = e.target.value;
           const next = { ...value, doseQuantities: amounts };
           onChange({ doseQuantities: amounts, dose: doseTemplateComplete(next) ? fillPattern(value.dosePattern, amounts) : '' });
-        }} /></FieldLabel>)}</div>}
+        }} /></DoseQuantityField>)}</div>}
         <p className="whitespace-pre-line rounded-lg border border-cardline bg-offwhite-100 p-3 text-sm text-charcoal/80">{fillPattern(value.dosePattern, value.doseQuantities, true)}</p>
         {!doseTemplateComplete(value) && <p className="text-xs text-charcoal/55">हर मात्रा भरें (जैसे 1/2 या 1/3); मात्रा शून्य से अधिक होनी चाहिए।</p>}
       </>}
@@ -122,6 +150,7 @@ const entryOf = (value) => ({
   id: value.id || crypto.randomUUID(), dose: value.dose || '', doseTemplate: value.doseTemplate || (value.dose ? 'custom' : ''),
   doseSpoons: value.doseSpoons || '', doseWaterCups: value.doseWaterCups || '',
   dosePattern: value.dosePattern || '', doseQuantities: value.doseQuantities || [], customDose: value.customDose || '',
+  doseFieldLabels: value.doseFieldLabels || [],
 });
 
 export default function DoseChitInput({ value, onChange }) {

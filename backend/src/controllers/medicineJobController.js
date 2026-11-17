@@ -546,10 +546,12 @@ const completeStage = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
-// @route POST /api/medicine-jobs/:id/revert   body: { stage, reason }   (admin)
+// @route POST /api/medicine-jobs/:id/revert   body: { stage, reason }
+// Admin/Manager can revert stages; the Doctor can reopen Prescription & formulation.
 // Puts the job back to the start of a stage that was completed by mistake (that stage and every later one). Drawn
 // stock returns through the ledger; the cleared records stay on the job (`reverts`).
 const revertJob = asyncHandler(async (req, res) => {
+  if (!isAdminLike(req.user) && !(req.user.role === ROLES.DOCTOR && req.body?.stage === 'formula')) fail('Only Admin/Manager can revert other stages; the Doctor can revert Prescription & formulation', 403);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
   if (job.status === 'cancelled') fail('This job is cancelled');
@@ -564,14 +566,14 @@ const revertJob = asyncHandler(async (req, res) => {
   const returnStock = async (line) => {
     const item = await StockItem.findOne({ code: line.code });
     if (!item) return;
-    await moveStock(item, { type: 'return', quantity: line.actual, delta: Number(line.actual), user: req.user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation reverted by admin for ${job.patientName} Phase ${job.phase}` });
+    await moveStock(item, { type: 'return', quantity: line.actual, delta: Number(line.actual), user: req.user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation reverted by ${req.user.role} for ${job.patientName} Phase ${job.phase}` });
   };
   const { revertJobTo } = require('../utils/revertFlow');
   ensureSupplyRound(phaseEntry, req.user, now);
   const snapshot = await revertJobTo(job, index, { request, phaseEntry: ownsRound(phaseEntry, request) ? phaseEntry : null, returnStock, now });
   const labels = snapshot.stages.map((s) => STAGES[STAGE_INDEX[s.key]]?.label || s.key);
   job.reverts.push({ at: now, byName: req.user.name, byRole: req.user.role, step: key, reason, reverted: snapshot.stages.map((s) => s.key), snapshot });
-  event(job, req.user, 'Reverted by admin', `${labels.join(', ')} - ${reason}`);
+  event(job, req.user, `Reverted by ${req.user.role}`, `${labels.join(', ')} - ${reason}`);
   logActivity(patient, req.user, `Medicine job reverted for Phase ${job.phase}`, `${labels.join(', ')} - ${reason}${job.poNumber ? ` | PO ${job.poNumber}` : ''}`);
   await patient.save();
   await job.save();

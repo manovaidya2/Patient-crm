@@ -5,7 +5,7 @@ const RecordRoom = require('../models/RecordRoom');
 const Patient = require('../models/Patient');
 const AppointmentManagementEntry = require('../models/AppointmentManagementEntry');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { writeImagesPdf } = require('../utils/simplePdf');
+const { writeRecordDocumentsPdf } = require('../utils/recordDocumentsPdf');
 const { uploadTiming, overdueRecords, overdueCount } = require('../utils/recordRoomOverdue');
 
 const uploadsRoot = path.resolve(__dirname, '../../uploads');
@@ -160,7 +160,7 @@ const update = asyncHandler(async (req, res) => {
   if (req.body.indexNumber !== undefined) record.indexNumber = String(req.body.indexNumber ?? '').trim();
   if (status !== undefined) record.treatmentStatus = status;
   if (req.body.firstReceivedAt !== undefined) record.firstReceivedAt = firstReceivedAt;
-  if (record.pdfUrl) record.pdfName = `${record.patientName} record room (${record.documents.length} pages).pdf`;
+  if (record.pdfUrl) record.pdfName = `${record.patientName} record room (${record.pdfPageCount} pages).pdf`;
   await record.save();
   res.json({ success: true, record: serialize(record) });
 });
@@ -183,8 +183,8 @@ const rebuildPdf = async (record) => {
   const safeId = String(record._id);
   const pdfName = `record-room-${safeId}.pdf`;
   const pdfPath = path.join(__dirname, '../../uploads/records', pdfName);
-  await writeImagesPdf({ filePath: pdfPath, images: record.documents.map((doc) => ({ filePath: filePath(doc.url), uploadedAt: doc.uploadedAt, uploadedByName: doc.uploadedByName })) });
-  record.pdfUrl = `/uploads/records/${pdfName}`; record.pdfName = `${record.patientName} record room (${record.documents.length} pages).pdf`; record.pdfPageCount = record.documents.length; record.pdfUpdatedAt = new Date();
+  const pageCount = await writeRecordDocumentsPdf({ filePath: pdfPath, documents: record.documents.map((doc) => ({ filePath: filePath(doc.url), uploadedAt: doc.uploadedAt, uploadedByName: doc.uploadedByName })) });
+  record.pdfUrl = `/uploads/records/${pdfName}`; record.pdfName = `${record.patientName} record room (${pageCount} pages).pdf`; record.pdfPageCount = pageCount; record.pdfUpdatedAt = new Date();
   if (oldPdf && oldPdf !== record.pdfUrl) await removeFile(oldPdf);
 };
 
@@ -195,9 +195,12 @@ const uploadDocuments = asyncHandler(async (req, res) => {
     await Promise.all(files.map((file) => fs.promises.unlink(file.path).catch(() => {})));
     return res.status(404).json({ success: false, message: 'Record room entry not found' });
   }
-  if (!files.length) return res.status(400).json({ success: false, message: 'Upload at least one image' });
-  const invalid = files.find((file) => !file.mimetype.startsWith('image/'));
-  if (invalid) return res.status(400).json({ success: false, message: 'Only image files can be scanned into the record PDF' });
+  if (!files.length) return res.status(400).json({ success: false, message: 'Upload at least one image or PDF' });
+  const invalid = files.find((file) => !file.mimetype.startsWith('image/') && file.mimetype !== 'application/pdf');
+  if (invalid) {
+    await Promise.all(files.map((file) => fs.promises.unlink(file.path).catch(() => {})));
+    return res.status(400).json({ success: false, message: 'Only images or PDF documents are allowed' });
+  }
   const firstNewDocument = record.documents.length;
   try {
     record.documents.push(...files.map((file) => ({ url: `/uploads/records/${file.filename}`, fileName: file.originalname, uploadedAt: new Date(), uploadedByName: req.user.name })));
@@ -215,7 +218,7 @@ const deleteDocument = asyncHandler(async (req, res) => {
   const record = await RecordRoom.findById(req.params.id);
   if (!record) return res.status(404).json({ success: false, message: 'Record room entry not found' });
   const index = record.documents.findIndex((document) => String(document._id) === String(req.params.documentId));
-  if (index === -1) return res.status(404).json({ success: false, message: 'Document image not found' });
+  if (index === -1) return res.status(404).json({ success: false, message: 'Document not found' });
   const [document] = record.documents.splice(index, 1);
   await rebuildPdf(record);
   await record.save();

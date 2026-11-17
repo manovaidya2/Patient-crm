@@ -106,6 +106,53 @@ const open = (patient) => call(controller.openForRequest, { body: { patientId: S
 const allTrue = (key) => JSON.stringify(STAGES.find((s) => s.key === key).checks.map(() => true));
 const complete = (jobId, key, fields = {}, extra = {}, user = med) => call(controller.completeStage, { params: { id: jobId, key }, body: { checks: allTrue(key), fields: JSON.stringify(fields), ...extra }, user, files: extra.files });
 
+test('Doctor reverts completed formulation, corrects age group and sends it again', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  await complete(id, 'accept', { readyByDate: '2026-11-20' });
+  await complete(id, 'formula', { remarks: 'Original formulation' }, {}, doctor);
+  await complete(id, 'review');
+  const reverted = (await call(controller.revertJob, { params: { id }, body: { stage: 'formula', reason: 'Correct age group' }, user: doctor })).job;
+  assert.equal(reverted.currentKey, 'formula');
+  assert.equal(reverted.stages.find((s) => s.key === 'accept').state, 'done');
+  assert.equal(reverted.stages.find((s) => s.key === 'review').state, 'todo');
+  const audit = jobs[0].reverts.at(-1);
+  assert.equal(audit.byRole, doctor.role);
+  assert.equal(audit.byName, doctor.name);
+  assert.equal(audit.reason, 'Correct age group');
+  assert.deepEqual([...audit.reverted], ['formula', 'review']);
+  assert.equal(jobs[0].events.at(-1).action, 'Reverted by doctor');
+  const corrected = (await call(controller.setSupply, { params: { id }, body: { ageBand: '12-70', supplyKey: '1+5:first' }, user: doctor })).job;
+  assert.equal(corrected.ageBand, '12-70');
+  assert.equal((await complete(id, 'formula', { remarks: 'Age corrected' }, {}, doctor)).job.currentKey, 'review');
+});
+
+test('Doctor revert permissions are limited to formulation and require a reason', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  await complete(job.id, 'accept', { readyByDate: '2026-11-20' });
+  await complete(job.id, 'formula', {}, {}, doctor);
+  const revert = (user, stage = 'formula', reason = 'Correction') => call(controller.revertJob, { params: { id: job.id }, body: { stage, reason }, user });
+  for (const user of [med, transit, pcc]) await assert.rejects(revert(user), (err) => err.statusCode === 403);
+  for (const stage of STAGES.filter((s) => s.key !== 'formula')) await assert.rejects(revert(doctor, stage.key), (err) => err.statusCode === 403);
+  await assert.rejects(revert(doctor, 'formula', ''), /Write why/);
+  assert.equal(jobs[0].reverts.length, 0);
+  assert.equal(jobs[0].currentStage, STAGES.findIndex((s) => s.key === 'review'));
+});
+
+test('revert route admits Doctor, Admin and Manager, denying other departments', () => {
+  const router = require('../routes/medicineJobRoutes');
+  const route = router.stack.find((layer) => layer.route?.path === '/:id/revert').route;
+  const authorizeRevert = route.stack[0].handle;
+  for (const role of ['doctor', 'admin', 'manager', 'medicine_department', 'in_transit', 'assistant_doctor', 'receptionist']) {
+    let allowed = false; let status;
+    authorizeRevert({ user: { role }, method: 'POST' }, { status(code) { status = code; return this; }, json() {} }, () => { allowed = true; });
+    assert.equal(allowed, ['doctor', 'admin', 'manager'].includes(role), role);
+    if (!allowed) assert.equal(status, 403);
+  }
+});
+
 test('opening a request creates the job with the formulation, stock needs and chits of its supply', async () => {
   const { patient } = setup();
   const { job } = await open(patient);
