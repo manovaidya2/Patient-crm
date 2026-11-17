@@ -33,11 +33,11 @@ function ItemModal({ open, onClose, onSaved, item }) {
       <form onSubmit={submit} className="space-y-3">
         <ErrorText>{error}</ErrorText>
         <div className="grid gap-3 sm:grid-cols-2">
-          <FieldLabel label="Code" required><input className={poInput} required disabled={Boolean(item)} value={form.code} onChange={(e) => set('code', e.target.value.toUpperCase())} placeholder="e.g. MEDHYA-GHRIT" /></FieldLabel>
+          <FieldLabel label="Code" required><input className={poInput} required maxLength={40} disabled={busy} value={form.code} onChange={(e) => set('code', e.target.value.toUpperCase())} placeholder="e.g. MEDHYA-GHRIT" /></FieldLabel>
           <FieldLabel label="Name" required><input className={poInput} required value={form.name} onChange={(e) => set('name', e.target.value)} /></FieldLabel>
           <FieldLabel label="Hindi name"><input className={poInput} value={form.nameHindi} onChange={(e) => set('nameHindi', e.target.value)} /></FieldLabel>
           <div><p className="mb-1 text-sm font-medium text-charcoal">Kind</p><div className="flex flex-wrap gap-1.5">{KINDS.map(([v, l]) => <Chip key={v} active={form.kind === v} onClick={() => set('kind', v)}>{l}</Chip>)}</div></div>
-          <div><p className="mb-1 text-sm font-medium text-charcoal">Unit<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{UNITS.map((u) => <Chip key={u} active={form.unit === u} onClick={() => !item && set('unit', u)}>{u}</Chip>)}</div></div>
+          <div><p className="mb-1 text-sm font-medium text-charcoal">Unit<span className="text-red-700"> *</span></p><div className="flex flex-wrap gap-1.5">{UNITS.map((u) => <Chip key={u} active={form.unit === u} disabled={busy} onClick={() => set('unit', u)}>{u}</Chip>)}</div>{item && <p className="mt-1 text-xs text-charcoal/55">Current stock: {num(item.currentStock)} {form.unit}. Changing the unit keeps this quantity.</p>}</div>
           {!item && <FieldLabel label="Opening stock"><input className={poInput} inputMode="decimal" value={form.openingStock} onChange={(e) => set('openingStock', e.target.value)} /></FieldLabel>}
           <FieldLabel label="Minimum level (low-stock alert)"><input className={poInput} inputMode="decimal" value={form.minLevel} onChange={(e) => set('minLevel', e.target.value)} /></FieldLabel>
           <FieldLabel label="Batch no."><input className={poInput} value={form.batchNo} onChange={(e) => set('batchNo', e.target.value)} /></FieldLabel>
@@ -45,6 +45,7 @@ function ItemModal({ open, onClose, onSaved, item }) {
           <FieldLabel label="Grams per spoon (if stocked in g, dosed in spoons)"><input className={poInput} inputMode="decimal" value={form.gramsPerSpoon} onChange={(e) => set('gramsPerSpoon', e.target.value)} /></FieldLabel>
           <FieldLabel label="Drops per ml (if stocked in ml, dosed in drops)"><input className={poInput} inputMode="decimal" value={form.dropsPerMl} onChange={(e) => set('dropsPerMl', e.target.value)} /></FieldLabel>
           <FieldLabel label="Notes" className="sm:col-span-2"><input className={poInput} value={form.notes} onChange={(e) => set('notes', e.target.value)} /></FieldLabel>
+          {item && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isActive !== false} onChange={(e) => set('isActive', e.target.checked)} />Active item</label>}
         </div>
         <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button></div>
       </form>

@@ -1,6 +1,7 @@
 // Bottles on the Stocks page: the medicines filled into BT-100 bottles (ghrit, syrup, oil), how many bottles their stock
 // fills, and how many bottles each one has used in prepared medicine jobs (so BT-100 use is seen per medicine).
 const { STOCK } = require('../constants/formulationMaster');
+const { stockCodeMap } = require('./stockCodes');
 
 const BOTTLE_CODE = STOCK.BOTTLE;
 const BOTTLE_ML = 100;
@@ -34,13 +35,23 @@ function bottleUsageFrom(jobs, now = new Date()) {
 
 // Adds `bottles` to the formatted stock items: per bottled medicine and, for BT-100, the split by medicine.
 function withBottles(items, usage) {
+  const itemsByCode = stockCodeMap(items);
+  const normalized = new Map();
+  for (const row of usage.values()) {
+    const current = itemsByCode.get(row.code);
+    const code = current?.code || row.code;
+    const total = normalized.get(code) || { ...row, code, name: current?.name || row.name, total: 0, month: 0 };
+    total.total += row.total; total.month += row.month;
+    normalized.set(code, total);
+  }
+  usage = normalized;
   const bottledCodes = new Set(usage.keys());
   // A medicine counts as bottled when the formulation fills it in bottles (even before its first use).
-  [STOCK.MEDHYA_GHRIT, STOCK.SIRUP, STOCK.OIL].forEach((c) => bottledCodes.add(c));
+  [STOCK.MEDHYA_GHRIT, STOCK.SIRUP, STOCK.OIL].forEach((c) => bottledCodes.add(itemsByCode.get(c)?.code || c));
   const medicines = items.filter((i) => bottledCodes.has(i.code));
   const fills = (i) => Math.floor(Number(i.currentStock || 0) / BOTTLE_ML);
   return items.map((i) => {
-    if (i.code === BOTTLE_CODE) {
+    if (i.code === (itemsByCode.get(BOTTLE_CODE)?.code || BOTTLE_CODE)) {
       const byMedicine = [...usage.values()].map((u) => ({ ...u, name: items.find((x) => x.code === u.code)?.name || u.name }));
       return {
         ...i,

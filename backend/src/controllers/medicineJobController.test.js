@@ -128,6 +128,45 @@ test('Doctor reverts completed formulation, corrects age group and sends it agai
   assert.equal((await complete(id, 'formula', { remarks: 'Age corrected' }, {}, doctor)).job.currentKey, 'review');
 });
 
+test('added components are validated and included in preparation stock consumption', async () => {
+  const { patient, stocks, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  const patch = (extraComponents) => call(controller.editFormulation, { params: { id }, body: { lines: [{ key: 'mix', extraComponents }] }, user: doctor });
+  await assert.rejects(patch([{ code: 'UNKNOWN', name: 'Unknown', unit: 'g', qty: 2 }]), /Not in Stocks/);
+  await assert.rejects(patch([{ code: 'RA-SW-PD-28', name: 'RA', unit: 'g', qty: 2 }]), /stock unit/);
+  const result = (await patch([{ code: 'RA-SW-PD-28', name: 'RA', unit: 'tablet', qty: 10 }])).job;
+  assert.equal(result.consumption.find((item) => item.code === 'RA-SW-PD-28').planned, 15);
+  await complete(id, 'accept', { readyByDate: '2026-11-20' });
+  await complete(id, 'formula', {}, {}, doctor);
+  await complete(id, 'review');
+  await complete(id, 'stock');
+  const before = stocks.find((item) => item.code === 'RA-SW-PD-28').currentStock;
+  await complete(id, 'prepare', {}, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }, { code: 'BUDDHI-GHRIT', actual: 3 }]) });
+  assert.equal(stocks.find((item) => item.code === 'RA-SW-PD-28').currentStock, before - 15);
+  assert.equal(jobs[0].formulation.lines.find((line) => line.key === 'mix').extraComponents[0].qty, 10);
+});
+
+test('renamed stock codes keep old formulation links working through preparation and revert', async () => {
+  const { patient, stocks } = setup();
+  const { job } = await open(patient);
+  const stock = stocks.find((item) => item.code === 'RA-SW-PD-28');
+  const before = stock.currentStock;
+  stock.codeAliases = [stock.code]; stock.code = 'RA-RENAMED';
+  mock.method(StockItem, 'findOne', async (filter) => {
+    const codes = filter.$or?.[0]?.code?.$in || [filter.code];
+    return stocks.find((item) => codes.some((code) => [item.code, ...(item.codeAliases || [])].includes(code)));
+  });
+  await complete(job.id, 'accept', { readyByDate: '2026-11-20' });
+  await complete(job.id, 'formula', {}, {}, doctor);
+  await complete(job.id, 'review');
+  await complete(job.id, 'stock');
+  await complete(job.id, 'prepare', {}, { consumption: JSON.stringify([{ code: 'SHIVA-LEH', actual: 60 }, { code: 'BUDDHI-GHRIT', actual: 3 }]) });
+  assert.equal(stock.currentStock, before - 5);
+  await call(controller.revertJob, { params: { id: job.id }, body: { stage: 'formula', reason: 'Correct formulation' }, user: doctor });
+  assert.equal(stock.currentStock, before, 'stock returns to the renamed item');
+});
+
 test('Doctor revert permissions are limited to formulation and require a reason', async () => {
   const { patient, jobs } = setup();
   const { job } = await open(patient);

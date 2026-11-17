@@ -4,6 +4,7 @@ const StockTransaction = require('../models/StockTransaction');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const { bottleUsageFrom, withBottles } = require('../utils/bottleUsage');
+const { stockCodeQuery } = require('../utils/stockCodes');
 
 const STOCK_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
@@ -20,7 +21,7 @@ const formatItem = (item) => {
   const i = item.toObject ? item.toObject() : item;
   const stock = Number(i.currentStock || 0);
   return {
-    id: String(i._id), code: i.code, name: i.name, nameHindi: i.nameHindi || '', kind: i.kind, unit: i.unit,
+    id: String(i._id), code: i.code, codeAliases: i.codeAliases || [], name: i.name, nameHindi: i.nameHindi || '', kind: i.kind, unit: i.unit,
     currentStock: stock, minLevel: Number(i.minLevel || 0), batchNo: i.batchNo || '', expiryDate: iso(i.expiryDate),
     gramsPerSpoon: i.gramsPerSpoon ?? null, dropsPerMl: i.dropsPerMl ?? null, notes: i.notes || '', isActive: i.isActive !== false,
     low: stock <= Number(i.minLevel || 0), expired: Boolean(i.expiryDate && new Date(i.expiryDate) < new Date()),
@@ -56,7 +57,7 @@ const createStock = asyncHandler(async (req, res) => {
   if (!code) fail('Enter the item code');
   if (!clean(b.name)) fail('Enter the item name');
   if (!StockItem.STOCK_UNITS.includes(b.unit)) fail('Select the unit');
-  if (await StockItem.exists({ code })) fail(`Code ${code} already exists`, 409);
+  if (await StockItem.exists(stockCodeQuery([code]))) fail(`Code ${code} already exists`, 409);
   const item = await StockItem.create({
     code, name: clean(b.name), nameHindi: clean(b.nameHindi), kind: ['medicine', 'component', 'packing'].includes(b.kind) ? b.kind : 'medicine', unit: b.unit,
     currentStock: 0, minLevel: qtyOf(b.minLevel || 0, 'minimum level'), batchNo: clean(b.batchNo, 80), expiryDate: dateOrNull(b.expiryDate),
@@ -72,7 +73,20 @@ const updateStock = asyncHandler(async (req, res) => {
   const item = await StockItem.findById(req.params.id);
   if (!item) fail('Stock item not found', 404);
   const b = req.body || {};
-  if (b.name !== undefined) item.name = clean(b.name) || item.name;
+  if (b.code !== undefined) {
+    const code = clean(b.code, 40).toUpperCase();
+    if (!code) fail('Enter the item code');
+    if (code !== item.code) {
+      if (await StockItem.exists({ ...stockCodeQuery([code]), _id: { $ne: item._id } })) fail(`Code ${code} already exists`, 409);
+      item.codeAliases = [...new Set([...(item.codeAliases || []), item.code])].filter((alias) => alias !== code);
+      item.code = code;
+    }
+  }
+  if (b.unit !== undefined) {
+    if (!StockItem.STOCK_UNITS.includes(b.unit)) fail('Select the unit');
+    item.unit = b.unit;
+  }
+  if (b.name !== undefined) { if (!clean(b.name)) fail('Enter the item name'); item.name = clean(b.name); }
   if (b.nameHindi !== undefined) item.nameHindi = clean(b.nameHindi);
   if (b.kind !== undefined && ['medicine', 'component', 'packing'].includes(b.kind)) item.kind = b.kind;
   if (b.minLevel !== undefined) item.minLevel = qtyOf(b.minLevel, 'minimum level');

@@ -1,3 +1,4 @@
+const { stockCodeMap } = require('./stockCodes');
 // The Medicine Department's thirteen fulfilment stages (Packing SOP V3 + Fulfilment Desk), with the checklist, fields and
 // owner of each. Everything the page shows per stage is defined here, so the backend validates exactly what the UI asks.
 const { ROLES } = require('../constants/roles');
@@ -143,7 +144,7 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
       checksDone: rec ? s.checks.map((_, n) => rec.checks?.[n] !== false) : [],
     };
   });
-  const stockByCode = new Map(stocks.map((s) => [s.code, s]));
+  const stockByCode = stockCodeMap(stocks);
   const needs = job.formulation ? require('../constants/formulationMaster').stockNeeds(job.formulation) : [];
   const stockTable = needs.map((n) => {
     const item = stockByCode.get(n.code);

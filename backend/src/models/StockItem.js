@@ -7,6 +7,7 @@ const STOCK_UNITS = ['ml', 'g', 'tablet', 'spoon', 'drop', 'piece'];
 const stockItemSchema = new mongoose.Schema(
   {
     code: { type: String, required: true, trim: true, uppercase: true, unique: true },
+    codeAliases: { type: [String], default: [], index: true },
     name: { type: String, required: true, trim: true },
     nameHindi: { type: String, trim: true, default: '' },
     kind: { type: String, enum: ['medicine', 'component', 'packing'], default: 'medicine' },

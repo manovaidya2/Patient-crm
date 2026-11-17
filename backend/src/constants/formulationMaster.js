@@ -234,6 +234,7 @@ function stockNeeds(formulation) {
     if (!l.packed) continue;
     if (l.components) l.components.forEach((c) => needs.push({ code: c.code, name: c.name, qty: c.qty, unit: c.unit, for: l.name }));
     else if (l.stockCode) needs.push({ code: l.stockCode, name: l.name, qty: l.qty, unit: l.unit, for: l.name });
+    (l.extraComponents || []).forEach((c) => needs.push({ code: c.code, name: c.name, qty: c.qty, unit: c.unit, for: l.name }));
     if (l.bottles) needs.push({ code: STOCK.BOTTLE, name: 'BT-100 bottle', qty: l.bottles, unit: 'piece', for: l.name });
   }
   // Same code used by several lines -> one row.
@@ -280,6 +281,25 @@ function doseValues(input) {
   });
   return { doseEntries, dose: doseEntries.map((entry) => entry.dose).filter(Boolean).join('\n') };
 }
+function normalizeExtraComponents(input, reference = []) {
+  if (!Array.isArray(input) || input.length > 50) fail('Add up to 50 extra components per medicine');
+  const codes = new Set();
+  return input.map((item) => {
+    if (!item || typeof item !== 'object') fail('Select a component from Stocks');
+    const code = String(item.code || '').trim().toUpperCase();
+    const name = String(item.name || '').trim();
+    const unit = String(item.unit || '').trim();
+    if (!code || code.length > 40 || !name || name.length > 120 || !ADD_UNITS.includes(unit)) fail('Select a component from Stocks with a valid name and unit');
+    if (codes.has(code)) fail(`Component ${code} is repeated; edit its quantity instead`);
+    codes.add(code);
+    const qty = numberOf(item.qty, `${name} quantity`);
+    if (!(qty > 0)) fail(`Enter a positive quantity for ${name}`);
+    const existing = reference.find((component) => component.code === code && component.unit === unit);
+    const perTablet = unit === 'tablet' ? (existing?.qty && existing?.grams ? existing.grams / existing.qty : TABLET_GRAMS_BY_CODE[code]) : undefined;
+    return { code, name, unit, qty, ...(perTablet ? { grams: round(qty * perTablet) } : unit === 'g' ? { grams: qty } : {}), ...([STOCK.CH014, STOCK.CH071].includes(code) && unit === 'spoon' ? { pinches: qty * 30 } : {}) };
+  });
+}
+
 // A medicine added for this patient only (not in the master): name, timing, quantity, dose and packs.
 function addedLine(o, formulation, n, byName) {
   const variant = o.ghritVariantCode ? GHRIT_VARIANTS.find((v) => v.code === o.ghritVariantCode) : null;
@@ -288,7 +308,7 @@ function addedLine(o, formulation, n, byName) {
   if (!name) fail('Enter the name of the medicine to add');
   const unit = String(o.unit || '').trim();
   if (!ADD_UNITS.includes(unit)) fail(`Select the unit of ${name}`);
-  if (variant && (unit !== 'ml' || name !== variant.label)) fail('Keep the selected ghrit variant name and ml unit');
+  if (variant && unit !== 'ml') fail('Keep the selected ghrit variant ml unit');
   const qty = numberOf(o.qty, `${name} quantity`);
   if (!(qty > 0)) fail(`Enter the total quantity of ${name}`);
   const days = formulation.days;
@@ -299,6 +319,7 @@ function addedLine(o, formulation, n, byName) {
     n, key: `added-${Date.now().toString(36)}-${n}`, name, when: String(o.when || '').trim().slice(0, 80), qty, unit, packed: true, days,
     containers: containers.length ? containers : [days], ...doseValues(o), chitNo,
     stockCode: String(o.stockCode || '').trim().toUpperCase().slice(0, 40) || undefined,
+    ...(o.extraComponents !== undefined ? { extraComponents: normalizeExtraComponents(o.extraComponents) } : {}),
     ...(variant ? { ghritVariantCode: variant.code, bottles: bottles(qty) } : {}),
     added: { byName, at }, edited: { byName, at, changes: ['added for this patient'] },
   };
@@ -339,6 +360,15 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
     }
     const next = { ...line, original: line.original || { name: line.name, qty: line.qty, unit: line.unit, dose: line.dose || '', containers: [...(line.containers || [])], components: line.components ? line.components.map((c) => ({ ...c })) : undefined } };
     const changes = [];
+    if (o.extraComponents !== undefined) {
+      const extraComponents = normalizeExtraComponents(o.extraComponents, line.components);
+      if (JSON.stringify(extraComponents) !== JSON.stringify(line.extraComponents || [])) { next.extraComponents = extraComponents; changes.push('extra components'); }
+    }
+    if (o.displayNumber !== undefined) {
+      const displayNumber = Number(o.displayNumber);
+      if (!Number.isSafeInteger(displayNumber) || displayNumber < 1 || displayNumber > 9999) fail('Enter a medicine number from 1 to 9999');
+      if (displayNumber !== (line.displayNumber ?? line.n)) { next.displayNumber = displayNumber; changes.push('medicine number'); }
+    }
     if (o.name !== undefined) {
       if (typeof o.name !== 'string' || !o.name.trim() || o.name.trim().length > 120) fail('Enter a medicine name of 1 to 120 characters');
       const name = o.name.trim();
@@ -379,8 +409,9 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
           const perTablet = c.qty && c.grams ? c.grams / c.qty : TABLET_GRAMS_BY_CODE[c.code];
           return { ...c, qty, grams: perTablet ? round(qty * perTablet) : c.grams, pinches: c.pinches !== undefined ? qty * 30 : undefined };
         });
-        next.qty = round(next.components.reduce((sum, c) => sum + (c.grams || 0), 0));
+        next.qty = round([...next.components, ...(next.extraComponents || [])].reduce((sum, c) => sum + (c.grams || 0), 0));
       }
+      if (o.extraComponents !== undefined) next.qty = round([...next.components, ...(next.extraComponents || [])].reduce((sum, c) => sum + (c.grams || 0), 0));
     } else if (o.qty !== undefined && o.qty !== '' && line.unit) {
       const qty = numberOf(o.qty, `${line.name} quantity`);
       if (qty !== line.qty) { next.qty = qty; changes.push('quantity'); if (line.bottles !== undefined) next.bottles = bottles(qty); }

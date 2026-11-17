@@ -1,3 +1,4 @@
+const { stockCodes } = require('./stockCodes');
 const StockItem = require('../models/StockItem');
 const { moveStock } = require('../controllers/stockController');
 
@@ -22,9 +23,9 @@ async function linkNewMedicines(sheet, { user, job = null } = {}) {
   const lines = (sheet?.lines || []).filter((l) => l.added && l.packed && !l.fromHome && !l.removed && !l.components && !l.stockCode);
   if (!lines.length) return [];
   const all = await StockItem.find({}).lean();
-  const taken = new Set(all.map((s) => s.code));
+  const taken = new Set(all.flatMap(stockCodes));
   const byName = new Map();
-  all.filter((s) => s.isActive !== false).forEach((s) => [s.name, s.nameHindi, s.code].filter(Boolean).forEach((n) => { if (!byName.has(plainName(n))) byName.set(plainName(n), s); }));
+  all.filter((s) => s.isActive !== false).forEach((s) => [s.name, s.nameHindi, ...stockCodes(s)].filter(Boolean).forEach((n) => { if (!byName.has(plainName(n))) byName.set(plainName(n), s); }));
   const done = [];
   for (const line of lines) {
     const found = byName.get(plainName(line.name));

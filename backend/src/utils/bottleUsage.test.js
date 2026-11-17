@@ -8,6 +8,15 @@ const ghrit = { name: 'मेध्य घृत', stockCode: 'MEDHYA-GHRIT', pa
 const sirup = { name: 'मेध्य सिरप', stockCode: 'MEDHYA-SIRUP', packed: true, bottles: 2 };
 const oil = { name: 'मेध्य Oil', stockCode: 'MEDHYA-OIL', packed: true, bottles: 1 };
 
+test('bottle summaries follow stock code renames and combine old and new code usage', () => {
+  const usage = new Map([['MEDHYA-GHRIT', { code: 'MEDHYA-GHRIT', name: 'Ghrit', total: 2, month: 1 }], ['GHRIT-NEW', { code: 'GHRIT-NEW', name: 'Ghrit', total: 3, month: 2 }]]);
+  const items = withBottles([{ code: 'GHRIT-NEW', codeAliases: ['MEDHYA-GHRIT'], name: 'Ghrit', unit: 'ml', currentStock: 500 }, { code: 'BOTTLE-NEW', codeAliases: ['BT-100'], unit: 'piece', currentStock: 10 }], usage);
+  assert.equal(items[0].bottles.usedTotal, 5);
+  assert.equal(items[0].bottles.usedMonth, 3);
+  assert.equal(items[1].bottles.usedTotal, 5);
+  assert.equal(items[1].bottles.byMedicine.length, 1);
+});
+
 test('bottles used are counted per medicine from prepared jobs, with this month apart', () => {
   const usage = bottleUsageFrom([
     job(new Date('2026-10-20T06:00:00Z'), [ghrit, sirup, oil]),

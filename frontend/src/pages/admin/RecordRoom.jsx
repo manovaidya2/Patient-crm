@@ -9,6 +9,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, isAdminLike } from '../../constants/roles.js';
 import RecordUploadStatus from '../../components/RecordUploadStatus.jsx';
+import ReplaceRecordDocumentModal from '../../components/ReplaceRecordDocumentModal.jsx';
 
 const base = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -94,6 +95,8 @@ export default function RecordRoom() {
   const [collection, setCollection] = useState(null);
   const [returnForm, setReturnForm] = useState({ returnCondition: 'intact', problemDetails: '', notes: '' });
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [replacingDocument, setReplacingDocument] = useState(null);
+  const [replacingAll, setReplacingAll] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => { setPage(1); setSearch(''); }, [register, status, treatment]);
@@ -190,6 +193,30 @@ export default function RecordRoom() {
     finally { setSaving(false); input.value = ''; }
   }
 
+  async function replaceDocument(document, file) {
+    if (saving || !canManage) throw new Error('Wait for the current upload to finish');
+    setSaving(true);
+    try {
+      const body = new FormData();
+      body.append('documents', await optimizeRecordImage(file));
+      const { data } = await api.patch('/record-room/' + recordId + '/documents/' + document.id, body);
+      setSelected(data.record);
+      setRevision((value) => value + 1);
+    } finally { setSaving(false); }
+  }
+
+  async function replaceAllDocuments(record, files) {
+    if (saving || !canManage) throw new Error('Wait for the current upload to finish');
+    setSaving(true);
+    try {
+      const body = new FormData();
+      for (const file of files) body.append('documents', await optimizeRecordImage(file));
+      const { data } = await api.patch('/record-room/' + recordId + '/documents', body);
+      setSelected(data.record);
+      setRevision((value) => value + 1);
+    } finally { setSaving(false); }
+  }
+
   async function deleteDocument(document) {
     if (!isAdmin || saving || !window.confirm(`Remove ${document.fileName}? The combined PDF will be rebuilt.`)) return;
     setSaving(true); setError('');
@@ -254,8 +281,8 @@ export default function RecordRoom() {
         <div className="flex min-w-0 items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-[#E9EFE9] text-sage"><FolderOpen size={20} /></span><div className="min-w-0"><h2 className="font-display !text-[17px] !font-extrabold">{selected.patientName}</h2><div className="mt-1.5 flex flex-wrap gap-1.5 text-[11.5px]">{[['Patient ID', selected.patientId], ['Appointment ID', selected.appointmentId], ['Shelf', selected.shelfNumber], ['File', selected.fileNumber], ['Index', selected.indexNumber]].map(([k, v]) => <span key={k} className="rounded-full bg-[#F6F0E3] px-2.5 py-0.5 text-charcoal/70">{k}: <strong className="text-charcoal">{v || '-'}</strong></span>)}<span className="rounded-full bg-[#F6F0E3] px-2.5 py-0.5 text-charcoal/70">First paper received: <strong className="text-charcoal">{selected.firstReceivedAt ? stamp(selected.firstReceivedAt) : 'Not recorded'}</strong></span></div></div></div>
         <div className="flex flex-wrap items-center gap-2"><Button onClick={() => openModal('issue', selected)}><ArrowUpRight size={16} /> Issue paper</Button>{canManage && <Button variant="outline" onClick={() => openModal('edit', selected)}><Pencil size={16} /> Edit record</Button>}{isAdmin && <Button variant="danger" onClick={() => { setDeleteTarget(selected); setDeleteError(''); }}><Trash2 size={16} /> Delete</Button>}</div>
       </section>
-      <section className="rr-documents mb-4 rounded-[14px] border border-[#E8DFCB] bg-white px-4 pb-4 sm:px-[18px]"><div className="rr-section-heading flex flex-wrap items-center justify-between gap-3.5 py-[18px]"><div><h2>Documents <span className="rr-muted text-xs leading-[1.5] text-[#626d71]">({selected.pdfPageCount || 0} pages)</span></h2><small className="rr-muted text-xs leading-[1.5] text-[#626d71]">Last upload: {stamp(selected.pdfUpdatedAt)}</small><RecordUploadStatus record={selected} /></div><div className="rr-actions flex flex-wrap items-center gap-2.5"><label className={`rr-upload inline-flex cursor-pointer items-center gap-[7px] rounded-[10px] bg-sage px-3 py-[9px] text-[13px] font-bold text-white [&_input]:hidden ${saving ? 'rr-disabled pointer-events-none opacity-50' : ''}`}><Upload size={16} />{saving ? 'Uploading...' : 'Upload images / PDF'}<input className={inputClasses} type="file" accept="image/jpeg,image/png,application/pdf" multiple disabled={saving} onChange={upload} /></label><label className={`rr-upload inline-flex cursor-pointer items-center gap-[7px] rounded-[10px] border border-[#DED2BD] bg-white px-3 py-[9px] text-[13px] font-bold text-charcoal ${saving ? 'pointer-events-none opacity-50' : ''}`}><Camera size={16} />Camera<input type="file" accept="image/jpeg,image/png" capture="environment" aria-label="Take a document photo" className="sr-only" disabled={saving} onChange={upload} /></label>{selected.pdfUrl && <><a className="rr-link inline-flex items-center gap-[5px] text-left font-semibold text-[#345e48] hover:underline" href={`${base}${selected.pdfUrl}?v=${encodeURIComponent(selected.pdfUpdatedAt || '')}`} target="_blank" rel="noreferrer"><FileText size={16} /> View / print PDF</a><button className="rr-icon inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md border border-[#cbd1ca] bg-[#fffefa] disabled:cursor-not-allowed disabled:opacity-40" title="Download PDF" aria-label="Download PDF" onClick={download}><Download size={17} /></button></>}</div></div>
-        {selected.documents?.length ? <div className="rr-document-list grid grid-cols-2 gap-x-6 max-[800px]:grid-cols-1 [&_strong]:block [&_strong]:truncate [&_strong]:text-xs [&_strong]:leading-[1.5] [&_small]:text-[11px] [&_small]:text-[#626d71]">{selected.documents.map((doc, index) => <div key={doc.id} className="flex min-w-0 items-center gap-2.5 border-b border-[#F5EFE3] py-3"><a className="flex min-w-0 flex-1 items-center gap-2.5" href={`${base}${doc.url}`} target="_blank" rel="noreferrer"><FileText size={18} /><div className="min-w-0 flex-1"><strong>{index + 1}. {doc.fileName}</strong><small>{stamp(doc.uploadedAt)} / {doc.uploadedByName}</small></div><ArrowUpRight size={15} /></a>{isAdmin && <button type="button" disabled={saving} onClick={() => deleteDocument(doc)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8C3B2E] hover:bg-[#8C3B2E]/10 disabled:opacity-40" title="Remove this document" aria-label={`Remove ${doc.fileName}`}><X size={15} /></button>}</div>)}</div> : <p className="rr-empty !px-5 !py-12 !text-center text-[#626d71]">No documents uploaded yet.</p>}
+      <section className="rr-documents mb-4 rounded-[14px] border border-[#E8DFCB] bg-white px-4 pb-4 sm:px-[18px]"><div className="rr-section-heading flex flex-wrap items-center justify-between gap-3.5 py-[18px]"><div><h2>Documents <span className="rr-muted text-xs leading-[1.5] text-[#626d71]">({selected.pdfPageCount || 0} pages)</span></h2><small className="rr-muted text-xs leading-[1.5] text-[#626d71]">Last upload: {stamp(selected.pdfUpdatedAt)}</small><RecordUploadStatus record={selected} /></div><div className="rr-actions flex flex-wrap items-center gap-2.5"><label className={`rr-upload inline-flex cursor-pointer items-center gap-[7px] rounded-[10px] bg-sage px-3 py-[9px] text-[13px] font-bold text-white [&_input]:hidden ${saving ? 'rr-disabled pointer-events-none opacity-50' : ''}`}><Upload size={16} />{saving ? 'Uploading...' : 'Upload images / PDF'}<input className={inputClasses} type="file" accept="image/jpeg,image/png,application/pdf" multiple disabled={saving} onChange={upload} /></label><label className={`rr-upload inline-flex cursor-pointer items-center gap-[7px] rounded-[10px] border border-[#DED2BD] bg-white px-3 py-[9px] text-[13px] font-bold text-charcoal ${saving ? 'pointer-events-none opacity-50' : ''}`}><Camera size={16} />Camera<input type="file" accept="image/jpeg,image/png" capture="environment" aria-label="Take a document photo" className="sr-only" disabled={saving} onChange={upload} /></label>{canManage && selected.documents?.length > 0 && <Button variant="outline" disabled={saving} onClick={() => setReplacingAll(true)}><Pencil size={16} />Replace all papers</Button>}{selected.pdfUrl && <><a className="rr-link inline-flex items-center gap-[5px] text-left font-semibold text-[#345e48] hover:underline" href={`${base}${selected.pdfUrl}?v=${encodeURIComponent(selected.pdfUpdatedAt || '')}`} target="_blank" rel="noreferrer"><FileText size={16} /> View / print PDF</a><button className="rr-icon inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md border border-[#cbd1ca] bg-[#fffefa] disabled:cursor-not-allowed disabled:opacity-40" title="Download PDF" aria-label="Download PDF" onClick={download}><Download size={17} /></button></>}</div></div>
+        {selected.documents?.length ? <div className="rr-document-list grid grid-cols-2 gap-x-6 max-[800px]:grid-cols-1 [&_strong]:block [&_strong]:truncate [&_strong]:text-xs [&_strong]:leading-[1.5] [&_small]:text-[11px] [&_small]:text-[#626d71]">{selected.documents.map((doc, index) => <div key={doc.id} className="flex min-w-0 items-center gap-2.5 border-b border-[#F5EFE3] py-3"><a className="flex min-w-0 flex-1 items-center gap-2.5" href={`${base}${doc.url}`} target="_blank" rel="noreferrer"><FileText size={18} /><div className="min-w-0 flex-1"><strong>{index + 1}. {doc.fileName}</strong><small>{stamp(doc.uploadedAt)} / {doc.uploadedByName}</small></div><ArrowUpRight size={15} /></a>{canManage && <button type="button" disabled={saving} onClick={() => setReplacingDocument(doc)} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-cardline px-2 text-xs font-semibold text-sage hover:bg-sage/10 disabled:opacity-40" title="Replace this paper" aria-label={`Replace ${doc.fileName}`}><Pencil size={14} />Replace</button>}{isAdmin && <button type="button" disabled={saving} onClick={() => deleteDocument(doc)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8C3B2E] hover:bg-[#8C3B2E]/10 disabled:opacity-40" title="Remove this document" aria-label={`Remove ${doc.fileName}`}><X size={15} /></button>}</div>)}</div> : <p className="rr-empty !px-5 !py-12 !text-center text-[#626d71]">No documents uploaded yet.</p>}
       </section>
       <div className="rr-section-heading flex flex-wrap items-center justify-between gap-3.5 py-[18px]"><h2>Paper movement history</h2></div>
       {movementTable([...(selected.issueHistory || [])].reverse().map((entry) => ({ recordId: selected.id, patientName: selected.patientName, patientId: selected.patientId, appointmentId: selected.appointmentId, entry })))}
@@ -276,6 +303,8 @@ export default function RecordRoom() {
         <div className="rr-form-footer flex justify-end gap-2.5 border-t border-[#dfe3dc] pt-4"><Button variant="outline" onClick={() => setModal(null)} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving || (modal === 'issue' && !issuePatient)}>{saving ? 'Saving...' : modal === 'create' ? 'Create record' : modal === 'edit' ? 'Save changes' : modal === 'issue' ? 'Save issue entry' : 'Confirm collection'}</Button></div>
       </form>
     </Modal>
+    <ReplaceRecordDocumentModal document={replacingAll ? selected : null} replaceAll onClose={() => setReplacingAll(false)} onReplace={replaceAllDocuments} />
+    <ReplaceRecordDocumentModal document={replacingDocument} onClose={() => setReplacingDocument(null)} onReplace={replaceDocument} />
     <Modal open={Boolean(deleteTarget)} onClose={() => !saving && setDeleteTarget(null)} title="Delete patient record" className="max-w-lg">
       <div className="space-y-4 text-sm text-charcoal">
         <p>Delete <strong>{deleteTarget?.patientName}</strong> and its scanned documents and paper movement history?</p>

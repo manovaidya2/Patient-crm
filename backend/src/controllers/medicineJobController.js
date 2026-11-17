@@ -4,6 +4,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const MedicineJob = require('../models/MedicineJob');
 const { cached } = require('../utils/readCache');
 const StockItem = require('../models/StockItem');
+const { stockCodeQuery, stockCodeMap } = require('../utils/stockCodes');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
@@ -136,11 +137,16 @@ const editFormulation = asyncHandler(async (req, res) => {
   const note = clean(req.body?.note, 500);
   // For this patient's request only: the Formulation Master is not changed.
   const sheet = applyOverrides(job.formulation, req.body?.lines, { byName: req.user.name });
-  const codes = [...new Set(sheet.lines.map((l) => l.stockCode).filter(Boolean))];
+  const codes = [...new Set(sheet.lines.flatMap((l) => [l.stockCode, ...(l.extraComponents || []).map((c) => c.code)]).filter(Boolean))];
   if (codes.length) {
-    const known = new Set((await StockItem.find({ code: { $in: codes } }).lean()).map((s) => s.code));
+    const items = await StockItem.find(stockCodeQuery(codes)).lean();
+    const known = new Set(stockCodeMap(items).keys());
     const unknown = codes.filter((c) => !known.has(c));
     if (unknown.length) fail(`Not in Stocks: ${unknown.join(', ')} - pick the item from the list`);
+    const byCode = stockCodeMap(items);
+    for (const component of sheet.lines.flatMap((line) => line.extraComponents || [])) {
+      if (component.unit !== byCode.get(component.code)?.unit) fail(`Use the stock unit for ${component.code}`);
+    }
   }
   const before = job.formulation.lines;
   const changed = sheet.lines.filter((l) => !before.includes(l));
@@ -390,8 +396,8 @@ const completeStage = asyncHandler(async (req, res) => {
     const lines = job.consumption;
     if (!lines.length && !unlinked.length) fail(job.formulation?.lines?.length ? 'Nothing on the sheet is packed in this supply' : 'No formulation on this job - set the age group and supply first');
     const pickedCodes = unlinked.map((u) => String(chosen.get(u.key)?.code || '').trim().toUpperCase()).filter(Boolean);
-    const items = await StockItem.find({ code: { $in: [...lines.map((l) => l.code), ...pickedCodes] }, isActive: { $ne: false } });
-    const itemByCode = new Map(items.map((i) => [i.code, i]));
+    const items = await StockItem.find({ ...stockCodeQuery([...lines.map((l) => l.code), ...pickedCodes]), isActive: { $ne: false } });
+    const itemByCode = stockCodeMap(items);
     const planned = [];
     const outside = [];
     const keyed = new Map();
@@ -564,7 +570,7 @@ const revertJob = asyncHandler(async (req, res) => {
   if (['dispatched', 'delivered'].includes(request.courier?.status)) fail('The medicine has already left: revert the handover on the purchase order page first');
   const now = new Date();
   const returnStock = async (line) => {
-    const item = await StockItem.findOne({ code: line.code });
+    const item = await StockItem.findOne(stockCodeQuery([line.code]));
     if (!item) return;
     await moveStock(item, { type: 'return', quantity: line.actual, delta: Number(line.actual), user: req.user, refType: 'job', job: job._id, ref: `${job.poNumber || job.requestId} ${job.patientName}`, note: `Preparation reverted by ${req.user.role} for ${job.patientName} Phase ${job.phase}` });
   };

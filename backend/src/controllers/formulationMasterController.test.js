@@ -28,6 +28,48 @@ test('every master medicine can be renamed for one patient while stock links, qu
   for (const name of ['', '   ', {}, 'a'.repeat(121)]) assert.throws(() => applyOverrides(original, [{ key: 'ghrit', name }]), /medicine name/);
 });
 
+test('patient ghrit name and displayed medicine numbers can be edited without changing stock or packing identity', () => {
+  const initial = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' });
+  let sheet = applyOverrides(initial, [{ add: true, ghritVariantCode: 'GH-NM-0', name: 'Ghrit (GH-NM-01)', qty: 450, unit: 'ml', stockCode: 'GH-NM-0' }], { byName: 'Doctor' });
+  const added = sheet.lines.at(-1);
+  assert.equal(added.name, 'Ghrit (GH-NM-01)');
+  sheet = applyOverrides(sheet, [{ key: added.key, name: 'Ghrit (GH-NM-03)', displayNumber: 1 }, { key: 'shivaLeh', displayNumber: 8 }], { byName: 'Doctor' });
+  sheet = JSON.parse(JSON.stringify(sheet));
+  const ghrit = sheet.lines.find((line) => line.key === added.key);
+  assert.equal(ghrit.name, 'Ghrit (GH-NM-03)');
+  assert.equal(ghrit.displayNumber, 1);
+  assert.equal(ghrit.stockCode, 'GH-NM-0');
+  assert.equal(ghrit.ghritVariantCode, 'GH-NM-0');
+  assert.equal(ghrit.qty, 450);
+  assert.equal(ghrit.chitNo, added.chitNo);
+  assert.equal(sheet.lines.find((line) => line.key === 'shivaLeh').displayNumber, 8);
+  assert.equal(initial.lines.find((line) => line.key === 'shivaLeh').displayNumber, undefined);
+  assert.equal(chitsFor(sheet).find((chit) => chit.itemKey === added.key).name, 'Ghrit (GH-NM-03)');
+  for (const number of [0, -1, 1.5, 'abc', 10000]) assert.throws(() => applyOverrides(sheet, [{ key: added.key, displayNumber: number }]), /medicine number/);
+});
+
+test('extra components can be added to any medicine, reopened, edited and removed with correct stock totals', () => {
+  const initial = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' });
+  const before = JSON.stringify(initial);
+  const component = { code: 'RA-SW-PD-28', name: 'RA-SW-PD-28', unit: 'tablet', qty: 10 };
+  let sheet = applyOverrides(initial, [{ key: 'mix', extraComponents: [component] }, { key: 'shivaLeh', extraComponents: [{ code: 'CH-SD-014', name: 'CH-SD-014', unit: 'spoon', qty: 2 }] }]);
+  assert.equal(sheet.lines.find((line) => line.key === 'mix').qty, 34.5);
+  assert.equal(sheet.lines.find((line) => line.key === 'mix').components.length, 5);
+  assert.equal(sheet.lines.find((line) => line.key === 'shivaLeh').extraComponents[0].pinches, 60);
+  assert.equal(sheet.lines.find((line) => line.key === 'shivaLeh').qty, initial.lines.find((line) => line.key === 'shivaLeh').qty);
+  assert.equal(stockNeeds(sheet).find((item) => item.code === component.code).qty, 40);
+  sheet = JSON.parse(JSON.stringify(sheet));
+  sheet = applyOverrides(sheet, [{ key: 'mix', extraComponents: [{ ...component, qty: 20 }] }]);
+  assert.equal(sheet.lines.find((line) => line.key === 'mix').qty, 37.5);
+  sheet = applyOverrides(sheet, [{ key: 'mix', extraComponents: [] }, { key: 'shivaLeh', extraComponents: [] }]);
+  assert.equal(sheet.lines.find((line) => line.key === 'mix').qty, 31.5);
+  assert.equal(stockNeeds(sheet).find((item) => item.code === component.code).qty, 30);
+  assert.equal(JSON.stringify(initial), before);
+  for (const extraComponents of [[{ ...component, qty: 0 }], [{ ...component, code: '' }], [component, component]]) assert.throws(() => applyOverrides(initial, [{ key: 'mix', extraComponents }]), /component|quantity/i);
+  const added = applyOverrides(initial, [{ add: true, name: 'New medicine', qty: 20, unit: 'g', extraComponents: [component] }]).lines.at(-1);
+  assert.equal(added.extraComponents[0].grams, 3);
+});
+
 test('multiple dose instructions survive save, reopen, append and removal without truncating the chit', () => {
   const initial = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' });
   const entries = [0, 1, 2].map((i) => ({ id: `dose-${i}`, doseTemplate: 'custom', dose: `Instruction ${i}: ${'text '.repeat(40)}`, customDose: `Instruction ${i}` }));
