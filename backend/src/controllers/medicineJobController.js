@@ -8,7 +8,7 @@ const { stockCodeQuery, stockCodeMap } = require('../utils/stockCodes');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
-const { AGE_BANDS, supplyOption, ageBandFor } = require('../constants/supplyPlans');
+const { AGE_BANDS, supplyOption, ageBandFor, customLength } = require('../constants/supplyPlans');
 const { formulationFor, stockNeeds, unlinkedLines, chitsFor, applyOverrides } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, stageRoles, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary, ensureSupplyRound, requestKey, roundOwnerKey } = require('../utils/transitFlow');
@@ -94,6 +94,11 @@ const respond = async (res, job, status = 200) => {
     Object.assign(job, { supplyPlan: job.supplyPlan || sent.plan, supplyPart: job.supplyPart || sent.part, ageBand: job.ageBand || sent.ageBand });
     await applyFormulation(job);
     await job.save();
+  } else if (emptyCustomSupply(job)) {
+    // A custom supply made before it had a sample (an empty sheet, nothing added yet): it gets the master sample now.
+    await applyFormulation(job);
+    event(job, { name: 'System', role: 'system' }, 'Sample formulation added', `Custom supply: sample from the Formulation Master for ${job.formulation?.days || ''} days`);
+    await job.save();
   }
   const stocks = await StockItem.find({ isActive: { $ne: false } }).lean();
   const master = job.ageBand ? await getMaster(job.ageBand) : null;
@@ -103,6 +108,10 @@ const respond = async (res, job, status = 200) => {
   const documents = await patientDocuments(patient);
   res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: await paymentOf(patient, stage, request), master, includeEvents: true, dispatch: dispatchDelayInput({ stage, request: request?.toObject ? request.toObject() : request }) }), fixedPlan, patientInactive: patient.isActive === false, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
 };
+
+// An open job of a custom supply whose sheet is still empty and can have the master sample (an age group with a master).
+const emptyCustomSupply = (job) => job.status === 'open' && (job.currentStage || 0) <= STAGE_INDEX.formula && !job.hold?.active
+  && job.formulation?.custom && !(job.formulation.lines || []).length && Boolean(customLength(job.supplyPlan)) && Boolean(AGE_BANDS[job.ageBand]) && job.ageBand !== '0-3';
 
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
 // Correcting the sheet for one patient is the doctor's call (or the admin's); the Medicine Department prepares from it.

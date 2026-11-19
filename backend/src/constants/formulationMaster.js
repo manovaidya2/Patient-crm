@@ -152,10 +152,12 @@ function normalizeMaster(input = {}, ageBand) {
 // `master` is the (possibly doctor-edited) band master; without it the document values are used.
 function formulationFor({ ageBand, plan, part }, master = null) {
   const key = `${plan}:${part}`;
-  // A custom supply (months chosen in post counselling) has no master: the sheet is made for this patient.
+  // A custom supply (months / days chosen in post counselling) starts from the band's master as a sample, scaled to its
+  // days (six-month quantities x days / 180); the doctor corrects, adds or removes medicines at the formulation check.
+  // Only an age group without a master (0-3 years) starts empty.
   const custom = customLength(plan);
-  if (custom) return customSheet({ ageBand, plan, part: 'full', months: custom.total / 30, days: custom.total });
-  const fraction = PART_FRACTION[key];
+  if (custom && !BANDS.includes(ageBand)) return customSheet({ ageBand, plan, part: 'full', months: custom.total / 30, days: custom.total });
+  const fraction = custom ? custom.total / 180 : PART_FRACTION[key];
   if (CUSTOM_BANDS.includes(ageBand) && fraction) return customSheet({ ageBand, plan, part });
   if (!BANDS.includes(ageBand) || !fraction) return null;
   const m = master && master.ageBand === ageBand ? master : defaultMasterFor(ageBand);
@@ -165,8 +167,8 @@ function formulationFor({ ageBand, plan, part }, master = null) {
   const TG = m.tabletGrams || TABLET_GRAMS;
   const PN = m.pendingNotes || PENDING_NOTES;
   const SPLIT = m.shivaLehSplit || {};
-  const months = PART_MONTHS[key];
-  const days = months * 30;
+  const months = custom ? custom.total / 30 : PART_MONTHS[key];
+  const days = custom ? custom.total : months * 30;
   const first = part !== 'rest';
   const q = Object.fromEntries(Object.entries(six).map(([k, pair]) => [k, scale(pair, fraction)]));
   const line = (n, itemKey, name, when, pair, extra = {}) => ({
@@ -199,7 +201,9 @@ function formulationFor({ ageBand, plan, part }, master = null) {
   if (GHRIT_VARIANTS.some((v) => q[v.key])) lines.forEach((l, i) => { l.n = i + 1; if (l.chitNo) l.chitNo = i + 1; });
   return {
     ageBand, ageBandLabel: AGE_BANDS[ageBand], plan, part, months, days, first,
-    title: `${plan === '6M' ? 'SIX MONTH' : `${months} MONTH`} FORMULATION${plan === '6M' ? '' : part === 'first' ? ' | PART 1' : ' | PART 2'}`,
+    title: custom ? `${days % 30 ? `${days} DAY` : `${days / 30} MONTH`} FORMULATION | CUSTOM SUPPLY` : `${plan === '6M' ? 'SIX MONTH' : `${months} MONTH`} FORMULATION${plan === '6M' ? '' : part === 'first' ? ' | PART 1' : ' | PART 2'}`,
+    // A custom supply: the master is only the sample of this sheet.
+    ...(custom ? { customSupply: true } : {}),
     lines,
     honey: q.honey ? { qty: q.honey[0], unit: q.honey[1], note: 'शहद औषधि से अलग है; मरीज स्वयं लेता है, क्लिनिक से पैक नहीं होगा।' } : null,
     papers: first ? TREATMENT_PAPERS : [],
@@ -247,12 +251,22 @@ function stockNeeds(formulation) {
 }
 
 // The chits to print and confirm for this supply (Chit Book cards).
+// The number of every medicine as the sheet shows it: removed medicines leave the sheet and the rest count 1, 2, 3 ...
+// (ghrit medicines first), unless the doctor set a number by hand.
+const isGhritLine = (l) => l.key === 'ghrit' || /^ghritNm\d$/.test(l.key || '') || Boolean(l.ghritVariantCode) || /^GH-NM-[0-5]$/.test(l.stockCode || '');
+function sheetNumbers(formulation) {
+  const shown = (formulation?.lines || []).filter((l) => !l.removed);
+  const ordered = [...shown.filter(isGhritLine), ...shown.filter((l) => !isGhritLine(l))];
+  return new Map(ordered.map((l, i) => [l.key, l.displayNumber ?? i + 1]));
+}
+
 function chitsFor(formulation, patientName = '') {
   const chits = [];
+  const numbers = sheetNumbers(formulation);
   for (const l of formulation.lines) {
-    if (!l.packed || !l.chitNo) continue;
+    if (!l.packed || !l.chitNo || l.removed) continue;
     l.containers.forEach((days, i) => chits.push({
-      key: `${l.key}-${i + 1}`, itemKey: l.key, chitNo: l.chitNo, n: i + 1, of: l.containers.length,
+      key: `${l.key}-${i + 1}`, itemKey: l.key, chitNo: numbers.get(l.key) ?? l.chitNo, n: i + 1, of: l.containers.length,
       name: l.name, when: l.when, dose: l.dose, days, note: l.note || '', patientName,
     }));
   }
@@ -424,4 +438,4 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   return { ...formulation, lines, edited: lines.some((l) => l.edited), pending: lines.map((l) => l.pending).filter(Boolean) };
 }
 
-module.exports = { applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };
+module.exports = { applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

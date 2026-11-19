@@ -307,6 +307,12 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
           {job.masterOutdated && <span className="flex items-center gap-2 font-semibold">The master changed since (now v{job.masterVersion}).{canAct && <Button size="sm" variant="outline" disabled={busy} onClick={rebuild}><RefreshCw size={13} />Rebuild sheet</Button>}</span>}
         </div>
       )}
+      {stage.key === 'formula' && job.formulation?.customSupply && (
+        <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+          <p className="font-bold">Custom supply of {lengthText(job.formulation.days)}: sample formulation from the Formulation Master</p>
+          <p className="mt-1 text-[13px]">The quantities are the master's six-month quantities for {job.formulation.ageBandLabel} scaled to {job.formulation.days} days. Correct a dose or quantity, remove a medicine or add one with the edit button on the sheet below, then complete this step.</p>
+        </div>
+      )}
       {stage.key === 'formula' && job.formulation?.custom && (
         <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
           <p className="font-bold">{customLengthOf(job.formulation.plan) ? `Custom supply of ${lengthText(job.formulation.days)}` : job.formulation.ageBandLabel}: no Formulation Master - create this child's formulation</p>

@@ -52,7 +52,10 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   });
   // Patient-added variants are stored at the end; show all ghrit entries first in the sheet.
   const isGhrit = (line) => line.key === 'ghrit' || GHRIT_VARIANTS.some((v) => isVariant(line, v));
-  const displayLines = showSelectedGhrits ? [...visibleLines.filter(isGhrit), ...visibleLines.filter((l) => !isGhrit(l))] : visibleLines;
+  // A medicine removed for this patient leaves the sheet (it can be brought back from "Edit sheet"); the rest are
+  // numbered again 1, 2, 3 ... unless a number was set by hand.
+  const shownLines = visibleLines.filter((l) => !l.removed);
+  const displayLines = showSelectedGhrits ? [...shownLines.filter(isGhrit), ...shownLines.filter((l) => !isGhrit(l))] : shownLines;
   const startEditing = () => { setEditing(true); if (f.custom && !f.lines.length) setAdds([emptyAdd()]); };
   const d = (key) => draft[key] || {};
   const setLine = (key, patch) => setDraft((o) => ({ ...o, [key]: { ...(o[key] || {}), ...patch } }));
@@ -202,12 +205,12 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         <ol className="divide-y divide-dashed divide-cardline">{GHRIT_VARIANTS.map((v, i) => <li key={v.code} className="py-2"><label className="flex items-center gap-2 text-sm font-semibold text-charcoal"><input type="checkbox" className="h-4 w-4 accent-sage" disabled={!onGhritSelectionChange} checked={ghritSelection.includes(v.code)} onChange={(e) => onGhritSelectionChange?.(v.code, e.target.checked)} />{i + 1}. {v.name}</label></li>)}</ol>
         {onSaveGhritSelection && <Button size="sm" className="mt-2" disabled={savingGhritSelection} onClick={onSaveGhritSelection}>{savingGhritSelection ? 'Saving...' : 'Save selection'}</Button>}
       </fieldset>}
-      {!visibleLines.length && <p className="mt-3 rounded-lg border border-dashed border-cardline px-3 py-4 text-center text-sm text-charcoal/55">No medicines on this sheet yet.</p>}
+      {!displayLines.length && <p className="mt-3 rounded-lg border border-dashed border-cardline px-3 py-4 text-center text-sm text-charcoal/55">No medicines on this sheet yet.</p>}
       <ol className="mt-3 divide-y divide-dashed divide-cardline">
         {displayLines.map((l, index) => (
           <li key={l.key} className={`grid gap-x-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${l.removed ? 'bg-[#8C3B2E]/5 opacity-70' : l.added ? 'bg-emerald-50/70' : l.edited ? 'bg-amber-50/60' : ''}`}>
             <div>
-              <p className={`text-sm font-bold text-charcoal ${l.removed ? 'line-through' : ''}`}><MedicineNameEditor name={String(l.displayNumber ?? (showSelectedGhrits ? index + 1 : l.n))} fieldLabel="medicine number" inputType="number" canEdit={canEdit && !l.removed} disabled={busy} onSave={(number) => renameNumber(l.key, number)} />. <MedicineNameEditor name={medicineName(l)} canEdit={canEdit && !l.removed} disabled={busy} onSave={(name) => renameMedicine(l.key, name)} /> <span className="font-normal text-charcoal/55">· {l.when}</span>{l.removed ? <span className="ml-2 rounded bg-[#8C3B2E]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8C3B2E] no-underline">removed for this patient by {l.edited?.byName}</span> : l.added ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">added for this patient by {l.added.byName}</span> : l.edited && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">corrected by {l.edited.byName}</span>}</p>
+              <p className={`text-sm font-bold text-charcoal ${l.removed ? 'line-through' : ''}`}><MedicineNameEditor name={String(l.displayNumber ?? index + 1)} fieldLabel="medicine number" inputType="number" canEdit={canEdit && !l.removed} disabled={busy} onSave={(number) => renameNumber(l.key, number)} />. <MedicineNameEditor name={medicineName(l)} canEdit={canEdit && !l.removed} disabled={busy} onSave={(name) => renameMedicine(l.key, name)} /> <span className="font-normal text-charcoal/55">· {l.when}</span>{l.removed ? <span className="ml-2 rounded bg-[#8C3B2E]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8C3B2E] no-underline">removed for this patient by {l.edited?.byName}</span> : l.added ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">added for this patient by {l.added.byName}</span> : l.edited && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">corrected by {l.edited.byName}</span>}</p>
               {l.edited && l.original?.dose && l.original.dose !== l.dose && <p className="text-xs text-charcoal/45 line-through">{l.original.dose}</p>}
               {l.dose && <p className="whitespace-pre-line text-sm text-charcoal/80">{l.dose}</p>}
               {(l.components?.length || l.extraComponents?.length) > 0 && <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">{[...(l.components || []), ...(l.extraComponents || [])].map((c, componentIndex) => <span key={`${c.code}-${componentIndex}`} className="rounded border border-cardline bg-white px-2 py-0.5">{c.name}: {num(c.qty)} {c.unit}{c.grams ? ` = ${num(c.grams)} g` : ''}{c.pinches ? ` / ${c.pinches} चुटकी` : ''}</span>)}</div>}

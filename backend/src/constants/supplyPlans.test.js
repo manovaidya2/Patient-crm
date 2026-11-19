@@ -30,14 +30,21 @@ test('a custom supply can have days: "C<months>m<days>d", at most 12 months in a
   assert.deepEqual([45, 20, 180, 135, 1, 0].map(lengthText), ['1 month 15 days', '20 days', '6 months', '4 months 15 days', '1 day', '']);
 });
 
-test('a custom supply has no master: an empty custom sheet for the months, whatever the age band', () => {
+test('a custom supply starts from the master as a sample, scaled to its days; 0-3 years (no master) starts empty', () => {
   const sheet = formulationFor({ ageBand: '4-12', plan: 'C4', part: 'full' }, null);
-  assert.equal(sheet.custom, true);
-  assert.deepEqual([sheet.months, sheet.days, sheet.lines.length, sheet.first], [4, 120, 0, true]);
+  assert.deepEqual([sheet.custom, sheet.customSupply], [undefined, true]);
+  assert.deepEqual([sheet.months, sheet.days, sheet.first], [4, 120, true]);
   assert.match(sheet.title, /4 MONTH FORMULATION \| CUSTOM SUPPLY/);
-  assert.equal(formulationFor({ ageBand: '4-12', plan: '2+4', part: 'first' }, null).custom, undefined, 'fixed plans keep the master sheet');
+  const qty = (f, key) => f.lines.find((l) => l.key === key)?.qty;
+  const fixed = formulationFor({ ageBand: '4-12', plan: '2+4', part: 'rest' }, null);
+  assert.deepEqual(['shivaLeh', 'sirup', 'oil'].map((k) => qty(sheet, k)), ['shivaLeh', 'sirup', 'oil'].map((k) => qty(fixed, k)), '4 months: the quantities of the master\'s 4 month part');
+  assert.equal(formulationFor({ ageBand: '4-12', plan: '2+4', part: 'first' }, null).customSupply, undefined, 'fixed plans are not custom');
   const days45 = formulationFor({ ageBand: '12-70', plan: 'C0m45d', part: 'full' }, null);
-  assert.deepEqual([days45.custom, days45.days, days45.months, days45.title], [true, 45, 1.5, '45 DAY FORMULATION | CUSTOM SUPPLY']);
+  assert.deepEqual([days45.custom, days45.days, days45.months, days45.title], [undefined, 45, 1.5, '45 DAY FORMULATION | CUSTOM SUPPLY']);
+  assert.equal(qty(days45, 'sirup'), 900 * 45 / 180, 'six-month quantity x 45 / 180');
+  assert.ok(days45.lines.filter((l) => l.packed).every((l) => l.containers.join() === '45'), 'every pack is for the 45 days');
+  const baby = formulationFor({ ageBand: '0-3', plan: 'C1m15d', part: 'full' }, null);
+  assert.deepEqual([baby.custom, baby.lines.length, baby.days], [true, 0, 45], 'no master for 0-3 years: an empty sheet');
 });
 
 test('the PO paper: picking custom and typing the months saves "Custom: N months"; no months keeps it a draft', () => {
@@ -54,4 +61,17 @@ test('the PO paper: picking custom and typing the months saves "Custom: N months
   assert.throws(() => cleanPurchase({ ...base, supplyOrder: CUSTOM_PICK_LABEL, supplyMonths: '12', supplyDays: '5' }, 10000), /12 months in all/);
   assert.throws(() => cleanPurchase({ ...base, supplyOrder: CUSTOM_PICK_LABEL, supplyMonths: '0', supplyDays: '0' }, 10000), /from 1 day/);
   assert.equal(cleanPurchase({ ...base, supplyOrder: 'Full 6 months', supplyMonths: '3' }, 10000).values.supplyMonths, '', 'months only matter for custom');
+});
+
+test('a removed medicine leaves the sheet numbers and chits: the rest count 1, 2, 3 ... again', () => {
+  const { applyOverrides, chitsFor, sheetNumbers } = require('./formulationMaster');
+  const sheet = formulationFor({ ageBand: '4-12', plan: '6M', part: 'full' }, null);
+  assert.equal(sheetNumbers(sheet).get('oil'), 7, 'the master numbers as before');
+  const noShiva = applyOverrides(sheet, [{ key: 'shivaLeh', removed: true }], { byName: 'Doctor' });
+  const numbers = sheetNumbers(noShiva);
+  assert.deepEqual(['ghrit', 'mix', 'sirup', 'oil'].map((k) => numbers.get(k)), [1, 2, 3, 6]);
+  assert.equal(numbers.has('shivaLeh'), false);
+  const chits = chitsFor(noShiva, 'X');
+  assert.ok(!chits.some((c) => c.itemKey === 'shivaLeh'), 'no chit for a removed medicine');
+  assert.equal(chits.find((c) => c.itemKey === 'oil').chitNo, 6);
 });

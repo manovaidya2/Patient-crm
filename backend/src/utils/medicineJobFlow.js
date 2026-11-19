@@ -188,7 +188,8 @@ function buildJobView(jobDoc, { stocks = [], payment = null, master = null, incl
     // Items the sheet editor and the preparer can pick from.
     stockOptions: stocks.map((s) => ({ code: s.code, name: s.name, unit: s.unit, available: Number(s.currentStock || 0), gramsPerSpoon: s.gramsPerSpoon || null, dropsPerMl: s.dropsPerMl || null })),
     consumption: (job.consumption || []).map((c) => ({ ...c, txId: c.txId ? String(c.txId) : null })),
-    chits: (job.chits || []).map((c) => ({ ...c, confirmedAt: iso(c.confirmedAt) })),
+    // Chit numbers follow the sheet as it is now (a removed medicine leaves it and the rest count again).
+    chits: (() => { const numbers = require('../constants/formulationMaster').sheetNumbers(job.formulation); const removed = new Set((job.formulation?.lines || []).filter((l) => l.removed).map((l) => l.key)); return (job.chits || []).filter((c) => !removed.has(c.itemKey)).map((c) => ({ ...c, chitNo: numbers.get(c.itemKey) ?? c.chitNo, confirmedAt: iso(c.confirmedAt) })); })(),
     photos: { overview: job.photos?.overview || [], papers: job.photos?.papers || [], paperSets: job.photos?.paperSets || [] },
     payment,
     finalVerification,
