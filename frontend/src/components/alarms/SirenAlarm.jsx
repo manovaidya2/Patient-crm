@@ -4,7 +4,7 @@ import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../ui/Button.jsx';
 
-// A loud alarm popup: it rings an emergency siren while `url` returns alarms, on every login, page open / refresh and
+// A loud alarm popup: it rings a "tin tin tin" alarm tone while `url` returns alarms, on every login, page open / refresh and
 // (with `liveEvent`) the moment someone rings it. "Snooze" silences it for 20 minutes; a new ring (live event) wakes it.
 // Used for the doctor's pending formulations, for In Transit when the Medicine Department rings, and for a Team Chat
 // ring. renderItem(alarm, snooze, recheck): recheck reloads the list (after an alarm is answered).
@@ -15,30 +15,33 @@ const writeSnooze = (key, until) => { try { if (until) localStorage.setItem(key,
 // Logout clears every snooze, so the next login rings again.
 export const SNOOZE_PREFIX = 'alarmSnooze:';
 
-// Emergency siren made in the browser (no sound file): a square wave wailing 650 -> 1450 Hz, full volume.
+// Alarm tone made in the browser (no sound file): a plain "tin tin tin" - three short bell-like beeps, a pause, again.
+const BEEP_HZ = 1100;
+const BEEP_GAP = 0.22; // seconds from one beep to the next
+const ROUND_MS = 1600; // one "tin tin tin" and its pause
 function startSiren() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return null;
   const ctx = new Ctx();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  const comp = ctx.createDynamicsCompressor();
-  osc.type = 'square';
-  gain.gain.value = 1;
-  osc.connect(gain); gain.connect(comp); comp.connect(ctx.destination);
-  const sweep = () => {
-    const t = ctx.currentTime;
-    osc.frequency.cancelScheduledValues(t);
-    for (let i = 0; i < 50; i += 1) {
-      osc.frequency.setValueAtTime(650, t + i * 1.2);
-      osc.frequency.linearRampToValueAtTime(1450, t + i * 1.2 + 0.6);
-      osc.frequency.linearRampToValueAtTime(650, t + i * 1.2 + 1.2);
-    }
+  const out = ctx.createGain();
+  out.gain.value = 0.7;
+  out.connect(ctx.destination);
+  const beep = (at) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = BEEP_HZ;
+    // A quick strike that fades out, like a small bell.
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(1, at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.18);
+    osc.connect(gain); gain.connect(out);
+    osc.start(at); osc.stop(at + 0.2);
   };
-  sweep();
-  osc.start();
-  const timer = setInterval(sweep, 55000);
-  return { ctx, stop: () => { clearInterval(timer); try { osc.stop(); } catch { /* stopped */ } ctx.close().catch(() => {}); } };
+  const round = () => { const t = ctx.currentTime + 0.05; [0, 1, 2].forEach((i) => beep(t + i * BEEP_GAP)); };
+  round();
+  const timer = setInterval(round, ROUND_MS);
+  return { ctx, stop: () => { clearInterval(timer); ctx.close().catch(() => {}); } };
 }
 
 export default function SirenAlarm({ user, name, url, title, intro, renderItem, liveEvent = '' }) {

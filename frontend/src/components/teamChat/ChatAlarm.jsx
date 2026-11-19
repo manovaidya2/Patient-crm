@@ -86,7 +86,7 @@ export function RingAlarmButton({ person }) {
       )}
       <Modal open={open} onClose={() => !busy && setOpen(false)} title={`Ring ${person.name}'s alarm`} className="max-w-md">
         <form onSubmit={ring} className="space-y-3">
-          <p className="text-sm text-charcoal/70">A loud siren rings on {person.name}&apos;s screen until they answer. Use it only for something important.</p>
+          <p className="text-sm text-charcoal/70">An alarm tone rings on {person.name}&apos;s screen until they answer. Use it only for something important.</p>
           <label className="block text-sm font-medium">Why (the urgent work) *<textarea className="mt-1 w-full rounded-lg border border-cardline bg-white px-3 py-2 text-sm" rows={3} required maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Quality check of PO-2420 pending since morning, patient waiting" /></label>
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={busy || !reason.trim()} className="!bg-[#B91C1C]"><BellRing size={15} />{busy ? 'Ringing...' : 'Ring now'}</Button></div>
