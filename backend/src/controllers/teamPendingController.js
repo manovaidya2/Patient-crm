@@ -27,7 +27,7 @@ const ROLE_ORDER = Object.keys(TEAM_PAGES);
 const doctorJobs = async () => {
   const MedicineJob = require('../models/MedicineJob');
   const { STAGES } = require('../utils/medicineJobFlow');
-  const jobs = await MedicineJob.find({ status: { $in: ['open', 'ready'] }, 'hold.active': { $ne: true } }).select('patientName patientCode poNumber phase currentStage readyByDate formulation.custom').lean();
+  const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $in: ['open', 'ready'] }, 'hold.active': { $ne: true } })).select('patientName patientCode poNumber phase currentStage readyByDate formulation.custom').lean();
   const items = jobs.filter((j) => (STAGES[j.currentStage || 0]?.roles || []).includes(ROLES.DOCTOR))
     .map((j) => ({ page: '/admin/medicine-jobs', key: `/admin/medicine-jobs|${j._id}`, title: j.patientName, detail: `${j.poNumber || `Phase ${j.phase}`} · ${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`, due: j.readyByDate ? new Date(j.readyByDate).toISOString() : null, href: `/admin/medicine-jobs/${j._id}` }));
   return { items, count: items.length };

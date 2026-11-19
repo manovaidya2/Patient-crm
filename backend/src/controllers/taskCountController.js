@@ -67,7 +67,7 @@ const callHandler = (handler, user, query = {}) => new Promise((resolve, reject)
 
 // Medicine requests of every phase whose status is one of `statuses`.
 const countRequests = async (statuses, extra = () => true) => {
-  const patients = await Patient.find({ $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
+  const patients = await Patient.find({ isActive: { $ne: false }, $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
     .select('stages.medicineRequest.status stages.medicineRequest.requestId stages.medicineRequest.courier.status stages.medicineRequests.status stages.medicineRequests.requestId stages.medicineRequests.courier.status').lean();
   return patients.reduce((sum, p) => sum + (p.stages || []).reduce((s, st) => s + allRequests(st).filter((r) => statuses.includes(r.status) && extra(r)).length, 0), 0);
 };
@@ -146,7 +146,7 @@ const COUNTERS = {
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return countRequests(['made'], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
     const finalPcc = user.role === ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
-    const jobs = await MedicineJob.find({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] }).select('status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean();
+    const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] })).select('status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
     return jobs.filter((j) => jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))).length;
   },

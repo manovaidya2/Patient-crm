@@ -7,6 +7,7 @@ const InventorySetting = require('../models/InventorySetting');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES, STAGE_INDEX } = require('../utils/medicineJobFlow');
+const { withoutClosedPatients } = require('../utils/closedPatients');
 const { AGE_BANDS, supplyLabel } = require('../constants/supplyPlans');
 
 const KINDS = {
@@ -88,7 +89,7 @@ const listPapers = asyncHandler(async (req, res) => {
   if (!(await isKindWorker(kind, req.user))) return res.json({ success: true, pcc, mine: false, rows: [] });
   const view = req.query.view === 'done' ? 'done' : 'pending';
   const filter = view === 'pending'
-    ? { status: 'open', currentStage: STAGE_INDEX[stage] }
+    ? await withoutClosedPatients({ status: 'open', currentStage: STAGE_INDEX[stage] })
     : { stages: { $elemMatch: { key: stage, doneAt: { $ne: null } } } };
   const jobs = await MedicineJob.find(filter).select('patientName patientCode phase poNumber purchaseOrder supplyPlan supplyPart ageBand readyByDate stages photos transitAlarm').sort(view === 'pending' ? { readyByDate: 1 } : { updatedAt: -1 }).limit(view === 'pending' ? 500 : 100).lean();
   res.json({ success: true, pcc, mine: true, step: STAGES[STAGE_INDEX[stage]].label, stepNo: STAGE_INDEX[stage] + 1, rows: jobs.map((j) => rowOf(j, kind)) });
@@ -100,13 +101,13 @@ const paperAlarms = asyncHandler(async (req, res) => {
   if (kind === 'papers') return res.json({ success: true, alarms: [] });
   const { stage } = KINDS[kind];
   if (!(await isKindWorker(kind, req.user)) || isAdminLike(req.user)) return res.json({ success: true, alarms: [] });
-  const jobs = await MedicineJob.find({ status: 'open', currentStage: STAGE_INDEX[stage], 'transitAlarm.stageKey': stage, 'transitAlarm.at': { $ne: null } })
+  const jobs = await MedicineJob.find(await withoutClosedPatients({ status: 'open', currentStage: STAGE_INDEX[stage], 'transitAlarm.stageKey': stage, 'transitAlarm.at': { $ne: null } }))
     .select('patientName patientCode phase poNumber transitAlarm').lean();
   res.json({ success: true, alarms: jobs.map((j) => ({ id: String(j._id), patientName: j.patientName, patientCode: j.patientCode || '', phase: j.phase, poNumber: j.poNumber || '', step: STAGES[STAGE_INDEX[stage]].label, stepNo: STAGE_INDEX[stage] + 1, at: j.transitAlarm.at, byName: j.transitAlarm.byName, note: j.transitAlarm.note })) });
 });
 
 // Pending count for the sidebar badge (only the chosen PCC, or the admin, has this work).
-const pendingPaperCount = async (user, kind = 'papers') => ((await isKindWorker(kind, user)) ? MedicineJob.countDocuments({ status: 'open', currentStage: STAGE_INDEX[KINDS[kindOf(kind)].stage] }) : 0);
+const pendingPaperCount = async (user, kind = 'papers') => ((await isKindWorker(kind, user)) ? MedicineJob.countDocuments(await withoutClosedPatients({ status: 'open', currentStage: STAGE_INDEX[KINDS[kindOf(kind)].stage] })) : 0);
 // The PCC who owns a fulfilment stage key ('photos' / 'final'), or null.
 const pccForStage = async (stageKey) => {
   const kind = Object.keys(KINDS).find((k) => KINDS[k].stage === stageKey);

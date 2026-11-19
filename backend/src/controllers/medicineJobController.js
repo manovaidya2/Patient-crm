@@ -26,6 +26,7 @@ const { linkNewMedicines, NEW_MEDICINE_OPENING } = require('../utils/newSheetSto
 const { DAY_MS, FOLLOWUP_STATUSES, releaseView } = require('../utils/medicineRelease');
 const { releasePaymentReview } = require('../utils/releasePaymentReview');
 const { phasePurchaseOrders } = require('../utils/poPayment');
+const { closedPatientIds, withoutClosedPatients, assertPatientOpen, CLOSED_MESSAGE } = require('../utils/closedPatients');
 
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
@@ -100,7 +101,7 @@ const respond = async (res, job, status = 200) => {
   const fixedPlan = { supply: Boolean(sent.plan), ageBand: Boolean(sent.ageBand) };
   // The patient's whole file from the Records Room, read instead of a separate prescription.
   const documents = await patientDocuments(patient);
-  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: await paymentOf(patient, stage, request), master, includeEvents: true, dispatch: dispatchDelayInput({ stage, request: request?.toObject ? request.toObject() : request }) }), fixedPlan, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
+  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: await paymentOf(patient, stage, request), master, includeEvents: true, dispatch: dispatchDelayInput({ stage, request: request?.toObject ? request.toObject() : request }) }), fixedPlan, patientInactive: patient.isActive === false, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
 };
 
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
@@ -129,6 +130,7 @@ const canEditSheet = (user) => SHEET_EDIT_ROLES.includes(stepRole(user));
 const editFormulation = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (!canEditSheet(req.user, job)) fail('Only the doctor or the admin corrects the formulation sheet', 403);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
@@ -191,6 +193,7 @@ const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => 
 const rebuildSheet = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (!SHEET_EDIT_ROLES.includes(stepRole(req.user))) needSheetOwner(req.user, job);
   if (job.status !== 'open') fail('The sheet cannot change once the medicine is ready');
   if ((job.currentStage || 0) > STAGE_INDEX.stock) fail('The sheet cannot change after preparation has started (stock is already drawn)');
@@ -212,6 +215,7 @@ const openForRequest = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(String(patientId)) || !PHASES.includes(phase)) fail('Patient and phase are required');
   const patient = await Patient.findById(patientId);
   if (!patient) fail('Patient not found', 404);
+  if (patient.isActive === false) fail(CLOSED_MESSAGE, 409);
   const stage = patient.stages.find((s) => s.number === phase);
   const request = stage ? findRequest(stage, requestId || 'legacy') : null;
   if (!request) fail('Medicine request not found', 404);
@@ -229,15 +233,22 @@ const listJobs = asyncHandler(async (req, res) => {
 });
 const buildJobList = async (status, user) => {
   const finalPcc = user.role === ROLES.ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
+  // An inactive (closed) patient's unfinished jobs are no one's work: they leave every tab (All too) and every count.
+  // Released medicine stays in Released / All as history. Reactivating the patient brings the jobs back.
+  const closed = new Set((await closedPatientIds()).map(String));
+  const shut = (j) => closed.has(String(j.patient));
+  const pending = (j) => j.status === 'open' || j.status === 'ready';
   const filter = status === 'all' ? {} : { status };
-  const jobs = await MedicineJob.find(filter).select('-events -formulation -chits -consumption').sort({ readyByDate: 1, createdAt: -1 }).limit(500).lean();
+  const jobs = (await MedicineJob.find(filter).select('-events -formulation -chits -consumption').sort({ readyByDate: 1, createdAt: -1 }).limit(500).lean())
+    .filter((j) => !(shut(j) && pending(j)));
   const items = jobs.map((j) => buildJobView(j));
   // Chip counts (and how many wait for this role) across the open / ready / released lists.
-  const all = await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean();
+  const all = (await MedicineJob.find({ status: { $in: ['open', 'ready', 'released'] } }).select('patient status currentStage hold requestId purchaseOrder poNumber boxReceipt releaseRequest stages.key stages.doneAt').lean())
+    .filter((j) => !(shut(j) && pending(j)));
   const handedOver = await handedOverRequestIds([...all, ...jobs].filter((j) => j.status !== 'released').map((j) => j.requestId));
   const counts = { open: 0, ready: 0, released: 0, all: all.length, mine: { open: 0, ready: 0, released: 0, all: 0 } };
-  all.forEach((j) => { const status = releaseView(j)?.state === 'released' ? 'released' : j.status; counts[status] += 1; if (jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))) { counts.mine[status] += 1; counts.mine.all += 1; } });
-  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, finalVerification: v.finalVerification, releaseRequest: v.releaseRequest, actionBy: jobActionBy(jobs[i], handedOver, { user, finalPcc }), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
+  all.forEach((j) => { const status = releaseView(j)?.state === 'released' ? 'released' : j.status; counts[status] += 1; if (!shut(j) && jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))) { counts.mine[status] += 1; counts.mine.all += 1; } });
+  return { success: true, counts, items: items.map((v, i) => ({ id: v.id, patientId: v.patientId, patientName: v.patientName, patientCode: v.patientCode, phase: v.phase, poNumber: v.poNumber, purchaseOrderId: v.purchaseOrderId, supplyLabel: v.supplyLabel, ageBandLabel: v.ageBandLabel, readyByDate: v.readyByDate, delay: v.delay, requestedAt: v.requestedAt, status: v.status, currentStage: v.currentStage, currentLabel: STAGES[v.currentStage]?.label || 'Released', progress: v.progress, hold: v.hold, urgency: v.urgency, totalStages: v.totalStages, finalVerification: v.finalVerification, releaseRequest: v.releaseRequest, patientInactive: shut(jobs[i]), actionBy: shut(jobs[i]) ? [] : jobActionBy(jobs[i], handedOver, { user, finalPcc }), handedOverOldFlow: handedOver.has(String(jobs[i].requestId)) })) };
 };
 
 // Who has to act on a job now: the roles of its current stage (whoever resumes it while on hold; nobody once released).
@@ -276,6 +287,7 @@ const getJob = asyncHandler(async (req, res) => {
 const setSupply = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   needSheetOwner(req.user, job);
   if (job.status !== 'open') fail('The supply cannot change once the medicine is ready or the job is closed');
   if (job.hold?.active) fail('Resume the job first', 409);
@@ -320,6 +332,7 @@ const reconcileCompletedRelease = async (job) => {
 const completeStage = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (req.params.key === 'release') {
     if (!stageRoles(STAGES[STAGE_INDEX.release], job).includes(stepRole(req.user))) fail('Only the Medicine Department can release medicine', 403);
     if (await reconcileCompletedRelease(job)) return respond(res, job);
@@ -633,6 +646,7 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
   if (req.user.role !== owner && !isAdminLike(req.user)) fail(action === 'accept' ? 'Only the Medicine Department can accept a release request' : 'Only In Transit can request release or update the release follow-up', 403);
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (await reconcileCompletedRelease(job)) return respond(res, job);
   if (job.status !== 'ready') fail('Only medicine that passed final verification can enter the release request flow', 409);
   if (job.hold?.active) fail('Resume the job before updating the release request', 409);
@@ -726,7 +740,7 @@ const updateReleaseRequest = asyncHandler(async (req, res) => {
 });
 
 const listReleaseRequests = asyncHandler(async (req, res) => {
-  const jobs = await MedicineJob.find({ status: { $in: ['ready', 'released'] } }).select('-events -formulation -chits -consumption -photos').sort({ 'stages.doneAt': 1, createdAt: 1 }).lean();
+  const jobs = await MedicineJob.find(await withoutClosedPatients({ status: { $in: ['ready', 'released'] } })).select('-events -formulation -chits -consumption -photos').sort({ 'stages.doneAt': 1, createdAt: 1 }).lean();
   res.json({ success: true, items: jobs.map((j) => buildJobView(j)).filter((v) => v.releaseRequest) });
 });
 
@@ -743,6 +757,7 @@ const updateBoxReceipt = asyncHandler(async (req, res) => {
   }
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (job.status === 'cancelled' || job.hold?.active) fail('Resume the job before requesting or confirming box receipt', 409);
   if (!job.stages.some((s) => s.key === 'final' && s.doneAt)) fail('Complete the final verification check first', 409);
   if (job.boxReceipt?.receivedAt) fail('This medicine box has already been received', 409);
@@ -760,7 +775,7 @@ const updateBoxReceipt = asyncHandler(async (req, res) => {
 });
 
 const listBoxReceipts = asyncHandler(async (req, res) => {
-  const jobs = await MedicineJob.find({ status: { $ne: 'cancelled' }, 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null })
+  const jobs = await MedicineJob.find(await withoutClosedPatients({ status: { $ne: 'cancelled' }, 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }))
     .select('patientName patientCode phase poNumber boxReceipt hold').sort({ 'boxReceipt.requestedAt': 1 }).lean();
   res.json({ success: true, items: jobs.map((j) => ({ id: String(j._id), patientName: j.patientName, patientCode: j.patientCode, phase: j.phase, poNumber: j.poNumber, hold: j.hold?.active ? j.hold.reason : '', boxReceipt: buildJobView(j).boxReceipt })) });
 });
@@ -770,6 +785,7 @@ const listBoxReceipts = asyncHandler(async (req, res) => {
 const confirmDoctorVerification = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (req.user.role !== ROLES.ASSISTANT_DOCTOR) fail('Only the assigned final-check PCC can confirm doctor verification', 403);
   await require('./treatmentPaperController').assertKindPcc('final', req.user);
   if (job.status === 'cancelled' || job.hold?.active) fail('Doctor verification cannot be confirmed for a cancelled job or a job on hold', 409);
@@ -808,6 +824,7 @@ const holdJob = asyncHandler(async (req, res) => {
 const resumeJob = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   if (!job.hold?.active) fail('This job is not on hold');
   const note = clean(req.body?.note, 500);
   if (!note) fail('Write the corrective action taken');
@@ -847,6 +864,7 @@ const RING_STAGE_KEYS = [...QC_STAGE_KEYS, ...PCC_STAGE_KEYS];
 const ringTransit = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
   const key = STAGES[job.currentStage || 0]?.key;
   if (job.status !== 'open' || !RING_STAGE_KEYS.includes(key)) fail('This job is not waiting on the Manager or the PCC', 409);
   const note = clean(req.body?.note, 300);
@@ -867,7 +885,7 @@ const ringTransit = asyncHandler(async (req, res) => {
 // @route GET /api/medicine-jobs/qc-alarms   (also /transit-alarms, the old name)
 // Jobs whose alarm the Medicine Department rang and which still wait on the Manager's quality check.
 const transitAlarms = asyncHandler(async (req, res) => {
-  const jobs = await MedicineJob.find({ status: 'open', 'transitAlarm.at': { $ne: null }, currentStage: { $in: QC_STAGE_KEYS.map((k) => STAGE_INDEX[k]) } })
+  const jobs = await MedicineJob.find(await withoutClosedPatients({ status: 'open', 'transitAlarm.at': { $ne: null }, currentStage: { $in: QC_STAGE_KEYS.map((k) => STAGE_INDEX[k]) } }))
     .select('patientName patientCode phase poNumber purchaseOrder currentStage transitAlarm').lean();
   const alarms = jobs.filter((j) => j.transitAlarm?.stageKey === STAGES[j.currentStage]?.key).map((j) => ({
     id: String(j._id), patientName: j.patientName, patientCode: j.patientCode || '', phase: j.phase, poNumber: j.poNumber || '',
@@ -882,7 +900,7 @@ const transitAlarms = asyncHandler(async (req, res) => {
 const FORMULATION_ALARM_AFTER_MS = 24 * 3600000;
 const doctorAlarms = asyncHandler(async (req, res) => {
   const now = Date.now();
-  const jobs = await MedicineJob.find({ status: 'open', currentStage: STAGE_INDEX.formula, 'hold.active': { $ne: true } })
+  const jobs = await MedicineJob.find(await withoutClosedPatients({ status: 'open', currentStage: STAGE_INDEX.formula, 'hold.active': { $ne: true } }))
     .select('patientName patientCode phase poNumber stages.key stages.doneAt requestedAt').lean();
   const alarms = jobs.map((job) => {
     const since = (job.stages || []).find((s) => s.key === 'accept')?.doneAt || job.requestedAt;

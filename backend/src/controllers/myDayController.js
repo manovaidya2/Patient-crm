@@ -27,7 +27,7 @@ const item = (page, key, title, detail, due, href, extra = {}) => ({ page, key: 
 
 const REQUEST_STATUS = { requested: 'Accept the request', in_process: 'Being prepared', made: 'Made · waiting for release' };
 const requestItems = async (page, statuses, detailOf, extra = () => true) => {
-  const patients = await Patient.find({ $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
+  const patients = await Patient.find({ isActive: { $ne: false }, $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
     .select('patientName patientCode stages.number stages.medicineRequest stages.medicineRequests').lean();
   const out = [];
   for (const p of patients) for (const st of p.stages || []) for (const r of allRequests(st)) {
@@ -90,7 +90,7 @@ const COLLECTORS = {
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
     const finalPcc = user.role === ROLES.ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
-    const jobs = await MedicineJob.find({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] }).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key boxReceipt releaseRequest stages.key stages.doneAt').lean();
+    const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] })).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key boxReceipt releaseRequest stages.key stages.doneAt').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
     return jobs.filter((j) => jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))).map((j) => {
       const release = releaseView(j);
