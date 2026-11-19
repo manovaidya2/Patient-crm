@@ -274,6 +274,8 @@ const Dashboard = () => {
       </h1>
       <p className="mt-1 text-sm text-charcoal/60">Here's what your team looks like today.</p>
 
+      <MedicineCategoriesCard className="mt-6" />
+
       <div className="mt-6 grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card>
           <div className="flex items-start justify-between gap-4">
@@ -591,8 +593,6 @@ const Dashboard = () => {
           </div>
         </Card>
       </div>
-
-      <MedicineCategoriesCard />
 
       {isAdmin && <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="flex items-center gap-4">
