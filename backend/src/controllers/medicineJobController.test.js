@@ -918,3 +918,29 @@ test('the Medicine Department sets the real number of bottles after the doctor s
   await setBottles({ sirup: before.bottles });
   assert.equal(bottleNeed(), before.need, 'changed back: the stock follows again');
 });
+
+test('an old ghrit line linked to GH-NM-0 comes right after a revert and a change: it draws from GH-NM-03', async () => {
+  const { patient, stocks, jobs } = setup();
+  const make = (code, name) => { const doc = new StockItem({ code, name, kind: 'medicine', unit: 'ml', currentStock: 2000 }); doc.save = async () => doc; stocks.push(doc); return doc; };
+  make('GH-NM-03', 'MEDHYA GRITA');
+  const junk = make('GH-NM-5', 'मेध्य घृत (GH-NM-0)'); junk.codeAliases = ['GH-NM-0'];
+  const { job } = await open(patient);
+  const id = job.id;
+  await complete(id, 'accept', { readyByDate: '2026-11-25' });
+  // As saved before the fix: the name says GH-NM-03 (no closing bracket), the link is the old GH-NM-0.
+  const sheet = JSON.parse(JSON.stringify(jobs[0].formulation));
+  const ghrit = sheet.lines.find((l) => l.key === 'ghrit');
+  sheet.lines = sheet.lines.map((l) => (l.key === 'ghrit' ? { ...l, removed: true, packed: false } : l));
+  sheet.lines.push({ ...ghrit, key: 'added-old-8', name: 'मेध्य घृत (GH-NM-03', stockCode: 'GH-NM-0', ghritVariantCode: 'GH-NM-0', added: { byName: 'Dr' }, removed: undefined, packed: true });
+  jobs[0].formulation = sheet; jobs[0].markModified('formulation');
+  await complete(id, 'formula', { remarks: 'Sent' }, {}, doctor);
+  await complete(id, 'review');
+  // Reverted to the doctor and changed again (a dose): the line draws from GH-NM-03, GH-NM-0 is gone from stock match.
+  await call(controller.revertJob, { params: { id }, body: { stage: 'formula', reason: 'Correct the ghrit' }, user: doctor });
+  const changed = (await call(controller.editFormulation, { params: { id }, body: { lines: [{ key: 'added-old-8', dose: 'सुबह खाली पेट: ½ चम्मच' }] }, user: doctor })).job;
+  const line = changed.formulation.lines.find((l) => l.key === 'added-old-8');
+  assert.equal(line.stockCode, 'GH-NM-03');
+  assert.equal(changed.consumption.some((c) => c.code === 'GH-NM-0' || c.code === 'GH-NM-5'), false, 'GH-NM-0 is not in stock match');
+  assert.ok(changed.consumption.some((c) => c.code === 'GH-NM-03'));
+  assert.equal(stocks.filter((s) => /^GH-NM/.test(s.code)).length, 2, 'no new stock item made');
+});

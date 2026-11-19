@@ -88,3 +88,12 @@ test('a ghrit or added medicine renamed with a Stocks code draws from that item;
   assert.deepEqual(changes, ['मेध्य घृत (GH-NM-03): GH-NM-0 -> GH-NM-03']);
   assert.deepEqual(linkByName(lines, items).changes, [], 'already linked: nothing to do');
 });
+
+test('the Stocks code in a medicine name is read also without the closing bracket', () => {
+  const { codeInName, linkByName } = require('./formulationMaster');
+  assert.deepEqual(['मेध्य घृत (GH-NM-03)', 'मेध्य घृत (GH-NM-03', 'मेध्य घृत', 'GH-NM-03'].map(codeInName), ['GH-NM-03', 'GH-NM-03', '', '']);
+  // GH-NM-0 is only an old alias of another item: the name's GH-NM-03 wins.
+  const items = new Map([['GH-NM-03', { code: 'GH-NM-03' }], ['GH-NM-0', { code: 'GH-NM-5' }], ['GH-NM-5', { code: 'GH-NM-5' }]]);
+  const { lines } = linkByName([{ key: 'added-1', added: {}, ghritVariantCode: 'GH-NM-0', name: 'मेध्य घृत (GH-NM-03', stockCode: 'GH-NM-0' }], items);
+  assert.equal(lines[0].stockCode, 'GH-NM-03');
+});

@@ -67,7 +67,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
     if (existing) setLine(existing.key, { removed: !checked });
     else if (checked) {
       const base = f.lines.find((l) => l.key === 'ghrit') || f.lines.find((l) => GHRIT_VARIANTS.some((v) => isVariant(l, v)));
-      setAdds((list) => [...list, { ...emptyAdd(), name: ghritName, ghritVariantCode: variant.code, unit: 'ml', qty: base ? String(base.qty) : '', when: base?.when || '', dose: base?.dose || '', containers: (base?.containers || [f.days]).join(', '), stockCode: stockOptions.some((o) => o.code === variant.code) ? variant.code : '' }]);
+      setAdds((list) => [...list, { ...emptyAdd(), name: ghritName, ghritVariantCode: variant.code, unit: 'ml', qty: base ? String(base.qty) : '', when: base?.when || '', dose: base?.dose || '', containers: (base?.containers || [f.days]).join(', '), stockCode: '' }]);
     } else setAdds((list) => list.filter((a) => a.ghritVariantCode !== variant.code));
     // Once codes are explicitly chosen, an empty selection means no ghrit.
     const generic = f.lines.find((l) => l.key === 'ghrit');

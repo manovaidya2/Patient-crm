@@ -342,13 +342,15 @@ function addedLine(o, formulation, n, byName) {
 // A medicine whose name ends with a Stocks code in brackets ("मेध्य घृत (GH-NM-03)") draws from that item. Only medicines
 // added for the patient and the ghrit choices follow their name (the master medicines keep their fixed items), and only
 // to an item that is in Stocks. Returns the new lines and what changed; lines not changed are the same objects.
-const NAME_CODE = /\(([A-Za-z0-9][A-Za-z0-9-]{1,38})\)\s*$/;
+// The code is the last bracket of the name; the closing bracket may be missing ("मेध्य घृत (GH-NM-03").
+const NAME_CODE = /\(\s*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)+)\s*\)?\s*$/;
+const codeInName = (name) => { const m = NAME_CODE.exec(String(name || '')); return m ? m[1].toUpperCase() : ''; };
 function linkByName(lines = [], stockByCode = new Map()) {
   const changes = [];
   const next = lines.map((l) => {
     if (l.removed || l.components || !(l.added || l.ghritVariantCode || /^ghritNm\d$/.test(l.key || ''))) return l;
-    const m = NAME_CODE.exec(String(l.name || ''));
-    const item = m ? stockByCode.get(m[1].toUpperCase()) : null;
+    const code = codeInName(l.name);
+    const item = code ? stockByCode.get(code) : null;
     if (!item || item.code === l.stockCode || stockByCode.get(String(l.stockCode || '').toUpperCase()) === item) return l;
     changes.push(`${l.name}: ${l.stockCode || 'no item'} -> ${item.code}`);
     return { ...l, stockCode: item.code };
@@ -455,4 +457,4 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   return { ...formulation, lines, edited: lines.some((l) => l.edited), pending: lines.map((l) => l.pending).filter(Boolean) };
 }
 
-module.exports = { linkByName, applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };
+module.exports = { codeInName, linkByName, applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

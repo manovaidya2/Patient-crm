@@ -27,8 +27,11 @@ async function linkNewMedicines(sheet, { user, job = null } = {}) {
   const byName = new Map();
   all.filter((s) => s.isActive !== false).forEach((s) => [s.name, s.nameHindi, ...stockCodes(s)].filter(Boolean).forEach((n) => { if (!byName.has(plainName(n))) byName.set(plainName(n), s); }));
   const done = [];
+  // A name that ends with a Stocks code ("मेध्य घृत (GH-NM-03)") is that item: never a new one.
+  const { codeInName } = require('../constants/formulationMaster');
+  const byCode = new Map(all.filter((s) => s.isActive !== false).flatMap((s) => stockCodes(s).map((c) => [c, s])));
   for (const line of lines) {
-    const found = byName.get(plainName(line.name));
+    const found = byCode.get(codeInName(line.name)) || byName.get(plainName(line.name));
     if (found) {
       line.stockCode = found.code;
       done.push({ name: line.name, code: found.code, created: false });
