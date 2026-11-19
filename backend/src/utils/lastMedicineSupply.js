@@ -73,4 +73,7 @@ function groupByLength(latest, planOf = () => null, jobOf = () => null) {
     .map((g) => ({ ...g, count: g.patients.length, gone: g.patients.filter((p) => p.gone).length }));
 }
 
-module.exports = { latestMedicine, groupByLength, goneAt, LIVE };
+// Days and category label of a supply plan ('' when unknown).
+const lengthOf = (plan, part) => { const option = plan ? supplyOption(plan, part || 'full') : null; const days = option ? Math.round(option.days || option.months * 30) : 0; return { option, days, label: days ? categoryText(days) : 'Supply not recorded', key: days ? `d${days}` : 'unknown' }; };
+
+module.exports = { latestMedicine, groupByLength, goneAt, LIVE, lengthOf, categoryText, requestsOf };

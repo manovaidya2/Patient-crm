@@ -6,6 +6,7 @@ import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
 import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
 import MedicineCategoriesCard from '../../components/MedicineCategoriesCard.jsx';
+import PaymentDueCategoriesCard from '../../components/PaymentDueCategoriesCard.jsx';
 import { CREATABLE_ROLES, ROLE_LABELS, ROLES, isAdminLike } from '../../constants/roles.js';
 import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -275,6 +276,7 @@ const Dashboard = () => {
       <p className="mt-1 text-sm text-charcoal/60">Here's what your team looks like today.</p>
 
       <MedicineCategoriesCard className="mt-6" />
+      <PaymentDueCategoriesCard className="mt-6" />
 
       <div className="mt-6 grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card>

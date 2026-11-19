@@ -5,6 +5,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { cached } = require('../utils/readCache');
 const { STAGES } = require('../utils/medicineJobFlow');
 const { latestMedicine, groupByLength, LIVE } = require('../utils/lastMedicineSupply');
+const { paymentDueByCategory } = require('../utils/paymentDueByCategory');
 
 const LIVE_FILTER = { $or: [{ 'stages.medicineRequests.status': { $in: LIVE } }, { 'stages.medicineRequest.status': { $in: LIVE } }] };
 const REQUEST_FIELDS = ['requestId', 'status', 'supplyPlan', 'supplyPart', 'poNumber', 'purchaseOrderId', 'requestedAt', 'inProcessAt', 'madeAt', 'sentToCourierAt', 'courier.status', 'courier.deliveryMode', 'courier.dispatchedAt', 'courier.deliveredAt'];
@@ -43,4 +44,29 @@ const getMedicineCategories = asyncHandler(async (req, res) => {
   res.json(await cached('medicine-categories', build));
 });
 
-module.exports = { getMedicineCategories };
+// @route GET /api/patients/payment-due-categories
+// Active patients whose phase still has payment due, by the category of that phase's supply (1 month, 6 months ...).
+const PAY_FIELDS = ['patientName', 'patientCode', 'stages.number', 'stages.totalAmount', 'stages.payments.amount', 'stages.payments.approvalStatus',
+  'stages.payments.refunds.amount', 'stages.payments.refunds.status', 'stages.payments.date', 'stages.payments.createdAt',
+  ...['requestId', 'status', 'supplyPlan', 'supplyPart', 'poNumber', 'requestedAt'].flatMap((x) => [`stages.medicineRequests.${x}`, `stages.medicineRequest.${x}`])].join(' ');
+const buildDue = async () => {
+  const patients = await Patient.find({ isActive: { $ne: false }, 'stages.totalAmount': { $gt: 0 } }).select(PAY_FIELDS).lean();
+  const ids = patients.map((p) => p._id);
+  const [pos, jobs] = ids.length ? await Promise.all([
+    PurchaseOrder.find({ patient: { $in: ids }, status: { $nin: ['cancelled', 'rejected'] } }).select('patient phase poNumber supplyPlan supplyPart createdAt').lean(),
+    MedicineJob.find({ patient: { $in: ids }, status: { $ne: 'cancelled' } }).select('patient phase requestId supplyPlan supplyPart').lean(),
+  ]) : [[], []];
+  const posBy = new Map();
+  pos.forEach((po) => { const k = `${po.patient}|${po.phase}`; if (!posBy.has(k)) posBy.set(k, []); posBy.get(k).push(po); });
+  const jobBy = new Map(jobs.map((j) => [`${j.patient}|${j.phase}|${j.requestId}`, j]));
+  const categories = paymentDueByCategory(patients, {
+    posOf: (id, phase) => posBy.get(`${id}|${phase}`) || [],
+    jobPlanOf: (id, phase, requestId) => { const j = jobBy.get(`${id}|${phase}|${requestId}`); return j?.supplyPlan ? { plan: j.supplyPlan, part: j.supplyPart } : null; },
+  });
+  return { success: true, total: categories.reduce((s, c) => s + c.count, 0), totalDue: categories.reduce((s, c) => s + c.totalDue, 0), categories };
+};
+const getPaymentDueCategories = asyncHandler(async (req, res) => {
+  res.json(await cached('payment-due-categories', buildDue));
+});
+
+module.exports = { getMedicineCategories, getPaymentDueCategories };
