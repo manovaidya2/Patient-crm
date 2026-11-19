@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
-import { AlertTriangle, Boxes, History, Plus, Search } from 'lucide-react';
+import { AlertTriangle, Boxes, History, Plus, Search, Trash2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES, roleAllowed } from '../../constants/roles.js';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -106,6 +108,14 @@ export default function Stocks() {
   const [moving, setMoving] = useState(null);
   const [ledgerOf, setLedgerOf] = useState(null);
   const [ledger, setLedger] = useState([]);
+  const { user } = useAuth();
+  // Admin / Manager / Doctor delete an item: it leaves this list, its ledger stays.
+  const canDelete = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user);
+  const remove = async (item) => {
+    if (!window.confirm(`Delete ${item.code} - ${item.name} from Stocks? Its ledger and old records are kept.`)) return;
+    try { await api.delete(`/stocks/${item.id}`); setItems((old) => (old || []).filter((x) => x.id !== item.id)); setError(''); }
+    catch (err) { setError(err.response?.data?.message || 'Could not delete the item'); }
+  };
   const load = useCallback(async () => {
     try { const { data } = await api.get('/stocks', { skipCache: true }); setItems(data.items); setError(''); }
     catch (err) { setError(err.response?.data?.message || 'Could not load stocks'); }
@@ -152,7 +162,7 @@ export default function Stocks() {
                     <td className="px-3 py-2 text-xs"><BottleCell b={i.bottles} /></td>
                     <td className="px-3 py-2 text-xs">{i.batchNo || '-'}{i.expiryDate ? <div className={i.expired ? 'font-semibold text-[#8C3B2E]' : ''}>{day(i.expiryDate)}{i.expired ? ' (expired)' : ''}</div> : null}</td>
                     <td className="px-3 py-2 text-xs text-charcoal/60">{i.gramsPerSpoon ? `${i.gramsPerSpoon} g/spoon` : ''}{i.dropsPerMl ? `${i.dropsPerMl} drops/ml` : ''}{!i.gramsPerSpoon && !i.dropsPerMl && (i.unit === 'g' || i.unit === 'ml') && ['SHIVA-LEH', 'BUDDHI-GHRIT'].includes(i.code) ? <span className="text-amber-800">pending</span> : ''}</td>
-                    <td className="px-3 py-2"><div className="flex justify-end gap-1"><Button size="sm" onClick={() => setMoving(i)}><Plus size={13} />Stock</Button><Button size="sm" variant="outline" onClick={() => { setEditing(i); setItemOpen(true); }}>Edit</Button><Button size="sm" variant="ghost" onClick={() => setLedgerOf(i)}><History size={13} /></Button></div></td>
+                    <td className="px-3 py-2"><div className="flex justify-end gap-1"><Button size="sm" onClick={() => setMoving(i)}><Plus size={13} />Stock</Button><Button size="sm" variant="outline" onClick={() => { setEditing(i); setItemOpen(true); }}>Edit</Button><Button size="sm" variant="ghost" onClick={() => setLedgerOf(i)}><History size={13} /></Button>{canDelete && <Button size="sm" variant="ghost" aria-label={`Delete ${i.code}`} title="Delete" onClick={() => remove(i)}><Trash2 size={13} className="text-[#8C3B2E]" /></Button>}</div></td>
                   </tr>
                 ))}
           </tbody></table>

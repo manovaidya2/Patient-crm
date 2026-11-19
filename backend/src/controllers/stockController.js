@@ -43,7 +43,7 @@ const moveStock = async (item, { type, quantity, delta, user, refType = '', job 
 
 // @route GET /api/stocks
 const listStocks = asyncHandler(async (req, res) => {
-  const items = await StockItem.find(req.query.all === 'true' ? {} : { isActive: { $ne: false } }).sort({ kind: 1, name: 1 });
+  const items = await StockItem.find(req.query.all === 'true' ? { deletedAt: null } : { isActive: { $ne: false } }).sort({ kind: 1, name: 1 });
   // Bottles: how many each bottled medicine has used (prepared jobs) and how many its stock fills.
   const MedicineJob = require('../models/MedicineJob');
   const jobs = await MedicineJob.find({ 'stages.key': 'prepare' }).select('stages.key stages.doneAt formulation.lines').lean();
@@ -126,4 +126,15 @@ const listLedger = asyncHandler(async (req, res) => {
   res.json({ success: true, rows: rows.map(formatTx) });
 });
 
-module.exports = { STOCK_ROLES, listStocks, createStock, updateStock, addStockTransaction, listLedger, moveStock, formatItem };
+// @route DELETE /api/stocks/:id   Admin / Manager / Doctor. The item leaves the Stocks list and the formulation pickers;
+// it is kept with its ledger (nothing is erased), so the jobs and records that used it still read it.
+const STOCK_DELETE_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
+const deleteStock = asyncHandler(async (req, res) => {
+  const item = await StockItem.findById(req.params.id);
+  if (!item || item.deletedAt) fail('Stock item not found', 404);
+  Object.assign(item, { isActive: false, deletedAt: new Date(), deletedByName: req.user.name });
+  await item.save();
+  res.json({ success: true, id: String(item._id), message: `${item.code} deleted from Stocks` });
+});
+
+module.exports = { STOCK_DELETE_ROLES, deleteStock, STOCK_ROLES, listStocks, createStock, updateStock, addStockTransaction, listLedger, moveStock, formatItem };

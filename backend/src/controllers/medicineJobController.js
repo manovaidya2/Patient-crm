@@ -9,7 +9,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
 const { AGE_BANDS, supplyOption, ageBandFor, customLength } = require('../constants/supplyPlans');
-const { formulationFor, stockNeeds, unlinkedLines, chitsFor, applyOverrides } = require('../constants/formulationMaster');
+const { formulationFor, stockNeeds, unlinkedLines, chitsFor, applyOverrides, linkByName } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, stageRoles, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary, ensureSupplyRound, requestKey, roundOwnerKey } = require('../utils/transitFlow');
 // The hand-over fields of `transit` belong to the newest supply of the phase; a job of an earlier supply leaves them.
@@ -101,6 +101,15 @@ const respond = async (res, job, status = 200) => {
     await job.save();
   }
   const stocks = await StockItem.find({ isActive: { $ne: false } }).lean();
+  // A medicine renamed with a Stocks code ("मेध्य घृत (GH-NM-03)") draws from that item, until stock is drawn.
+  if (job.formulation?.lines && job.status === 'open' && (job.currentStage || 0) <= STAGE_INDEX.prepare && !job.hold?.active) {
+    const relinked = linkByName(job.formulation.lines, stockCodeMap(stocks));
+    if (relinked.changes.length) {
+      await applyFormulation(job, { ...job.formulation, lines: relinked.lines });
+      event(job, { name: 'System', role: 'system' }, 'Stock item follows the medicine name', relinked.changes.join(' | '));
+      await job.save();
+    }
+  }
   const master = job.ageBand ? await getMaster(job.ageBand) : null;
   // Which of them post counselling decided (those are read-only here, except for the admin).
   const fixedPlan = { supply: Boolean(sent.plan), ageBand: Boolean(sent.ageBand) };

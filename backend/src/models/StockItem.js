@@ -21,6 +21,9 @@ const stockItemSchema = new mongoose.Schema(
     dropsPerMl: { type: Number, default: null },
     notes: { type: String, trim: true, default: '' },
     isActive: { type: Boolean, default: true },
+    // Deleted from the Stocks page: hidden, kept with its ledger (old jobs and records still name it).
+    deletedAt: { type: Date, default: null },
+    deletedByName: { type: String, trim: true, default: '' },
   },
   { timestamps: true }
 );

@@ -5,6 +5,7 @@ import api from '../../api/axios.js';
 import useApiQuery from '../../api/useApiQuery.js';
 import Card from '../../components/ui/Card.jsx';
 import BankCollectionsSection from '../../components/BankCollectionsSection.jsx';
+import MedicineCategoriesCard from '../../components/MedicineCategoriesCard.jsx';
 import { CREATABLE_ROLES, ROLE_LABELS, ROLES, isAdminLike } from '../../constants/roles.js';
 import { STAGES, STAGE_LABELS } from '../../constants/treatmentStages.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -590,6 +591,8 @@ const Dashboard = () => {
           </div>
         </Card>
       </div>
+
+      <MedicineCategoriesCard />
 
       {isAdmin && <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="flex items-center gap-4">

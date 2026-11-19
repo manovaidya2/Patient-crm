@@ -75,3 +75,16 @@ test('a removed medicine leaves the sheet numbers and chits: the rest count 1, 2
   assert.ok(!chits.some((c) => c.itemKey === 'shivaLeh'), 'no chit for a removed medicine');
   assert.equal(chits.find((c) => c.itemKey === 'oil').chitNo, 6);
 });
+
+test('a ghrit or added medicine renamed with a Stocks code draws from that item; master medicines keep theirs', () => {
+  const { linkByName } = require('./formulationMaster');
+  const items = new Map([['GH-NM-0', { code: 'GH-NM-0' }], ['GH-NM-03', { code: 'GH-NM-03' }], ['SHIVA-LEH', { code: 'SHIVA-LEH' }]]);
+  const ghrit = { key: 'added-x', added: { byName: 'D' }, ghritVariantCode: 'GH-NM-0', name: 'मेध्य घृत (GH-NM-03)', stockCode: 'GH-NM-0' };
+  const master = { key: 'shivaLeh', name: 'शिवा-लेह (GH-NM-03)', stockCode: 'SHIVA-LEH' };
+  const unknown = { key: 'added-y', added: { byName: 'D' }, name: 'New oil (XX-99)', stockCode: '' };
+  const { lines, changes } = linkByName([ghrit, master, unknown], items);
+  assert.deepEqual(lines.map((l) => l.stockCode), ['GH-NM-03', 'SHIVA-LEH', '']);
+  assert.equal(lines[1], master, 'unchanged lines stay the same objects');
+  assert.deepEqual(changes, ['मेध्य घृत (GH-NM-03): GH-NM-0 -> GH-NM-03']);
+  assert.deepEqual(linkByName(lines, items).changes, [], 'already linked: nothing to do');
+});
