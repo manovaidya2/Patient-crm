@@ -115,6 +115,7 @@ app.use('/api/appointments-board', require('./src/routes/appointmentBoardRoutes'
 app.use('/api/expenses', require('./src/routes/expenseRoutes'));
 app.use('/api/purchase-orders', require('./src/routes/purchaseOrderRoutes'));
 app.use('/api/stocks', require('./src/routes/stockRoutes'));
+app.use('/api/control-room', require('./src/routes/controlRoomRoutes'));
 app.use('/api/medicine-jobs', require('./src/routes/medicineJobRoutes'));
 app.use('/api/treatment-papers', require('./src/routes/treatmentPaperRoutes'));
 app.use('/api/formulation-master', require('./src/routes/formulationMasterRoutes'));

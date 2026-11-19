@@ -7,6 +7,8 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { PageHeader, Section, StatRow, StatTile } from '../../components/ui/Layout.jsx';
 import ReceptionistChecklist from './ReceptionistChecklist.jsx';
+import MedicineCategoriesCard from '../../components/MedicineCategoriesCard.jsx';
+import PaymentDueCategoriesCard from '../../components/PaymentDueCategoriesCard.jsx';
 
 const today = () => {
   const date = new Date();
@@ -142,6 +144,9 @@ const ReceptionistHomeDashboard = () => {
         <p className="text-sm text-charcoal/60">Review pending sales appointments, accept the required ones, and manage accepted appointments from the Appointment Management page.</p>
         <div className="mt-3 flex flex-wrap gap-2"><Link to="/sales"><Button variant="outline">View sales sheet</Button></Link><Link to="/admin/appointment-management"><Button variant="outline">View appointment management</Button></Link></div>
       </Section>
+      {/* The Control Room sections, also on the Reception dashboard. */}
+      <MedicineCategoriesCard />
+      <PaymentDueCategoriesCard />
     </div>
   );
 };

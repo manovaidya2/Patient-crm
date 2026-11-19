@@ -1,47 +1,29 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Brain, Pill, Puzzle, Search, X } from 'lucide-react';
+import { Pill, Search, X } from 'lucide-react';
 import useApiQuery from '../api/useApiQuery.js';
 import Card from './ui/Card.jsx';
-import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
+import { STAGES } from '../constants/treatmentStages.js';
+import { NO_PROGRAM, PROGRAMS, phaseLabel, selectClass, shortDate, supplyPart, toneOf } from './categoryStyles.jsx';
 
-const shortDate = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
-const selectClass = 'rounded-md border border-cardline bg-white px-3 py-2 text-sm text-charcoal';
 // The date of a row: when its medicine went, else when it was requested.
 const rowDate = (p) => p.sentAt || p.requestedAt || p.last?.at || null;
 // A yyyy-mm-dd of the browser's own day (the date inputs speak in local days).
 const localDay = (value) => { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const phaseLabel = (n) => STAGE_LABELS[n] || `Phase ${n}`;
-
-// Programs at the top: Autism / ADHD, Mental Health (a patient without one is "Program not set").
-const NO_PROGRAM = 'Program not set';
-const PROGRAMS = [
-  { key: 'Autism / ADHD', icon: Puzzle, tone: 'bg-[#EEF2FB] text-[#2F4A8A] border-[#C9D5F0]', active: 'bg-[#2F4A8A] text-white border-[#2F4A8A]' },
-  { key: 'Mental Health', icon: Brain, tone: 'bg-[#F5EEFB] text-[#5B3A86] border-[#DCCBEE]', active: 'bg-[#5B3A86] text-white border-[#5B3A86]' },
-  { key: NO_PROGRAM, icon: Pill, tone: 'bg-offwhite-200 text-charcoal/70 border-cardline', active: 'bg-charcoal text-white border-charcoal' },
-];
-// One colour per supply category (the PO paper's choices).
-const CATEGORY_TONE = {
-  '6M': { box: 'border-[#9DB7A3] bg-[#EEF5EF]', head: 'text-[#2E5A3A]', bar: 'bg-[#4F7A5B]', chip: 'bg-[#DDEBE0] text-[#2E5A3A]' },
-  '1+5': { box: 'border-[#A9C1E8] bg-[#EEF3FC]', head: 'text-[#2F4A8A]', bar: 'bg-[#4A6CB8]', chip: 'bg-[#DCE6F7] text-[#2F4A8A]' },
-  '2+4': { box: 'border-[#C9B5E6] bg-[#F4EFFB]', head: 'text-[#5B3A86]', bar: 'bg-[#7D5BB0]', chip: 'bg-[#E6DCF4] text-[#5B3A86]' },
-  custom: { box: 'border-[#E9C98F] bg-[#FDF6E8]', head: 'text-[#8A5A12]', bar: 'bg-[#C98A22]', chip: 'bg-[#F7E7C6] text-[#8A5A12]' },
-  unknown: { box: 'border-cardline bg-offwhite-200', head: 'text-charcoal/70', bar: 'bg-charcoal/40', chip: 'bg-offwhite-300/60 text-charcoal/70' },
-  none: { box: 'border-dashed border-[#C9BFAE] bg-white', head: 'text-charcoal/65', bar: 'bg-charcoal/25', chip: 'bg-[#F1ECE2] text-charcoal/70' },
-};
-const toneOf = (key) => CATEGORY_TONE[key] || (/^C\d/.test(String(key)) ? CATEGORY_TONE.custom : CATEGORY_TONE.unknown);
-// "1+5: First 1 month" -> "First 1 month"; "Full 6 months" stays; "Custom: 45 days" -> "45 days".
-const partOf = (p) => (p.none ? (p.last ? 'Had medicine in an earlier phase' : 'No medicine at all yet') : p.supplyLabel.includes(': ') ? p.supplyLabel.split(': ').slice(1).join(': ') : p.supplyLabel || 'Not recorded');
+// The phase a program opens on: Phase 3 for Autism / ADHD, Phase 1 otherwise.
+const DEFAULT_PHASE = { 'Autism / ADHD': '3' };
+const defaultPhase = (program) => DEFAULT_PHASE[program] || '1';
+const partOf = (p) => (p.none ? (p.last ? 'Had medicine in an earlier phase' : 'No medicine at all yet') : supplyPart(p.supplyLabel));
 const STATUS_TONE = (p) => (p.none ? 'bg-[#F1ECE2] text-charcoal/65' : p.status === 'Delivered' ? 'bg-[#E6F2EA] text-[#1F6B41]' : p.gone ? 'bg-[#FBF0DC] text-[#7C5B2E]' : /hold/i.test(p.status) ? 'bg-[#FDE2E1] text-[#9F1D1D]' : 'bg-[#EEF2FB] text-[#2F4A8A]');
 
 // Control Room: active patients by their LATEST medicine (requested, being made or sent). Program at the top, then
 // the phase, then the supply categories of the PO paper (Full 6 months, 1 + 5, 2 + 4, Custom) with their parts.
 export default function MedicineCategoriesCard({ className = '' }) {
-  const { data, loading } = useApiQuery('/patients/medicine-categories');
+  const { data, loading } = useApiQuery('/control-room/medicine-categories');
   // Only the two programs, Autism / ADHD first.
   const [program, setProgram] = useState(PROGRAMS[0].key);
   // One phase at a time (no 'all phases'), Phase 1 first.
-  const [phase, setPhase] = useState('1');
+  const [phase, setPhase] = useState(defaultPhase(PROGRAMS[0].key));
   const [category, setCategory] = useState('all');
   const [part, setPart] = useState('');
   const [state, setState] = useState('all');
@@ -93,8 +75,8 @@ export default function MedicineCategoriesCard({ className = '' }) {
   })();
   const pick = (setter, value) => { setter(value); setPart(''); };
   const choose = (setter) => (value) => { setter(value); setCategory('all'); setPart(''); };
-  const filtered = phase !== '1' || category !== 'all' || part || state !== 'all' || dateMode !== 'all' || q;
-  const reset = () => { setProgram(PROGRAMS[0].key); setPhase('1'); setCategory('all'); setPart(''); setState('all'); setDateMode('all'); setFrom(''); setTo(''); setQuery(''); };
+  const filtered = phase !== defaultPhase(program) || category !== 'all' || part || state !== 'all' || dateMode !== 'all' || q;
+  const reset = () => { setProgram(PROGRAMS[0].key); setPhase(defaultPhase(PROGRAMS[0].key)); setCategory('all'); setPart(''); setState('all'); setDateMode('all'); setFrom(''); setTo(''); setQuery(''); };
 
   return (
     <Card className={className}>
@@ -139,7 +121,7 @@ export default function MedicineCategoriesCard({ className = '' }) {
               const Icon = p.icon;
               const on = program === p.key;
               return (
-                <button key={p.key} type="button" onClick={() => choose(setProgram)(p.key)} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${on ? p.active : `${p.tone} hover:shadow-sm`}`}>
+                <button key={p.key} type="button" onClick={() => { choose(setProgram)(p.key); setPhase(defaultPhase(p.key)); }} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${on ? p.active : `${p.tone} hover:shadow-sm`}`}>
                   <span className="flex items-center gap-2"><Icon size={18} /><span><span className="block text-sm font-bold">{p.key}</span><span className="block text-[11px] opacity-75">{list.filter((x) => x.gone).length} sent · {list.filter((x) => !x.gone && !x.none).length} not yet · {list.filter((x) => x.none).length} no medicine</span></span></span>
                   <span className="font-display text-2xl font-bold">{list.length}</span>
                 </button>

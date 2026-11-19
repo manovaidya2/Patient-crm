@@ -70,9 +70,6 @@ router.get('/', getPatients);
 router.get('/check-code', authorize(...PATIENT_CREATE_ROLES), checkPatientCode);
 router.post('/', authorize(...PATIENT_CREATE_ROLES), createPatient);
 router.get('/dashboard-stats', authorize(ROLES.ADMIN, ROLES.DOCTOR), getDashboardStats);
-// Control Room sections (also on My Day of the Post Counselor and In Transit).
-router.get('/medicine-categories', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT), require('../controllers/medicineCategoryController').getMedicineCategories);
-router.get('/payment-due-categories', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT), require('../controllers/medicineCategoryController').getPaymentDueCategories);
 router.get('/staff-dashboard-stats', authorize(ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST), getStaffDashboardStats);
 router.get('/payments-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), getPaymentsLedger);
 router.get('/refunds-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), getRefundsLedger);

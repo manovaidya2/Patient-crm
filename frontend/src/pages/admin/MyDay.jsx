@@ -11,7 +11,7 @@ import { ROLES, isAdminLike } from '../../constants/roles.js';
 import MedicineCategoriesCard from '../../components/MedicineCategoriesCard.jsx';
 import PaymentDueCategoriesCard from '../../components/PaymentDueCategoriesCard.jsx';
 // The Control Room sections shown on My Day too, for the roles whose home page is My Day.
-const CONTROL_SECTIONS_ROLES = [ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+const CONTROL_SECTIONS_ROLES = [ROLES.IN_TRANSIT, ROLES.MEDICINE_DEPARTMENT];
 import { TeamRoleCards, useTeamPending } from '../../components/TeamPending.jsx';
 
 // Admin / Manager: what every role still has to do, on top of their own day.
