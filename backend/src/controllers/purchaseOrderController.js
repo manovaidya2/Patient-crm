@@ -350,7 +350,9 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
   // A PO can be made with no first payment: the mode is needed only when an amount is received now.
   if (Number(cleaned.values.amountReceivedNow || 0) > 0) assertPurchaseComplete(cleaned.values);
   const supply = supplyOptionByLabel(cleaned.values.supplyOrder);
-  if (!supply) fail('Select the medicine supply on this PO (6 months / 1+5 / 2+4)');
+  if (!supply) fail('Select the medicine supply on this PO (6 months / 1+5 / 2+4, or custom with the months / days)');
+  // The age group (medicine dose) comes from the patient age on the paper: required, as at conversion.
+  if (!ageBandByLabel(cleaned.values.ageGroup)) fail('Enter the patient age on this PO (the age group comes from it)');
   const paper = await withBankName(cleaned.values);
   const readyBy = parseDay(paper.medicineReadyDate, 'medicine ready date');
   const received = Number(paper.amountReceivedNow || 0);

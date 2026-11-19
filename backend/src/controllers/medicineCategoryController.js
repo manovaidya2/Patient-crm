@@ -54,13 +54,14 @@ const PAY_FIELDS = ['patientName', 'patientCode', 'category', 'stages.number', '
 const buildDue = async () => {
   const patients = await Patient.find({ isActive: { $ne: false }, 'stages.totalAmount': { $gt: 0 } }).select(PAY_FIELDS).lean();
   const ids = patients.map((p) => p._id);
+  // The category: any PO of the phase that names a supply, else its medicine request (the fulfilment job's plan first).
   const [pos, jobs] = ids.length ? await Promise.all([
-    PurchaseOrder.find({ patient: { $in: ids }, status: { $nin: ['cancelled', 'rejected'] } }).select('patient phase poNumber supplyPlan supplyPart createdAt').lean(),
+    PurchaseOrder.find({ patient: { $in: ids }, status: { $nin: ['cancelled', 'rejected'] } }).select('patient phase poNumber supplyPlan supplyPart paperValues.supplyOrder createdAt').lean(),
     MedicineJob.find({ patient: { $in: ids }, status: { $ne: 'cancelled' } }).select('patient phase requestId supplyPlan supplyPart').lean(),
   ]) : [[], []];
+  const jobBy = new Map(jobs.map((j) => [`${j.patient}|${j.phase}|${j.requestId}`, j]));
   const posBy = new Map();
   pos.forEach((po) => { const k = `${po.patient}|${po.phase}`; if (!posBy.has(k)) posBy.set(k, []); posBy.get(k).push(po); });
-  const jobBy = new Map(jobs.map((j) => [`${j.patient}|${j.phase}|${j.requestId}`, j]));
   const categories = paymentDueByCategory(patients, {
     posOf: (id, phase) => posBy.get(`${id}|${phase}`) || [],
     jobPlanOf: (id, phase, requestId) => { const j = jobBy.get(`${id}|${phase}|${requestId}`); return j?.supplyPlan ? { plan: j.supplyPlan, part: j.supplyPart } : null; },

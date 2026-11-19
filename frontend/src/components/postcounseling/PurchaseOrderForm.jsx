@@ -143,7 +143,7 @@ const PurchaseOrderForm = ({ defs, values, onChange, fee, contacts = {}, editabl
     const isOn = (option) => values[field.key] === option || (option === CUSTOM_PICK_LABEL && isCustomSupplyLabel(values[field.key]));
     return (
       <div key={field.key} className={wrap}>
-        <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}{field.key === 'mode' ? ' *' : ''}</p>
+        <p className="mb-1 text-xs font-semibold text-charcoal/70">{field.label}{field.key === 'mode' || field.required ? <span className="text-[#8C3B2E]"> *</span> : ''}</p>
         {field.type === 'single'
           ? <div className="flex flex-wrap gap-1.5">{field.options.map((option) => <Chip key={option} disabled={!editable} active={isOn(option)} onClick={() => onChange(field.key, isOn(option) ? '' : option)}>{option}</Chip>)}</div>
           : <input disabled={!editable} type={field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : 'text'} inputMode={field.type === 'money' ? 'decimal' : field.numeric ? 'numeric' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className={inputClass} />}

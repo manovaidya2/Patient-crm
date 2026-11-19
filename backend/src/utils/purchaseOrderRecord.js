@@ -54,14 +54,15 @@ const SECTION_H = [
   { key: 'paperImages', label: 'PO paper (image)', type: 'files', wide: true },
   // Generated on conversion (PO-1234); shown read-only on the paper.
   { key: 'poNo', label: 'PO No.', type: 'auto' },
-  { key: 'supplyOrder', label: 'Medicine supply on this PO', type: 'single', options: [...SUPPLY_OPTIONS.map((option) => option.label), CUSTOM_PICK_LABEL], wide: true },
+  // Required on every new PO (conversion and a later phase): the medicine supply and the patient age (age group).
+  { key: 'supplyOrder', label: 'Medicine supply on this PO', type: 'single', options: [...SUPPLY_OPTIONS.map((option) => option.label), CUSTOM_PICK_LABEL], wide: true, required: true },
   // Only for a custom supply: how long the medicine is, in months and days (a Mental Health package can be 45 days).
   // Saved into the supply label ("Custom: 4 months", "Custom: 45 days", "Custom: 1 month 15 days").
   { key: 'supplyMonths', label: 'Custom supply: months (0 - 12)', type: 'text', numeric: true, showWhen: { key: 'supplyOrder', custom: true } },
   { key: 'supplyDays', label: 'Custom supply: days (0 - 360)', type: 'text', numeric: true, showWhen: { key: 'supplyOrder', custom: true } },
   // The patient's age for this phase; the dose age group is worked out from it (never picked by hand). Both are
   // read-only for In Transit and the Medicine Department.
-  { key: 'patientAge', label: 'Patient age (this phase)', type: 'text' },
+  { key: 'patientAge', label: 'Patient age (this phase)', type: 'text', required: true },
   { key: 'ageGroup', label: 'Age group (medicine dose, from the age)', type: 'ageGroup' },
   { key: 'poDate', label: 'PO date', type: 'date' },
   { key: 'orderedTreatment', label: 'Ordered treatment / phase', type: 'text', wide: true },

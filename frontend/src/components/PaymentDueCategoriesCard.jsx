@@ -61,7 +61,7 @@ export default function PaymentDueCategoriesCard({ className = '' }) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Payment pending by category</p>
             <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Patients with payment due</h2>
-            <p className="mt-1 text-xs text-charcoal/55">Program, then phase, then the supply picked on the PO. Due = phase package minus approved payments; payments awaiting approval are not counted as paid.</p>
+            <p className="mt-1 text-xs text-charcoal/55">Every phase with payment due in the system: program, then phase, then its supply (from any purchase order, else from its medicine request). Due = phase package minus approved payments; payments awaiting approval are not counted as paid.</p>
             <p className="mt-1.5 inline-flex rounded-md bg-[#8C3B2E]/8 px-2 py-1 text-xs font-semibold text-[#8C3B2E]">{money(sumDue(base))} due in all · {base.length} phase{base.length === 1 ? '' : 's'}</p>
           </div>
         </div>
@@ -130,7 +130,7 @@ export default function PaymentDueCategoriesCard({ className = '' }) {
                     <span className="block truncate">{p.patientName}</span>
                     <span className="block font-mono text-[11px] tracking-widest text-charcoal/45">{p.patientCode}{p.poNumber ? ` · ${p.poNumber}` : ''}</span>
                   </Link>
-                  <span><span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${tone.chip}`}>{p.categoryLabel}</span>{p.part && p.part !== p.categoryLabel.replace(/^Custom: /, '') && <span className="ml-1 text-xs text-charcoal/65">{p.part}</span>}</span>
+                  <span><span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${tone.chip}`}>{p.categoryLabel}</span>{p.part && p.part !== p.categoryLabel.replace(/^Custom: /, '') && <span className="ml-1 text-xs text-charcoal/65">{p.part}</span>}{p.supplySource && <span className="mt-0.5 block text-[11px] text-charcoal/45">from {p.supplySource.toLowerCase()}</span>}</span>
                   <span className="tabular-nums text-charcoal">{money(p.totalAmount)}</span>
                   <span className="tabular-nums text-sage">{money(p.paidAmount)}<span className="mt-1 block h-1 w-20 overflow-hidden rounded-full bg-offwhite-300/60"><span className="block h-full bg-sage" style={{ width: `${pct}%` }} /></span></span>
                   <span className="font-bold tabular-nums text-[#8C3B2E]">{money(p.dueAmount)}{p.pendingApprovalAmount > 0 && <span className="block text-[11px] font-semibold text-[#9C6B2E]">{money(p.pendingApprovalAmount)} awaiting approval</span>}</span>

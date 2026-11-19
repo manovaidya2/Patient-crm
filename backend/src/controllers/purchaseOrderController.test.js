@@ -77,7 +77,7 @@ const shot = { url: '/uploads/payments/1-2.png', fileName: 'proof.png' };
 // A new PO is filled on the same PO paper as at conversion.
 const paperBody = (patient, { phase = '1', fee = '42000', supplyKey = '6M:full', ...values } = {}) => ({
   patientId: String(patient._id), phase, fee,
-  purchase: { mode: 'Cash', supplyOrder: SUPPLY_OPTIONS.find((o) => o.key === supplyKey)?.label || '', poDate: '2026-10-22', orderedTreatment: `Autism / Phase ${phase}`, ...values },
+  purchase: { mode: 'Cash', supplyOrder: SUPPLY_OPTIONS.find((o) => o.key === supplyKey)?.label || '', patientAge: '7', poDate: '2026-10-22', orderedTreatment: `Autism / Phase ${phase}`, ...values },
 });
 
 test('exception payment waits for Doctor approval before normal PO verification, without approving payments', async () => {
@@ -223,8 +223,8 @@ test('medicine request: one per PO, with supply category, age band and ready dat
   const created = (await call(controller.createPurchaseOrder, { body: paperBody(patient, { supplyKey: '1+5:first' }) })).purchaseOrder;
   await verifyBoth(created.id);
   const body = { supplyKey: '1+5:first', ageBand: '4-12', medicines: 'Medhya ghrit, Shiva-leh', readyByDate: '2026-11-02' };
-  await assert.rejects(call(controller.requestMedicine, { params: { id: created.id }, body: { ...body, ageBand: '' }, files: [file] }), /age group/);
-  const res = (await call(controller.requestMedicine, { params: { id: created.id }, body, files: [] })).purchaseOrder;
+  // The age group is fixed on the PO now (the patient age is required on the PO paper): no age band needs sending.
+  const res = (await call(controller.requestMedicine, { params: { id: created.id }, body: { ...body, ageBand: '' }, files: [] })).purchaseOrder;
   const request = patient.stages[0].medicineRequests[0];
   assert.equal(request.status, 'requested');
   assert.equal(request.poNumber, created.poNumber);
@@ -497,4 +497,14 @@ test('In Transit edits its medicine request until Medicine Department accepts it
   // Accepted by Medicine Department: no more edits.
   request.status = 'in_process';
   await assert.rejects(call(controller.updateMedicineRequest, { params: { id: created.id }, body: { notes: 'Too late' } }), /already accepted/);
+});
+
+test('a new PO needs the medicine supply and the patient age (age group) on its paper', async () => {
+  const patient = makePatient({ approvalStatus: 'approved' });
+  memoryPos();
+  const body = paperBody(patient, { supplyKey: '6M:full' });
+  await assert.rejects(call(controller.createPurchaseOrder, { body: { ...body, purchase: { ...body.purchase, supplyOrder: '' } } }), /Select the medicine supply on this PO/);
+  await assert.rejects(call(controller.createPurchaseOrder, { body: { ...body, purchase: { ...body.purchase, patientAge: '' } } }), /Enter the patient age on this PO/);
+  const created = (await call(controller.createPurchaseOrder, { body })).purchaseOrder;
+  assert.ok(created.poNumber);
 });

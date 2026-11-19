@@ -23,6 +23,8 @@ export const CATEGORY_TONE = {
   unknown: { box: 'border-cardline bg-offwhite-200', head: 'text-charcoal/70', bar: 'bg-charcoal/40', chip: 'bg-offwhite-300/60 text-charcoal/70' },
   none: { box: 'border-dashed border-[#C9BFAE] bg-white', head: 'text-charcoal/65', bar: 'bg-charcoal/25', chip: 'bg-[#F1ECE2] text-charcoal/70' },
 };
+// A phase with payment due and no purchase order: as "no medicine yet".
+CATEGORY_TONE.nopo = CATEGORY_TONE.none;
 export const toneOf = (key) => CATEGORY_TONE[key] || (/^C\d/.test(String(key)) ? CATEGORY_TONE.custom : CATEGORY_TONE.unknown);
 // "1+5: First 1 month" -> "First 1 month"; "Full 6 months" stays; "Custom: 45 days" -> "45 days".
 export const supplyPart = (supplyLabel) => (String(supplyLabel || '').includes(': ') ? supplyLabel.split(': ').slice(1).join(': ') : supplyLabel || 'Not recorded');
