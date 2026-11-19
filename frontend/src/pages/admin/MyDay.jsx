@@ -7,7 +7,11 @@ import Button from '../../components/ui/Button.jsx';
 import { PageHeader, Section } from '../../components/ui/Layout.jsx';
 import { PAGES } from '../../components/PendingWork.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { isAdminLike } from '../../constants/roles.js';
+import { ROLES, isAdminLike } from '../../constants/roles.js';
+import MedicineCategoriesCard from '../../components/MedicineCategoriesCard.jsx';
+import PaymentDueCategoriesCard from '../../components/PaymentDueCategoriesCard.jsx';
+// The Control Room sections shown on My Day too, for the roles whose home page is My Day.
+const CONTROL_SECTIONS_ROLES = [ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
 import { TeamRoleCards, useTeamPending } from '../../components/TeamPending.jsx';
 
 // Admin / Manager: what every role still has to do, on top of their own day.
@@ -114,6 +118,10 @@ export default function MyDay() {
           </aside>
         </div>
       )}
+      {CONTROL_SECTIONS_ROLES.includes(user?.role) && <>
+        <MedicineCategoriesCard />
+        <PaymentDueCategoriesCard />
+      </>}
     </div>
   );
 }
