@@ -172,6 +172,43 @@ const editFormulation = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
+// @route PATCH /api/medicine-jobs/:id/bottles   body: { bottles: { <line key>: n } }
+// The Medicine Department sets the actual number of bottles a syrup / oil / ghrit is filled in (445 ml in 4 bottles),
+// once the doctor has sent the formulation and until stock is drawn at preparation. The sheet shows that number and who
+// changed it; the bottles drawn from stock follow it.
+const BOTTLE_ROLES = [ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT];
+const setBottles = asyncHandler(async (req, res) => {
+  if (!BOTTLE_ROLES.includes(stepRole(req.user))) fail('Only the Medicine Department sets the number of bottles', 403);
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
+  if (job.status !== 'open') fail('The bottles cannot change once the medicine is ready');
+  if (job.hold?.active) fail('Resume the job first', 409);
+  const at = job.currentStage || 0;
+  if (at <= STAGE_INDEX.formula) fail('The doctor has not sent the formulation yet');
+  if (at > STAGE_INDEX.prepare) fail('The bottles cannot change after preparation (stock is already drawn)');
+  const asked = req.body?.bottles && typeof req.body.bottles === 'object' && !Array.isArray(req.body.bottles) ? req.body.bottles : {};
+  const sheet = JSON.parse(JSON.stringify(job.formulation || { lines: [] }));
+  const changes = [];
+  for (const line of sheet.lines || []) {
+    if (asked[line.key] === undefined) continue;
+    if (!line.packed || line.removed || line.bottles == null) fail(`${line.name} is not filled in bottles`);
+    const n = Number(asked[line.key]);
+    if (!Number.isInteger(n) || n < 1 || n > 99) fail(`Enter the bottles of ${line.name} as a whole number from 1 to 99`);
+    if (n === line.bottles) continue;
+    changes.push(`${line.name}: ${line.bottles} -> ${n} bottle${n === 1 ? '' : 's'} (${line.qty} ${line.unit})`);
+    line.bottles = n;
+    line.bottlesBy = { byName: req.user.name, at: new Date().toISOString() };
+  }
+  const unknown = Object.keys(asked).filter((k) => !(sheet.lines || []).some((l) => l.key === k));
+  if (unknown.length) fail('That medicine is not on this sheet');
+  if (!changes.length) fail('Nothing was changed');
+  await applyFormulation(job, sheet);
+  event(job, req.user, 'Bottles set by the Medicine Department', changes.join(' | '));
+  await job.save();
+  await respond(res, job);
+});
+
 // Finds the job of a medicine request, creating it on first open. Used by the Medicine Requests page and by PO request.
 const findOrCreateJob = async ({ patient, stage, request, po = null, user }) => {
   const requestId = request.requestId || 'legacy';
@@ -918,4 +955,4 @@ const doctorAlarms = asyncHandler(async (req, res) => {
   res.json({ success: true, alarms });
 });
 
-module.exports = { getReleasePayments, listReleaseRequests, updateReleaseRequest, listBoxReceipts, updateBoxReceipt, confirmDoctorVerification, ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };
+module.exports = { setBottles, getReleasePayments, listReleaseRequests, updateReleaseRequest, listBoxReceipts, updateBoxReceipt, confirmDoctorVerification, ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };

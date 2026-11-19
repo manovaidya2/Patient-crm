@@ -895,3 +895,26 @@ test('an old request (before the fulfilment timeline, no PO): the admin and the 
   assert.equal(onPo.oldFlow, false);
   await assert.rejects(complete(onPo.id, 'accept', { readyByDate: '2026-11-02' }, {}, doctor), /done by/);
 });
+
+test('the Medicine Department sets the real number of bottles after the doctor sends the formulation', async () => {
+  const { patient, jobs } = setup();
+  const { job } = await open(patient);
+  const id = job.id;
+  const setBottles = (bottles, user = med) => call(controller.setBottles, { params: { id }, body: { bottles }, user });
+  await complete(id, 'accept', { readyByDate: '2026-11-20' });
+  await assert.rejects(setBottles({ sirup: 1 }), /The doctor has not sent the formulation yet/);
+  await complete(id, 'formula', { remarks: 'OK' }, {}, doctor);
+  const sirup = () => jobs[0].formulation.lines.find((l) => l.key === 'sirup');
+  const bottleNeed = () => jobs[0].consumption.find((c) => c.code === 'BT-100').planned;
+  const before = { bottles: sirup().bottles, need: bottleNeed() };
+  await assert.rejects(setBottles({ sirup: before.bottles + 1 }, doctor), /Only the Medicine Department/);
+  await assert.rejects(setBottles({ sirup: 0 }), /whole number from 1 to 99/);
+  await assert.rejects(setBottles({ shivaLeh: 2 }), /not filled in bottles/);
+  const saved = (await setBottles({ sirup: before.bottles + 1 })).job;
+  assert.deepEqual([sirup().bottles, sirup().bottlesBy.byName], [before.bottles + 1, med.name]);
+  assert.equal(bottleNeed(), before.need + 1, 'the stock to draw follows the bottles set');
+  assert.equal(saved.formulation.lines.find((l) => l.key === 'sirup').bottles, before.bottles + 1);
+  assert.equal(jobs[0].events.at(-1).action, 'Bottles set by the Medicine Department');
+  await setBottles({ sirup: before.bottles });
+  assert.equal(bottleNeed(), before.need, 'changed back: the stock follows again');
+});

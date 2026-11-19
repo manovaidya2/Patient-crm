@@ -1,5 +1,5 @@
 const express = require('express');
-const { ringTransit, transitAlarms, doctorAlarms, JOB_ROLES, JOB_VIEW_ROLES, getPatientFile, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, revertJob, returnToTransit } = require('../controllers/medicineJobController');
+const { setBottles, ringTransit, transitAlarms, doctorAlarms, JOB_ROLES, JOB_VIEW_ROLES, getPatientFile, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, revertJob, returnToTransit } = require('../controllers/medicineJobController');
 const { protect, authorize } = require('../middleware/auth');
 const { ROLES } = require('../constants/roles');
 const { uploadMedicineImage } = require('../middleware/fileUploads');
@@ -22,6 +22,7 @@ router.get('/:id/release-payments', authorize(ROLES.IN_TRANSIT, ROLES.MEDICINE_D
 router.patch('/:id/supply', authorize(...JOB_ROLES), setSupply);
 router.patch('/:id/formulation', authorize(...JOB_ROLES), editFormulation);
 router.post('/:id/rebuild', authorize(...JOB_ROLES), rebuildSheet);
+router.patch('/:id/bottles', authorize(...JOB_ROLES), setBottles);
 router.post('/:id/stages/:key', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), uploadMedicineImage.fields([{ name: 'photoA', maxCount: 10 }, { name: 'photoB', maxCount: 10 }, ...Array.from({ length: 10 }, (_, i) => ({ name: `paper_${i}`, maxCount: 30 }))]), completeStage);
 router.post('/:id/hold', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), holdJob);
 router.post('/:id/doctor-verification', authorize(ROLES.ASSISTANT_DOCTOR), require('../controllers/medicineJobController').confirmDoctorVerification);

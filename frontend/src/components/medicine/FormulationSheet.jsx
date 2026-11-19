@@ -220,7 +220,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               {l.pending && <p className="text-[11px] font-semibold text-amber-800">पुष्टि बाकी: {l.pending}</p>}
               {l.packed && !l.components && !l.fromHome && !l.removed && (l.stockCode ? <p className="font-mono text-[11px] text-charcoal/55">Stocks: {l.stockCode}</p> : l.added || f.custom ? <p className="text-[11px] font-semibold text-sky-800">Not linked to Stocks - picked at preparation</p> : null)}
             </div>
-            <div className="text-right text-xs text-charcoal/55">टोटल मात्रा<br />{l.edited && l.original && l.original.qty !== l.qty && <span className="block font-mono text-xs text-charcoal/45 line-through">{num(l.original.qty)} {l.original.unit}</span>}<b className="font-mono text-sm text-charcoal">{l.removed ? 'हटाई गई' : l.packed ? `${num(l.qty)} ${l.unit}` : l.fromHome ? 'घर से' : 'पैक नहीं'}</b>{l.bottles && !l.removed ? <><br />{l.bottles} × BT-100</> : null}</div>
+            <div className="text-right text-xs text-charcoal/55">टोटल मात्रा<br />{l.edited && l.original && l.original.qty !== l.qty && <span className="block font-mono text-xs text-charcoal/45 line-through">{num(l.original.qty)} {l.original.unit}</span>}<b className="font-mono text-sm text-charcoal">{l.removed ? 'हटाई गई' : l.packed ? `${num(l.qty)} ${l.unit}` : l.fromHome ? 'घर से' : 'पैक नहीं'}</b>{l.bottles && !l.removed ? <><br />{l.bottles} × BT-100{l.bottlesBy?.byName && <span className="block text-[10px] text-charcoal/55">changed by {l.bottlesBy.byName}</span>}</> : null}</div>
           </li>
         ))}
       </ol>

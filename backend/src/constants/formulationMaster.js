@@ -428,7 +428,7 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
       if (o.extraComponents !== undefined) next.qty = round([...next.components, ...(next.extraComponents || [])].reduce((sum, c) => sum + (c.grams || 0), 0));
     } else if (o.qty !== undefined && o.qty !== '' && line.unit) {
       const qty = numberOf(o.qty, `${line.name} quantity`);
-      if (qty !== line.qty) { next.qty = qty; changes.push('quantity'); if (line.bottles !== undefined) next.bottles = bottles(qty); }
+      if (qty !== line.qty) { next.qty = qty; changes.push('quantity'); if (line.bottles !== undefined) { next.bottles = bottles(qty); delete next.bottlesBy; } }
     }
     if (!changes.length) return line;
     next.edited = { byName, at: new Date().toISOString(), changes };

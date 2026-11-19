@@ -10,6 +10,7 @@ import { CompactAttachments } from '../../components/ui/Attachments.jsx';
 import FormulationSheet from '../../components/medicine/FormulationSheet.jsx';
 import { Chip, FieldLabel, poInput } from '../../components/purchaseOrders/CreatePurchaseOrderModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import BottleEditor from '../../components/medicine/BottleEditor.jsx';
 import { ROLES, ROLE_LABELS, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { AGE_BANDS, supplyKeyOf } from '../../constants/supplyPlans.js';
 import SupplyChips from '../../components/medicine/SupplyChips.jsx';
@@ -321,6 +322,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
       {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} />}
+      {['review', 'stock', 'prepare'].includes(stage.key) && <BottleEditor job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT], user)} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
           Prepared by <b>{job.preparerName}</b>.
