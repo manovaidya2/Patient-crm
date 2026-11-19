@@ -388,7 +388,7 @@ const Sidebar = ({ mobile = false, onClose }) => {
     <aside
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact flex ${isCollapsed ? 'w-16' : 'w-60'} sticky top-0 z-30`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200`}
+      className={`${mobile ? 'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[90vw] !h-dvh shadow-2xl' : `sidebar-compact flex ${isCollapsed ? 'w-16' : 'w-60'} sticky top-0 z-40 will-change-[width]`} h-screen flex-col overflow-visible bg-teal-950 text-offwhite-100 transition-[width] duration-200 ease-out`}
     >
       {/* Pin: keep the sidebar open; unpinned it opens on hover */}
       {!mobile && <button
@@ -564,7 +564,10 @@ const Sidebar = ({ mobile = false, onClose }) => {
   );
   if (mobile) return aside;
   // Desktop: the sidebar sits beside the page, so the page narrows and widens with it as it opens and closes.
-  return <div className={`hidden shrink-0 md:block ${isCollapsed ? 'w-16' : 'w-60'} transition-[width] duration-200`}>{aside}</div>;
+  // The page stays joined to the sidebar and moves with it, but in one step: its space changes at once (no width
+  // animation here) and only the sidebar itself animates, so heavy pages (Control Room) are laid out once per
+  // open / close instead of on every frame - quick passes of the cursor stay smooth.
+  return <div className={`hidden shrink-0 bg-teal-950 md:block ${isCollapsed ? 'w-16' : 'w-60'}`}>{aside}</div>;
 };
 
 export default Sidebar;
