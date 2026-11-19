@@ -17,6 +17,8 @@ const PCC = [ROLES.ASSISTANT_DOCTOR, ROLES.ADMIN];
 const MED_DOC = MED;
 
 // field: { key, label, type: text|date|number|select|textarea, required, options }
+// Step 10 packings (the Medicine Department's list): two carry bags and two boxes.
+const PARCEL_PACKINGS = ['Carry bag 20 L x 25 H x 10 B', 'Carry bag 20 L x 22 H x 8 B', 'Small box 12 x 12 cm', 'Box 19 x 21 cm'];
 const STAGES = [
   { key: 'accept', n: 1, label: 'Accept Order', hi: 'ऑर्डर स्वीकार', roles: MED, sop: 'SOP S0',
     purpose: 'Accept the request from In Transit and commit to a ready date. Acceptance starts the department timeline.',
@@ -71,7 +73,9 @@ const STAGES = [
   { key: 'pack2', n: 10, label: 'Packing-2 (parcel with treatment papers)', hi: 'पैकिंग-2 पार्सल व ट्रीटमेंट पेपर', roles: MED, sop: 'SOP S7',
     purpose: 'Secure bundle with the treatment papers (step 9) in a protected sleeve, bubble wrap, tested box, tape, logo and recipient label. Parents / Courier slip faces outward.',
     checks: ['Treatment papers from step 9 packed in the parcel, in a protected sleeve', 'Parents / Courier information slip on the correct outward side', 'Bottles and droppers upright, leak-safe cushioning; pouches and papers protected', 'Box size tested for this kit; voids filled; no movement', 'Tape, logo stickers and recipient label applied'],
-    fields: [{ key: 'boxCode', label: 'Box used', type: 'select', required: true, options: ['BX-55 (5x5)', 'BX-L 8x10', 'BX-L 9x10', 'BX-L 10x10', 'Other'] }, { key: 'weight', label: 'Parcel weight (kg)', type: 'number', step: 'any', required: true }, { key: 'materials', label: 'Materials used / wastage', type: 'text' }] },
+    // The parcel packings in use (L = length, H = height, B = breadth). Jobs packed before keep the box saved on them
+    // (BX-55 / BX-L ...); only a new completion of this step picks from these.
+    fields: [{ key: 'boxCode', label: 'Box / carry bag used', type: 'select', required: true, options: PARCEL_PACKINGS }, { key: 'weight', label: 'Parcel weight (kg)', type: 'number', step: 'any', required: true }, { key: 'materials', label: 'Materials used / wastage', type: 'text' }] },
   // Step 11: the final verification check, by the PCC the admin chose in Settings ("Final medicine check"), on the
   // Medicine Final Check page. The Medicine Department waits (locked) and can ring the PCC's alarm.
   { key: 'final', n: 11, label: 'Final verification check', hi: 'अंतिम जाँच', roles: PCC, sop: 'SOP S8',

@@ -278,7 +278,7 @@ test('the eleven stages run in order; assigned PCC verification makes medicine r
   assert.equal(v.photos.paperSets[0].files.length, 3, 'every page of a paper is kept');
   // Step 10 Packing-2, the parcel with the treatment papers (Medicine Department).
   assert.equal(v.currentKey, 'pack2');
-  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 })).job;
+  v = (await complete(id, 'pack2', { boxCode: 'Small box 12 x 12 cm', weight: 0.85 })).job;
   // Step 11 the final verification check, by the PCC chosen in Settings; nobody else.
   assert.equal(v.currentKey, 'final');
   await assert.rejects(complete(id, 'final', {}, {}, med2), /done by/);
@@ -296,9 +296,9 @@ test('the eleven stages run in order; assigned PCC verification makes medicine r
   v = (await complete(id, 'final', { result: 'HOLD' }, { checks: '[]', notes: 'Pouch 2 leaking' }, pcc)).job;
   assert.equal(v.hold.reason, 'Final check HOLD: Pouch 2 leaking');
   assert.equal(v.currentKey, 'pack2');
-  await assert.rejects(complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.85 }, {}, med2), /on hold/);
+  await assert.rejects(complete(id, 'pack2', { boxCode: 'Small box 12 x 12 cm', weight: 0.85 }, {}, med2), /on hold/);
   v = (await call(controller.resumeJob, { params: { id }, body: { note: 'Pouch repacked' } })).job;
-  v = (await complete(id, 'pack2', { boxCode: 'BX-55 (5x5)', weight: 0.9 }, {}, med2)).job;
+  v = (await complete(id, 'pack2', { boxCode: 'Small box 12 x 12 cm', weight: 0.9 }, {}, med2)).job;
   // The photo and the papers stay through the HOLD.
   assert.equal(v.photos.paperSets[0].files.length, 3);
   assert.equal(v.photos.overview.length, 1);
