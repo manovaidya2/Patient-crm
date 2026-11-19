@@ -16,9 +16,11 @@ export default function PaymentDueCategoriesCard({ className = '' }) {
   const categories = data?.categories || [];
   const [selected, setSelected] = useState('all');
   const [phase, setPhase] = useState('all');
+  const [program, setProgram] = useState('all');
   useEffect(() => { if (selected !== 'all' && !categories.some((c) => c.key === selected)) setSelected('all'); }, [categories, selected]);
   const phases = useMemo(() => [...new Set(categories.flatMap((c) => c.patients.map((p) => p.phase)))].sort((a, b) => a - b), [categories]);
-  const inPhase = (p) => phase === 'all' || String(p.phase) === phase;
+  const programs = useMemo(() => [...new Set(categories.flatMap((c) => c.patients.map((p) => p.program)).filter(Boolean))].sort(), [categories]);
+  const inPhase = (p) => (program === 'all' || p.program === program) && (phase === 'all' || String(p.phase) === phase);
   const all = categories.flatMap((c) => c.patients.map((p) => ({ ...p, category: c.label })));
   const rows = (selected === 'all' ? all : (categories.find((c) => c.key === selected)?.patients || []).map((p) => ({ ...p, category: categories.find((c) => c.key === selected).label })))
     .filter(inPhase).sort((a, b) => b.dueAmount - a.dueAmount);
@@ -44,13 +46,19 @@ export default function PaymentDueCategoriesCard({ className = '' }) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">Payment pending by category</p>
             <h2 className="mt-1 font-display text-xl font-bold text-charcoal">Patients with payment due</h2>
-            <p className="mt-1 text-xs text-charcoal/55">Active patients whose phase package is not fully paid, by the category of that phase's medicine. Only approved payments count as paid.</p>
+            <p className="mt-1 text-xs text-charcoal/55">Active patients whose phase package is not fully paid, by the supply picked on the PO (Full 6 months, 1 + 5, 2 + 4, Custom). Only approved payments count as paid.</p>
           </div>
         </div>
-        <select aria-label="Phase" value={phase} onChange={(e) => setPhase(e.target.value)} className={selectClass}>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <select aria-label="Program" value={program} onChange={(e) => setProgram(e.target.value)} className={selectClass}>
+            <option value="all">All programs</option>
+            {programs.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select aria-label="Phase" value={phase} onChange={(e) => setPhase(e.target.value)} className={selectClass}>
           <option value="all">All phases</option>
           {phases.map((n) => <option key={n} value={String(n)}>{STAGE_LABELS[n] || `Phase ${n}`}</option>)}
         </select>
+        </div>
       </div>
 
       {loading && !data ? (
@@ -74,7 +82,7 @@ export default function PaymentDueCategoriesCard({ className = '' }) {
                   <span className="block truncate">{p.patientName}</span>
                   <span className="block font-mono text-[11px] tracking-widest text-charcoal/45">{p.patientCode}{p.poNumber ? ` · ${p.poNumber}` : ''}</span>
                 </Link>
-                <span className="font-semibold text-charcoal">{STAGE_LABELS[p.phase] || `Phase ${p.phase}`}</span>
+                <span className="font-semibold text-charcoal">{STAGE_LABELS[p.phase] || `Phase ${p.phase}`}{p.program && <span className="block text-[11px] font-normal text-charcoal/55">{p.program}</span>}</span>
                 <span className="text-charcoal/70">{p.category}{p.supplyLabel && p.supplyLabel !== p.category ? <span className="block text-[11px] text-charcoal/50">{p.supplyLabel}</span> : null}</span>
                 <span className="tabular-nums text-charcoal">{money(p.totalAmount)}</span>
                 <span className="tabular-nums text-sage">{money(p.paidAmount)}</span>

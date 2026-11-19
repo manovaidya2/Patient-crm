@@ -17,7 +17,7 @@ test('phases with payment due, grouped by the category of their supply', () => {
   ];
   const posOf = (id, phase) => (id === 'a' && phase === 1 ? [{ poNumber: 'PO-1', supplyPlan: '1+5', supplyPart: 'first', createdAt: new Date() }] : []);
   const groups = paymentDueByCategory(patients, { posOf });
-  assert.deepEqual(groups.map((g) => [g.label, g.count, g.totalDue]), [['1 month', 1, 32000], ['45 days', 1, 2000], ['Supply not recorded', 1, 15000]]);
+  assert.deepEqual(groups.map((g) => [g.label, g.count, g.totalDue]), [['1 + 5 months', 1, 32000], ['Custom: 45 days', 1, 2000], ['Supply not recorded', 1, 15000]]);
   const bela = groups[1].patients[0];
   assert.deepEqual([bela.paidAmount, bela.dueAmount, bela.pendingApprovalAmount, bela.supplyLabel], [18000, 2000, 5000, 'Custom: 45 days']);
   assert.deepEqual([groups[0].patients[0].poNumber, groups[0].patients[0].phase], ['PO-1', 1]);
@@ -26,5 +26,5 @@ test('phases with payment due, grouped by the category of their supply', () => {
 test('the fulfilment job plan of the newest request wins (the doctor can correct it)', () => {
   const patients = [{ _id: 'a', patientName: 'Aarav', stages: [{ number: 1, totalAmount: 1000, payments: [], medicineRequests: [{ requestId: 'r1', status: 'in_process', supplyPlan: '6M', supplyPart: 'full', requestedAt: new Date() }] }] }];
   const groups = paymentDueByCategory(patients, { jobPlanOf: () => ({ plan: '2+4', part: 'first' }) });
-  assert.equal(groups[0].label, '2 months');
+  assert.equal(groups[0].label, '2 + 4 months');
 });

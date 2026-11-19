@@ -1,7 +1,7 @@
 // Control Room: active patients whose phase still has payment due, grouped by the category of that phase's supply
 // (1 month, 45 days, 6 months ...). Due is counted as on the Payment Due Ledger: package total of the phase minus the
 // approved payments (refunds paid out taken off); payments waiting for approval are shown beside it.
-const { lengthOf, requestsOf } = require('./lastMedicineSupply');
+const { lengthOf, requestsOf, PROGRAM } = require('./lastMedicineSupply');
 
 const approved = (p) => (p.approvalStatus || 'approved') === 'approved';
 const refunded = (p) => (p.refunds || []).filter((r) => ['paid', 'settled'].includes(r.status)).reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -36,18 +36,18 @@ function paymentDueByCategory(patients, { posOf = () => [], jobPlanOf = () => nu
       const pendingApprovalAmount = payments.filter((p) => p.approvalStatus === 'pending').reduce((s, p) => s + Number(p.amount || 0), 0);
       const lastPayment = payments.filter(approved).map((p) => p.date || p.createdAt).filter(Boolean).sort((a, b) => time(b) - time(a))[0] || null;
       const supply = phaseSupply(patient, stage, posOf, jobPlanOf);
-      const { option, days, label, key } = lengthOf(supply.plan, supply.part);
-      if (!groups.has(key)) groups.set(key, { key, days, label, patients: [] });
+      const { option, days, label, key, order } = lengthOf(supply.plan, supply.part);
+      if (!groups.has(key)) groups.set(key, { key, days, order, label, patients: [] });
       groups.get(key).patients.push({
         patientId: String(patient._id), patientName: patient.patientName || '', patientCode: patient.patientCode || '',
-        phase: stage.number, supplyLabel: option?.label || '', poNumber: supply.poNumber,
+        program: PROGRAM[patient.category] || '', phase: stage.number, supplyLabel: option?.label || '', poNumber: supply.poNumber,
         totalAmount, paidAmount, dueAmount, pendingApprovalAmount, lastPaymentAt: iso(lastPayment),
       });
     }
   }
   const list = [...groups.values()];
   list.forEach((g) => g.patients.sort((a, b) => b.dueAmount - a.dueAmount || a.patientName.localeCompare(b.patientName)));
-  return list.sort((a, b) => (a.days || Infinity) - (b.days || Infinity))
+  return list.sort((a, b) => a.order - b.order)
     .map((g) => ({ ...g, count: g.patients.length, totalDue: g.patients.reduce((s, p) => s + p.dueAmount, 0) }));
 }
 

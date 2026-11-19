@@ -4,22 +4,24 @@ const MedicineJob = require('../models/MedicineJob');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { cached } = require('../utils/readCache');
 const { STAGES } = require('../utils/medicineJobFlow');
-const { latestMedicine, groupByLength, LIVE } = require('../utils/lastMedicineSupply');
+const { patientPhaseRows, groupByLength } = require('../utils/lastMedicineSupply');
 const { paymentDueByCategory } = require('../utils/paymentDueByCategory');
 
-const LIVE_FILTER = { $or: [{ 'stages.medicineRequests.status': { $in: LIVE } }, { 'stages.medicineRequest.status': { $in: LIVE } }] };
 const REQUEST_FIELDS = ['requestId', 'status', 'supplyPlan', 'supplyPart', 'poNumber', 'purchaseOrderId', 'requestedAt', 'inProcessAt', 'madeAt', 'sentToCourierAt', 'courier.status', 'courier.deliveryMode', 'courier.dispatchedAt', 'courier.deliveredAt'];
-const FIELDS = ['patientName', 'patientCode', 'stages.number',
+const FIELDS = ['patientName', 'patientCode', 'category', 'currentStage', 'stages.number',
   ...REQUEST_FIELDS.map((f) => `stages.medicineRequests.${f}`), ...REQUEST_FIELDS.map((f) => `stages.medicineRequest.${f}`)].join(' ');
 
 const build = async () => {
-  const patients = await Patient.find({ isActive: { $ne: false }, ...LIVE_FILTER }).select(FIELDS).lean();
-  const latest = latestMedicine(patients);
+  // Every active patient, in their phase (those without medicine there show as "No medicine yet").
+  const patients = await Patient.find({ isActive: { $ne: false } }).select(FIELDS).lean();
+  const latest = patientPhaseRows(patients);
+  // The medicines on the rows (a row without one may name the patient's last medicine of an earlier phase).
+  const withMedicine = latest.flatMap((l) => (l.request ? [l] : l.earlier ? [l.earlier] : []));
   // The supply actually made: the fulfilment job's (the doctor can correct it), else the purchase order's.
-  const jobs = latest.length ? await MedicineJob.find({ patient: { $in: latest.map((l) => l.patient._id) }, status: { $ne: 'cancelled' } }).select('patient phase requestId supplyPlan supplyPart status currentStage hold.active').lean() : [];
+  const jobs = withMedicine.length ? await MedicineJob.find({ patient: { $in: withMedicine.map((l) => l.patient._id) }, status: { $ne: 'cancelled' } }).select('patient phase requestId supplyPlan supplyPart status currentStage hold.active').lean() : [];
   const byKey = new Map(jobs.map((j) => [`${j.patient}|${j.phase}|${j.requestId}`, j]));
   const jobFor = (patient, stage, request) => byKey.get(`${patient._id}|${stage.number}|${request.requestId || 'legacy'}`);
-  const poIds = latest.map((l) => l.request.purchaseOrderId).filter(Boolean);
+  const poIds = withMedicine.map((l) => l.request.purchaseOrderId).filter(Boolean);
   const pos = poIds.length ? await PurchaseOrder.find({ _id: { $in: poIds } }).select('supplyPlan supplyPart').lean() : [];
   const poOf = new Map(pos.map((p) => [String(p._id), p]));
   const planOf = (patient, stage, request) => {
@@ -46,7 +48,7 @@ const getMedicineCategories = asyncHandler(async (req, res) => {
 
 // @route GET /api/patients/payment-due-categories
 // Active patients whose phase still has payment due, by the category of that phase's supply (1 month, 6 months ...).
-const PAY_FIELDS = ['patientName', 'patientCode', 'stages.number', 'stages.totalAmount', 'stages.payments.amount', 'stages.payments.approvalStatus',
+const PAY_FIELDS = ['patientName', 'patientCode', 'category', 'stages.number', 'stages.totalAmount', 'stages.payments.amount', 'stages.payments.approvalStatus',
   'stages.payments.refunds.amount', 'stages.payments.refunds.status', 'stages.payments.date', 'stages.payments.createdAt',
   ...['requestId', 'status', 'supplyPlan', 'supplyPart', 'poNumber', 'requestedAt'].flatMap((x) => [`stages.medicineRequests.${x}`, `stages.medicineRequest.${x}`])].join(' ');
 const buildDue = async () => {
