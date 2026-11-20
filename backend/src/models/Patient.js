@@ -619,6 +619,10 @@ const patientSchema = new mongoose.Schema(
     inactivatedAt: { type: Date, default: null },
     reactivatedByName: { type: String, trim: true, default: '' },
     reactivatedAt: { type: Date, default: null },
+    // Tags from Patient Details (constants/patientTags.js), e.g. 'actor'. They stay when the patient is closed.
+    tags: { type: [String], default: undefined },
+    // Who put each tag on, and when: { [tag]: { at, byName } }.
+    tagMeta: { type: mongoose.Schema.Types.Mixed, default: undefined },
     // Which Assistant Doctor this patient is currently assigned to (set by Admin/Manager/Post Counselor)
     assignedDoctor: {
       type: mongoose.Schema.Types.ObjectId,
@@ -689,6 +693,7 @@ const patientSchema = new mongoose.Schema(
 patientSchema.set('optimisticConcurrency', true);
 // the complete patient collection before applying pagination.
 patientSchema.index({ isActive: 1, createdAt: -1 });
+patientSchema.index({ tags: 1 });
 patientSchema.index({ currentStage: 1, isActive: 1, createdAt: -1 });
 patientSchema.index({ category: 1, isActive: 1, createdAt: -1 });
 patientSchema.index({ assignedDoctor: 1, isActive: 1 });

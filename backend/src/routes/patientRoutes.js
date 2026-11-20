@@ -67,6 +67,8 @@ router.use(function patientViewerAccess(req, res, next) {
 });
 
 router.get('/', getPatients);
+// Patients with a tag (e.g. Actor patient), active and inactive.
+router.get('/tagged/:tag', require('../controllers/patientController').listTaggedPatients);
 router.get('/check-code', authorize(...PATIENT_CREATE_ROLES), checkPatientCode);
 router.post('/', authorize(...PATIENT_CREATE_ROLES), createPatient);
 router.get('/dashboard-stats', authorize(ROLES.ADMIN, ROLES.DOCTOR), getDashboardStats);
@@ -83,6 +85,7 @@ router.delete('/:id', authorize(ROLES.ADMIN), deletePatient);
 router.delete('/:id/attachments', authorize(ROLES.ADMIN), deletePatientAttachment);
 router.patch('/:id/approve', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), approvePatient);
 router.patch('/:id/status', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR), updatePatientStatus);
+router.patch('/:id/tags', authorize(...require('../constants/patientTags').TAG_EDIT_ROLES), require('../controllers/patientController').setPatientTag);
 router.patch('/:id', authorize(...PATIENT_WRITE_ROLES, ROLES.IN_TRANSIT), updatePatient);
 router.patch('/:id/stages/:number', authorize(...PACKAGE_STAGE_EDIT_ROLES, ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER), updatePatientStage);
 router.post('/:id/stages/:number/po-paper/images', authorize(ROLES.ADMIN, ROLES.POST_COUNSELOR), uploadPaymentScreenshot.array('screenshot', 10), addPoPaperImages);

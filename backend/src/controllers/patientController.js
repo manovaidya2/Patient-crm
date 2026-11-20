@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { PATIENT_TAGS, TAG_EDIT_ROLES } = require('../constants/patientTags');
 const Patient = require('../models/Patient');
 const { cached } = require('../utils/readCache');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
@@ -286,7 +287,8 @@ const isSameUser = (left, right) => {
 };
 
 const canSeeScheduleReminder = (user, patient, type) => {
-  if (user.role === ROLES.MANAGER) return true;
+  // The Manager and the Doctor see every patient's.
+  if (user.role === ROLES.MANAGER || user.role === ROLES.DOCTOR) return true;
   if (user.role === ROLES.ASSISTANT_DOCTOR) return ['followup', 'family_session'].includes(type) && isSameUser(patient.assignedDoctor, user._id);
   if (user.role === ROLES.PSYCHOLOGIST) return type === 'family_session' && isSameUser(patient.assignedPsychologist, user._id);
   return false;
@@ -580,6 +582,9 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   reactivatedByName: p.reactivatedByName || '',
   reactivatedAt: p.reactivatedAt || null,
   canToggleActive: canTogglePatientActive(user),
+  tags: p.tags || [],
+  tagMeta: p.tagMeta || {},
+  canEditTags: TAG_EDIT_ROLES.includes(user?.role),
   assignedDoctor: formatAssignedUser(p.assignedDoctor),
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
   hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
@@ -1900,6 +1905,46 @@ const updatePatientStatus = asyncHandler(async (req, res) => {
   await populateAssignments(patient);
   await patient.populate('stages.postCounselor', 'name');
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @route   PATCH /api/patients/:id/tags   body: { tag: 'actor', on: true | false }
+// Puts a tag on a patient or takes it off (Admin, Manager, Doctor, Post Counselor). Works for an inactive patient too.
+const setPatientTag = asyncHandler(async (req, res) => {
+  if (!TAG_EDIT_ROLES.includes(req.user.role)) return res.status(403).json({ success: false, message: 'You cannot change patient tags' });
+  const tag = String(req.body.tag || '').trim();
+  if (!PATIENT_TAGS[tag]) return res.status(400).json({ success: false, message: 'Unknown tag' });
+  const on = req.body.on !== false;
+  const patient = await Patient.findById(req.params.id);
+  if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
+  const tags = patient.tags || [];
+  if (tags.includes(tag) === on) return res.status(400).json({ success: false, message: on ? `Already tagged "${PATIENT_TAGS[tag]}"` : `Not tagged "${PATIENT_TAGS[tag]}"` });
+  patient.tags = on ? [...tags, tag] : tags.filter((t) => t !== tag);
+  const meta = { ...(patient.tagMeta || {}) };
+  if (on) meta[tag] = { at: new Date(), byName: req.user.name };
+  else delete meta[tag];
+  patient.tagMeta = meta;
+  patient.markModified('tagMeta');
+  addActivity(patient, req.user, on ? `Tagged "${PATIENT_TAGS[tag]}"` : `Tag "${PATIENT_TAGS[tag]}" removed`, '');
+  await patient.save();
+  await populateAssignments(patient);
+  await patient.populate('stages.postCounselor', 'name');
+  res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
+});
+
+// @route   GET /api/patients/tagged/:tag
+// The patients with a tag, active and inactive (a PCC: only the ones they can open). Newest tag first.
+const listTaggedPatients = asyncHandler(async (req, res) => {
+  const tag = String(req.params.tag || '').trim();
+  if (!PATIENT_TAGS[tag]) return res.status(400).json({ success: false, message: 'Unknown tag' });
+  const rows = await Patient.find({ tags: tag })
+    .select('patientName patientCode category currentStage isActive approvalStatus inactivatedAt assignedDoctor assignedPsychologist tagMeta')
+    .populate('assignedDoctor', 'name').lean();
+  const patients = rows.filter((p) => canAccessPatient(req.user, p)).map((p) => ({
+    id: String(p._id), patientName: p.patientName, patientCode: p.patientCode || '', category: p.category, categoryLabel: CATEGORY_LABELS[p.category] || '',
+    currentStage: p.currentStage || 1, isActive: p.isActive !== false, inactivatedAt: p.inactivatedAt || null,
+    pccName: p.assignedDoctor?.name || '', taggedAt: p.tagMeta?.[tag]?.at || null, taggedByName: p.tagMeta?.[tag]?.byName || '',
+  })).sort((a, b) => new Date(b.taggedAt || 0) - new Date(a.taggedAt || 0));
+  res.json({ success: true, tag, label: PATIENT_TAGS[tag], patients, total: patients.length, active: patients.filter((p) => p.isActive).length });
 });
 
 // @desc    Update one or more fields on a patient (used by inline editing on the details page)
@@ -4057,12 +4102,12 @@ const listScheduleEntries = (fieldKey, { groupByAssignedDoctor = false, groupByA
 
 const getScheduleReminders = asyncHandler(async (req, res) => {
   // Reminder visibility:
-  //  - Manager sees late/upcoming reminders across the working team.
+  //  - Manager and Doctor see late/upcoming reminders across the working team.
   //  - Assistant Doctor sees their assigned patients' follow-ups.
   //  - Psychologist sees their assigned patients' family sessions.
   //  - Post Counselor sees medicine connect reminders for stages assigned to them.
-  //  - Admin and Doctor do not receive these operational reminders.
-  const reminderRoles = [ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
+  //  - Admin does not receive these operational reminders.
+  const reminderRoles = [ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST, ROLES.POST_COUNSELOR];
   if (!reminderRoles.includes(req.user.role)) {
     return res.status(200).json({ success: true, count: 0, reminders: [] });
   }
@@ -4176,6 +4221,7 @@ const getFollowUps = listScheduleEntries('followUps', { groupByAssignedDoctor: t
 const getFamilySessions = listScheduleEntries('familySessions', { groupByAssignedDoctor: true });
 
 module.exports = {
+  setPatientTag, listTaggedPatients,
   getPatients,
   checkPatientCode,
   getDashboardStats,

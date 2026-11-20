@@ -41,13 +41,14 @@ const PAGES = {
   '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
   // Treatment Delivery: plans to set up, sessions to confirm / reschedule / close, PCC tasks and next-phase decisions.
-  '/admin/treatment-delivery': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
-  '/admin/followups': [MANAGER, ASSISTANT_DOCTOR],
+  // The Doctor also gets every page here that the Doctor can open (not the Admin-only ones).
+  '/admin/treatment-delivery': [ADMIN, ASSISTANT_DOCTOR, MANAGER, DOCTOR],
+  '/admin/followups': [MANAGER, ASSISTANT_DOCTOR, DOCTOR],
   // Patient queries the PCC raised that the doctor has not answered yet.
   '/admin/request-for-advice': [ADMIN, DOCTOR],
   // Patient queries: doctor's answers to send, follow-ups due, satisfied ones to mark solved.
   '/admin/patient-queries': [ASSISTANT_DOCTOR, MANAGER],
-  '/admin/family-sessions': [MANAGER, ASSISTANT_DOCTOR],
+  '/admin/family-sessions': [MANAGER, ASSISTANT_DOCTOR, DOCTOR],
   '/admin/post-counseling-patients': [ADMIN, POST_COUNSELOR, DOCTOR, MANAGER],
   '/admin/package-not-bought': [ADMIN, POST_COUNSELOR, MANAGER],
   '/admin/enquiries': Object.values(ROLES).filter((role) => role !== ROLES.HR),

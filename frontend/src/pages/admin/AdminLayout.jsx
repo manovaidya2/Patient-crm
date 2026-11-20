@@ -3,6 +3,8 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { LogOut, Menu } from 'lucide-react';
 import Sidebar from '../../components/Sidebar.jsx';
 import PendingWork from '../../components/PendingWork.jsx';
+import DoctorActions from '../../components/DoctorActions.jsx';
+import RolePendingSections from '../../components/RolePendingSections.jsx';
 import MobileTabBar from '../../components/MobileTabBar.jsx';
 import ReminderBell from '../../components/ReminderBell.jsx';
 import FormulationAlarm from '../../components/medicine/FormulationAlarm.jsx';
@@ -153,6 +155,9 @@ const AdminLayout = () => {
         {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}
         <main className="app-content min-w-0 w-full flex-1 p-3 pb-28 sm:p-8 sm:pb-28 md:pb-8">
           {onHome && <PendingWork />}
+          {/* Control Room (home of the Admin, Manager and Doctor), below "Your pending work": everything waiting on the
+              doctor in maroon, then one coloured section per role that has work pending. */}
+          {onHome && [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR].includes(user?.role) && <><DoctorActions /><RolePendingSections /></>}
           {/* Back to the page you came from (every page except home and the ones with their own Back). */}
           <PageBack />
           {/* Voice typing (mic) on whichever note / text box is in use, on every page. */}

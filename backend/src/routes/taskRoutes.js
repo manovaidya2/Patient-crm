@@ -8,6 +8,9 @@ const { ROLES } = require('../constants/roles');
 const router = express.Router();
 router.get('/counts', protect, getTaskCounts);
 router.get('/my-day', protect, getMyDay);
-router.get('/team', protect, authorize(ROLES.ADMIN, ROLES.MANAGER), getTeamPending);
+// Every role's pending work: the Team pending page (Admin, Manager) and the Control Room sections (also the Doctor).
+router.get('/team', protect, authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR), getTeamPending);
+// Everything waiting on the doctor (top of the Control Room).
+router.get('/doctor-actions', protect, authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR), require('../controllers/doctorActionsController').getDoctorActions);
 
 module.exports = router;

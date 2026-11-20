@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Clapperboard } from 'lucide-react';
 import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
 import BookNextAppointment from '../../components/patients/BookNextAppointment.jsx';
@@ -2695,6 +2696,22 @@ const PatientDetails = () => {
     }
   };
 
+  // The "Actor patient" tag: put on / taken off here; the patient is then on the Actor patients card (home).
+  const [tagSaving, setTagSaving] = useState(false);
+  const isActorPatient = Boolean(patient?.tags?.includes('actor'));
+  const toggleActorTag = async () => {
+    if (isActorPatient && !window.confirm('Remove the "Actor patient" tag from this patient?')) return;
+    setTagSaving(true);
+    try {
+      const { data } = await api.patch(`/patients/${id}/tags`, { tag: 'actor', on: !isActorPatient });
+      setPatient(data.patient);
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not change the tag');
+    } finally {
+      setTagSaving(false);
+    }
+  };
+
   const handleReactivatePatient = async () => {
     setReactivateSaving(true);
     setReactivateError('');
@@ -2815,6 +2832,7 @@ const PatientDetails = () => {
                   />
                 </span>
                 {!patient.isActive ? <Badge tone="inactive">Inactive</Badge> : patient.approvalStatus === 'pending' ? <Badge tone="orange">Approval pending</Badge> : <Badge tone="green">Approved · Active</Badge>}
+                {isActorPatient && <span title={patient.tagMeta?.actor ? `Tagged by ${patient.tagMeta.actor.byName || '-'} on ${formatDate(patient.tagMeta.actor.at)}` : 'Actor patient'}><Badge tone="purple"><Clapperboard size={11} />Actor patient</Badge></span>}
                 {hasPendingRefund && <Badge tone="amber">Refund initiated</Badge>}
                 {hasPaidRefund && <Badge tone="teal">Refunded</Badge>}
               </div>
@@ -2833,6 +2851,16 @@ const PatientDetails = () => {
                 {patient.number && <a href={`https://wa.me/91${String(patient.number).replace(/\D/g, '').slice(-10)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><MessageSquareText size={14} />WhatsApp</a>}
                 {/* Book the patient's next visit (PCC / Manager / Admin), like Reception's direct appointment. */}
                 {roleAllowed([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], user) && <BookNextAppointment patientId={id} compact />}
+                {patient.canEditTags && (
+                  <button
+                    type="button"
+                    onClick={toggleActorTag}
+                    disabled={tagSaving}
+                    className={`inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-xs font-bold transition disabled:opacity-50 ${isActorPatient ? 'border-[#4C2F8F]/30 bg-[#EFE9FA] text-[#4C2F8F] hover:bg-[#E4DBF7]' : 'border-cardline bg-white text-charcoal hover:bg-[#FBF7ED]'}`}
+                  >
+                    <Clapperboard size={14} />{tagSaving ? 'Saving...' : isActorPatient ? 'Remove Actor tag' : 'Tag as Actor patient'}
+                  </button>
+                )}
                 {patient.canToggleActive && patient.isActive && (
                   <button
                     type="button"
