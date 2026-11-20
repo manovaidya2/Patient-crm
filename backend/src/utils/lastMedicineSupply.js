@@ -99,7 +99,7 @@ function groupByLength(latest, planOf = () => null, jobOf = () => null) {
 // The category of a supply, as the PO paper picks it: Full 6 months, 1 + 5 months, 2 + 4 months, or Custom with its
 // length (Custom: 3 months, Custom: 45 days ...). The part (first 1 month / next 5 months) stays in `option.label`.
 const PLAN_CATEGORY = { '6M': ['Full 6 months', 1], '1+5': ['1 + 5 months', 2], '2+4': ['2 + 4 months', 3] };
-const PROGRAM = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health' };
+const PROGRAM = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health', other: 'Other' };
 // The patients of a phase with no medicine request in it yet: always the last category.
 const NONE = { key: 'none', label: 'No medicine yet', order: 2e9 };
 const lengthOf = (plan, part) => {

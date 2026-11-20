@@ -667,7 +667,7 @@ const BOOKING = {
   patientName: '6ab7b2adbf916b34dfd9f5f7', age: '6ab7b2b6bf916b34dfd9f609', gender: '6ab7b2e2bf916b34dfd9f643', guardianName: '6ab7b2fdbf916b34dfd9f66b',
   primaryMobile: '6ab7b33fbf916b34dfd9f6c2', alternateMobile: '6ab7b34ebf916b34dfd9f6d4', city: '6ab7b3d5bf916b34dfda083f', state: '6ab7b3e7bf916b34dfda0851',
 };
-const CASE_FROM_CATEGORY = { mental_health: 'Mental Health', autism_adhd: 'Autism + ADHD' };
+const CASE_FROM_CATEGORY = { mental_health: 'Mental Health', autism_adhd: 'Autism + ADHD', other: 'Other' };
 const BOOKING_MODES = ['Clinic Visit', 'Online'];
 const LEAD_TYPES = ['B2C', 'B2B'];
 const CASE_CATEGORIES = ['Autism', 'ADHD', 'Autism + ADHD', 'Mental Health', 'Other'];

@@ -378,6 +378,7 @@ const PackageNotBoughtDetails = () => {
                         <option value="">Select category</option>
                         <option value="autism_adhd">Autism / ADHD</option>
                         <option value="mental_health">Mental Health</option>
+                        <option value="other">Other</option>
                       </select>
                     </div>
                   )}

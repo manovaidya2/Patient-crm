@@ -26,7 +26,7 @@ const RECEPTION_IDS = {
   primaryConcern: '6aba531b7172140c6badaee5',
 };
 
-const CATEGORY_LABEL = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health' };
+const CATEGORY_LABEL = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health', other: 'Other' };
 const FIRST_SERIAL = 11;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -43,7 +43,7 @@ const REGISTRATION_FIELDS = [
   PROFILE_FIELDS.find((item) => item.key === 'dateOfBirth'),
   base('age', 'Age', 30, { required: true, group: 'child' }),
   ...PROFILE_FIELDS.filter((item) => ['gender', 'weight', 'height', 'headCircumference'].includes(item.key)),
-  base('category', 'Category', 20, { type: 'select', required: true, group: 'child', options: ['autism_adhd', 'mental_health'], optionLabels: CATEGORY_LABEL }),
+  base('category', 'Category', 20, { type: 'select', required: true, group: 'child', options: ['autism_adhd', 'mental_health', 'other'], optionLabels: CATEGORY_LABEL }),
   PROFILE_FIELDS.find((item) => item.key === 'fatherName'),
   base('fatherNumber', "Father's mobile", 15, { type: 'tel', group: 'family' }),
   PROFILE_FIELDS.find((item) => item.key === 'fatherOccupation'),
@@ -74,6 +74,8 @@ const categoryFromCase = (caseCategory) => {
   const value = String(caseCategory || '').trim().toLowerCase();
   if (value === 'mental health') return 'mental_health';
   if (['autism', 'adhd', 'autism + adhd'].includes(value)) return 'autism_adhd';
+  // Appointment Management's "Other" case category.
+  if (value === 'other') return 'other';
   return '';
 };
 

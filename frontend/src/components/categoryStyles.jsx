@@ -1,4 +1,4 @@
-import { Brain, Pill, Puzzle } from 'lucide-react';
+import { Brain, CircleEllipsis, Pill, Puzzle } from 'lucide-react';
 import { STAGE_LABELS } from '../constants/treatmentStages.js';
 
 // Shared by the Control Room sections "Medicine by category" and "Payment pending by category".
@@ -6,11 +6,12 @@ export const shortDate = (value) => (value ? new Date(value).toLocaleDateString(
 export const selectClass = 'rounded-md border border-cardline bg-white px-3 py-2 text-sm text-charcoal';
 export const phaseLabel = (n) => STAGE_LABELS[n] || `Phase ${n}`;
 
-// Programs at the top: Autism / ADHD, Mental Health (a patient without one is "Program not set").
+// Programs at the top: Autism / ADHD, Mental Health, Other (a patient without one is "Program not set").
 export const NO_PROGRAM = 'Program not set';
 export const PROGRAMS = [
   { key: 'Autism / ADHD', icon: Puzzle, tone: 'bg-[#EEF2FB] text-[#2F4A8A] border-[#C9D5F0]', active: 'bg-[#2F4A8A] text-white border-[#2F4A8A]' },
   { key: 'Mental Health', icon: Brain, tone: 'bg-[#F5EEFB] text-[#5B3A86] border-[#DCCBEE]', active: 'bg-[#5B3A86] text-white border-[#5B3A86]' },
+  { key: 'Other', icon: CircleEllipsis, tone: 'bg-[#FDF6E8] text-[#8A5A12] border-[#E9C98F]', active: 'bg-[#8A5A12] text-white border-[#8A5A12]' },
   { key: NO_PROGRAM, icon: Pill, tone: 'bg-offwhite-200 text-charcoal/70 border-cardline', active: 'bg-charcoal text-white border-charcoal' },
 ];
 
@@ -29,11 +30,11 @@ export const toneOf = (key) => CATEGORY_TONE[key] || (/^C\d/.test(String(key)) ?
 // "1+5: First 1 month" -> "First 1 month"; "Full 6 months" stays; "Custom: 45 days" -> "45 days".
 export const supplyPart = (supplyLabel) => (String(supplyLabel || '').includes(': ') ? supplyLabel.split(': ').slice(1).join(': ') : supplyLabel || 'Not recorded');
 
-// The two program cards (Autism / ADHD, Mental Health). `summary(list)` gives the small line under the name and
+// The program cards (Autism / ADHD, Mental Health, Other). `summary(list)` gives the small line under the name and
 // `value(list)` the big number.
 export function ProgramCards({ rows, program, onChoose, summary, value = (list) => list.length }) {
   return (
-    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+    <div className="mt-2 grid gap-2 sm:grid-cols-3">
       {PROGRAMS.filter((p) => p.key !== NO_PROGRAM).map((p) => {
         const list = rows.filter((x) => x.program === p.key);
         const Icon = p.icon;

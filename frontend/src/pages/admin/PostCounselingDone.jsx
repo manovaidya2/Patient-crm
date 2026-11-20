@@ -11,7 +11,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import { ClipboardCheck as PageTitleIcon } from 'lucide-react';
 
-const CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health' };
+const CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health', other: 'Other' };
 const rupees = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const longDate = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }) : 'No date');
 const todayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });

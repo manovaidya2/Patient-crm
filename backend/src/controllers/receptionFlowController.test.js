@@ -42,7 +42,9 @@ test('patient id: first letter + ddmmyy + serial starting at 11', () => {
 test('category and required fields', () => {
   assert.equal(categoryFromCase('Autism + ADHD'), 'autism_adhd');
   assert.equal(categoryFromCase('Mental Health'), 'mental_health');
-  assert.equal(categoryFromCase('Other'), '');
+  // Appointment Management's "Other" case category comes into the registration as Other.
+  assert.equal(categoryFromCase('Other'), 'other');
+  assert.equal(categoryFromCase(''), '');
   assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', nameMatchesAadhaar: 'Yes', age: '', category: 'autism_adhd', patientHistoryBy: '' }), ['Age']);
   assert.deepEqual(missingForSend({ phase: '1', patientName: 'a', nameMatchesAadhaar: 'Yes', age: '3', category: 'autism_adhd', patientHistoryBy: '' }), []);
   assert.deepEqual(missingForSend({ patientName: 'a', nameMatchesAadhaar: 'Yes', age: '3', category: 'autism_adhd' }), ['Phase (this visit is for)']);

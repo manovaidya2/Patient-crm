@@ -122,7 +122,7 @@ const firstPayment = (record) => {
 const defaults = ({ record, registration, counselorName, today, phase = 1 }) => {
   const e = record?.e || {};
   const emi = e.paymentPlan === 'EMI';
-  const categoryLabel = registration?.category === 'mental_health' ? 'Mental Health' : 'Autism / ADHD';
+  const categoryLabel = { mental_health: 'Mental Health', other: 'Other' }[registration?.category] || 'Autism / ADHD';
   const base = Object.fromEntries(ALL_FIELDS.map((field) => [field.key, field.type === 'check' ? false : field.type === 'files' ? [] : '']));
   return {
     ...base,

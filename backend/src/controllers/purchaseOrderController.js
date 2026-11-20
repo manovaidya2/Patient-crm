@@ -317,7 +317,7 @@ const getPurchaseOrderForm = asyncHandler(async (req, res) => {
     fatherNumber: patient.number || '', motherNumber: patient.alternateNumber || '',
   };
   const values = purchase.defaults({ record: null, registration, counselorName: req.user.name, today });
-  values.orderedTreatment = `${patient.category === 'mental_health' ? 'Mental Health' : 'Autism / ADHD'} / Phase ${phase}`;
+  values.orderedTreatment = `${{ mental_health: 'Mental Health', other: 'Other' }[patient.category] || 'Autism / ADHD'} / Phase ${phase}`;
   res.json({ success: true, definitions: purchase.definitions(), values, contacts: registration, phase, previous: await carryablePos(patient) });
 });
 
@@ -616,7 +616,7 @@ const requestMedicine = asyncHandler(async (req, res) => {
   // No medicine list typed here any more: the Medicine Department works from the master sheet and the patient file.
   const medicines = longText(body.medicines);
   // The case category, picked on the form (it comes pre-selected from the patient's Sales case category).
-  if (body.caseCategory && !cleanCaseCategory(body.caseCategory)) fail('Select Autism, ADHD, Autism + ADHD or Mental Health');
+  if (body.caseCategory && !cleanCaseCategory(body.caseCategory)) fail('Select Autism, ADHD, Autism + ADHD, Mental Health or Other');
   const caseCategory = cleanCaseCategory(body.caseCategory) || await patientCaseCategory(patient);
   const fixedDate = fixedReadyDate({ po });
   const readyBy = fixedDate && !canOverrideFixed(req.user) ? new Date(fixedDate) : (parseDay(body.readyByDate, 'medicine ready-by date', { required: !fixedDate }) || new Date(fixedDate));
@@ -673,7 +673,7 @@ const updateMedicineRequest = asyncHandler(async (req, res) => {
   const paperAge = readyDateFromPostCounselling(po) ? ageBandByLabel(po.paperValues?.ageGroup) : '';
   const ageBand = paperAge && !canOverrideFixed(req.user) ? paperAge : clean(body.ageBand, 10) || request.ageBand;
   if (!AGE_BANDS[ageBand]) fail('Select the age group');
-  if (body.caseCategory && !cleanCaseCategory(body.caseCategory)) fail('Select Autism, ADHD, Autism + ADHD or Mental Health');
+  if (body.caseCategory && !cleanCaseCategory(body.caseCategory)) fail('Select Autism, ADHD, Autism + ADHD, Mental Health or Other');
   const caseCategory = cleanCaseCategory(body.caseCategory) || request.caseCategory;
   const fixedDate = fixedReadyDate({ po });
   const readyBy = fixedDate && !canOverrideFixed(req.user) ? new Date(fixedDate) : (parseDay(body.readyByDate, 'medicine ready-by date', { required: false }) || request.readyByDate);

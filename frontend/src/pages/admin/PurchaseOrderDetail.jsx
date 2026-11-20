@@ -414,7 +414,7 @@ function MedicineRequestForm({ po, onDone, edit = false, onCancel }) {
     event.preventDefault();
     if (!values.supplyKey) { setError('Select the medicine supply'); return; }
     if (!values.ageBand) { setError('Select the age group'); return; }
-    if (!values.caseCategory) { setError('Select the category: Autism, ADHD, Autism + ADHD or Mental Health'); return; }
+    if (!values.caseCategory) { setError('Select the category: Autism, ADHD, Autism + ADHD, Mental Health or Other'); return; }
     setBusy(true); setError('');
     try {
       if (edit) {

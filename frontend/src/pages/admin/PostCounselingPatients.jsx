@@ -14,7 +14,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES, isAdminLike } from '../../constants/roles.js';
 import { Users as PageTitleIcon } from 'lucide-react';
 
-const CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health' };
+const CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health', other: 'Other' };
 const formatDate = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-');
 const formatStamp = (iso) => (iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-');
 

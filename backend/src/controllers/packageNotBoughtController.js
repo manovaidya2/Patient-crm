@@ -301,7 +301,8 @@ const missingPatientFields = (details) => {
   if (!details.category) missing.push('category');
   if (!String(details.age ?? '').trim()) missing.push('age');
   if (!String(details.number || '').trim()) missing.push('number');
-  if (details.category !== 'mental_health' && !String(details.guardianName || '').trim()) missing.push('guardianName');
+  // Father / Mother name: needed for Autism / ADHD only (Mental Health and Other may be adults).
+  if (details.category === 'autism_adhd' && !String(details.guardianName || '').trim()) missing.push('guardianName');
   return missing;
 };
 

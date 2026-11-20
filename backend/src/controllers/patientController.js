@@ -1716,9 +1716,10 @@ const createPatientRecord = async (input, user, { activityDetails } = {}) => {
     category,
     age: ageText,
     number,
-    guardianName: category === 'autism_adhd' ? guardianName : '',
+    // Other: whichever was given (it can be a child or an adult).
+    guardianName: category !== 'mental_health' ? String(guardianName || '').trim() : '',
     alternateNumber: String(alternateNumber || '').trim(),
-    relativeName: category === 'mental_health' ? String(relativeName || '').trim() : '',
+    relativeName: category !== 'autism_adhd' ? String(relativeName || '').trim() : '',
     currentStage: stageNum,
     source: 'manual',
     approvalStatus: 'pending',
