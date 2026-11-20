@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
-import { AlertTriangle, History, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Boxes, History, Laptop, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Smartphone, Trash2, UserRound } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import DeviceRegister, { AssigneeHistory, DEVICE_FIELDS, DEVICE_LABEL, emptyDevice } from '../../components/inventory/DeviceRegister.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import api from '../../api/axios.js';
@@ -13,6 +15,9 @@ import InventorySoftCopy from '../../components/InventorySoftCopy.jsx';
 import { Boxes as PageTitleIcon } from 'lucide-react';
 
 const emptyItem = { name: '', category: '', unit: 'piece', openingStock: '', lowStockAt: '', notes: '' };
+// Three tabs: mobiles, laptops and others (the stock register - every item saved before the tabs is here).
+const TABS = [{ key: 'mobile', label: 'Mobiles', icon: Smartphone }, { key: 'laptop', label: 'Laptops', icon: Laptop }, { key: 'other', label: 'Others', icon: Boxes }];
+const isDevice = (kind) => kind === 'mobile' || kind === 'laptop';
 const emptyMovement = { type: 'add', quantity: '', reason: '', notes: '' };
 const labels = { add: 'Stock added', consume: 'Stock used', adjust: 'Stock adjusted' };
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -22,6 +27,9 @@ const IconAction = ({ label, children, onClick, primary = false }) => <button ty
 
 const ClinicInventory = () => {
   const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.some((x) => x.key === params.get('tab')) ? params.get('tab') : 'other';
+  const setTab = (key) => setParams((old) => { const next = new URLSearchParams(old); next.set('tab', key); return next; }, { replace: true });
   const [deleteItem, setDeleteItem] = useState(null);
   const [search, setSearch] = useState('');
   const [items, setItems] = useStaleState(`clinic-inventory:${search}`, []);
@@ -54,9 +62,17 @@ const ClinicInventory = () => {
   };
   useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer); }, [search, refresh]);
   const selectedHistory = useMemo(() => historyItem ? items.find((item) => item.id === historyItem.id) || historyItem : null, [historyItem, items]);
-  const openAdd = () => { setItemModal({ mode: 'add' }); setItemForm(emptyItem); setModalError(''); };
-  const openEdit = (item) => { setItemModal({ mode: 'edit', item }); setItemForm({ name: item.name, category: item.category, unit: item.unit, openingStock: '', lowStockAt: item.lowStockAt || '', notes: item.notes || '' }); setModalError(''); };
-  const submitItem = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { if (itemModal.mode === 'edit') await api.patch(`/clinic-inventory/${itemModal.item.id}`, itemForm); else await api.post('/clinic-inventory', itemForm); setItemModal(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not save item.'); } finally { setSaving(false); } };
+  const tabItems = useMemo(() => items.filter((item) => (item.kind || 'other') === tab), [items, tab]);
+  const kindCount = (key) => totals.kinds?.[key] ?? items.filter((item) => (item.kind || 'other') === key).length;
+  const assigned = tabItems.filter((item) => item.device?.assignee).length;
+  const formKind = itemModal?.kind || 'other';
+  const openAdd = () => { setItemModal({ mode: 'add', kind: tab }); setItemForm({ ...emptyItem, ...emptyDevice }); setModalError(''); };
+  const openEdit = (item) => { const kind = item.kind || 'other'; setItemModal({ mode: 'edit', item, kind }); setItemForm(isDevice(kind) ? { ...emptyItem, ...emptyDevice, ...item.device, notes: item.notes || '' } : { name: item.name, category: item.category, unit: item.unit, openingStock: '', lowStockAt: item.lowStockAt || '', notes: item.notes || '' }); setModalError(''); };
+  // A mobile / laptop sends only its own details; an Others item its stock fields.
+  const itemPayload = () => (isDevice(formKind)
+    ? { kind: formKind, notes: itemForm.notes, ...Object.fromEntries(DEVICE_FIELDS[formKind].map((field) => [field.key, itemForm[field.key] || ''])) }
+    : { name: itemForm.name, category: itemForm.category, unit: itemForm.unit, openingStock: itemForm.openingStock, lowStockAt: itemForm.lowStockAt, notes: itemForm.notes, kind: 'other' });
+  const submitItem = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { if (itemModal.mode === 'edit') await api.patch(`/clinic-inventory/${itemModal.item.id}`, itemPayload()); else await api.post('/clinic-inventory', itemPayload()); setItemModal(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not save item.'); } finally { setSaving(false); } };
   const openMovement = (item, type) => { setMovementItem(item); setMovement({ ...emptyMovement, type, reason: type === 'add' ? 'New stock received' : type === 'consume' ? 'Item used' : 'Manual stock correction' }); setModalError(''); };
   // The latest stock entry can be corrected (opened from Stock records): same form, saved over that entry.
   const openEditLast = (item, entry) => { setMovementItem({ ...item, editLast: true, currentStock: entry.previousStock }); setMovement({ ...emptyMovement, type: entry.type, quantity: String(entry.quantity), reason: entry.reason || '', notes: entry.notes || '' }); setModalError(''); };
@@ -85,11 +101,35 @@ const ClinicInventory = () => {
             <RefreshCw size={15} /> Refresh
           </Button>
           <Button size="sm" onClick={openAdd}>
-            <Plus size={15} /> Add item
+            <Plus size={15} /> {isDevice(tab) ? `Add ${DEVICE_LABEL[tab]}` : 'Add item'}
           </Button>
         </div>
       </header>
 
+      <div role="tablist" aria-label="Inventory type" className="mt-6 flex flex-wrap gap-2 border-b border-cardline">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`-mb-px inline-flex items-center gap-2 rounded-t-lg border px-4 py-2.5 text-sm font-semibold transition ${tab === key ? 'border-cardline border-b-offwhite-100 bg-offwhite-100 text-charcoal' : 'border-transparent text-charcoal/55 hover:text-charcoal'}`}>
+            <Icon size={16} />{label}<span className={`rounded-full px-2 py-0.5 text-[11px] ${tab === key ? 'bg-sage text-white' : 'bg-offwhite-300/60 text-charcoal/60'}`}>{loading && !items.length ? '...' : kindCount(key)}</span>
+          </button>
+        ))}
+      </div>
+
+      {isDevice(tab) ? (
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          {[
+            { label: `${TABS.find((x) => x.key === tab).label} in clinic`, value: tabItems.length, tone: 'border-t-sage', Icon: tab === 'mobile' ? Smartphone : Laptop },
+            { label: 'Assigned', value: assigned, tone: 'border-t-[#56695D]', Icon: UserRound },
+            { label: 'Not assigned', value: tabItems.length - assigned, tone: 'border-t-[#9C6B2E]', Icon: AlertTriangle },
+          ].map(({ label, value, tone, Icon }) => (
+            <Card key={label} className={`min-h-[96px] border-t-2 ${tone}`} padded={false}>
+              <div className="flex h-full items-center justify-between px-5 py-3">
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-charcoal/55">{label}</p><p className="mt-1 text-2xl font-bold text-charcoal">{loading && !items.length ? '...' : value}</p></div>
+                <Icon size={22} className="text-sage/70" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (<>
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <Card className="min-h-[96px] border-t-2 border-t-sage" padded={false}>
           <div className="flex h-full items-center justify-between px-5 py-3">
@@ -138,6 +178,18 @@ const ClinicInventory = () => {
           </div>
         </Card>
       </div>
+      </>)}
+
+      {/* The search covers every tab: device details (brand, number, IMEI, device ID, assignee) too. */}
+      {isDevice(tab) && (
+        <label className="mt-6 flex h-10 w-full items-center gap-3 rounded-lg border border-cardline bg-offwhite-100 px-3.5 transition focus-within:border-sage focus-within:ring-2 focus-within:ring-sage/15 sm:w-96">
+          <Search size={17} className="shrink-0 text-charcoal/40" />
+          <input aria-label={`Search ${TABS.find((x) => x.key === tab).label.toLowerCase()}`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === 'mobile' ? 'Search brand, number, IMEI or assignee' : 'Search device ID, brand or assignee'} className="min-w-0 flex-1 bg-transparent p-0 font-serif text-sm text-charcoal outline-none placeholder:font-serif placeholder:text-charcoal/45" />
+        </label>
+      )}
+      {isDevice(tab) ? (
+        <DeviceRegister kind={tab} items={tabItems} loading={loading} error={error} canDelete={user?.role === ROLES.ADMIN} onEdit={openEdit} onHistory={setHistoryItem} onDelete={(item) => { setDeleteItem(item); setModalError(''); }} onSaved={() => setRefresh((value) => value + 1)} />
+      ) : (
 
       <Card className="mt-6 overflow-hidden" padded={false}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cardline bg-offwhite-200/60 px-5 py-4">
@@ -192,7 +244,7 @@ const ClinicInventory = () => {
                   </td>
                 </tr>
               )}
-              {!loading && !error && !items.length && (
+              {!loading && !error && !tabItems.length && (
                 <tr>
                   <td colSpan="6" className="px-5 py-16 text-center">
                     <PackageOpen
@@ -210,7 +262,7 @@ const ClinicInventory = () => {
               )}
               {!loading &&
                 !error &&
-                items.map((item, index) => {
+                tabItems.map((item, index) => {
                   const low =
                     item.lowStockAt > 0 && item.currentStock <= item.lowStockAt;
                   const latest = item.transactions?.[0];
@@ -322,13 +374,14 @@ const ClinicInventory = () => {
           </table>
         </div>
       </Card>
+      )}
 
       <Modal
         open={!!deleteItem}
         onClose={() => !saving && setDeleteItem(null)}
-        title="Delete clinic item"
+        title={isDevice(deleteItem?.kind) ? `Delete ${DEVICE_LABEL[deleteItem.kind]}` : 'Delete clinic item'}
       >
-        <p className="text-sm">Remove <strong>{deleteItem?.name}</strong> from inventory? Current stock: {number(deleteItem?.currentStock)} {deleteItem?.unit}. Stock history will be retained.</p>
+        <p className="text-sm">{isDevice(deleteItem?.kind) ? <>Remove <strong>{deleteItem?.name}</strong> from inventory? Its details and assignee history are retained.</> : <>Remove <strong>{deleteItem?.name}</strong> from inventory? Current stock: {number(deleteItem?.currentStock)} {deleteItem?.unit}. Stock history will be retained.</>}</p>
         {modalError && <p role="alert" className="mt-3 text-sm text-red-700">{modalError}</p>}
         <div className="mt-4 flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={() => setDeleteItem(null)}>Cancel</Button><Button disabled={saving} onClick={confirmDelete}><Trash2 size={16} />{saving ? 'Deleting...' : 'Delete item'}</Button></div>
       </Modal>
@@ -336,7 +389,7 @@ const ClinicInventory = () => {
         open={!!itemModal}
         onClose={() => setItemModal(null)}
         title={
-          itemModal?.mode === "edit" ? "Edit clinic item" : "Add clinic item"
+          isDevice(formKind) ? `${itemModal?.mode === 'edit' ? 'Edit' : 'Add'} ${DEVICE_LABEL[formKind]}` : itemModal?.mode === "edit" ? "Edit clinic item" : "Add clinic item"
         }
         className="max-w-2xl"
       >
@@ -346,6 +399,13 @@ const ClinicInventory = () => {
               {modalError}
             </p>
           )}
+          {isDevice(formKind) ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {DEVICE_FIELDS[formKind].map((field) => (
+                <Input key={field.key} label={<>{field.label}{field.required && <span className="text-[#8C3B2E]"> *</span>}</>} type={field.type || 'text'} inputMode={field.inputMode} maxLength={field.maxLength} placeholder={field.placeholder} required={field.required} value={itemForm[field.key] || ''} onChange={(event) => setItemForm({ ...itemForm, [field.key]: event.target.value })} />
+              ))}
+            </div>
+          ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
               label="Item name"
@@ -395,6 +455,7 @@ const ClinicInventory = () => {
               }
             />
           </div>
+          )}
           <textarea
             rows={3}
             placeholder="Notes"
@@ -413,7 +474,7 @@ const ClinicInventory = () => {
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save item"}
+              {saving ? "Saving..." : isDevice(formKind) ? `Save ${DEVICE_LABEL[formKind]}` : "Save item"}
             </Button>
           </div>
         </form>
@@ -502,12 +563,13 @@ const ClinicInventory = () => {
         onClose={() => setHistoryItem(null)}
         title={
           selectedHistory
-            ? `${selectedHistory.name} | Stock records`
+            ? `${selectedHistory.name} | ${isDevice(selectedHistory.kind) ? 'Assignee history' : 'Stock records'}`
             : "Stock records"
         }
         className="max-w-5xl"
       >
-        {selectedHistory && (
+        {selectedHistory && isDevice(selectedHistory.kind) && <AssigneeHistory item={selectedHistory} />}
+        {selectedHistory && !isDevice(selectedHistory.kind) && (
           <div className="overflow-x-auto rounded-lg border border-cardline">
             <table className="min-w-full text-center text-sm">
               <thead className="bg-[#56695D] text-xs uppercase text-white">
