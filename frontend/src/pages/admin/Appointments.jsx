@@ -41,6 +41,33 @@ const dispatchPickupStatus = (row) => {
   if (transit.porterCourier?.selected) return ({ delivered: 'Delivered', on_the_way: 'Dispatched', scheduled: 'Dispatch scheduled · handover pending' })[transit.porterCourier.state] || 'Dispatch not scheduled';
   return 'Not scheduled';
 };
+// The patient's and parents' details (registration form, else Sales sheet, else the patient record).
+const CONTACT_COLUMNS = [
+  ['pAge', 'Age', 8, (r) => r.contact?.age],
+  ['pGender', 'Gender', 9, (r) => r.contact?.gender],
+  ['pDob', 'Date of birth', 13, (r) => r.contact?.dateOfBirth],
+  ['pCategory', 'Category', 16, (r) => r.contact?.category],
+  ['pPrimaryMobile', 'Primary mobile', 15, (r) => r.contact?.primaryMobile],
+  ['pAlternateMobile', 'Alternate mobile', 15, (r) => r.contact?.alternateMobile],
+  ['pWhatsapp', 'Mobile / WhatsApp', 15, (r) => r.contact?.whatsappNumber],
+  ['pGuardian', 'Guardian / parent name', 22, (r) => r.contact?.guardianName],
+  ['pRelationship', 'Relationship', 14, (r) => r.contact?.relationship],
+  ['pFatherName', 'Father name', 20, (r) => r.contact?.fatherName],
+  ['pFatherNumber', "Father's mobile", 15, (r) => r.contact?.fatherNumber],
+  ['pFatherOccupation', 'Father occupation', 20, (r) => r.contact?.fatherOccupation],
+  ['pMotherName', 'Mother name', 20, (r) => r.contact?.motherName],
+  ['pMotherNumber', "Mother's mobile", 15, (r) => r.contact?.motherNumber],
+  ['pMotherOccupation', 'Mother occupation', 20, (r) => r.contact?.motherOccupation],
+  ['pCaregiver', 'Primary caregiver / relation', 24, (r) => r.contact?.primaryCaregiver],
+  ['pHistoryGivenBy', 'History given by / relation', 24, (r) => r.contact?.historyGivenBy],
+  ['pRelative', 'Relative name', 18, (r) => r.contact?.relativeName],
+  ['pAddress', 'Address', 40, (r) => r.contact?.address],
+  ['pCity', 'City', 14, (r) => r.contact?.city],
+  ['pDistrict', 'District', 14, (r) => r.contact?.district],
+  ['pState', 'State', 14, (r) => r.contact?.state],
+  ['pPin', 'PIN code', 10, (r) => r.contact?.pinCode],
+];
+const CONTACT_KEYS = CONTACT_COLUMNS.map(([key]) => key);
 const EXPORT_COLUMNS = [
   ['date', 'Appointment date', 14, (r) => dayLabel(r.appointmentDate)],
   ['token', 'Token', 8, (r) => r.tokenNumber || ''],
@@ -48,6 +75,7 @@ const EXPORT_COLUMNS = [
   ['patient', 'Patient name', 24, (r) => r.patientName],
   ['phone', 'Phone', 14, (r) => r.phone],
   ['patientId', 'Patient ID', 16, (r) => r.patientId],
+  ...CONTACT_COLUMNS,
   ['patientApproval', 'Patient approval status', 22, (r) => r.patientApproval?.status || 'unknown'],
   ['patientApprovedAt', 'Patient approved at', 24, (r) => dateTime(r.patientApproval?.at)],
   ['patientApprovedBy', 'Patient approved by', 22, (r) => r.patientApproval?.byName],
@@ -145,7 +173,19 @@ const EXPORT_COLUMNS = [
   ['followUpDetails', 'Follow-up / session details', 80, (r) => r.followUpSessions?.sessions.map((session) => `${session.title} · ${dateTime(session.dateTime)} · ${session.stateLabel}${session.completedAt ? ` · Completed ${dateTime(session.completedAt)} by ${session.completedByName}` : ''}${session.notes ? ` · ${session.notes}` : ''}${session.completionDetails ? ` · ${session.completionDetails}` : ''}${session.cancelReason ? ` · Cancelled: ${session.cancelReason}` : ''}${session.rescheduleReason ? ` · Rescheduled: ${session.rescheduleReason}` : ''}`).join('\n')],
 ];
 const PICK_KEY = 'appointments:export-columns';
-const savedPick = () => { try { const v = JSON.parse(localStorage.getItem(PICK_KEY) || 'null'); return Array.isArray(v) && v.length ? v : null; } catch { return null; } };
+// Every column there was when the choice was saved: a column added later starts ticked. A choice saved before this
+// list existed knew every column except the patient / parent details.
+const KNOWN_KEY = 'appointments:export-columns-known';
+const savedPick = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(PICK_KEY) || 'null');
+    if (!Array.isArray(v) || !v.length) return null;
+    const stored = JSON.parse(localStorage.getItem(KNOWN_KEY) || 'null');
+    const known = Array.isArray(stored) ? stored : EXPORT_COLUMNS.map(([key]) => key).filter((key) => !CONTACT_KEYS.includes(key));
+    const fresh = EXPORT_COLUMNS.map(([key]) => key).filter((key) => !known.includes(key) && !v.includes(key));
+    return [...v, ...fresh];
+  } catch { return null; }
+};
 
 function ExportDialog({ rows, from, to, onClose }) {
   const [picked, setPicked] = useState(() => savedPick() || EXPORT_COLUMNS.map(([key]) => key));
@@ -153,7 +193,7 @@ function ExportDialog({ rows, from, to, onClose }) {
   const run = () => {
     const cols = EXPORT_COLUMNS.filter(([key]) => picked.includes(key));
     if (!cols.length) return;
-    try { localStorage.setItem(PICK_KEY, JSON.stringify(picked)); } catch { /* the choice is just not remembered */ }
+    try { localStorage.setItem(PICK_KEY, JSON.stringify(picked)); localStorage.setItem(KNOWN_KEY, JSON.stringify(EXPORT_COLUMNS.map(([key]) => key))); } catch { /* the choice is just not remembered */ }
     const fileName = `opd-sheets-${from}${to !== from ? `-to-${to}` : ''}`;
     const columns = cols.map(([, header, width]) => ({ header, width }));
     const data = rows.map((r) => cols.map(([, , , value]) => { const v = value(r); return v === undefined || v === null ? '' : v; }));

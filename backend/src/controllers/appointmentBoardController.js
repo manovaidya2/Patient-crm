@@ -116,6 +116,41 @@ const progressOf = (po, job = null) => {
   };
 };
 
+// The patient's and parents' details for the sheet and its export: the registration form (Reception) first, then the
+// Sales sheet, then the patient's own record (an existing patient). The first one filled is used.
+const CONTACT_CATEGORY = { autism_adhd: 'Autism / ADHD', mental_health: 'Mental Health', other: 'Other' };
+const firstFilled = (...values) => values.map((v) => String(v ?? '').trim()).find(Boolean) || '';
+const contactOf = (entry, regFields = {}, patient = null) => {
+  const sales = (key) => mapValue(entry.salesValues, SALES_IDS[key]);
+  const p = patient || {};
+  const address = [firstFilled(regFields.houseAddress, p.houseAddress), firstFilled(regFields.landmark, p.landmark)].filter(Boolean).join(', ');
+  return {
+    age: firstFilled(regFields.age, sales('age'), p.age),
+    gender: firstFilled(regFields.gender, sales('gender'), p.gender),
+    dateOfBirth: firstFilled(regFields.dateOfBirth, p.dateOfBirth),
+    category: firstFilled(CONTACT_CATEGORY[regFields.category], sales('caseCategory'), CONTACT_CATEGORY[p.category]),
+    primaryMobile: firstFilled(sales('fatherNumber'), p.number),
+    alternateMobile: firstFilled(sales('motherNumber'), p.alternateNumber),
+    whatsappNumber: firstFilled(regFields.whatsappNumber, p.whatsappNumber),
+    guardianName: firstFilled(sales('guardianName'), p.guardianName),
+    relationship: sales('relationship'),
+    fatherName: firstFilled(regFields.fatherName, p.fatherName),
+    fatherNumber: firstFilled(regFields.fatherNumber),
+    fatherOccupation: firstFilled(regFields.fatherOccupation, sales('fatherOccupation'), p.fatherOccupation),
+    motherName: firstFilled(regFields.motherName, p.motherName),
+    motherNumber: firstFilled(regFields.motherNumber),
+    motherOccupation: firstFilled(regFields.motherOccupation, sales('motherOccupation'), p.motherOccupation),
+    primaryCaregiver: firstFilled(regFields.primaryCaregiver, p.primaryCaregiver),
+    historyGivenBy: firstFilled(regFields.historyGivenBy, p.historyGivenBy),
+    relativeName: firstFilled(regFields.relativeName, p.relativeName),
+    address,
+    city: firstFilled(regFields.city, sales('city'), p.city),
+    district: firstFilled(regFields.district, p.district),
+    state: firstFilled(regFields.state, sales('state'), p.state),
+    pinCode: firstFilled(regFields.pinCode, p.pinCode),
+  };
+};
+
 const rowOf = (entry, idAt, user, po = null, job = null, patient = null) => {
   const flow = entry.visitFlow || {};
   const pc = entry.postCounseling || {};
@@ -127,13 +162,16 @@ const rowOf = (entry, idAt, user, po = null, job = null, patient = null) => {
   const paid = Number(purchase.values?.amountReceivedNow || 0);
   const approval = patient ? { status: patient.approvalStatus || 'approved', at: iso(patient.approvedAt), byName: patient.approvedByName || '' } : po ? { status: po.approvalStatus || 'unknown', at: null, byName: '' } : { status: 'unknown', at: null, byName: '' };
   const progress = progressOf(po, job);
+  const contact = contactOf(entry, regFields, patient);
   if (progress) progress.inTransit.patientApproval = approval;
   return {
     id: String(entry._id),
     appointmentDate: entry.appointmentDate,
     appointmentCode: entry.appointmentCode || '',
     patientName: regFields.patientName || mapValue(entry.salesValues, SALES_IDS.patientName),
-    phone: mapValue(entry.salesValues, SALES_IDS.fatherNumber),
+    // Primary mobile from Sales, else a number from the registration / patient record.
+    phone: firstFilled(contact.primaryMobile, contact.fatherNumber, contact.motherNumber, contact.whatsappNumber, contact.alternateMobile),
+    contact,
     tokenNumber: entry.tokenNumber || null,
     patientId: mapValue(entry.values, RECEPTION_IDS.patientId),
     patientIdAt: iso(idAt),
@@ -190,7 +228,7 @@ const listBoard = asyncHandler(async (req, res) => {
   jobs.forEach((job) => { if (!jobOf.has(String(job.purchaseOrder))) jobOf.set(String(job.purchaseOrder), job); });
   // Approval is the patient's own intake status, independently of whether a PO has been made yet.
   const patientCodes = [...new Set(entries.map((entry) => mapValue(entry.values, RECEPTION_IDS.patientId)).filter(Boolean))];
-  const patients = patientCodes.length && mongoose.connection.readyState === 1 ? await Patient.find({ patientCode: { $in: patientCodes } }).select('patientCode approvalStatus approvedAt approvedByName currentStage isActive inactiveReason inactivatedAt inactivatedByName stages.number stages.status stages.date stages.notes stages.transit.activatedAt stages.transit.activatedByName stages.transit.medicineStartDate stages.transit.medicineStartSetAt stages.transit.medicineStartSetByName stages.transit.medicineStartNote stages.medicineExplainDate stages.transit.explanationMode stages.transit.explanationCompletedAt stages.transit.explanationCompletedByName stages.transit.explanationNote stages.transit.holdActive stages.transit.holdReason stages.transit.holdAt stages.transit.holdByName stages.transit.removedAt stages.transit.removedByName stages.transit.removedReason assignedDoctor stages.followUps stages.familySessions').populate('assignedDoctor', 'name').lean() : [];
+  const patients = patientCodes.length && mongoose.connection.readyState === 1 ? await Patient.find({ patientCode: { $in: patientCodes } }).select('patientCode patientName age gender category number alternateNumber guardianName relativeName dateOfBirth fatherName fatherOccupation motherName motherOccupation primaryCaregiver whatsappNumber historyGivenBy houseAddress landmark city district state pinCode approvalStatus approvedAt approvedByName currentStage isActive inactiveReason inactivatedAt inactivatedByName stages.number stages.status stages.date stages.notes stages.transit.activatedAt stages.transit.activatedByName stages.transit.medicineStartDate stages.transit.medicineStartSetAt stages.transit.medicineStartSetByName stages.transit.medicineStartNote stages.medicineExplainDate stages.transit.explanationMode stages.transit.explanationCompletedAt stages.transit.explanationCompletedByName stages.transit.explanationNote stages.transit.holdActive stages.transit.holdReason stages.transit.holdAt stages.transit.holdByName stages.transit.removedAt stages.transit.removedByName stages.transit.removedReason assignedDoctor stages.followUps stages.familySessions').populate('assignedDoctor', 'name').lean() : [];
   const patientOf = new Map(patients.map((patient) => [patient.patientCode, patient]));
   const [consultationPayments, recordRooms] = mongoose.connection.readyState === 1 ? await Promise.all([
     loadAppointmentConsultations(entries),

@@ -372,3 +372,22 @@ test('Edit re-tick saves a new timestamp and operator only when explicitly reque
     });
   }
 });
+
+test('the patient and parent details for the export: registration first, then the Sales sheet, then the patient record', () => {
+  const { SALES_IDS } = require('../utils/receptionFlow');
+  const entry = makeEntry().toObject();
+  entry.salesValues = { [SALES_IDS.patientName]: 'Aarav', [SALES_IDS.fatherNumber]: '', [SALES_IDS.motherNumber]: '9811100000', [SALES_IDS.guardianName]: 'Ravi', [SALES_IDS.relationship]: 'Father', [SALES_IDS.fatherOccupation]: 'Shop', [SALES_IDS.city]: 'Noida', [SALES_IDS.age]: '6' };
+  entry.registration = { status: 'sent', fields: { fatherName: 'Ravi Kumar', fatherNumber: '9876500000', motherName: 'Sita', motherNumber: '9876511111', motherOccupation: 'Teacher', category: 'autism_adhd', age: '6 years', houseAddress: 'H-12, Sector 27', landmark: 'Atta Market', state: 'UP', pinCode: '201301' } };
+  const row = controller.rowOf(entry, null, { role: 'receptionist' }, null, null, { number: '9000000000', district: 'Gautam Buddh Nagar', whatsappNumber: '9555500000' });
+  // No primary mobile on the Sales sheet: the patient record's number.
+  assert.equal(row.phone, '9000000000');
+  assert.deepEqual(row.contact, {
+    age: '6 years', gender: '', dateOfBirth: '', category: 'Autism / ADHD', primaryMobile: '9000000000', alternateMobile: '9811100000', whatsappNumber: '9555500000',
+    guardianName: 'Ravi', relationship: 'Father', fatherName: 'Ravi Kumar', fatherNumber: '9876500000', fatherOccupation: 'Shop', motherName: 'Sita', motherNumber: '9876511111', motherOccupation: 'Teacher',
+    primaryCaregiver: '', historyGivenBy: '', relativeName: '', address: 'H-12, Sector 27, Atta Market', city: 'Noida', district: 'Gautam Buddh Nagar', state: 'UP', pinCode: '201301',
+  });
+  // Nothing but the Sales sheet: its numbers.
+  const bare = makeEntry().toObject();
+  bare.salesValues = { [SALES_IDS.fatherNumber]: '9811122222' };
+  assert.equal(controller.rowOf(bare, null, { role: 'receptionist' }).phone, '9811122222');
+});
