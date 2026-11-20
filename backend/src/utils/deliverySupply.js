@@ -1,8 +1,8 @@
-// Treatment Delivery and a phase whose medicine comes in parts (a 6 month plan given as 1 + 5 months).
+// The Care Schedule (stage.carePlan) of a phase whose medicine comes in parts (a 6 month plan given as 1 + 5 months).
 // Every part has its own purchase order and medicine request, in any combination of months (1 + 5, 2 + 4, 1 + 2 + 3).
 // The plan is laid out only for the medicine in hand. A later part is not explained again and gets no date by itself:
 // once the patient has it the PCC fills its medicine start date on the Medicine Explanations page, and the plan goes on
-// from that day (transitController.setMedicineStart -> deliveryController.startDelivery).
+// from that day (transitController.setMedicineStart -> utils/careService.continueCarePlan).
 // Until then this file tells where that next part stands: PO made -> payment verified -> medicine requested ->
 // prepared -> released -> dispatched -> received, and how many days of medicine the patient still has.
 // Pure: no database, no clock of its own.
@@ -28,7 +28,7 @@ const aliveRequests = (stage) => {
 // A request counts when it was raised after the supply the plan last took. A supply added by hand names no request:
 // then only what was raised or received after it was added (so an older supply is never taken twice).
 function openSupplies(stage) {
-  const parts = stage?.delivery?.parts || [];
+  const parts = stage?.carePlan?.parts || [];
   if (!parts.length) return [];
   const requests = aliveRequests(stage);
   const onPlan = new Set(parts.map((part) => part.requestId).filter(Boolean));
@@ -69,7 +69,7 @@ const OWNER = {
 // pos: the purchase orders of the phase ([{ poNumber, status, supplyPlan, supplyPart, medicineRequestId, createdAt }]),
 // or null when they could not be read (then only the medicine requests tell the story).
 function nextSupplyOf({ stage, pos = null, now = new Date() }) {
-  const d = stage?.delivery;
+  const d = stage?.carePlan;
   if (!d?.parts?.length || !d.phaseDays || D.supplyDone(d)) return null;
   const covered = D.coveredDays(d.parts);
   const today = D.dayOf(now);

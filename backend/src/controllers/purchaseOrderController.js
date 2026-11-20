@@ -140,7 +140,7 @@ const buildPoViews = async (filter, { includeHandover = false } = {}) => {
   const pos = await PurchaseOrder.find(filter).select('-events').sort({ createdAt: -1 }).limit(2000).lean();
   const patientIds = [...new Set(pos.map((po) => String(po.patient)))];
   const patients = await Patient.find({ _id: { $in: patientIds } })
-    .select(`patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate stages.delivery.parts stages.delivery.phaseDays stages.delivery.supplyClosedAt${includeHandover ? ' guardianName relativeName address city assignedDoctor' : ''}`)
+    .select(`patientName patientCode number age category approvalStatus currentStage isActive stages.number stages.totalAmount stages.payments stages.transit stages.medicineRequest stages.medicineRequests stages.medicineExplainDate stages.carePlan${includeHandover ? ' guardianName relativeName address city assignedDoctor' : ''}`)
     .populate(includeHandover ? { path: 'assignedDoctor', select: 'name' } : [])
     .lean();
   const byId = new Map(patients.map((p) => [String(p._id), p]));

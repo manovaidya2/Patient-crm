@@ -40,9 +40,9 @@ const PAGES = {
   '/admin/medicine-made': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/stocks': [ADMIN, DOCTOR, MEDICINE_DEPARTMENT, MANAGER],
   '/admin/medicine-explanations': [ADMIN, ASSISTANT_DOCTOR, MANAGER],
-  // Treatment Delivery: plans to set up, sessions to confirm / reschedule / close, PCC tasks and next-phase decisions.
-  // The Doctor also gets every page here that the Doctor can open (not the Admin-only ones).
-  '/admin/treatment-delivery': [ADMIN, ASSISTANT_DOCTOR, MANAGER, DOCTOR],
+  // Care Schedule: follow-ups / family sessions / trackers on red alert (rescheduled twice), overdue, today, without a
+  // call time, or on a day their PCC is on leave (Manager / Admin reassign). The Doctor sees it too.
+  '/admin/care-schedule': [ADMIN, ASSISTANT_DOCTOR, MANAGER, DOCTOR],
   '/admin/followups': [MANAGER, ASSISTANT_DOCTOR, DOCTOR],
   // Patient queries the PCC raised that the doctor has not answered yet.
   '/admin/request-for-advice': [ADMIN, DOCTOR],
@@ -162,7 +162,7 @@ const COUNTERS = {
   async '/admin/medicine-explanations'(user) {
     // $type (not $ne: null): on an array path $ne would demand that *every* phase has the field.
     const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.explanationScheduledAt': { $type: 'date' } })
-      .select('assignedDoctor stages.transit stages.medicineRequest.status stages.medicineRequest.requestId stages.medicineRequest.requestedAt stages.medicineRequest.poNumber stages.medicineRequest.courier.status stages.medicineRequest.courier.deliveredAt stages.medicineRequests.status stages.medicineRequests.requestId stages.medicineRequests.requestedAt stages.medicineRequests.poNumber stages.medicineRequests.courier.status stages.medicineRequests.courier.deliveredAt stages.delivery.parts stages.delivery.phaseDays stages.delivery.supplyClosedAt').lean();
+      .select('assignedDoctor stages.transit stages.medicineRequest.status stages.medicineRequest.requestId stages.medicineRequest.requestedAt stages.medicineRequest.poNumber stages.medicineRequest.courier.status stages.medicineRequest.courier.deliveredAt stages.medicineRequests.status stages.medicineRequests.requestId stages.medicineRequests.requestedAt stages.medicineRequests.poNumber stages.medicineRequests.courier.status stages.medicineRequests.courier.deliveredAt stages.carePlan').lean();
     const { pendingStart } = require('../utils/transitFlow');
     let n = 0;
     for (const patient of patients) for (const stage of patient.stages || []) {
@@ -177,7 +177,7 @@ const COUNTERS = {
     return require('../models/AdviceRequest').countDocuments({ status: 'requested', resolvedAt: null });
   },
   async '/admin/patient-queries'(user) { return (await require('./adviceController').pccQueryWork(user)).length; },
-  async '/admin/treatment-delivery'(user) { return (await require('./deliveryController').deliveryWork(user)).length; },
+  async '/admin/care-schedule'(user) { return (await require('./careController').careWork(user)).length; },
   // Reminder types are 'followup' and 'family_session' (see collectScheduleReminders).
   async '/admin/followups'(user) { return (await scheduleReminders(user)).filter((r) => r.type === 'followup').length; },
   async '/admin/family-sessions'(user) { return (await scheduleReminders(user)).filter((r) => r.type === 'family_session').length; },
@@ -218,7 +218,7 @@ const getTaskCounts = asyncHandler(async (req, res) => {
 // Badges, My day, the reminder bell and Team pending all ask for the same lists; each is worked out once and shared
 // (see utils/readCache: emptied by any save). A list is the same for everyone, for one role, or for one person.
 // Team Chat and Enquiries are cheap and change when read, so they are always worked out fresh.
-const PER_PERSON = new Set(['/admin/patient-queries', '/admin/treatment-delivery', '/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
+const PER_PERSON = new Set(['/admin/patient-queries', '/admin/care-schedule', '/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
 const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs']);
 const UNCACHED = new Set(['/admin/team-chat', '/admin/enquiries']);
 const scopeOf = (page, user) => (PER_PERSON.has(page) || (page === '/admin/medicine-jobs' && user.role === ASSISTANT_DOCTOR) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');

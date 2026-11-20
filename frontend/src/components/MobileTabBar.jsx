@@ -13,12 +13,12 @@ const PREFERRED = {
   [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/package-not-bought', '/admin/patients'],
   [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/courier', '/admin/patient-approvals'],
   [ROLES.MEDICINE_DEPARTMENT]: ['/admin/medicine-jobs', '/admin/medicine-requests', '/admin/stocks'],
-  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions'],
+  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-explanations', '/admin/care-schedule', '/admin/followups'],
   [ROLES.RECEPTIONIST]: ['/admin/appointment-management', '/admin/accounts/consultations', '/admin/receptionist-checklist'],
   [ROLES.SALES_TEAM]: ['/admin/appointment-management', '/admin/patients'],
 };
 const SHORT = {
-  '/admin/patients': 'Patients', '/admin/purchase-orders': 'POs', '/admin/patient-approvals': 'Approvals', '/admin/followups': 'Follow-ups',
+  '/admin/patients': 'Patients', '/admin/purchase-orders': 'POs', '/admin/patient-approvals': 'Approvals', '/admin/followups': 'Follow-ups', '/admin/care-schedule': 'Care',
   '/admin/post-counseling-patients': 'Post couns.', '/admin/package-not-bought': 'Not bought', '/admin/courier': 'Courier', '/admin/self-pickup-schedule': 'Pickup',
   '/admin/medicine-jobs': 'Queue', '/admin/stocks': 'Stocks', '/admin/medicine-explanations': 'Explain', '/admin/family-sessions': 'Family',
   '/admin/appointment-management': 'Appointments', '/admin/accounts/consultations': 'Ledger',

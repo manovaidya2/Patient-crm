@@ -68,15 +68,15 @@ function startRequestOf(stage) {
 // ---- Start date of a later supply ------------------------------------------------------------------------------
 // The first supply's medicine start date starts the treatment of the phase (stage.transit). A later supply of the
 // phase (its own purchase order, any months) is not explained again: once the patient has it the PCC closes its
-// explanation as "already explained" / "skipped" and fills the day the patient starts it. The rest of the Treatment
-// Delivery plan is laid out from that day; nothing is dated by itself on the receipt.
+// explanation as "already explained" / "skipped" and fills the day the patient starts it. The rest of the phase's
+// Care Schedule (stage.carePlan) is laid out from that day; nothing is dated by itself on the receipt.
 // (deliverySupply / treatmentDelivery are required inside the functions: deliverySupply requires this file.)
 const planAwaitsSupply = (stage) => {
-  const d = plain(stage?.delivery);
+  const d = plain(stage?.carePlan);
   return Boolean(d.parts?.length && d.phaseDays) && !require('./treatmentDelivery').supplyDone(d);
 };
 // The oldest supply the patient already has whose start date the PCC still has to fill (null: none). Only phases
-// with a Treatment Delivery plan that still awaits medicine, so a phase from before the plans is never reopened.
+// with a Care Schedule that still awaits medicine, so a phase from before the schedule is never reopened.
 function pendingStart(stage) {
   const t = plain(stage?.transit);
   if (!t.activatedAt || !planAwaitsSupply(stage)) return null;
@@ -96,7 +96,7 @@ function supplyStartOf(stage, request = stage ? pickRequest(stage) : null) {
       setAt: t.medicineStartSetAt || t.activatedAt || null, by: t.medicineStartSetByName || t.activatedByName || '', note: t.medicineStartNote || '',
     };
   }
-  const part = (plain(stage.delivery).parts || []).find((item) => item && item.requestId === key) || null;
+  const part = (plain(stage.carePlan).parts || []).find((item) => item && item.requestId === key) || null;
   const date = part?.startDate ? new Date(`${part.startDate}T00:00:00+05:30`) : request.medicineStartDate || null;
   const needed = !date && planAwaitsSupply(stage) && require('./deliverySupply').openSupplies(stage).some((item) => requestKey(item) === key);
   return {
@@ -162,10 +162,6 @@ function beginSupplyRound(stage, request, user, now = new Date()) {
   if (!t || !request) return false;
   const key = requestKey(request);
   if (t.roundRequestId === key) return false;
-  // A phase the PCC closed as "no further supply" gets medicine after all: its plan waits for this supply again
-  // (who closed it and why stay on record).
-  const d = stage.delivery;
-  if (d?.supplyClosedAt && !(d.parts || []).some((part) => part && part.requestId === key)) d.supplyClosedAt = null;
   const previous = closingRequest(stage, request);
   if (!previous) {
     t.roundRequestId = key;
@@ -310,7 +306,7 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
 const lengthOf = (days) => ({ days, months: days / 30, lengthText: require('../constants/supplyPlans').lengthText(days) });
 function supplyStartView(stage, request, state) {
   const D = require('./treatmentDelivery');
-  const d = plain(stage.delivery);
+  const d = plain(stage.carePlan);
   const parts = d.parts || [];
   const key = requestKey(request);
   const index = parts.findIndex((part) => part && part.requestId === key);

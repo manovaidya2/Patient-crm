@@ -319,7 +319,7 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
   const startRequest = startRequestOf(stage);
   const isStart = Boolean(request && startRequest && requestKey(startRequest) === requestKey(req));
   const refill = Boolean(raw.activatedAt) && !isStart && (!request || MEDICINE_ACTIVE.includes(req.status));
-  const part = request ? (plain(stage.delivery).parts || []).find((item) => item && item.requestId === requestKey(req)) : null;
+  const part = request ? (plain(stage.carePlan).parts || []).find((item) => item && item.requestId === requestKey(req)) : null;
   // Where the medicine start date of this later supply stands, with its months (the plan's, else the purchase order's).
   const ownStart = refill && request ? { ...supplyStartOf(stage, req), days: Number(part?.days || 0) || Math.round(Number(part?.months || 0) * 30) || supplyOption(req.supplyPlan || po.supplyPlan, req.supplyPart || po.supplyPart)?.days || 0 } : null;
   const phasePay = paymentSummary(stage);

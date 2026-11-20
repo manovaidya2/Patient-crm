@@ -350,7 +350,7 @@ const getJob = asyncHandler(async (req, res) => {
 // The doctor (or the admin) approves section C of the purchase at step 2: as the Post Counselor ticked it, or with a
 // component unticked / one more ticked (and the other doctor-recommended component). The ticks are saved in the
 // post-counselling record, so every page showing section C (PO, Treatment Papers, Medicine Explanations) shows them,
-// and the phase's Treatment Delivery follows them. The package value and payments do not change.
+// and the change is noted on the patient. The package value and payments do not change.
 const approveScope = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
@@ -368,10 +368,9 @@ const approveScope = asyncHandler(async (req, res) => {
   const before = [...(record.components?.selected || [])];
   const changes = await saveScopeEdit(entry, edit, req.user, now);
   const edited = changes.length > 0;
-  // New ticks: the phase's Treatment Delivery follows them.
+  // New ticks: noted on the patient's activity.
   const ticksChanged = before.length !== edit.selected.length || edit.selected.some((key) => !before.includes(key));
   if (ticksChanged && stage) {
-    await require('./deliveryController').applyDoctorComponents(patient, stage, edit.selected, req.user, now);
     logActivity(patient, req.user, `Treatment components changed by the doctor for Phase ${job.phase}`, changes.join(' | '));
     await patient.save();
   }

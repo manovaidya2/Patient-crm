@@ -31,7 +31,7 @@ export const PAGES = {
   '/admin/treatment-papers': ['Make Treatment Paper', 'Treatment papers to make (fulfilment step 9)'],
   '/admin/final-check': ['Medicine Final Check', 'Parcels to check (fulfilment step 11)'],
   '/admin/medicine-explanations': ['Medicine Explanations', 'Explanations to complete (PCC)'],
-  '/admin/treatment-delivery': ['Treatment Delivery', 'Plans to set up, sessions to confirm / close'],
+  '/admin/care-schedule': ['Care Schedule', 'Follow-ups / family sessions: red alert, overdue, today, call time to set, PCC on leave'],
   '/admin/followups': ['Follow-ups', 'Late / due today'],
   '/admin/family-sessions': ['Family Sessions', 'Late / due today'],
   '/admin/post-counseling-patients': ['Post Counseling', 'Outcome not decided yet'],

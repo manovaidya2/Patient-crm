@@ -458,6 +458,30 @@ const deliverySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// The follow-up schedule of one phase (Care Schedule, from 2026-11-20; utils/careSchedule.js): made when the PCC fills
+// the medicine start date after the explanation. Each supply of medicine covers its days of the 180-day phase from its
+// own start date; the follow-ups / family sessions / trackers themselves are CareSession documents.
+const carePlanSchema = new mongoose.Schema(
+  {
+    startedAt: { type: Date, default: null },
+    startedByName: { type: String, trim: true, default: '' },
+    phaseDays: { type: Number, default: 180 },
+    parts: {
+      type: [new mongoose.Schema({
+        requestId: { type: String, trim: true, default: '' },
+        poNumber: { type: String, trim: true, default: '' },
+        days: { type: Number, default: 0 },
+        startDate: { type: String, trim: true, default: '' }, // YYYY-MM-DD, clinic day
+        offsetDays: { type: Number, default: 0 }, // days of the phase covered before this supply
+        addedAt: { type: Date, default: null },
+        addedByName: { type: String, trim: true, default: '' },
+      }, { _id: false })],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
 // One entry per treatment stage — tracks status/date/notes and the package/fee for that stage
 const stageEntrySchema = new mongoose.Schema(
   {
@@ -517,6 +541,7 @@ const stageEntrySchema = new mongoose.Schema(
     followUps: { type: [scheduleEntrySchema], default: [] },
     familySessions: { type: [scheduleEntrySchema], default: [] },
     delivery: { type: deliverySchema, default: undefined },
+    carePlan: { type: carePlanSchema, default: undefined },
   },
   { _id: false }
 );

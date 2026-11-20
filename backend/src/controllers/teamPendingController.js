@@ -7,7 +7,7 @@ const { COLLECTORS, itemsOf } = require('./myDayController');
 // Team pending work for the Admin / Manager: every role's open work (the same lists each person sees in their own
 // "My day"), with who it is waiting on. Pages whose work belongs to one person (their patients, their enquiries)
 // are worked out per person; the rest are shared by everyone in the role. Team Chat stays private.
-const PERSONAL_PAGES = new Set(['/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients', '/admin/enquiries']);
+const PERSONAL_PAGES = new Set(['/admin/medicine-explanations', '/admin/care-schedule', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients', '/admin/enquiries']);
 // The work each role itself has to do. The Admin, Manager and Doctor also see most lists, but only to oversee them,
 // so those are not counted against them (the Admin and Manager are the ones looking at this view).
 const E = '/admin/enquiries';
@@ -17,7 +17,7 @@ const TEAM_PAGES = {
   [ROLES.POST_COUNSELOR]: ['/admin/post-counseling-patients', '/admin/package-not-bought', '/admin/purchase-orders', E],
   [ROLES.IN_TRANSIT]: ['/admin/purchase-orders', '/admin/medicine-jobs', '/admin/patient-approvals', '/admin/payments', '/admin/accounts/refunds', '/admin/self-pickup-schedule', '/admin/courier', E],
   [ROLES.MEDICINE_DEPARTMENT]: ['/admin/medicine-requests', '/admin/medicine-jobs', '/admin/medicine-made', '/admin/stocks', E],
-  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-jobs', '/admin/final-check', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', E],
+  [ROLES.ASSISTANT_DOCTOR]: ['/admin/medicine-jobs', '/admin/final-check', '/admin/medicine-explanations', '/admin/care-schedule', '/admin/followups', '/admin/family-sessions', E],
   [ROLES.SALES_TEAM]: [E],
   [ROLES.DIGITAL_MARKETING]: [E],
 };

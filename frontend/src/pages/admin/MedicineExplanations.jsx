@@ -14,7 +14,6 @@ import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import PoPostCounselling from './PoPostCounselling.jsx';
 import PccCalendar, { pccSlotProblem } from '../../components/transit/PccCalendar.jsx';
-import { planLink } from '../../components/delivery/deliveryUi.js';
 import LengthFields, { lengthBody, lengthDays, lengthFields } from '../../components/medicine/LengthFields.jsx';
 import { lengthText } from '../../constants/supplyPlans.js';
 
@@ -115,7 +114,7 @@ export default function MedicineExplanations() {
       const { data } = await api.post(`/transit/${starting.patientId}/${starting.stage}/medicine-start`, body);
       const saved = starting;
       setStarting(null);
-      setPlanNotice(data?.delivery?.notice ? { text: data.delivery.notice, name: saved.patientName, to: planLink(saved.patientId, saved.stage), warn: /^(needs_|error)/.test(data.delivery.status || '') } : null);
+      setPlanNotice(data?.care?.notice ? { text: data.care.notice, name: saved.patientName, to: `/admin/patients/${saved.patientId}`, warn: /^(no_|error)/.test(data.care.status || '') } : null);
       await load();
     }
     catch (err) { setError(err.response?.data?.message || 'Could not save the start date'); }
@@ -189,7 +188,7 @@ export default function MedicineExplanations() {
       {planNotice && (
         <div role="status" className={`flex flex-wrap items-center justify-between gap-2 rounded-[12px] border px-3.5 py-2.5 text-sm ${planNotice.warn ? 'border-[#FDBA74] bg-[#FFF7ED] text-[#9A3412]' : 'border-[#A7D3B8] bg-[#F6FBF7] text-[#1F6B41]'}`}>
           <p className="min-w-0"><b>{planNotice.name}:</b> {planNotice.text}</p>
-          <span className="flex shrink-0 items-center gap-3"><Link to={planNotice.to} className="font-bold underline">{planNotice.warn ? 'Set up the plan' : 'Open the plan'}</Link><button type="button" onClick={() => setPlanNotice(null)} className="text-xs font-semibold opacity-70 hover:opacity-100">Dismiss</button></span>
+          <span className="flex shrink-0 items-center gap-3"><Link to={planNotice.to} className="font-bold underline">Open the patient</Link><button type="button" onClick={() => setPlanNotice(null)} className="text-xs font-semibold opacity-70 hover:opacity-100">Dismiss</button></span>
         </div>
       )}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -263,7 +262,7 @@ export default function MedicineExplanations() {
                             ? <><b className="text-[#1F6B41]">Medicine started {new Date(item.explanation.medicineStartDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</b><span className="text-xs text-charcoal/60"> · {item.explanation.medicineStartSetBy}{item.explanation.medicineStartNote ? ` · ${item.explanation.medicineStartNote}` : ''}</span></>
                             : <b className="text-[#C2410C]">Next: fill the medicine start date</b>}</p>
                           <span className="flex flex-wrap items-center gap-2">
-                            {item.activated && <Link to={planLink(item.patientId, item.stage)} className="text-xs font-bold text-sage underline">Treatment Delivery plan</Link>}
+                            {item.activated && <Link to={`/admin/patients/${item.patientId}`} className="text-xs font-bold text-sage underline">Care Schedule</Link>}
                             <Button size="sm" variant={item.activated ? 'outline' : 'orange'} onClick={() => openStart(item)}><CalendarClock size={14} />{item.activated ? 'Change start date' : 'Medicine start date'}</Button>
                           </span>
                         </div>

@@ -30,7 +30,7 @@ import { STAGES, STAGE_LABELS, STAGE_STATUS_OPTIONS } from '../../constants/trea
 import { PAYMENT_MODES, PAYMENT_MODE_OPTIONS } from '../../constants/paymentModes.js';
 import { ASSIGN_DOCTOR_ROLES, ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
 import { DISPLAY_STATUS_BADGE_TONE } from '../../constants/scheduleStatuses.js';
-import { STATE_TONE, planLink } from '../../components/delivery/deliveryUi.js';
+import PatientCareCard from '../../components/care/PatientCareCard.jsx';
 import { CompactAttachments, SelectedAttachments, appendSelectedFiles, removeSelectedFile } from '../../components/ui/Attachments.jsx';
 
 const STAGE_OPTIONS = STAGES.map((n) => ({ value: n, label: STAGE_LABELS[n] }));
@@ -1344,8 +1344,8 @@ const ScheduleCard = ({
       ) : (
         <ul className="space-y-2">
           {sortedEntries.map((e) => {
-            // A session of the Treatment Delivery plan is confirmed, moved and closed on that page, not here.
-            const isPlan = Boolean(e.delivery);
+            // Sessions made by the old Treatment Delivery plan are ordinary follow-ups now (that page was removed).
+            const isPlan = false;
             const canAct = canUpdate && !isPlan && (e.displayStatus === 'upcoming' || e.displayStatus === 'late');
             const isTracker = formType === 'followup_full' && e.followUpType === 'tracker';
             const isVideo = formType === 'followup_full' && e.followUpType === 'video';
@@ -1357,11 +1357,7 @@ const ScheduleCard = ({
                 <div className="flex flex-col items-stretch sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-charcoal">{formatDateTime(e.dateTime)}</p>
-                    {isPlan && (
-                      <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm font-bold text-charcoal">{e.delivery.title}
-                        <span className="rounded-full bg-sage-muted/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sage">Treatment plan</span>
-                      </p>
-                    )}
+                    {e.delivery?.title && <p className="mt-0.5 text-sm font-bold text-charcoal">{e.delivery.title}</p>}
                     {(formType === 'followup_full' || allowShortFollowUp) && e.followUpType !== 'normal' && (
                       <span className="mt-1 inline-flex rounded-full bg-sage-muted/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sage">
                         {e.followUpType === 'tracker' ? 'Tracker' : e.followUpType === 'video' ? 'Video Upload' : allowShortFollowUp ? 'Short Follow-up' : 'SFS'}
@@ -1371,12 +1367,7 @@ const ScheduleCard = ({
                     <p className="mt-0.5 text-[11px] text-charcoal/40">By {e.createdByName || 'Unknown'}</p>
                   </div>
                   <div className="max-w-full sm:shrink-0 flex flex-wrap items-center sm:justify-end gap-1.5">
-                    {isPlan ? <Badge tone={STATE_TONE[e.delivery.state] || 'default'}>{e.delivery.stateLabel}</Badge> : <Badge tone={DISPLAY_STATUS_BADGE_TONE[e.displayStatus]}>{e.displayStatusLabel}</Badge>}
-                    {isPlan && canOpenPlan && stageNumber && (
-                      <Link to={planLink(patient?.id || patient?._id, stageNumber)} className="inline-flex items-center gap-1 rounded-lg border border-sage/40 bg-white px-2.5 py-1.5 text-xs font-bold text-sage hover:bg-[#F3F6F2]">
-                        <CalendarClock size={13} /> Open in Treatment Delivery
-                      </Link>
-                    )}
+                    <Badge tone={DISPLAY_STATUS_BADGE_TONE[e.displayStatus]}>{e.displayStatusLabel}</Badge>
                     {canEditEntries && !isPlan && (
                       <Button size="sm" variant="outline" onClick={() => openEditModal(e)}>
                         <Pencil size={14} /> Edit
@@ -3425,12 +3416,7 @@ const PatientDetails = () => {
               </>}
 
               {activeTab === 'sessions' && !isLimitedViewer && <>
-              {canOpenDeliveryPlan && (
-                <div className="mt-5 flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-[#E8DFCB] bg-[#FCFAF5] px-4 py-3">
-                  <p className="min-w-0 text-sm text-charcoal/75"><b className="text-charcoal">Treatment Delivery plan · Phase {activeStage.number}</b><span className="block text-xs">The sessions and follow-ups promised in section D are made from the medicine start date and handled on the Treatment Delivery page. Short follow-ups can still be added below.</span></p>
-                  <Link to={planLink(patient.id || patient._id, activeStage.number)} className="inline-flex items-center gap-1.5 rounded-lg border border-sage bg-white px-3 py-2 text-xs font-bold text-sage hover:bg-[#F3F6F2]"><ClipboardList size={14} /> Open the plan</Link>
-                </div>
-              )}
+              {canOpenDeliveryPlan && <div className="mt-5"><PatientCareCard patientId={patient.id || patient._id} /></div>}
               <ScheduleCard
                 canOpenPlan={canOpenDeliveryPlan}
                 icon={CalendarClock}
@@ -3444,7 +3430,7 @@ const PatientDetails = () => {
                 onFetchNotes={() => fetchScheduleNotes('followups')}
                 onAddNote={(text) => addScheduleNote('followups', text)}
                 onDeleteNote={(noteId) => deleteScheduleNote('followups', noteId)}
-                canAdd={!isPsychologist}
+                canAdd={!isPsychologist && !activeStage.hasCareSchedule}
                 canUpdate={!isPsychologist}
                 canEditEntries={canManage}
                 canDeleteEntries={isAdmin}
@@ -3465,6 +3451,7 @@ const PatientDetails = () => {
                 onFetchNotes={() => fetchScheduleNotes('family-sessions')}
                 onAddNote={(text) => addScheduleNote('family-sessions', text)}
                 onDeleteNote={(noteId) => deleteScheduleNote('family-sessions', noteId)}
+                canAdd={!activeStage.hasCareSchedule}
                 canUpdate={canUpdateFamilySessions}
                 canEditEntries={canManage}
                 canDeleteEntries={isAdmin}

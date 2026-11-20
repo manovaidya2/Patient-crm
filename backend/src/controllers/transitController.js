@@ -48,8 +48,8 @@ const day = (value) => value.toISOString().slice(0, 10);
 const LIST_FIELDS = 'patientName patientCode number guardianName relativeName age category address centerName centerId approvalStatus createdAt assignedDoctor assignedPsychologist updatedAt isActive '
   + 'stages.number stages.age stages.purchaseOrder stages.totalAmount stages.payments stages.postCounselor stages.medicineExplainDate '
   + 'stages.transit stages.poPaper stages.packageName stages.medicineRequest stages.medicineRequests '
-  // The Treatment Delivery plan decides whether a later supply still waits for its medicine start date.
-  + 'stages.delivery.parts stages.delivery.phaseDays stages.delivery.planMonths stages.delivery.supplyClosedAt';
+  // The Care Schedule of the phase decides whether a later supply still waits for its medicine start date.
+  + 'stages.carePlan';
 const TRANSIT_FILTER = {
   isActive: { $ne: false },
   stages: { $elemMatch: { purchaseOrder: { $exists: true, $ne: '' } } },
@@ -462,15 +462,11 @@ const runAction = asyncHandler(async (req, res) => {
   logActivity(patient, req.user, stage.number, summary);
   // The next supply reached the patient: the screen is told that the PCC now fills its medicine start date (nothing
   // is dated or scheduled here, and it never blocks the step itself).
-  let delivery = null;
-  try {
-    const result = await require('./deliveryController').supplyReceived(patient, stage, req.user, now);
-    if (result.notice) delivery = { status: result.status, notice: result.notice };
-  } catch (error) { console.error(`Next supply notice not made: ${error.message}`); }
-  await respondWithCase(res, patient, stage.number, delivery ? { delivery } : {});
+  const due = stage.carePlan?.parts?.length ? pendingStart(stage) : null;
+  const care = due ? { status: 'start_needed', notice: `Medicine received${due.poNumber ? ` (${due.poNumber})` : ''}: the PCC now fills its medicine start date on Medicine Explanations, and the follow-ups go on from that day.` } : null;
+  await respondWithCase(res, patient, stage.number, care ? { care } : {});
   await notePoEvent(stage, req.user, summary);
   require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
-  if (delivery) req.app?.get?.('io')?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('delivery:changed', { patientId: String(patient._id), phase: Number(stage.number) });
 });
 
 // Every In Transit action is also noted on the purchase order of the phase's current medicine request, so the PO
@@ -649,20 +645,21 @@ const listFollowUps = asyncHandler(async (req, res) => {
 
 // A later supply of a started phase (its own purchase order, any months of the phase): the medicine is not explained
 // again. The PCC closes its explanation as "already explained" or "skipped" and fills the day the patient starts this
-// medicine; the rest of the Treatment Delivery plan is laid out from that day. The treatment start of the phase
+// medicine; the rest of the phase's Care Schedule (follow-ups, family sessions, trackers) is laid out from that day.
+// The treatment start of the phase
 // (stage.transit, stage.date) is not touched. The date can be corrected later by the same PCC or the admin.
 // body: { requestId, startDate, note, explanation: 'already_explained' | 'skipped', explanationNote, months, days }
 // (months / days: only when the length of the supply is not on its purchase order).
 const SKIP_TEXT = { already_explained: 'already explained with the first supply', skipped: 'explanation skipped' };
 const setSupplyStart = async (req, res, patient, stage, key) => {
   const S = require('../utils/deliverySupply');
-  const D = require('../utils/treatmentDelivery');
+  const D = require('../utils/careSchedule');
   const request = S.aliveRequests(stage).find((item) => requestKey(item) === key);
   if (!request) fail('This supply is not found on the phase', 404);
   const courier = courierOf(request);
   if (courier.status !== 'delivered') fail('Confirm that the patient received this medicine first');
-  const d = stage.delivery;
-  if (!d?.parts?.length || !d.phaseDays) fail('This phase has no Treatment Delivery plan yet. Set it up on the Treatment Delivery page first.');
+  const d = stage.carePlan;
+  if (!d?.parts?.length) fail('This phase has no Care Schedule (its treatment started before the new follow-up schedule)');
   const day = String(req.body?.startDate || '');
   if (!D.validDay(day)) fail('Choose the medicine start date of this supply');
   if (courier.deliveredAt && day < clinicDay(courier.deliveredAt)) fail(`The start date cannot be before the medicine was received (${clinicDay(courier.deliveredAt)})`);
@@ -677,10 +674,9 @@ const setSupplyStart = async (req, res, patient, stage, key) => {
     if (index > 0 && day <= d.parts[index - 1].startDate) fail(`This supply cannot start on or before the earlier one (${d.parts[index - 1].startDate})`);
     if (d.parts[index + 1] && day >= d.parts[index + 1].startDate) fail(`This supply cannot start on or after the next one (${d.parts[index + 1].startDate})`);
   } else {
-    if (d.supplyClosedAt) fail('This phase is closed as "no further supply". Reopen it on the Treatment Delivery page first.');
-    if (D.supplyDone(d)) fail(`The ${D.lengthText(d.phaseDays)} of this plan already have their medicine`);
+    if (D.supplyDone(d)) fail('All 6 months of this phase already have their medicine');
     const due = pendingStart(stage);
-    if (!S.openSupplies(stage).some((item) => requestKey(item) === key)) fail('This supply is not awaited by the Treatment Delivery plan');
+    if (!S.openSupplies(stage).some((item) => requestKey(item) === key)) fail('This supply is not awaited by the Care Schedule of this phase');
     if (due && requestKey(due) !== key) fail(`Fill the medicine start date of the earlier supply${due.poNumber ? ` (${due.poNumber})` : ''} first`);
     const last = d.parts[d.parts.length - 1];
     if (day <= last.startDate) fail(`This supply cannot start on or before the earlier one (${last.startDate})`);
@@ -689,25 +685,23 @@ const setSupplyStart = async (req, res, patient, stage, key) => {
   // The explanation of this supply is closed without a new one, once; a later save only changes the mark when asked.
   const asked = ['already_explained', 'skipped'].includes(req.body?.explanation) ? req.body.explanation : '';
   const reason = asked || request.explanationSkipReason || 'already_explained';
-  const { stampStart, startDelivery } = require('./deliveryController');
+  const { stampStart, continueCarePlan } = require('../utils/careService');
   stampStart(stage, key, day, req.user, now, note);
   [...(stage.medicineRequests || []), stage.medicineRequest].filter((item) => item && requestKey(item) === key && item.medicineStartDate).forEach((item) => {
     const first = !item.explanationSkippedAt;
     if (first || asked) Object.assign(item, { explanationSkipReason: reason, explanationSkipNote: asked || first ? skipNote : item.explanationSkipNote || '' });
     if (first) Object.assign(item, { explanationSkippedAt: now, explanationSkippedByName: req.user.name });
   });
-  // The plan goes on from this day. A supply whose length is not on record stops here and nothing is saved.
-  const delivery = await startDelivery(patient, stage, req.user, now, { request, months: req.body?.months, days: req.body?.days });
+  // The Care Schedule goes on from this day. A supply whose length is not on record stops here and nothing is saved.
+  const care = await continueCarePlan({ patient, stage, request, day, user: req.user, now, asked: { months: req.body?.months, days: req.body?.days } });
   const po = request.poNumber ? ` (${request.poNumber})` : '';
   const summary = before && before !== day
     ? `Medicine start date of the next supply${po} changed: ${before} -> ${day}${note ? ` | ${note}` : ''}`
     : `Medicine start date of the next supply${po}: ${day} (${SKIP_TEXT[reason]}${skipNote ? `: ${skipNote}` : ''})${note ? ` | ${note}` : ''}`;
   logActivity(patient, req.user, stage.number, summary);
-  await respondWithCase(res, patient, stage.number, { delivery });
+  await respondWithCase(res, patient, stage.number, { care });
   await notePoEvent(stage, req.user, summary, request);
-  const sockets = require('../realtime/salesSheetSocket');
-  sockets.emitTransitChanged(req.app, patient._id, stage.number);
-  req.app?.get?.('io')?.to(sockets.MEDICINE_JOBS_ROOM).emit('delivery:changed', { patientId: String(patient._id), phase: Number(stage.number) });
+  require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
 };
 
 // @route POST /api/transit/:patientId/:number/medicine-start  { startDate (YYYY-MM-DD), note }
@@ -738,16 +732,17 @@ const setMedicineStart = asyncHandler(async (req, res) => {
   stage.date = start;
   const summary = before && before !== day ? `Medicine start date changed: ${before} -> ${day}${note ? ` | ${note}` : ''}` : `Medicine start date: ${day}; treatment started${note ? ` | ${note}` : ''}`;
   logActivity(patient, req.user, stage.number, summary);
-  // Treatment Delivery: the sessions and follow-ups of the ticked components are laid out from this date (a corrected
-  // date moves the ones nobody has touched yet). The start date is saved even if the plan cannot be made.
-  let delivery = null;
+  // Care Schedule: the follow-ups, family sessions and trackers are laid out from this date (a corrected date moves the
+  // open ones). Only a phase whose start date is filled for the first time from now on; older phases keep their old
+  // follow-ups. The start date is saved even if the schedule cannot be made.
+  let care = null;
   try {
-    delivery = await require('./deliveryController').startDelivery(patient, stage, req.user, now);
+    care = await require('../utils/careService').startCarePlan({ patient, stage, user: req.user, now, firstSave: !before });
   } catch (error) {
-    console.error('Treatment Delivery plan could not be made:', error.message);
-    delivery = { status: 'error', notice: 'The start date is saved, but the Treatment Delivery plan could not be made. Open the Treatment Delivery page and set it up there.' };
+    console.error('Care Schedule could not be made:', error.message);
+    care = { status: 'error', notice: 'The start date is saved, but the follow-up schedule could not be made. Please tell the admin.' };
   }
-  await respondWithCase(res, patient, stage.number, { delivery });
+  await respondWithCase(res, patient, stage.number, { care });
   await notePoEvent(stage, req.user, summary);
   require('../realtime/salesSheetSocket').emitTransitChanged(req.app, patient._id, stage.number);
 });

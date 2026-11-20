@@ -144,16 +144,14 @@ const canAccessPatient = (user, patient) => {
 
 const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
 const { paymentSummary: transitPaymentSummary, isInTransit, beginSupplyRound, ensureSupplyRound } = require('../utils/transitFlow');
-// The next supply of a phase reached the patient: the treatment plan goes on with it. Never blocks the save itself.
-const continueDeliveryPlan = async (patient, stageEntry, user) => {
+// The next supply of a phase on the Care Schedule reached the patient: the screen is told that the PCC now fills its
+// medicine start date (nothing is dated here). Never blocks the save itself.
+const continueDeliveryPlan = async (patient, stageEntry) => {
   try {
-    const result = await require('./deliveryController').supplyReceived(patient, stageEntry, user);
-    return result?.notice ? { status: result.status, notice: result.notice } : null;
-  } catch (error) { console.error(`Treatment plan not continued: ${error.message}`); return null; }
-};
-// ...told to the open Treatment Delivery pages once the patient is saved.
-const tellDeliveryChanged = (req, patient, stageEntry, delivery) => {
-  if (delivery) req.app?.get?.('io')?.to(require('../realtime/salesSheetSocket').MEDICINE_JOBS_ROOM).emit('delivery:changed', { patientId: String(patient._id), phase: Number(stageEntry.number) });
+    if (!stageEntry.carePlan?.parts?.length) return null;
+    const due = require('../utils/transitFlow').pendingStart(stageEntry);
+    return due ? { status: 'start_needed', notice: `Medicine received${due.poNumber ? ` (${due.poNumber})` : ''}: the PCC now fills its medicine start date on Medicine Explanations, and the follow-ups go on from that day.` } : null;
+  } catch (error) { console.error(`Next supply notice not made: ${error.message}`); return null; }
 };
 const { paymentForRequest, paymentsOfPo, poPaymentSummary, linkPaymentToPo } = require('../utils/poPayment');
 const canTogglePatientActive = (user) => [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.POST_COUNSELOR].includes(user?.role);
@@ -538,6 +536,8 @@ const normalizeStages = (existing = []) => {
       familySessions: found?.familySessions || [],
       // Treatment Delivery plan of the phase (see models/Patient.js deliverySchema): kept as it is.
       delivery: found?.delivery?.toObject?.() || found?.delivery || undefined,
+      // Care Schedule of the phase (supplies and their start dates): kept as it is.
+      carePlan: found?.carePlan?.toObject?.() || found?.carePlan || undefined,
     };
   });
 };
@@ -628,6 +628,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
       medicineRequests: stageMedicineRequests(s)
         .map(formatMedicineRequest)
         .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0)),
+      // The phase is on the Care Schedule (its follow-ups / family sessions are CareSessions, not the lists below).
+      hasCareSchedule: Boolean(s.carePlan?.parts?.length),
       followUps: shouldShowFollowUps(user)
         ? (s.followUps || []).map(formatScheduleEntry).sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
         : [],
@@ -3286,9 +3288,8 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
     if (req.body.requestId && req.body.requestId !== 'legacy') Object.assign(requestDoc, nextRequest);
     else stageEntry.medicineRequest = nextRequest;
     addActivity(patient, req.user, `Medicine ${isPickup ? 'self pickup' : 'packaging details'} updated for Phase ${stageNum}`, `${detail} | Request: ${currentRequest.requestId || 'legacy'}`);
-    const delivery = isPickup ? await continueDeliveryPlan(patient, stageEntry, req.user) : null;
+    const delivery = isPickup ? await continueDeliveryPlan(patient, stageEntry) : null;
     await patient.save();
-    tellDeliveryChanged(req, patient, stageEntry, delivery);
     await populateAssignments(patient);
     return res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }), item: formatMedicineListItem(patient, stageEntry, findStageMedicineRequest(stageEntry, req.body.requestId)), ...(delivery ? { delivery } : {}) });
   }
@@ -3606,9 +3607,8 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
         : `${nextCourier.trackingNumber} | Request: ${currentRequest.requestId || 'legacy'}`
   );
 
-  const delivery = status === COURIER_STATUSES.DELIVERED ? await continueDeliveryPlan(patient, stageEntry, req.user) : null;
+  const delivery = status === COURIER_STATUSES.DELIVERED ? await continueDeliveryPlan(patient, stageEntry) : null;
   await patient.save();
-  tellDeliveryChanged(req, patient, stageEntry, delivery);
   await populateAssignments(patient);
 
   res.status(200).json({
@@ -3718,15 +3718,6 @@ const updateScheduleEntry = (fieldKey) =>
     const entry = stageEntry[fieldKey].id(req.params.entryId);
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Entry not found' });
-    }
-
-    // Sessions of the Treatment Delivery plan are confirmed, rescheduled and closed (with their checklist) on the
-    // Treatment Delivery page, so the plan and its promise tracker stay right. Notes can still be edited here.
-    if (entry.delivery?.key && (status !== undefined || dateTime !== undefined || cancelReason !== undefined)) {
-      const moved = dateTime !== undefined && new Date(entry.dateTime).getTime() !== new Date(dateTime).getTime();
-      if (moved || (status !== undefined && status !== entry.status)) {
-        return res.status(400).json({ success: false, message: `"${entry.delivery.title || 'This session'}" belongs to the Treatment Delivery plan. Confirm, reschedule or complete it on the Treatment Delivery page.` });
-      }
     }
 
     const isShortFollowUp = entry.followUpType === 'sfs';
@@ -3978,9 +3969,6 @@ const deleteScheduleEntry = (fieldKey) =>
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }
 
-    if (entry.delivery?.key) {
-      return res.status(400).json({ success: false, message: 'This session belongs to the Treatment Delivery plan and is kept on record. Mark it not needed on the Treatment Delivery page instead.' });
-    }
     const fileUrls = [entry.completionPdfUrl, entry.videoUrl, ...(entry.completionFiles || []).map((file) => file.url)].filter(Boolean);
     const entryType = fieldKey === 'followUps' ? 'Follow-up' : 'Family session';
     const details = `Scheduled ${entry.dateTime.toISOString()} | status: ${entry.status} | entry ID: ${entry._id}`;

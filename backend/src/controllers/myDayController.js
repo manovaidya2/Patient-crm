@@ -115,7 +115,7 @@ const COLLECTORS = {
       .map((i) => item('/admin/stocks', String(i._id), `${i.code} · ${i.name}`, i.expiryDate && new Date(i.expiryDate) < now ? 'Expired batch' : `${i.currentStock} ${i.unit} left · minimum ${i.minLevel}`, null, '/admin/stocks'));
   },
   async '/admin/medicine-explanations'(user) {
-    const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.explanationScheduledAt': { $type: 'date' } }).select('patientName patientCode assignedDoctor stages.number stages.transit stages.medicineExplainDate stages.medicineRequest.status stages.medicineRequest.requestId stages.medicineRequest.requestedAt stages.medicineRequest.poNumber stages.medicineRequest.courier.status stages.medicineRequest.courier.deliveredAt stages.medicineRequests.status stages.medicineRequests.requestId stages.medicineRequests.requestedAt stages.medicineRequests.poNumber stages.medicineRequests.courier.status stages.medicineRequests.courier.deliveredAt stages.delivery.parts stages.delivery.phaseDays stages.delivery.supplyClosedAt').lean();
+    const patients = await Patient.find({ isActive: { $ne: false }, 'stages.transit.explanationScheduledAt': { $type: 'date' } }).select('patientName patientCode assignedDoctor stages.number stages.transit stages.medicineExplainDate stages.medicineRequest.status stages.medicineRequest.requestId stages.medicineRequest.requestedAt stages.medicineRequest.poNumber stages.medicineRequest.courier.status stages.medicineRequest.courier.deliveredAt stages.medicineRequests.status stages.medicineRequests.requestId stages.medicineRequests.requestedAt stages.medicineRequests.poNumber stages.medicineRequests.courier.status stages.medicineRequests.courier.deliveredAt stages.carePlan').lean();
     const { pendingStart } = require('../utils/transitFlow');
     const out = [];
     for (const p of patients) for (const st of p.stages || []) {
@@ -170,9 +170,9 @@ const COLLECTORS = {
     const work = await require('./adviceController').pccQueryWork(user);
     return work.map((w) => item('/admin/patient-queries', w.id, w.patientName, `${w.patientCode ? `${w.patientCode} · ` : ''}Phase ${w.stage || '-'} · ${w.what} · "${w.query}"`, w.due, `/admin/patient-queries?q=${w.id}`));
   },
-  async '/admin/treatment-delivery'(user) {
-    const work = await require('./deliveryController').deliveryWork(user);
-    return work.slice(0, LIMIT).map((w) => item('/admin/treatment-delivery', w.id, w.patientName, `${w.patientCode ? `${w.patientCode} · ` : ''}Phase ${w.phase} · ${w.what}`, w.due, `/admin/treatment-delivery?p=${w.patientId}&s=${w.phase}`));
+  async '/admin/care-schedule'(user) {
+    const work = await require('./careController').careWork(user);
+    return work.slice(0, LIMIT).map((w) => item('/admin/care-schedule', w.id, w.patientName, [w.patientCode, `Phase ${w.phase}`, `${w.code} (day ${w.day})`, w.leave ? w.leave.text : w.stateLabel, w.assigneeName && w.assigneeName !== user.name ? w.assigneeName : ''].filter(Boolean).join(' · '), w.callAt || `${w.dueDay}T05:30:00.000Z`, `/admin/care-schedule?s=${w.id}`));
   },
   async '/admin/team-chat'(user) {
     const TeamChat = require('../models/TeamChat');

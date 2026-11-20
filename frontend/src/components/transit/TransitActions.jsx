@@ -95,7 +95,7 @@ export async function sendAction(item, action, values = {}, files = []) {
   files.forEach((file) => body.append('files', file));
   const { data } = await api.patch(`/transit/${item.patientId}/${item.stage}`, body);
   // The patient received a next supply: the screen tells once that the PCC now fills its medicine start date.
-  return data.delivery?.notice ? { ...data.item, planNotice: data.delivery.notice, planNoticeWarn: data.delivery.status !== 'extended' } : data.item;
+  return data.care?.notice ? { ...data.item, planNotice: data.care.notice, planNoticeWarn: true } : data.item;
 }
 
 function Field({ field, value, onChange, locked = false, staff = [] }) {

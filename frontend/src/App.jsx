@@ -58,7 +58,7 @@ const CourierDelivered = lazy(() => import('./pages/admin/CourierDelivered.jsx')
 const RequestForAdvice = lazy(() => import('./pages/admin/RequestForAdvice.jsx'));
 const AdviceGiven = lazy(() => import('./pages/admin/AdviceGiven.jsx'));
 const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
-const TreatmentDelivery = lazy(() => import('./pages/admin/TreatmentDelivery.jsx'));
+const CareSchedule = lazy(() => import('./pages/admin/CareSchedule.jsx'));
 const Worksheet = lazy(() => import('./pages/admin/Worksheet.jsx'));
 const CrmChatGPT = lazy(() => import('./pages/admin/CrmChatGPT.jsx'));
 const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx'));
@@ -189,7 +189,8 @@ function App() {
         <Route path="purchase-orders/:id" element={<ProtectedRoute roles={PURCHASE_ORDER_ROLES}><PurchaseOrderDetail /></ProtectedRoute>} />
         <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />
         <Route path="patient-queries" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><PatientQueries /></ProtectedRoute>} />
-        <Route path="treatment-delivery" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><TreatmentDelivery /></ProtectedRoute>} />
+        <Route path="care-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><CareSchedule /></ProtectedRoute>} />
+        <Route path="treatment-delivery" element={<Navigate to="/admin/care-schedule" replace />} />
         <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />
         <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="final-bill" /></ProtectedRoute>} />
         <Route path="invoices/consultation" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="consultation" /></ProtectedRoute>} />

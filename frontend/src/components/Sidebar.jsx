@@ -123,7 +123,7 @@ export const navItems = [
   { to: '/admin/treatment-papers', icon: FileText, label: 'Make Treatment Paper', roles: [ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT], group: 'medicine' },
   { to: '/admin/final-check', icon: FileText, label: 'Medicine Final Check', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/medicine-explanations', icon: MessagesSquare, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
-  { to: '/admin/treatment-delivery', icon: CalendarHeart, label: 'Treatment Delivery', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR], group: 'care' },
+  { to: '/admin/care-schedule', icon: CalendarHeart, label: 'Care Schedule', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: UserCheck, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },

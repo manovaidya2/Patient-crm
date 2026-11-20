@@ -945,7 +945,7 @@ test('an old ghrit line linked to GH-NM-0 comes right after a revert and a chang
   assert.equal(stocks.filter((s) => /^GH-NM/.test(s.code)).length, 2, 'no new stock item made');
 });
 
-test('step 2: the doctor approves the treatment components as ticked, or unticks / ticks one more; the record and Treatment Delivery follow', async () => {
+test('step 2: the doctor approves the treatment components as ticked, or unticks / ticks one more; the record follows (noted on the patient)', async () => {
   const { patient } = setup();
   const scopeDb = require('../utils/treatmentScope').db;
   mock.method(scopeDb, 'ready', () => true);
@@ -986,8 +986,6 @@ test('step 2: the doctor approves the treatment components as ticked, or unticks
   assert.deepEqual([row('regularFollowUps').onPo, row('regularFollowUps').value, row('familyCounselling').onPo], [true, 30000, false]);
   assert.equal(edited.treatmentScope.approval.edited, true);
   assert.ok(edited.events.some((e) => e.action === 'Treatment components updated & approved'));
-  // The phase's Treatment Delivery (no plan yet) waits with the doctor's ticks.
-  assert.deepEqual([[...patient.stages[0].delivery.components], patient.stages[0].delivery.componentsSource], [['ayurvedicFormulations', 'familyCounselling'], 'doctor']);
   assert.ok(patient.activityLog.some((a) => /Treatment components changed by the doctor/.test(a.action)));
   // A second change does not overwrite the Post Counselor's ticks.
   await call(controller.approveScope, { params: { id: job.id }, body: { selected: ['ayurvedicFormulations'] }, user: doctor });

@@ -47,6 +47,15 @@ const pccEvents = async (pccId, from, to) => {
       if (explainer && !s.transit?.explanationCompletedAt && inRange(s.medicineExplainDate)) events.push({ ...base, at: s.medicineExplainDate, type: 'explanation' });
     });
   });
+  // Care Schedule sessions given to this PCC (their call time, else 11 am on the due day).
+  const CareSession = require('../models/CareSession');
+  const day = (value) => new Date(new Date(value).getTime() + 19800000).toISOString().slice(0, 10);
+  const care = await CareSession.find({ assignee: id, status: { $in: ['pending', 'scheduled'] }, $or: [{ callAt: { $gte: from, $lt: to } }, { callAt: null, targetDate: { $gte: day(from), $lte: day(to) } }] })
+    .select('patient patientName patientCode phase kind code callAt targetDate').lean();
+  care.forEach((s) => {
+    const at = s.callAt || new Date(`${s.targetDate}T11:00:00+05:30`);
+    if (inRange(at)) events.push({ patientId: String(s.patient), patientName: s.patientName, patientCode: s.patientCode || '', phase: s.phase, at, type: s.kind === 'family' ? 'family_session' : 'followup', code: s.code });
+  });
   return events.sort((a, b) => new Date(a.at) - new Date(b.at));
 };
 
