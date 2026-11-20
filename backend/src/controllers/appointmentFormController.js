@@ -32,8 +32,10 @@ const canWrite = (sheet, row, user) => isAdminLike(user) || (sheet === 'manageme
 // post-counselling record; after that only the admin. Reception's own detail columns stay open (release time etc.).
 const pcLocked = (target, user) => !isAdminLike(user) && target.sheet === 'management' && Boolean(target.row.postCounseling?.savedAt);
 const PC_LOCKED = 'The Post Counselor has saved the record. This can no longer be changed by reception.';
-const loadTarget = async (req) => {
-  const { sheet, id } = req.params;
+// `fixedSheet`: routes that name the sheet in the path (/forms/sales/:id/receipts/...) have no :sheet parameter.
+const loadTarget = async (req, fixedSheet = '') => {
+  const sheet = fixedSheet || req.params.sheet;
+  const { id } = req.params;
   if (!['sales', 'management'].includes(sheet) || !idValid(id)) fail('Invalid appointment');
   const row = await modelFor(sheet).findById(id);
   if (!row) fail('Appointment not found', 404);
@@ -203,7 +205,7 @@ const editedPayment = async (req, { maxAmount = null } = {}) => {
   };
 };
 const updateSalesReceipt = asyncHandler(async (req, res) => {
-  const target = await loadTarget(req);
+  const target = await loadTarget(req, 'sales');
   if (target.sheet !== 'sales' || !(isAdminLike(req.user) || req.user.role === ROLES.SALES_TEAM) || !target.writable) fail('Sales payment can no longer be edited', 403);
   if (!idValid(req.params.receiptId)) fail('Invalid receipt');
   const set = await editedPayment(req, { maxAmount: target.owner.consultationFee });
@@ -223,7 +225,7 @@ const updateSalesReceipt = asyncHandler(async (req, res) => {
 // Reception corrects a payment of this appointment (amount, mode, proof / screenshot...) until the Post Counselor saves
 // the record. A payment already verified goes back to "pending" so it is verified again with the new details.
 const updateReceptionReceipt = asyncHandler(async (req, res) => {
-  const target = await loadTarget(req);
+  const target = await loadTarget(req, 'management');
   if (target.sheet !== 'management' || !target.writable) fail('This payment can no longer be edited', 403);
   if (pcLocked(target, req.user)) fail(PC_LOCKED, 409);
   if (!idValid(req.params.receiptId)) fail('Invalid receipt');

@@ -2,7 +2,7 @@ const { test, afterEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const { ROLES } = require('../constants/roles');
 const { isConsentFormColumn, isManagementColumnRequired } = require('../utils/appointmentColumnRules');
-const { canWrite, receiptFilter, normalizedValue, updateField, updateFee, prepareReceipt, getForm, updateSalesReceipt } = require('./appointmentFormController');
+const { canWrite, receiptFilter, normalizedValue, updateField, updateFee, prepareReceipt, getForm, updateSalesReceipt, updateReceptionReceipt } = require('./appointmentFormController');
 const { createReceipt } = require('./financialLedgerController');
 const Sales = require('../models/SalesAppointment');
 const Management = require('../models/AppointmentManagementEntry');
@@ -319,6 +319,7 @@ test('acceptance cannot be cancelled after reception details are entered', async
   assert.equal(result.status, 409);
 });
 
+// The edit routes name the sheet in the path (/forms/sales/:id/receipts/:receiptId): there is no :sheet parameter.
 test('sales can edit a pending advance, but not a verified or accepted payment', async () => {
   const receiptId = '507f1f77bcf86cd799439014';
   const payment = { amount: '100', date: '2026-10-02', paymentMode: 'online', reference: 'UTR-456',
@@ -333,15 +334,15 @@ test('sales can edit a pending advance, but not a verified or accepted payment',
     return { _id: receiptId, ...update.$set };
   });
   mock.method(Audit, 'create', async () => ({}));
-  const saved = await invoke(updateSalesReceipt, { params: { sheet: 'sales', id, receiptId }, body: payment });
+  const saved = await invoke(updateSalesReceipt, { params: { id, receiptId }, body: payment });
   assert.equal(saved.error, undefined);
   assert.equal(saved.body.receipt.amount, 100);
   Receipt.findOneAndUpdate.mock.mockImplementation(async () => null);
-  assert.equal((await invoke(updateSalesReceipt, { params: { sheet: 'sales', id, receiptId }, body: payment })).error.statusCode, 409);
+  assert.equal((await invoke(updateSalesReceipt, { params: { id, receiptId }, body: payment })).error.statusCode, 409);
   Sales.exists.mock.mockImplementation(async () => false);
-  assert.equal((await invoke(updateSalesReceipt, { params: { sheet: 'sales', id, receiptId }, body: payment })).error.statusCode, 409);
+  assert.equal((await invoke(updateSalesReceipt, { params: { id, receiptId }, body: payment })).error.statusCode, 409);
   Sales.findById.mock.mockImplementation(async () => ({ ...row, createdBy: columnId, consultationFee: 599 }));
-  assert.equal((await invoke(updateSalesReceipt, { params: { sheet: 'sales', id, receiptId }, body: payment })).error.statusCode, 403);
+  assert.equal((await invoke(updateSalesReceipt, { params: { id, receiptId }, body: payment })).error.statusCode, 403);
 });
 
 test('appointment list shows consultation verification and sales calls from the original account', async () => {
@@ -405,4 +406,17 @@ test('management list summarizes linked sales and direct reception payments sepa
   assert.equal(directEntry.consultationFee, 600);
   assert.equal(directEntry.consultationPayments.verified, 600);
   assert.equal(directEntry.consultationPayments.pending, 0);
+});
+
+test('reception edits a payment through /forms/management/:id/receipts/:receiptId (no :sheet in the route); a verified one goes back for verification', async () => {
+  const receiptId = '507f1f77bcf86cd799439015';
+  const payment = { amount: '700', date: '2026-10-02', paymentMode: 'cash', cashReceivedByName: 'Front desk', files: [], bank: '', notes: '' };
+  mock.method(Management, 'findById', async () => ({ ...row, sourceAppointment: null }));
+  mock.method(Receipt, 'findOne', () => ({ lean: async () => ({ _id: receiptId, amount: 500, status: 'approved' }) }));
+  mock.method(Receipt, 'findOneAndUpdate', async (filter, update) => ({ _id: receiptId, ...update.$set }));
+  mock.method(Audit, 'create', async () => ({}));
+  const saved = await invoke(updateReceptionReceipt, { params: { id, receiptId }, user: { ...user, role: ROLES.RECEPTIONIST }, body: payment });
+  assert.equal(saved.error, undefined);
+  assert.equal(saved.body.receipt.amount, 700);
+  assert.equal(saved.body.receipt.status, 'pending');
 });
