@@ -146,6 +146,8 @@ const medicineJobSchema = new mongoose.Schema(
       paperSets: { type: [new mongoose.Schema({ name: { type: String, trim: true, default: '' }, files: { type: [fileSchema], default: [] } }, { _id: false })], default: [] },
     },
     events: { type: [eventSchema], default: [] },
+    // The doctor approved the treatment scope (section C) at step 2: { at, byName, byRole, edited, poNumber }.
+    scopeApproval: { type: mongoose.Schema.Types.Mixed, default: undefined },
     reverts: { type: [revertSchema], default: [] },
   },
   { timestamps: true }

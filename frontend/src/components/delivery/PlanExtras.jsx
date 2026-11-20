@@ -116,7 +116,9 @@ export function PromiseTracker({ plan, onCorrect }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[11px] text-charcoal/55">Ticks {plan.delivery.componentsSource === 'paper' ? 'taken from the Treatment & PO paper' : 'set by hand'}{plan.delivery.componentsSetByName ? ` by ${plan.delivery.componentsSetByName}` : ''}{plan.delivery.componentsSetAt ? ` on ${fmtDT(plan.delivery.componentsSetAt)}` : ''}.</p>
+      {/* The other doctor-recommended component of section C (as the doctor approved it at the formulation step). */}
+      {plan.otherComponent && <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12.5px] text-sky-950"><b>Other doctor-recommended component:</b> {plan.otherComponent}</p>}
+      <p className="mt-2 text-[11px] text-charcoal/55">Ticks {plan.delivery.componentsSource === 'paper' ? 'taken from the Treatment & PO paper' : plan.delivery.componentsSource === 'doctor' ? 'approved by the doctor at the formulation step' : 'set by hand'}{plan.delivery.componentsSetByName ? ` by ${plan.delivery.componentsSetByName}` : ''}{plan.delivery.componentsSetAt ? ` on ${fmtDT(plan.delivery.componentsSetAt)}` : ''}.</p>
     </Section>
   );
 }

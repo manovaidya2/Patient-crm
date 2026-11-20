@@ -59,6 +59,10 @@ const postCounselingSchema = new mongoose.Schema({
   savedByName: { type: String, trim: true, default: '' },
   // Purchase order / payment details (sections F, G, H) filled after the record
   purchase: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  // Section C as the doctor approved it at the formulation step (utils/treatmentScope.js): the last edit, and every
+  // edit with what changed. The edited scopes themselves are in record.componentScopes / record.otherComponent.
+  scopeReview: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  scopeHistory: { type: [mongoose.Schema.Types.Mixed], default: undefined },
   // What was decided at the end: the patient was converted, or did not buy the package
   outcome: {
     kind: { type: String, enum: ['converted', 'not_purchased'], default: undefined },

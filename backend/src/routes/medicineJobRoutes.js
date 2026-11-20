@@ -23,6 +23,8 @@ router.patch('/:id/supply', authorize(...JOB_ROLES), setSupply);
 router.patch('/:id/formulation', authorize(...JOB_ROLES), editFormulation);
 router.post('/:id/rebuild', authorize(...JOB_ROLES), rebuildSheet);
 router.patch('/:id/bottles', authorize(...JOB_ROLES), setBottles);
+// The doctor approves the treatment & support components (section C) of the purchase at step 2.
+router.post('/:id/scope', authorize(ROLES.ADMIN, ROLES.DOCTOR), require('../controllers/medicineJobController').approveScope);
 router.post('/:id/stages/:key', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), uploadMedicineImage.fields([{ name: 'photoA', maxCount: 10 }, { name: 'photoB', maxCount: 10 }, ...Array.from({ length: 10 }, (_, i) => ({ name: `paper_${i}`, maxCount: 30 }))]), completeStage);
 router.post('/:id/hold', authorize(...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR), holdJob);
 router.post('/:id/doctor-verification', authorize(ROLES.ASSISTANT_DOCTOR), require('../controllers/medicineJobController').confirmDoctorVerification);

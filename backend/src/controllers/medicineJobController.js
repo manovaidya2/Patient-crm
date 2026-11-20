@@ -27,6 +27,7 @@ const { DAY_MS, FOLLOWUP_STATUSES, releaseView } = require('../utils/medicineRel
 const { releasePaymentReview } = require('../utils/releasePaymentReview');
 const { phasePurchaseOrders } = require('../utils/poPayment');
 const { closedPatientIds, withoutClosedPatients, assertPatientOpen, CLOSED_MESSAGE } = require('../utils/closedPatients');
+const { findScopeEntry, scopeView, cleanScopeEdit, saveScopeEdit } = require('../utils/treatmentScope');
 
 const JOB_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MEDICINE_DEPARTMENT];
 const JOB_VIEW_ROLES = [...JOB_ROLES, ROLES.IN_TRANSIT, ROLES.ASSISTANT_DOCTOR];
@@ -83,6 +84,13 @@ const requestDetailsOf = ({ job, patient, stage, request, po }) => ({
   },
 });
 
+// Section C (treatment & support components) of the purchase behind the job, for the doctor's approval at step 2.
+const scopeEntryFor = (job, stage) => findScopeEntry([job.poNumber, stage?.purchaseOrder]);
+const treatmentScopeOf = async (job, stage) => {
+  const entry = await scopeEntryFor(job, stage);
+  return entry ? { ...scopeView(entry), approval: job.scopeApproval || null } : { components: [], other: '', approval: job.scopeApproval || null, missing: true };
+};
+
 const respond = async (res, job, status = 200) => {
   // A change (not a plain read) reaches every open job page and the queue at once.
   if (res.req && res.req.method !== 'GET') emitMedicineJobChanged(res.req.app, job._id);
@@ -114,8 +122,8 @@ const respond = async (res, job, status = 200) => {
   // Which of them post counselling decided (those are read-only here, except for the admin).
   const fixedPlan = { supply: Boolean(sent.plan), ageBand: Boolean(sent.ageBand) };
   // The patient's whole file from the Records Room, read instead of a separate prescription.
-  const documents = await patientDocuments(patient);
-  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: await paymentOf(patient, stage, request), master, includeEvents: true, dispatch: dispatchDelayInput({ stage, request: request?.toObject ? request.toObject() : request }) }), fixedPlan, patientInactive: patient.isActive === false, patientDocuments: documents, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
+  const [documents, treatmentScope] = await Promise.all([patientDocuments(patient), treatmentScopeOf(job, stage)]);
+  res.status(status).json({ success: true, job: { ...buildJobView(job, { stocks, payment: await paymentOf(patient, stage, request), master, includeEvents: true, dispatch: dispatchDelayInput({ stage, request: request?.toObject ? request.toObject() : request }) }), fixedPlan, patientInactive: patient.isActive === false, patientDocuments: documents, treatmentScope, request: requestDetailsOf({ job, patient, stage, request, po: poDoc }) } });
 };
 
 // An open job of a custom supply whose sheet is still empty and can have the master sample (an age group with a master).
@@ -338,6 +346,42 @@ const getJob = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
+// @route POST /api/medicine-jobs/:id/scope   body: { selected: [component keys], other }
+// The doctor (or the admin) approves section C of the purchase at step 2: as the Post Counselor ticked it, or with a
+// component unticked / one more ticked (and the other doctor-recommended component). The ticks are saved in the
+// post-counselling record, so every page showing section C (PO, Treatment Papers, Medicine Explanations) shows them,
+// and the phase's Treatment Delivery follows them. The package value and payments do not change.
+const approveScope = asyncHandler(async (req, res) => {
+  const job = await MedicineJob.findById(req.params.id);
+  if (!job) fail('Job not found', 404);
+  await assertPatientOpen(job);
+  needSheetOwner(req.user, job);
+  if (job.status !== 'open') fail('The components are approved while the formulation is being made');
+  if (job.hold?.active) fail('Resume the job first', 409);
+  if ((job.currentStage || 0) !== STAGE_INDEX.formula) fail('The components are approved at "Prescription & formulation (Doctor)"');
+  const { patient, stage } = await loadPatientAndRequest(job);
+  const entry = await scopeEntryFor(job, stage);
+  if (!entry) fail('This purchase has no post-counselling record (section C) to approve', 404);
+  const record = entry.postCounseling?.record || {};
+  const edit = cleanScopeEdit(req.body || {}, record);
+  const now = new Date();
+  const before = [...(record.components?.selected || [])];
+  const changes = await saveScopeEdit(entry, edit, req.user, now);
+  const edited = changes.length > 0;
+  // New ticks: the phase's Treatment Delivery follows them.
+  const ticksChanged = before.length !== edit.selected.length || edit.selected.some((key) => !before.includes(key));
+  if (ticksChanged && stage) {
+    await require('./deliveryController').applyDoctorComponents(patient, stage, edit.selected, req.user, now);
+    logActivity(patient, req.user, `Treatment components changed by the doctor for Phase ${job.phase}`, changes.join(' | '));
+    await patient.save();
+  }
+  job.scopeApproval = { at: now, byName: req.user.name, byRole: req.user.role, edited, poNumber: entry.postCounseling?.purchase?.values?.poNo || '' };
+  job.markModified('scopeApproval');
+  event(job, req.user, edited ? 'Treatment components updated & approved' : 'Treatment components approved', edited ? changes.join(' | ') : 'Approved as ticked in post counselling');
+  await job.save();
+  await respond(res, job);
+});
+
 // @route PATCH /api/medicine-jobs/:id/supply   body: { ageBand, supplyKey }  (before preparation only)
 const setSupply = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
@@ -439,6 +483,8 @@ const completeStage = asyncHandler(async (req, res) => {
     detail = `Ready by ${readyBy.toISOString().slice(0, 10)}`;
   }
   if (['formula', 'review'].includes(stage.key) && !job.formulation) fail('Set the age group and medicine supply first (the formulation sheet is built from them)');
+  // The doctor approves the treatment scope (section C of the purchase) before sending the formulation.
+  if (stage.key === 'formula' && !job.scopeApproval && await scopeEntryFor(job, phaseEntry)) fail('Approve the treatment & support components first: change the ticks, or approve them as they are');
   // A custom sheet (0-3 years) needs its medicines before the doctor signs it off and before anything is drawn.
   if (['formula', 'stock'].includes(stage.key) && job.formulation?.custom && !job.formulation.lines.some((l) => l.packed)) fail('Add the medicines of this child\'s formulation first (0 - 3 years has no Formulation Master)');
   if (stage.key === 'stock') {
@@ -964,4 +1010,4 @@ const doctorAlarms = asyncHandler(async (req, res) => {
   res.json({ success: true, alarms });
 });
 
-module.exports = { setBottles, getReleasePayments, listReleaseRequests, updateReleaseRequest, listBoxReceipts, updateBoxReceipt, confirmDoctorVerification, ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };
+module.exports = { approveScope, setBottles, getReleasePayments, listReleaseRequests, updateReleaseRequest, listBoxReceipts, updateBoxReceipt, confirmDoctorVerification, ringTransit, transitAlarms, doctorAlarms, returnToTransit, getPatientFile, applyPlanToJob, jobActionBy, revertJob, JOB_ROLES, JOB_VIEW_ROLES, openForRequest, listJobs, getJob, setSupply, editFormulation, rebuildSheet, completeStage, holdJob, resumeJob, findOrCreateJob };

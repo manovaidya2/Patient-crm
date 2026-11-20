@@ -96,7 +96,7 @@ const normalizeRecord = (record) => {
   const reference = Number(record.totals?.referenceValue || 0);
   const concession = Number(record.e.concession || 0);
   const approved = concession ? Math.max(reference - concession, 0) : '';
-  return { ...record, e: { ...record.e, approvedProgramFee: approved }, totals: totals({ selected: record.components?.selected || [], ayurvedicPrice: record.components?.ayurvedicPrice, approvedFee: approved }) };
+  return { ...record, e: { ...record.e, approvedProgramFee: approved }, totals: totals({ selected: record.components?.postCounselorSelected || record.components?.selected || [], ayurvedicPrice: record.components?.ayurvedicPrice, approvedFee: approved }) };
 };
 
 // Cleans what the browser sent into a record we are willing to store. Unknown keys are dropped.

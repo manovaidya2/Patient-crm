@@ -944,3 +944,55 @@ test('an old ghrit line linked to GH-NM-0 comes right after a revert and a chang
   assert.ok(changed.consumption.some((c) => c.code === 'GH-NM-03'));
   assert.equal(stocks.filter((s) => /^GH-NM/.test(s.code)).length, 2, 'no new stock item made');
 });
+
+test('step 2: the doctor approves the treatment components as ticked, or unticks / ticks one more; the record and Treatment Delivery follow', async () => {
+  const { patient } = setup();
+  const scopeDb = require('../utils/treatmentScope').db;
+  mock.method(scopeDb, 'ready', () => true);
+  const Management = require('../models/AppointmentManagementEntry');
+  const entry = { _id: new mongoose.Types.ObjectId(), postCounseling: { record: { components: { selected: ['ayurvedicFormulations', 'regularFollowUps'], ayurvedicPrice: 68000 }, otherComponent: '' }, purchase: { values: { poNo: 'PO-4821' } } } };
+  mock.method(Management, 'findOne', (filter) => ({ select: async () => (filter['postCounseling.purchase.values.poNo'] === 'PO-4821' ? entry : null) }));
+  const updates = [];
+  mock.method(Management, 'updateOne', async (filter, update) => {
+    updates.push(update);
+    const set = update.$set;
+    if (set['postCounseling.record.components.postCounselorSelected']) entry.postCounseling.record.components.postCounselorSelected = set['postCounseling.record.components.postCounselorSelected'];
+    entry.postCounseling.record.components.selected = set['postCounseling.record.components.selected'];
+    entry.postCounseling.record.otherComponent = set['postCounseling.record.otherComponent'];
+    entry.postCounseling.scopeReview = set['postCounseling.scopeReview'];
+    return {};
+  });
+  const { job } = await open(patient);
+  const ticked = (view) => view.treatmentScope.components.filter((c) => c.selected).map((c) => c.key);
+  assert.deepEqual(ticked(job), ['ayurvedicFormulations', 'regularFollowUps']);
+  assert.equal(job.treatmentScope.components.find((c) => c.key === 'ayurvedicFormulations').value, 68000);
+  assert.equal(job.treatmentScope.approval, null);
+  await complete(job.id, 'accept', { readyByDate: '2026-11-20' });
+  await assert.rejects(complete(job.id, 'formula', {}, {}, doctor), /Approve the treatment & support components/);
+  await assert.rejects(call(controller.approveScope, { params: { id: job.id }, body: {}, user: med }), (e) => e.statusCode === 403);
+  await assert.rejects(call(controller.approveScope, { params: { id: job.id }, body: { selected: [] }, user: doctor }), /at least one/);
+
+  // Approved as ticked: nothing is written to the record.
+  const plain = (await call(controller.approveScope, { params: { id: job.id }, body: {}, user: doctor })).job;
+  assert.deepEqual([plain.treatmentScope.approval.byName, plain.treatmentScope.approval.edited, updates.length], ['Dr Garg', false, 0]);
+
+  // Regular Follow-ups unticked, Family Counselling ticked: the record keeps the Post Counselor's ticks apart.
+  const edited = (await call(controller.approveScope, { params: { id: job.id }, body: { selected: ['familyCounselling', 'ayurvedicFormulations'], other: 'Yoga twice a week' }, user: doctor })).job;
+  assert.deepEqual(updates[0].$set['postCounseling.record.components.selected'], ['ayurvedicFormulations', 'familyCounselling']);
+  assert.deepEqual(updates[0].$set['postCounseling.record.components.postCounselorSelected'], ['ayurvedicFormulations', 'regularFollowUps']);
+  assert.deepEqual(updates[0].$push['postCounseling.scopeHistory'].changes, ['Added: Family Counselling Sessions', 'Removed: Regular Follow-ups', 'Other doctor-recommended component: "-" -> "Yoga twice a week"']);
+  assert.deepEqual(ticked(edited), ['ayurvedicFormulations', 'familyCounselling']);
+  const row = (key) => edited.treatmentScope.components.find((c) => c.key === key);
+  assert.deepEqual([row('regularFollowUps').onPo, row('regularFollowUps').value, row('familyCounselling').onPo], [true, 30000, false]);
+  assert.equal(edited.treatmentScope.approval.edited, true);
+  assert.ok(edited.events.some((e) => e.action === 'Treatment components updated & approved'));
+  // The phase's Treatment Delivery (no plan yet) waits with the doctor's ticks.
+  assert.deepEqual([[...patient.stages[0].delivery.components], patient.stages[0].delivery.componentsSource], [['ayurvedicFormulations', 'familyCounselling'], 'doctor']);
+  assert.ok(patient.activityLog.some((a) => /Treatment components changed by the doctor/.test(a.action)));
+  // A second change does not overwrite the Post Counselor's ticks.
+  await call(controller.approveScope, { params: { id: job.id }, body: { selected: ['ayurvedicFormulations'] }, user: doctor });
+  assert.equal(updates[1].$set['postCounseling.record.components.postCounselorSelected'], undefined);
+
+  assert.equal((await complete(job.id, 'formula', {}, {}, doctor)).job.currentKey, 'review');
+  await assert.rejects(call(controller.approveScope, { params: { id: job.id }, body: {}, user: doctor }), /approved at "Prescription & formulation/);
+});

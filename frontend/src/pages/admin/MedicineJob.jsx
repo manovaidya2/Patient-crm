@@ -22,6 +22,7 @@ import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 import DoctorVerificationCheck from '../../components/medicine/DoctorVerificationCheck.jsx';
 import MedicineBoxReceipt, { formatBoxReceiptTime } from '../../components/medicine/MedicineBoxReceipt.jsx';
 import MedicineReleaseFlow from '../../components/medicine/MedicineReleaseFlow.jsx';
+import TreatmentScopeCard from '../../components/medicine/TreatmentScopeCard.jsx';
 
 const day = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -259,6 +260,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     setFields(stage.key === 'accept' ? { readyByDate: inputDay(job.readyByDate) } : {});
   }, [stage.key, job.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const allChecked = stage.checks.every((_, i) => checks[i]);
+  // Step 2: the treatment components (section C of the purchase) are approved before the formulation is sent.
+  const scopePending = stage.key === 'formula' && Boolean(job.treatmentScope) && !job.treatmentScope.missing && !job.treatmentScope.approval;
   const submit = async () => {
     if (stage.key === 'photos') {
       const missing = paperRows.findIndex((r, i) => !r.name.trim() || !(files[`paper_${i}`] || []).length);
@@ -322,6 +325,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       )}
       {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
       {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} />}
+      {stage.key === 'formula' && <TreatmentScopeCard job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} onSaved={onDone} onError={report} />}
       {['review', 'stock', 'prepare'].includes(stage.key) && <BottleEditor job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT], user)} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
         <p className="rounded-lg bg-offwhite-200/60 px-3 py-2 text-sm text-charcoal/70">
@@ -363,7 +367,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       {stage.fields.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{stage.fields.map(field)}</div>}
       <FieldLabel label="Stage notes"><input className={poInput} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canAct} /></FieldLabel>
       <ErrorText>{err}</ErrorText>
-      {canAct ? <Button disabled={busy || !allChecked} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
+      {canAct && scopePending && <p className="flex items-center gap-2 rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2 text-sm font-semibold text-[#C2410C]"><ShieldCheck size={15} />Approve the treatment &amp; support components above (as they are, or after changing the ticks) to send the formulation.</p>}
+      {canAct ? <Button disabled={busy || !allChecked || scopePending} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
         : <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />This stage is completed by {stage.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}
     </div>
   );
@@ -533,6 +538,7 @@ export default function MedicineJobPage() {
                   </div>
                   <DoneList stage={shown} job={job} />
                   {['review', 'formula'].includes(shown.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
+                  {shown.key === 'formula' && <TreatmentScopeCard job={job} done />}
                   {shown.key === 'stock' && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">{shown.snapshot?.stockTable ? 'Stock as matched at completion' : 'Stock now (the table at completion was not saved for this older job)'}</p>

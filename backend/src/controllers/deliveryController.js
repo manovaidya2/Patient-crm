@@ -162,14 +162,16 @@ const supplyOf = async (stage, request = startRequestOf(stage)) => {
   return { requestId: String(request?.requestId || 'legacy'), poNumber, supplyPlan, supplyPart, days, months: days / 30, planDays, planMonths: planDays / 30 };
 };
 // The section D ticks: kept on the phase since conversion; for a phase converted earlier, read from its Treatment & PO paper.
+// With them: the other doctor-recommended component of section C (as the doctor approved it at the formulation step).
 const ticksOf = async (patient, stage) => {
   const own = D.cleanComponents(stage.delivery?.components);
-  if (own.length) return { components: own, source: stage.delivery.componentsSource || 'paper' };
-  if (!dbUp() || !stage.purchaseOrder) return { components: [], source: '' };
-  const entry = await require('../models/AppointmentManagementEntry')
-    .findOne({ 'postCounseling.outcome.patient': patient._id, 'postCounseling.purchase.values.poNo': stage.purchaseOrder }).select('postCounseling.record').lean();
-  const components = D.cleanComponents(entry?.postCounseling?.record?.components?.selected);
-  return { components, source: components.length ? 'paper' : '' };
+  const entry = dbUp() && stage.purchaseOrder ? await require('../models/AppointmentManagementEntry')
+    .findOne({ 'postCounseling.outcome.patient': patient._id, 'postCounseling.purchase.values.poNo': stage.purchaseOrder }).select('postCounseling.record').lean() : null;
+  const record = entry?.postCounseling?.record || {};
+  const extra = { other: String(record.otherComponent || '').trim() };
+  if (own.length) return { components: own, source: stage.delivery.componentsSource || 'paper', ...extra };
+  const components = D.cleanComponents(record.components?.selected);
+  return { components, source: components.length ? 'paper' : '', ...extra };
 };
 
 const noticeOf = (result) => [
@@ -439,6 +441,8 @@ const planView = async (patient, number, user, now = new Date()) => {
       components: d.components, sessions: entries.map((entry) => ({ state: D.stateOf(entry, now), delivery: entry.delivery })), followUpsPromised: d.followUpsPromised, planMonths: Math.floor(d.phaseDays / 30),
       explanationDone: Boolean(stage.transit?.explanationCompletedAt), familyDone: family.filter((entry) => entry.status === 'completed').length, familyBooked: family.filter((entry) => entry.status !== 'cancelled').length, queries,
     }) : [],
+    // The other doctor-recommended component (section C), shown with the tracker.
+    otherComponent: ticks.other || '',
     alerts: hasPlan ? D.alertsOf({ delivery: d, sessions: entries, now, rules, supply: nextSupply }) : [],
     // The medicine came in parts: where the next part stands (PO -> payment -> medicine -> receipt). Null once covered.
     nextSupply,
@@ -918,7 +922,28 @@ const saveSettings = asyncHandler(async (req, res) => {
   res.json({ success: true, rules, defaults: D.DEFAULT_RULES, limits: D.RULE_LIMITS, canEdit: true, updatedByName: doc?.updatedByName || req.user.name, updatedAt: iso(doc?.updatedAt), message: 'Settings saved. They apply to plans made from now on.' });
 });
 
+// The doctor changed the ticks of section C at the formulation step (utils/treatmentScope.js): the phase's Treatment
+// Delivery follows them. No plan yet: the ticks wait for the medicine start date. A running plan is corrected as the
+// admin's "Correct ticks" does: sessions of a newly ticked component are added, open ones of an unticked one cancelled.
+const applyDoctorComponents = async (patient, stage, components, user, now = new Date()) => {
+  const ticked = D.cleanComponents(components);
+  if (!ticked.length) return { status: 'none', notice: '' };
+  const byName = user?.name || '';
+  const mark = { components: ticked, componentsSource: 'doctor', componentsSetAt: now, componentsSetByName: byName };
+  if (!stage.delivery?.parts?.length) {
+    if (stage.delivery) Object.assign(stage.delivery, mark);
+    else stage.delivery = mark;
+    return { status: 'set', notice: '' };
+  }
+  Object.assign(stage.delivery, mark);
+  const sync = syncTicks(stage, { byName, now });
+  const result = applyPlan(patient, stage, { byName, holidays: await loadHolidays(), now });
+  log(patient, user, stage.number, `components changed by the doctor (${ticked.map((key) => D.COMPONENT_LABEL[key]).join(', ')}): ${result.created} session(s) added, ${sync.dropped} cancelled${sync.kept ? `, ${sync.kept} already confirmed left to decide` : ''}`);
+  return { status: 'replanned', notice: `Treatment Delivery follows the new components: ${result.created} session(s) added, ${sync.dropped} cancelled${sync.kept ? `. ${sync.kept} confirmed session(s) of unticked components are still on the calendar` : ''}.` };
+};
+
 module.exports = {
+  applyDoctorComponents,
   startDelivery, supplyReceived, stampStart, applyPlan, deliveryWork, worklistRows,
   getWorklist, getPlan, setupPlan, savePart, closeSupply, confirmSessions, markMissed, rescheduleSession, completeSession, cancelSession, bookOnRequest, addSkipped, completeTask, decideNextPhase,
   getSettings, saveSettings,

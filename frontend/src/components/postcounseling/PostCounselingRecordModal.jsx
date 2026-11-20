@@ -24,7 +24,8 @@ const Chip = ({ active, disabled, onClick, children }) => (
 
 // Same rule the server uses, so the totals shown here always match what is saved.
 const calculate = (record, defs) => {
-  const selected = record.components.selected;
+  // The value is worked out from the Post Counselor's ticks, also after the doctor changed the treatment ticks.
+  const selected = record.components.postCounselorSelected || record.components.selected;
   const reference = defs.components.reduce((sum, component) => {
     if (!selected.includes(component.key)) return sum;
     return sum + (component.key === defs.customPriceKey ? Number(record.components.ayurvedicPrice || 0) : Number(component.price || 0));
@@ -42,6 +43,9 @@ const Frame = ({ asPage, onClose, children }) => (asPage
   : <Modal open onClose={onClose} title="Post-counselling record" className="max-w-5xl">{children}</Modal>);
 
 // only: section letters to show (e.g. ['C', 'E'] for the treatment-paper PCC); all when not given.
+// A component the doctor ticked or unticked at the formulation step (the Post Counselor's ticks are kept apart).
+const DoctorTag = ({ change }) => (change ? <span className={`ml-1.5 inline-block rounded px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide ${change === 'added' ? 'bg-sky-100 text-sky-800' : 'bg-[#8C3B2E]/10 text-[#8C3B2E]'}`}>{change === 'added' ? 'Added by doctor' : 'Removed by doctor'}</span> : null);
+
 const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly = false, asPage = false, recordUrl = '', only = null }) => {
   // Sections A and B are no longer part of the record (older answers stay saved, not shown); C and E remain.
   const showSec = (letter) => !['A', 'B'].includes(letter) && (!only || only.includes(letter));
@@ -69,6 +73,13 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
   }, [given, recordUrl]);
 
   const defs = data?.definitions;
+  // The delivery scope as the doctor approved it at the formulation step, else the standard one.
+  const doctorChange = (component) => {
+    const before = record?.components?.postCounselorSelected;
+    if (!before) return '';
+    const now = record.components.selected.includes(component.key);
+    return now && !before.includes(component.key) ? 'added' : !now && before.includes(component.key) ? 'removed' : '';
+  };
   const totals = useMemo(() => (record && defs ? calculate(record, defs) : { reference: 0, approved: 0 }), [record, defs]);
   const editable = Boolean(data?.canEdit) && !readOnly && !data?.outcome;
 
@@ -199,6 +210,7 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
 
           {showSec('C') && <section className="space-y-3">
             <SectionTitle letter="C">Customized treatment &amp; support components</SectionTitle>
+            {data?.scopeReview && <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">Components changed by the doctor at the formulation step (the package value stays as the Post Counselor filled it): <b>{data.scopeReview.editedByName || 'Doctor'}</b>, {new Date(data.scopeReview.editedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.</p>}
             <div className="overflow-hidden rounded-lg border border-cardline">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 bg-[#56695D] px-4 py-2 text-xs font-semibold text-white md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
                 <label className="flex cursor-pointer items-center gap-3"><input type="checkbox" disabled={!editable} checked={allComponentsOn} onChange={toggleAllComponents} className="h-4 w-4 accent-white" title="Tick / untick all components" />Component <span className="font-normal text-white/70">({record.components.selected.length}/{defs.components.length} selected · tick the box to select all)</span></label>
@@ -210,7 +222,7 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
                 const custom = component.key === defs.customPriceKey;
                 return (
                   <div key={component.key} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-cardline px-4 py-2.5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto] ${active ? 'bg-sage/10' : 'bg-white/50'}`}>
-                    <label className="flex cursor-pointer items-center gap-3 text-sm text-charcoal"><input type="checkbox" disabled={!editable} checked={active} onChange={() => toggleComponent(component.key)} className="h-4 w-4 accent-sage" /><span>{component.label}{component.scope && <span className="block text-xs text-charcoal/60 md:hidden">{component.scope}</span>}</span></label>
+                    <label className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-charcoal"><input type="checkbox" disabled={!editable} checked={active} onChange={() => toggleComponent(component.key)} className="h-4 w-4 accent-sage" /><span className={doctorChange(component) === 'removed' ? 'text-charcoal/55 line-through decoration-[#8C3B2E]/50' : ''}>{component.label}</span><DoctorTag change={doctorChange(component)} />{component.scope && <span className="block w-full text-xs text-charcoal/60 md:hidden">{component.scope}</span>}</label>
                     <span className="hidden text-sm text-charcoal/75 md:block">{component.scope || ''}</span>
                     <div className="w-36 text-right text-sm font-semibold text-charcoal">
                       {custom

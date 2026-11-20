@@ -67,6 +67,8 @@ const view = (entry, canEdit, existing = null) => {
     saved: Boolean(entry.postCounseling?.savedAt),
     savedAt: entry.postCounseling?.savedAt || null,
     savedByName: entry.postCounseling?.savedByName || '',
+    // The doctor's last change to section C at the formulation step (utils/treatmentScope.js).
+    scopeReview: entry.postCounseling?.scopeReview?.editedAt ? { editedAt: entry.postCounseling.scopeReview.editedAt, editedByName: entry.postCounseling.scopeReview.editedByName || '' } : null,
     canEdit,
     definitions: definitions(),
     purchase: purchaseView(entry, registration, existing),
