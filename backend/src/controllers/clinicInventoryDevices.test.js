@@ -51,16 +51,29 @@ test('a laptop needs its device ID and brand; a new assignee is recorded; stock 
   assert.deepEqual([stock.statusCode, stock.data.message], [400, 'Mobiles and laptops have no stock count']);
 });
 
-test('items saved before the tabs show under Others, and the totals count each tab', async (t) => {
+test('items saved before the tabs are OPD papers, and the totals count each tab', async (t) => {
   const { find } = Model;
   t.after(() => { Model.find = find; });
   const old = new Model({ name: 'Paper roll', currentStock: 2, lowStockAt: 3 });
   old.set('kind', undefined, { strict: false });
-  const docs = [old, new Model({ name: 'Samsung mobile', kind: 'mobile', device: { brand: 'Samsung' } }), new Model({ name: 'Dell laptop (LP-01)', kind: 'laptop', device: { brand: 'Dell', deviceId: 'LP-01' } })];
+  const docs = [old, new Model({ name: 'Water bottle', kind: 'other' }), new Model({ name: 'Samsung mobile', kind: 'mobile', device: { brand: 'Samsung' } }), new Model({ name: 'Dell laptop (LP-01)', kind: 'laptop', device: { brand: 'Dell', deviceId: 'LP-01' } })];
   let filter = null;
   Model.find = (f) => { filter = f; return { sort: async () => docs }; };
   const res = await run(controller.listClinicInventory, { query: { search: 'LP-01' } });
-  assert.deepEqual(res.data.items.map((i) => i.kind), ['other', 'mobile', 'laptop']);
-  assert.deepEqual(res.data.totals, { items: 1, lowStock: 1, kinds: { mobile: 1, laptop: 1, other: 1 } });
+  assert.deepEqual(res.data.items.map((i) => i.kind), ['opd', 'other', 'mobile', 'laptop']);
+  assert.deepEqual(res.data.totals, { items: 2, lowStock: 1, kinds: { mobile: 1, laptop: 1, opd: 1, other: 1 } });
   assert.ok(filter.$or.some((c) => c['device.deviceId']) && filter.$or.some((c) => c['device.imei1']));
+});
+
+test('an OPD paper and an Others item are saved in their own register; a repeated name is checked only within it', async (t) => {
+  const { findOne, create } = Model;
+  t.after(() => Object.assign(Model, { findOne, create }));
+  const saved = [];
+  Model.create = async (doc) => { saved.push(doc); return new Model(doc); };
+  const calls = mockFindOne([null, null]);
+  const opd = await run(controller.createClinicInventoryItem, { body: { name: 'Assessment Paper', openingStock: 50 } });
+  const other = await run(controller.createClinicInventoryItem, { body: { kind: 'other', name: 'Assessment Paper' } });
+  assert.deepEqual([opd.data.item.kind, other.data.item.kind], ['opd', 'other']);
+  assert.deepEqual([saved[0].kind, saved[0].currentStock, saved[1].kind], ['opd', 50, 'other']);
+  assert.deepEqual([calls[0].kind, calls[1].kind], [{ $in: [null, 'opd'] }, 'other']);
 });

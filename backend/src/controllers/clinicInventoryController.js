@@ -2,13 +2,15 @@ const ClinicInventory = require('../models/ClinicInventory');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 
-// Three tabs: mobiles and laptops are single devices with their own details; 'other' is the stock register.
-const KINDS = ['mobile', 'laptop', 'other'];
+// Four tabs: mobiles and laptops are single devices with their own details; OPD papers ('opd') and Others are stock
+// registers. An item saved before the tabs has no kind: it is an OPD paper.
+const KINDS = ['mobile', 'laptop', 'opd', 'other'];
+const STOCK_KINDS = ['opd', 'other'];
 const DEVICE_FIELDS = {
   mobile: ['brand', 'simCompany', 'phoneNumber', 'imei1', 'imei2', 'assignee'],
   laptop: ['deviceId', 'brand', 'assignee'],
 };
-const kindOf = (item) => (KINDS.includes(item?.kind) ? item.kind : 'other');
+const kindOf = (item) => (KINDS.includes(item?.kind) ? item.kind : 'opd');
 const isDevice = (kind) => kind === 'mobile' || kind === 'laptop';
 const deviceOf = (item) => Object.fromEntries([...new Set(Object.values(DEVICE_FIELDS).flat())].map((key) => [key, item.device?.[key] || '']));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -58,15 +60,15 @@ const listClinicInventory = asyncHandler(async (req, res) => {
   const filter = search ? { $or: ['name', 'category', ...[...new Set(Object.values(DEVICE_FIELDS).flat())].map((key) => `device.${key}`)].map((key) => ({ [key]: pattern })) } : {};
   filter.deletedAt = null;
   const items = (await ClinicInventory.find(filter).sort({ updatedAt: -1, createdAt: -1 })).map(formatItem);
-  // items / lowStock: the stock register (Others); kinds: how many in each tab.
-  const others = items.filter((item) => item.kind === 'other');
-  const totals = others.reduce((acc, item) => ({ ...acc, items: acc.items + 1, lowStock: acc.lowStock + (item.lowStockAt > 0 && item.currentStock <= item.lowStockAt ? 1 : 0) }), { items: 0, lowStock: 0 });
+  // items / lowStock: the stock registers (OPD papers + Others); kinds: how many in each tab.
+  const stock = items.filter((item) => STOCK_KINDS.includes(item.kind));
+  const totals = stock.reduce((acc, item) => ({ ...acc, items: acc.items + 1, lowStock: acc.lowStock + (item.lowStockAt > 0 && item.currentStock <= item.lowStockAt ? 1 : 0) }), { items: 0, lowStock: 0 });
   totals.kinds = Object.fromEntries(KINDS.map((kind) => [kind, items.filter((item) => item.kind === kind).length]));
   res.json({ success: true, items, totals });
 });
 
 const createClinicInventoryItem = asyncHandler(async (req, res) => {
-  const kind = KINDS.includes(req.body.kind) ? req.body.kind : 'other';
+  const kind = KINDS.includes(req.body.kind) ? req.body.kind : 'opd';
   if (isDevice(kind)) {
     const { device, message } = readDevice(kind, req.body);
     if (message) return res.status(400).json({ success: false, message });
@@ -81,10 +83,11 @@ const createClinicInventoryItem = asyncHandler(async (req, res) => {
   }
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ success: false, message: 'Item name is required' });
-  const existing = await ClinicInventory.findOne({ deletedAt: null, kind: { $nin: ['mobile', 'laptop'] }, name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } });
+  // The same name may be in both registers; within one it is a repeat (an OPD paper may have no kind saved).
+  const existing = await ClinicInventory.findOne({ deletedAt: null, kind: kind === 'opd' ? { $in: [null, 'opd'] } : kind, name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } });
   if (existing && !existing.deletedAt) return res.status(400).json({ success: false, message: 'This clinic item already exists' });
   const openingStock = Math.max(Number(req.body.openingStock || 0), 0);
-  const item = await ClinicInventory.create({ name, category: String(req.body.category || 'General').trim(), unit: String(req.body.unit || 'piece').trim(), currentStock: openingStock, lowStockAt: Math.max(Number(req.body.lowStockAt || 0), 0), notes: String(req.body.notes || '').trim(), createdByName: req.user.name, transactions: openingStock ? [{ type: 'add', quantity: openingStock, previousStock: 0, newStock: openingStock, reason: 'Opening stock', notes: String(req.body.notes || '').trim(), recordedByName: req.user.name }] : [] });
+  const item = await ClinicInventory.create({ name, kind, category: String(req.body.category || 'General').trim(), unit: String(req.body.unit || 'piece').trim(), currentStock: openingStock, lowStockAt: Math.max(Number(req.body.lowStockAt || 0), 0), notes: String(req.body.notes || '').trim(), createdByName: req.user.name, transactions: openingStock ? [{ type: 'add', quantity: openingStock, previousStock: 0, newStock: openingStock, reason: 'Opening stock', notes: String(req.body.notes || '').trim(), recordedByName: req.user.name }] : [] });
   res.status(201).json({ success: true, item: formatItem(item) });
 });
 

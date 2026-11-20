@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
-import { AlertTriangle, Boxes, History, Laptop, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Smartphone, Trash2, UserRound } from 'lucide-react';
+import { AlertTriangle, Boxes, FileText, History, Laptop, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Smartphone, Trash2, UserRound } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import DeviceRegister, { AssigneeHistory, DEVICE_FIELDS, DEVICE_LABEL, emptyDevice } from '../../components/inventory/DeviceRegister.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -15,8 +15,13 @@ import InventorySoftCopy from '../../components/InventorySoftCopy.jsx';
 import { Boxes as PageTitleIcon } from 'lucide-react';
 
 const emptyItem = { name: '', category: '', unit: 'piece', openingStock: '', lowStockAt: '', notes: '' };
-// Three tabs: mobiles, laptops and others (the stock register - every item saved before the tabs is here).
-const TABS = [{ key: 'mobile', label: 'Mobiles', icon: Smartphone }, { key: 'laptop', label: 'Laptops', icon: Laptop }, { key: 'other', label: 'Others', icon: Boxes }];
+// Four tabs: mobiles and laptops (one row per device), OPD papers and Others (stock registers). Every item saved
+// before the tabs is an OPD paper.
+const TABS = [{ key: 'mobile', label: 'Mobiles', icon: Smartphone }, { key: 'laptop', label: 'Laptops', icon: Laptop }, { key: 'opd', label: 'OPD papers', icon: FileText }, { key: 'other', label: 'Others', icon: Boxes }];
+const STOCK_TEXT = {
+  opd: { title: 'OPD papers register', empty: 'No OPD papers yet', hint: 'Add an OPD paper to start tracking its stock.' },
+  other: { title: 'Others register', empty: 'No other items yet', hint: 'Add any other clinic item to start tracking its stock.' },
+};
 const isDevice = (kind) => kind === 'mobile' || kind === 'laptop';
 const emptyMovement = { type: 'add', quantity: '', reason: '', notes: '' };
 const labels = { add: 'Stock added', consume: 'Stock used', adjust: 'Stock adjusted' };
@@ -28,7 +33,7 @@ const IconAction = ({ label, children, onClick, primary = false }) => <button ty
 const ClinicInventory = () => {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
-  const tab = TABS.some((x) => x.key === params.get('tab')) ? params.get('tab') : 'other';
+  const tab = TABS.some((x) => x.key === params.get('tab')) ? params.get('tab') : 'opd';
   const setTab = (key) => setParams((old) => { const next = new URLSearchParams(old); next.set('tab', key); return next; }, { replace: true });
   const [deleteItem, setDeleteItem] = useState(null);
   const [search, setSearch] = useState('');
@@ -62,16 +67,17 @@ const ClinicInventory = () => {
   };
   useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer); }, [search, refresh]);
   const selectedHistory = useMemo(() => historyItem ? items.find((item) => item.id === historyItem.id) || historyItem : null, [historyItem, items]);
-  const tabItems = useMemo(() => items.filter((item) => (item.kind || 'other') === tab), [items, tab]);
-  const kindCount = (key) => totals.kinds?.[key] ?? items.filter((item) => (item.kind || 'other') === key).length;
+  const tabItems = useMemo(() => items.filter((item) => (item.kind || 'opd') === tab), [items, tab]);
+  const kindCount = (key) => totals.kinds?.[key] ?? items.filter((item) => (item.kind || 'opd') === key).length;
   const assigned = tabItems.filter((item) => item.device?.assignee).length;
-  const formKind = itemModal?.kind || 'other';
+  const formKind = itemModal?.kind || 'opd';
+  const lowInTab = tabItems.filter((item) => item.lowStockAt > 0 && item.currentStock <= item.lowStockAt).length;
   const openAdd = () => { setItemModal({ mode: 'add', kind: tab }); setItemForm({ ...emptyItem, ...emptyDevice }); setModalError(''); };
-  const openEdit = (item) => { const kind = item.kind || 'other'; setItemModal({ mode: 'edit', item, kind }); setItemForm(isDevice(kind) ? { ...emptyItem, ...emptyDevice, ...item.device, notes: item.notes || '' } : { name: item.name, category: item.category, unit: item.unit, openingStock: '', lowStockAt: item.lowStockAt || '', notes: item.notes || '' }); setModalError(''); };
+  const openEdit = (item) => { const kind = item.kind || 'opd'; setItemModal({ mode: 'edit', item, kind }); setItemForm(isDevice(kind) ? { ...emptyItem, ...emptyDevice, ...item.device, notes: item.notes || '' } : { name: item.name, category: item.category, unit: item.unit, openingStock: '', lowStockAt: item.lowStockAt || '', notes: item.notes || '' }); setModalError(''); };
   // A mobile / laptop sends only its own details; an Others item its stock fields.
   const itemPayload = () => (isDevice(formKind)
     ? { kind: formKind, notes: itemForm.notes, ...Object.fromEntries(DEVICE_FIELDS[formKind].map((field) => [field.key, itemForm[field.key] || ''])) }
-    : { name: itemForm.name, category: itemForm.category, unit: itemForm.unit, openingStock: itemForm.openingStock, lowStockAt: itemForm.lowStockAt, notes: itemForm.notes, kind: 'other' });
+    : { name: itemForm.name, category: itemForm.category, unit: itemForm.unit, openingStock: itemForm.openingStock, lowStockAt: itemForm.lowStockAt, notes: itemForm.notes, kind: formKind });
   const submitItem = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { if (itemModal.mode === 'edit') await api.patch(`/clinic-inventory/${itemModal.item.id}`, itemPayload()); else await api.post('/clinic-inventory', itemPayload()); setItemModal(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not save item.'); } finally { setSaving(false); } };
   const openMovement = (item, type) => { setMovementItem(item); setMovement({ ...emptyMovement, type, reason: type === 'add' ? 'New stock received' : type === 'consume' ? 'Item used' : 'Manual stock correction' }); setModalError(''); };
   // The latest stock entry can be corrected (opened from Stock records): same form, saved over that entry.
@@ -138,7 +144,7 @@ const ClinicInventory = () => {
                 Items tracked
               </p>
               <p className="mt-1 text-2xl font-bold text-charcoal">
-                {loading ? "..." : totals.items}
+                {loading && !items.length ? "..." : tabItems.length}
               </p>
             </div>
             <PackageOpen size={22} className="text-sage/70" />
@@ -154,7 +160,7 @@ const ClinicInventory = () => {
                 Low stock
               </p>
               <p className="mt-1 text-2xl font-bold text-[#9C6B2E]">
-                {loading ? "..." : totals.lowStock}
+                {loading && !items.length ? "..." : lowInTab}
               </p>
             </div>
             <AlertTriangle size={22} className="text-[#9C6B2E]/75" />
@@ -188,13 +194,13 @@ const ClinicInventory = () => {
         </label>
       )}
       {isDevice(tab) ? (
-        <DeviceRegister kind={tab} items={tabItems} loading={loading} error={error} canDelete={user?.role === ROLES.ADMIN} onEdit={openEdit} onHistory={setHistoryItem} onDelete={(item) => { setDeleteItem(item); setModalError(''); }} onSaved={() => setRefresh((value) => value + 1)} />
+        <DeviceRegister kind={tab} items={tabItems} loading={loading} error={error} canDelete={user?.role === ROLES.ADMIN} onEdit={openEdit} onHistory={setHistoryItem} onDelete={(item) => { setDeleteItem(item); setModalError(''); }} />
       ) : (
 
       <Card className="mt-6 overflow-hidden" padded={false}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cardline bg-offwhite-200/60 px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold text-charcoal">Stock register</h2>
+            <h2 className="text-lg font-bold text-charcoal">{STOCK_TEXT[tab]?.title || 'Stock register'}</h2>
             <p className="mt-0.5 text-xs text-charcoal/55">
               Use the row actions to update quantities or open the audit
               history.
@@ -252,10 +258,10 @@ const ClinicInventory = () => {
                       className="mx-auto text-charcoal/30"
                     />
                     <p className="mt-2 font-semibold text-charcoal">
-                      No clinic items yet
+                      {STOCK_TEXT[tab]?.empty || 'No clinic items yet'}
                     </p>
                     <p className="mt-1 text-sm text-charcoal/55">
-                      Add your first supply to start tracking stock.
+                      {STOCK_TEXT[tab]?.hint || 'Add your first supply to start tracking stock.'}
                     </p>
                   </td>
                 </tr>

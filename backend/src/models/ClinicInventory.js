@@ -21,9 +21,9 @@ const assignmentSchema = new mongoose.Schema({
 
 const clinicInventorySchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
-  // The register tab: 'mobile' and 'laptop' are single devices (no stock count); 'other' is the stock register.
-  // Items saved before the tabs have no kind and count as 'other'.
-  kind: { type: String, enum: ['mobile', 'laptop', 'other'], default: 'other' },
+  // The register tab: 'mobile' and 'laptop' are single devices (no stock count); 'opd' (OPD papers) and 'other' are
+  // stock registers. Items saved before the tabs have no kind and are OPD papers - so no default here.
+  kind: { type: String, enum: ['mobile', 'laptop', 'opd', 'other'] },
   device: {
     brand: { type: String, trim: true, default: '' },
     simCompany: { type: String, trim: true, default: '' }, // mobile
