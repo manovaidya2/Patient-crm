@@ -1,3 +1,4 @@
+const { compressSavedFile } = require('../utils/uploadCompress');
 const Patient = require('../models/Patient');
 const CallLog = require('../models/CallLog');
 const fs = require('fs');
@@ -193,10 +194,12 @@ const downloadRecording = async (recordingUrl) => {
       return null;
     }
     await fs.promises.writeFile(filePath, buffer);
+    // Stored compressed, like every upload (utils/uploadCompress); the original stays if it cannot be.
+    const saved = await compressSavedFile(filePath, { originalname: path.basename(new URL(cleanUrl).pathname) || fileName });
 
     return {
-      recordingFileUrl: `/uploads/${RECORDING_UPLOAD_FOLDER}/${fileName}`,
-      recordingFileName: path.basename(new URL(cleanUrl).pathname) || fileName,
+      recordingFileUrl: `/uploads/${RECORDING_UPLOAD_FOLDER}/${saved.filename}`,
+      recordingFileName: saved.originalname,
     };
   } catch (error) {
     console.warn(`Call recording download failed from ${safeRecordingHost(recordingUrl)}: ${error.message}`);

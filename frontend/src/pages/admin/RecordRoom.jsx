@@ -11,6 +11,7 @@ import { ROLES, isAdminLike } from '../../constants/roles.js';
 import RecordUploadStatus from '../../components/RecordUploadStatus.jsx';
 import ReplaceRecordDocumentModal from '../../components/ReplaceRecordDocumentModal.jsx';
 import { RECORD_ROOM_UPLOAD_MAX_BYTES, RECORD_ROOM_UPLOAD_MAX_MB } from '../../constants/recordRoom.js';
+import { compressImage } from '../../utils/compressImage.js';
 
 const base = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -27,35 +28,6 @@ const statusLabel = (entry) => !entry.returnedAt ? 'Awaiting return' : entry.ret
 
 function Field({ label, children }) {
   return <label className="rr-field grid min-w-0 gap-1.5 [&>span]:text-xs [&>span]:leading-[1.5] [&>span]:font-semibold"><span>{label}</span>{children}</label>;
-}
-
-async function optimizeRecordImage(file) {
-  if (!/^image\/(jpeg|png)$/i.test(file.type) || typeof createImageBitmap !== 'function') return file;
-  let bitmap;
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    const scale = Math.min(1, 2000 / bitmap.width, 2800 / bitmap.height);
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext('2d', { alpha: false });
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    let quality = 0.82;
-    let blob;
-    do {
-      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-      quality -= 0.08;
-    } while (blob?.size > 9.5 * 1024 * 1024 && quality >= 0.5);
-    if (!blob) return file;
-    const name = `${file.name.replace(/\.[^.]+$/, '') || 'record-page'}.jpg`;
-    return new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified });
-  } catch {
-    return file;
-  } finally {
-    bitmap?.close?.();
-  }
 }
 
 export default function RecordRoom() {
@@ -192,7 +164,7 @@ export default function RecordRoom() {
     setSaving(true); setError('');
     try {
       const body = new FormData();
-      for (const file of files) body.append('documents', await optimizeRecordImage(file));
+      for (const file of files) body.append('documents', await compressImage(file));
       await api.post(`/record-room/${recordId}/documents`, body);
       setRevision((value) => value + 1);
     } catch (err) { setError(err.response?.data?.message || 'Upload failed. Please use JPG, PNG images or PDF documents.'); }
@@ -204,7 +176,7 @@ export default function RecordRoom() {
     setSaving(true);
     try {
       const body = new FormData();
-      body.append('documents', await optimizeRecordImage(file));
+      body.append('documents', await compressImage(file));
       const { data } = await api.patch('/record-room/' + recordId + '/documents/' + document.id, body);
       setSelected(data.record);
       setRevision((value) => value + 1);
@@ -216,7 +188,7 @@ export default function RecordRoom() {
     setSaving(true);
     try {
       const body = new FormData();
-      for (const file of files) body.append('documents', await optimizeRecordImage(file));
+      for (const file of files) body.append('documents', await compressImage(file));
       const { data } = await api.patch('/record-room/' + recordId + '/documents', body);
       setSelected(data.record);
       setRevision((value) => value + 1);

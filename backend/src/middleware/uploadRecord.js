@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { withCompression } = require('../utils/uploadCompress');
 
 const uploadDir = path.join(__dirname, '../../uploads/records');
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -32,10 +33,11 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-const uploadStageRecord = multer({
+// Images / PDFs are stored compressed (utils/uploadCompress).
+const uploadStageRecord = withCompression(multer({
   storage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-});
+}));
 
 module.exports = { uploadStageRecord };

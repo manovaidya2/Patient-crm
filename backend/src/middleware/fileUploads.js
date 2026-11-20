@@ -2,6 +2,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { optimizeUploadedImage } = require('../utils/recordRoomMedia');
+const { withCompression } = require('../utils/uploadCompress');
 
 const allowedMimeTypes = [
   'image/jpeg',
@@ -32,6 +33,8 @@ const createUpload = (folder, {
   allowedTypes = null,
   allowedTypeMessage = 'Only audio or video call recordings are allowed',
   maxFileSize = 10 * 1024 * 1024,
+  // Audio / video compression: true, false (the upload compresses them itself) or 'audio' (everything is sound).
+  compressMedia = true,
 } = {}) => {
   const uploadDir = path.join(__dirname, '../../uploads', folder);
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -67,11 +70,12 @@ const createUpload = (folder, {
     }
   };
 
-  return multer({
+  // Every image / PDF received is stored compressed (utils/uploadCompress).
+  return withCompression(multer({
     storage,
     fileFilter,
     limits: { fileSize: maxFileSize },
-  });
+  }), { media: compressMedia });
 };
 
 const removeUploadedFiles = async (files) => Promise.all((files || []).map((file) => fs.promises.unlink(file.path).catch(() => {})));
@@ -83,7 +87,8 @@ const optimizeRecordRoomImages = async (req, res, next) => {
     while (cursor < files.length) {
       const index = cursor;
       cursor += 1;
-      optimized[index] = files[index].mimetype === 'application/pdf' ? files[index] : await optimizeUploadedImage(files[index]);
+      // PDFs, and images the common upload compression already handled (made smaller, or found small enough), stay.
+      optimized[index] = files[index].mimetype === 'application/pdf' || files[index].checked ? files[index] : await optimizeUploadedImage(files[index]);
     }
   };
   try {
@@ -122,15 +127,18 @@ module.exports = {
     allowedTypes: ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/aac', 'video/webm'],
     allowedTypeMessage: 'Only an audio recording can be sent as voice advice',
     maxFileSize: 25 * 1024 * 1024,
+    compressMedia: false, // adviceController compresses the voice (utils/audioCompress)
   }),
   uploadScheduleCompletion: createUpload('schedule'),
   uploadFollowUpVideo: createUpload('followup-videos', {
     allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/3gpp'],
     allowedTypeMessage: 'Only MP4, MOV, WebM, AVI, or 3GP videos are allowed',
     maxFileSize: 300 * 1024 * 1024,
+    compressMedia: false, // uploadFollowUpVideo compresses it (utils/followUpVideo)
   }),
   uploadCallRecording: createUpload('recording', {
     allowedTypes: callRecordingMimeTypes,
     maxFileSize: 100 * 1024 * 1024,
+    compressMedia: 'audio', // stored as a small Opus recording
   }),
 };

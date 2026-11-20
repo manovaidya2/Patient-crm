@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { ReadCache, queryKey } from './readCache.js';
 import { schedule } from './scheduler.js';
+import { compressFormData } from '../utils/compressImage.js';
 
 export const readCache = new ReadCache();
 const noCachePaths = ['/auth/', '/advice/unread-count', '/schedule/reminders', '/patients/check-code'];
@@ -12,9 +13,11 @@ window.addEventListener('crm:logout', () => readCache.clear());
 window.addEventListener('crm:data-changed', () => readCache.invalidate());
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api' });
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   const token = localStorage.getItem('crm_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // Every upload, from any page: photos go compressed (utils/compressImage). PDFs are compressed on the server.
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) config.data = await compressFormData(config.data);
   return config;
 });
 api.interceptors.response.use((response) => {

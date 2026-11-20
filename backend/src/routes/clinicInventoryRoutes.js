@@ -6,7 +6,8 @@ const controller = require('../controllers/clinicInventoryController');
 const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.RECEPTIONIST));
 const files = require('../controllers/clinicInventoryFiles');
-const upload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+// The soft copy (image / PDF) is stored compressed (utils/uploadCompress).
+const upload = require('../utils/uploadCompress').withCompression(require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } }));
 router.post('/:id/soft-copy', upload.single('file'), files.upload);
 router.get('/:id/soft-copy', files.view);
 router.delete('/:id/soft-copy', authorize(ROLES.ADMIN), files.remove);
