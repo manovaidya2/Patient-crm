@@ -77,3 +77,15 @@ test('an OPD paper and an Others item are saved in their own register; a repeate
   assert.deepEqual([saved[0].kind, saved[0].currentStock, saved[1].kind], ['opd', 50, 'other']);
   assert.deepEqual([calls[0].kind, calls[1].kind], [{ $in: [null, 'opd'] }, 'other']);
 });
+
+test('a note alone is saved on a mobile without touching its details or assignee history', async (t) => {
+  const { findOne } = Model;
+  t.after(() => { Model.findOne = findOne; });
+  const mobile = new Model({ name: 'Samsung mobile', kind: 'mobile', device: { brand: 'Samsung', imei1: '123456789012345', assignee: 'Riya' }, assignments: [{ assignee: 'Riya', assignedByName: 'Admin' }] });
+  mobile.save = async () => mobile;
+  mockFindOne([mobile, null]);
+  const res = await run(controller.updateClinicInventoryItem, { params: { id: String(mobile._id) }, body: { notes: 'Screen cracked, sent for repair' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.data.item.notes, 'Screen cracked, sent for repair');
+  assert.deepEqual([res.data.item.device.brand, res.data.item.device.imei1, res.data.item.device.assignee, res.data.item.assignments.length], ['Samsung', '123456789012345', 'Riya', 1]);
+});

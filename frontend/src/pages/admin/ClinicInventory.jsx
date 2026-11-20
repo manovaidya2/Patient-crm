@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { AlertTriangle, Boxes, FileText, History, Laptop, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Smartphone, Trash2, UserRound } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import DeviceRegister, { AssigneeHistory, DEVICE_FIELDS, DEVICE_LABEL, emptyDevice } from '../../components/inventory/DeviceRegister.jsx';
+import DeviceRegister, { NotesCell, AssigneeHistory, DEVICE_FIELDS, DEVICE_LABEL, emptyDevice } from '../../components/inventory/DeviceRegister.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ROLES } from '../../constants/roles.js';
 import api from '../../api/axios.js';
@@ -79,6 +79,11 @@ const ClinicInventory = () => {
     ? { kind: formKind, notes: itemForm.notes, ...Object.fromEntries(DEVICE_FIELDS[formKind].map((field) => [field.key, itemForm[field.key] || ''])) }
     : { name: itemForm.name, category: itemForm.category, unit: itemForm.unit, openingStock: itemForm.openingStock, lowStockAt: itemForm.lowStockAt, notes: itemForm.notes, kind: formKind });
   const submitItem = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { if (itemModal.mode === 'edit') await api.patch(`/clinic-inventory/${itemModal.item.id}`, itemPayload()); else await api.post('/clinic-inventory', itemPayload()); setItemModal(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not save item.'); } finally { setSaving(false); } };
+  // Notes of any item (every tab), edited from the Notes column.
+  const [notesItem, setNotesItem] = useState(null);
+  const [notesText, setNotesText] = useState('');
+  const openNotes = (item) => { setNotesItem(item); setNotesText(item.notes || ''); setModalError(''); };
+  const saveNotes = async (event) => { event.preventDefault(); setSaving(true); setModalError(''); try { await api.patch(`/clinic-inventory/${notesItem.id}`, { notes: notesText }); setNotesItem(null); setRefresh((value) => value + 1); } catch (err) { setModalError(err.response?.data?.message || 'Could not save the note.'); } finally { setSaving(false); } };
   const openMovement = (item, type) => { setMovementItem(item); setMovement({ ...emptyMovement, type, reason: type === 'add' ? 'New stock received' : type === 'consume' ? 'Item used' : 'Manual stock correction' }); setModalError(''); };
   // The latest stock entry can be corrected (opened from Stock records): same form, saved over that entry.
   const openEditLast = (item, entry) => { setMovementItem({ ...item, editLast: true, currentStock: entry.previousStock }); setMovement({ ...emptyMovement, type: entry.type, quantity: String(entry.quantity), reason: entry.reason || '', notes: entry.notes || '' }); setModalError(''); };
@@ -194,7 +199,7 @@ const ClinicInventory = () => {
         </label>
       )}
       {isDevice(tab) ? (
-        <DeviceRegister kind={tab} items={tabItems} loading={loading} error={error} canDelete={user?.role === ROLES.ADMIN} onEdit={openEdit} onHistory={setHistoryItem} onDelete={(item) => { setDeleteItem(item); setModalError(''); }} />
+        <DeviceRegister kind={tab} items={tabItems} loading={loading} error={error} canDelete={user?.role === ROLES.ADMIN} onEdit={openEdit} onHistory={setHistoryItem} onDelete={(item) => { setDeleteItem(item); setModalError(''); }} onEditNotes={openNotes} />
       ) : (
 
       <Card className="mt-6 overflow-hidden" padded={false}>
@@ -218,22 +223,23 @@ const ClinicInventory = () => {
           </label>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] border-collapse text-center text-sm">
+          <table className="w-full min-w-[1180px] border-collapse text-center text-sm">
             <thead className="bg-[#56695D] text-[11px] font-bold uppercase tracking-[0.12em] text-white">
               <tr>
-                <th className="w-[20%] px-5 py-3.5">Item</th>
-                <th className="w-[13%] px-4 py-3.5">Category / unit</th>
-                <th className="w-[13%] px-4 py-3.5">Available stock</th>
-                <th className="w-[20%] px-4 py-3.5">Latest movement</th>
-                <th className="w-[18%] px-4 py-3.5">Soft copy</th>
-                <th className="w-[16%] px-5 py-3.5">Actions</th>
+                <th className="w-[17%] px-5 py-3.5">Item</th>
+                <th className="w-[11%] px-4 py-3.5">Category / unit</th>
+                <th className="w-[11%] px-4 py-3.5">Available stock</th>
+                <th className="w-[16%] px-4 py-3.5">Latest movement</th>
+                <th className="w-[17%] px-4 py-3.5">Notes</th>
+                <th className="w-[14%] px-4 py-3.5">Soft copy</th>
+                <th className="w-[14%] px-5 py-3.5">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cardline-soft">
               {loading && (
                 <tr>
                   <td
-                    colSpan="6"
+                    colSpan="7"
                     className="px-5 py-14 text-center text-charcoal/55"
                   >
                     Loading inventory...
@@ -243,7 +249,7 @@ const ClinicInventory = () => {
               {!loading && error && (
                 <tr>
                   <td
-                    colSpan="6"
+                    colSpan="7"
                     className="px-5 py-14 text-center text-[#8C3B2E]"
                   >
                     {error}
@@ -252,7 +258,7 @@ const ClinicInventory = () => {
               )}
               {!loading && !error && !tabItems.length && (
                 <tr>
-                  <td colSpan="6" className="px-5 py-16 text-center">
+                  <td colSpan="7" className="px-5 py-16 text-center">
                     <PackageOpen
                       size={28}
                       className="mx-auto text-charcoal/30"
@@ -288,11 +294,6 @@ const ClinicInventory = () => {
                           Added {stamp(item.createdAt)} by{" "}
                           {item.createdByName || "-"}
                         </p>
-                        {item.notes && (
-                          <p className="mx-auto mt-1 max-w-[290px] truncate text-xs text-charcoal/55">
-                            {item.notes}
-                          </p>
-                        )}
                       </td>
                       <td className="border-r border-cardline-soft px-4 py-4 align-middle">
                         <p className="text-charcoal/75">
@@ -342,6 +343,7 @@ const ClinicInventory = () => {
                           </span>
                         )}
                       </td>
+                      <NotesCell item={item} onEditNotes={openNotes} />
                       <td className="px-4 py-4 align-middle"><InventorySoftCopy item={item} onSaved={() => setRefresh((value) => value + 1)} /></td>
                       <td className="px-5 py-4 align-middle">
                         <div className="flex justify-center gap-1.5">
@@ -382,6 +384,13 @@ const ClinicInventory = () => {
       </Card>
       )}
 
+      <Modal open={!!notesItem} onClose={() => !saving && setNotesItem(null)} title={notesItem ? `Notes | ${notesItem.name}` : 'Notes'} className="max-w-xl">
+        <form onSubmit={saveNotes} className="space-y-3">
+          {modalError && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{modalError}</p>}
+          <textarea autoFocus rows={5} value={notesText} onChange={(event) => setNotesText(event.target.value)} placeholder="Notes for this item" aria-label="Notes" className="w-full rounded-lg border border-cardline bg-offwhite-200 px-3 py-2.5 text-sm outline-none focus:border-sage" />
+          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" disabled={saving} onClick={() => setNotesItem(null)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save note'}</Button></div>
+        </form>
+      </Modal>
       <Modal
         open={!!deleteItem}
         onClose={() => !saving && setDeleteItem(null)}
