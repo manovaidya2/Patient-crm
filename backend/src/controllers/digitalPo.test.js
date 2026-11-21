@@ -206,3 +206,36 @@ test('delete: an unsigned digital PO is taken back (the link stops working, the 
   mock.method(DigitalPurchaseOrder, 'findOne', () => ({ sort: () => ({ lean: async () => stored }) }));
   await assert.rejects(c.deleteForEntry({ entry, user }), /is not deleted/);
 });
+
+test('download: a signed digital PO (or an earlier signed version) comes as a PDF; one not signed yet does not', async () => {
+  const pdf = require('../utils/digitalPoPdf');
+  const sharp = require('sharp');
+  const snapshot = D.snapshotOf({ registration, record, phase: 2, now: new Date('2026-11-21T10:00:00Z') });
+  const signed = { at: new Date('2026-11-21T11:42:00Z'), signerName: 'Neeta Mehta', relation: 'Mother', consents: D.CONSENT_ITEMS.map((i) => i.key), signatureKind: 'drawn', signatureFile: 'no-such-file.png' };
+  const doc = { _id: id(), ref: 'DPO-261121-AB12', status: 'sent', version: 2, snapshot, history: [{ version: 1, snapshot, signed }] };
+  mock.method(DigitalPurchaseOrder, 'findById', () => lean(doc));
+  const get = async (req) => {
+    let sent = null; let headers = {}; let error = null;
+    const res = { set(h) { headers = { ...headers, ...h }; return this; }, send(b) { sent = b; return this; }, status() { return this; }, type() { return this; } };
+    await c.downloadPdf({ params: { id: String(doc._id) }, query: {}, ...req }, res, (e) => { error = e; });
+    return { sent, headers, error };
+  };
+
+  assert.equal((await get({})).error.statusCode, 404, 'v2 is waiting for the parent: nothing to download yet');
+  const v1 = await get({ query: { version: '1' } });
+  assert.equal(v1.error, null);
+  assert.equal(v1.sent.subarray(0, 5).toString(), '%PDF-');
+  assert.deepEqual([v1.headers['Content-Type'], v1.headers['Content-Disposition'], v1.headers['Cache-Control']], ['application/pdf', 'attachment; filename="Purchase-Order-DPO-261121-AB12-Aarav.pdf"', 'private, no-store']);
+  mock.method(DigitalPurchaseOrder, 'findById', () => lean({ ...doc, status: 'signed', signed }));
+  assert.match((await get({})).headers['Content-Disposition'], /Purchase-Order-DPO-261121-AB12-v2-Aarav\.pdf/);
+  assert.equal((await get({ params: { id: 'nope' } })).error.statusCode, 404);
+
+  // The signature goes in as PNG / JPEG; a WebP photo is turned into PNG; anything else is left out.
+  const png = await sharp({ create: { width: 8, height: 4, channels: 3, background: '#ffffff' } }).png().toBuffer();
+  const webp = await sharp(png).webp().toBuffer();
+  assert.equal(await pdf.pdfImage(png), png);
+  assert.equal(D.imageType(await pdf.pdfImage(webp)), 'png');
+  assert.equal(await pdf.pdfImage(Buffer.from('<svg onload=alert(1)></svg>')), null);
+  const withSignature = await pdf.renderDigitalPoPdf({ refNo: 'DPO-1', snapshot, signed, consentItems: D.CONSENT_ITEMS, signature: webp });
+  assert.equal(withSignature.subarray(0, 5).toString(), '%PDF-');
+});

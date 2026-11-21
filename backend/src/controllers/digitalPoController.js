@@ -11,6 +11,7 @@ const DigitalPurchaseOrder = require('../models/DigitalPurchaseOrder');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const D = require('../utils/digitalPo');
+const { renderDigitalPoPdf, pdfFileName, readSignature } = require('../utils/digitalPoPdf');
 
 const DIR = path.join(__dirname, '../../uploads/digital-po');
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
@@ -131,6 +132,29 @@ const signatureFile = asyncHandler(async (req, res) => {
   res.sendFile(file);
 });
 
+// @route GET /api/digital-po/:id/pdf?version=N
+// The signed purchase order as a PDF to download (made fresh each time). ?version= an earlier signed version.
+const downloadPdf = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) fail('Not found', 404);
+  const doc = await DigitalPurchaseOrder.findById(req.params.id).select('ref status snapshot signed history version').lean();
+  if (!doc) fail('Not found', 404);
+  const current = doc.version || 1;
+  const asked = Number(req.query?.version) || 0;
+  const pick = asked && asked !== current
+    ? (doc.history || []).find((h) => h.version === asked)
+    : { version: current, snapshot: doc.snapshot, signed: doc.status === 'signed' ? doc.signed : null };
+  if (!pick?.signed?.at) fail('This purchase order is not signed yet: only a signed one is downloaded', 404);
+  const version = pick.version || 1;
+  const refNo = version > 1 ? `${doc.ref} · v${version}` : doc.ref;
+  const pdf = await renderDigitalPoPdf({
+    refNo, snapshot: pick.snapshot, signed: pick.signed, consentItems: D.CONSENT_ITEMS,
+    signature: readSignature(DIR, pick.signed.signatureFile),
+  });
+  const name = pdfFileName(version > 1 ? `${doc.ref}-v${version}` : doc.ref, pick.snapshot?.patient?.name);
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.send(pdf);
+});
+
 // ---- Public side (no login) ------------------------------------------------------------------------------------------
 // A small brake per network address, so the links cannot be tried in bulk.
 const WINDOW_MS = 10 * 60 * 1000;
@@ -219,4 +243,4 @@ const signPublic = asyncHandler(async (req, res) => {
   res.json({ success: true, status: 'signed', signedAt: now, ref: doc.ref });
 });
 
-module.exports = { digitalPosOf, saveForEntry, deleteForEntry, listDigitalPos, signatureFile, publicGuard, getPublic, takeSignature, signPublic, staffView, publicView, DIR };
+module.exports = { digitalPosOf, saveForEntry, deleteForEntry, listDigitalPos, signatureFile, downloadPdf, publicGuard, getPublic, takeSignature, signPublic, staffView, publicView, DIR };

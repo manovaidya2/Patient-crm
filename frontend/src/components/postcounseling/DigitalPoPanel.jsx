@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Copy, ExternalLink, Eye, FileSignature, MessageCircle, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Copy, Download, ExternalLink, Eye, FileSignature, MessageCircle, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import DigitalPoPaper, { whenText } from '../digitalPo/DigitalPoPaper.jsx';
@@ -34,11 +34,43 @@ function useSignature(id, version = 0) {
   return src;
 }
 
+// The signed purchase order as a PDF (made by the server with the consent and signature), downloaded with the login.
+const slug = (value) => String(value || '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+export function DownloadPdfButton({ item, version = 0 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const download = async () => {
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.get(`/digital-po/${item.id}/pdf${version ? `?version=${version}` : ''}`, { responseType: 'blob', skipCache: true });
+      const v = version || item.version || 1;
+      const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Purchase-Order-${slug(v > 1 ? `${item.ref}-v${v}` : item.ref)}-${slug(item.snapshot?.patient?.name) || 'patient'}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch { setError('Could not download the PDF. Please try again.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <span className="inline-flex flex-col items-end gap-0.5">
+      <Button size="sm" variant="outline" disabled={busy} onClick={download}><Download size={14} />{busy ? 'Preparing PDF...' : 'Download PDF'}</Button>
+      {error && <span className="text-[11.5px] font-semibold text-[#8A1C25]">{error}</span>}
+    </span>
+  );
+}
+
 // version: an earlier signed version of the same purchase order (its own content and signature).
 export function SignedPaper({ item, consentItems, version = 0 }) {
   const src = useSignature(item.id, version);
   const v = version || item.version || 1;
-  return <DigitalPoPaper snapshot={item.snapshot} refNo={v > 1 ? `${item.ref} · v${v}` : item.ref} consentItems={consentItems} signed={item.signed} signatureSrc={src} />;
+  return (
+    <>
+      <div className="mx-auto mb-2 flex w-full max-w-3xl justify-end"><DownloadPdfButton item={item} version={version} /></div>
+      <DigitalPoPaper snapshot={item.snapshot} refNo={v > 1 ? `${item.ref} · v${v}` : item.ref} consentItems={consentItems} signed={item.signed} signatureSrc={src} />
+    </>
+  );
 }
 
 // An open link: copy it, send it on WhatsApp, open it; whether the parent opened it.
