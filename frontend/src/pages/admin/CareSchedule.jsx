@@ -29,7 +29,8 @@ function SessionRow({ s, onOpen }) {
         <span className="block text-[11.5px] text-charcoal/55">{[s.patientCode, `Phase ${s.phase}`, `${s.title} · Day ${s.day}`].filter(Boolean).join(' · ')}</span>
       </span>
       <span className="text-[12.5px] text-charcoal/75">
-        {s.callAt ? <><b>{fmtAt(s.callAt)}</b><span className="block text-[11px] text-charcoal/50">Due {fmtDay(s.targetDate)}</span></> : <>Due <b>{fmtDay(s.targetDate)}</b><span className="block text-[11px] text-[#9A5B00]">Call time not set</span></>}
+        {s.kind === 'tracker' ? <>Due <b>{fmtDay(s.targetDate)}</b><span className={`block text-[11px] ${s.tracker?.sentAt ? 'text-charcoal/55' : 'text-[#9A5B00]'}`}>{s.tracker?.filledLink ? 'Tracker filled' : s.tracker?.sentAt ? `Tracker sent ${fmtAt(s.tracker.sentAt)}` : 'Tracker not sent yet'}</span></>
+          : s.callAt ? <><b>{fmtAt(s.callAt)}</b><span className="block text-[11px] text-charcoal/50">Due {fmtDay(s.targetDate)}</span></> : <>Due <b>{fmtDay(s.targetDate)}</b><span className="block text-[11px] text-[#9A5B00]">Call time not set</span></>}
       </span>
       <span className="text-[12px] text-charcoal/70">
         {s.assigneeName || s.ownerName}{s.covered && <span className="ml-1 rounded bg-[#EEF3F0] px-1 text-[10.5px] font-bold text-[#1F4F3D]">cover</span>}

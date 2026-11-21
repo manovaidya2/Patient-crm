@@ -12,6 +12,7 @@ import AdviceAlarm from '../../components/advice/AdviceAlarm.jsx';
 import TransitAlarm from '../../components/medicine/TransitAlarm.jsx';
 import { ChatAlarmSiren } from '../../components/teamChat/ChatAlarm.jsx';
 import PaperAlarm from '../../components/medicine/PaperAlarm.jsx';
+import CareCallReminders from '../../components/care/CareCallReminders.jsx';
 import PageBack from '../../components/PageBack.jsx';
 import VoiceTyping from '../../components/VoiceTyping.jsx';
 import { TeamPendingButton } from '../../components/TeamPending.jsx';
@@ -150,6 +151,8 @@ const AdminLayout = () => {
         {user?.role === ROLES.MANAGER && <TransitAlarm user={user} />}
         {/* The PCC who makes treatment papers: the Medicine Department rings it while a kit waits (step 9). */}
         {user?.role === ROLES.ASSISTANT_DOCTOR && <>{/* <PaperAlarm user={user} /> */}<PaperAlarm user={user} kind="final" /></>}
+        {/* Care Schedule: the call time reminder (from 10 min before the call) and own reminders of the PCC's sessions. */}
+        {user?.role === ROLES.ASSISTANT_DOCTOR && <CareCallReminders />}
         {/* Team Chat alarm: a member rang this person for something important. */}
         {user && user.role !== ROLES.HR && <ChatAlarmSiren user={user} />}
         {user?.role !== ROLES.HR && <div className="hidden md:flex justify-end gap-2 px-8 pt-3 -mb-5">{isAdminLike(user) && <TeamPendingButton />}<ReminderBell /></div>}

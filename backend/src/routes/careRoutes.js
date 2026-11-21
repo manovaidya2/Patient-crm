@@ -10,6 +10,7 @@ const router = express.Router();
 router.use(protect, authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR));
 
 router.get('/sessions', c.listSessions);
+router.get('/reminders', c.myReminders);
 router.get('/staff', c.listStaff);
 router.get('/calendar', c.calendar);
 router.get('/convert', c.convertPreview);
@@ -30,6 +31,8 @@ router.post('/sessions/:id/reassign-request', c.requestReassign);
 router.post('/sessions/:id/reassign-request/decline', c.declineReassign);
 router.put('/sessions/:id/form', c.saveForm);
 router.post('/sessions/:id/complete', c.completeSession);
+router.post('/sessions/:id/tracker-sent', c.trackerSent);
+router.post('/sessions/:id/tracker-filled', c.trackerFilled);
 router.post('/sessions/:id/reminders', c.addReminder);
 // Handwritten notes: photos / scans / PDFs, added to the patient's Records Room PDF.
 router.post('/sessions/:id/notes', uploadRecordRoomImages.array('files', 10), optimizeRecordRoomImages, c.uploadNotes);

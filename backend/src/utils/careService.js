@@ -50,6 +50,18 @@ const insertSessions = async ({ patient, stage, part, owner, user, now }) => {
   return docs.length;
 };
 
+// The call time's own reminder (kind "call"): made when the call time is set and moved with it. It starts 10 minutes
+// before the call and pops up for the person the session is given to until a call is recorded, it is marked done or
+// the session is closed. One per session.
+const syncCallReminder = (session, byName = '') => {
+  if (!session?.callAt) return null;
+  const fields = { at: new Date(new Date(session.callAt).getTime() - C.CALL_LEAD_MS), note: `Call the parent — call time ${C.istText(session.callAt)}`, doneAt: null, doneByName: '' };
+  const own = (session.reminders || []).find((r) => r.kind === 'call');
+  if (own) { Object.assign(own, fields); return own; }
+  session.reminders.push({ ...fields, kind: 'call', byName: byName || 'Automatic', createdAt: new Date() });
+  return session.reminders[session.reminders.length - 1];
+};
+
 // A corrected start date moves the open sessions of that supply (a call time already set moves with it, unless it was
 // rescheduled with the parent).
 const moveSessions = async ({ patient, stage, part, before, user, now }) => {
@@ -66,6 +78,7 @@ const moveSessions = async ({ patient, stage, part, before, user, now }) => {
       const moved = C.workingDay(C.addDays(C.dayOf(session.callAt), shift));
       const time = new Date(session.callAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
       session.callAt = C.atTime(moved, time);
+      syncCallReminder(session, user?.name);
     }
     session.log.push({ at: now, byName: user?.name || '', text: `Moved to ${day}: medicine start date changed ${before} -> ${part.startDate}` });
     await session.save();
@@ -155,4 +168,4 @@ const leavesOf = async (userIds, from, to) => {
 };
 const leaveOn = (leaves, userId, day) => (leaves.get(String(userId || '')) || []).find((l) => l.from <= day && l.to >= day) || null;
 
-module.exports = { supplyLengthOf, ownerOf, insertSessions, moveSessions, startCarePlan, continueCarePlan, stampStart, leavesOf, leaveOn };
+module.exports = { supplyLengthOf, ownerOf, insertSessions, moveSessions, startCarePlan, continueCarePlan, stampStart, leavesOf, leaveOn, syncCallReminder };

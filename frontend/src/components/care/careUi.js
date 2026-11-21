@@ -5,6 +5,7 @@ export const STATE_STYLE = {
   today: 'bg-[#FFEFD6] text-[#9A5B00]',
   needs_time: 'bg-[#FFF7E8] text-[#7A4A06]',
   upcoming: 'bg-[#EEF3F0] text-[#1F4F3D]',
+  tracker_sent: 'bg-[#E6EEF8] text-[#24476F]',
   done: 'bg-[#DCF0E3] text-[#166534]',
   missed: 'bg-[#F4E4E4] text-[#7A1F2B]',
   cancelled: 'bg-charcoal/[0.08] text-charcoal/60',

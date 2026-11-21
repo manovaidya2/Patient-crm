@@ -107,7 +107,7 @@ const pccReportRows = ({ pccs, sessions, patientsByPcc = new Map(), explanations
       upcoming: mine.filter((s) => C.isOpen(s) && C.dueDayOf(s) >= today && C.dueDayOf(s) <= week).length,
       noCallTime: mine.filter((s) => C.isOpen(s) && !s.callAt && C.dueDayOf(s) <= week).length,
       reschedules: due.reduce((n, s) => n + (s.reschedules || []).length, 0),
-      notConnected: due.reduce((n, s) => n + (s.attempts || []).length, 0),
+      notConnected: due.reduce((n, s) => n + C.missedCalls(s).length, 0),
       doctorAlerts: due.reduce((n, s) => n + (s.doctorRequests || []).length, 0),
       covers: done.filter((s) => s.owner && String(s.owner) !== id).length,
       avgFormMinutes: formTimes.length ? Math.round(formTimes.reduce((a, b) => a + b, 0) / formTimes.length / 60) : null,

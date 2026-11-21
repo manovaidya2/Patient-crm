@@ -106,6 +106,81 @@ test('calls not connected are recorded; missed by parents needs a reason; someon
   assert.equal((await call(c.addAttempt, { params: { id: String(aSession()._id) }, body: { outcome: 'busy' }, user: other })).error.statusCode, 403);
 });
 
+test('Call details: when the call was made, picked up (minutes, what was said) or not; only missed calls count as not connected', async () => {
+  const doc = aSession();
+  const at = new Date(Date.now() - 2 * 3600000);
+  const missed = await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'busy', calledAt: at.toISOString(), note: 'cut the call' }, user: pcc });
+  assert.equal(missed.error, null);
+  const talked = await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'connected', minutes: '12.5', note: 'Sleep better, appetite low' }, user: pcc });
+  const s = talked.body.session;
+  assert.deepEqual([s.attempts, s.calls, s.talked], [1, 2, 1]);
+  assert.equal(s.lastAttempt.outcome, 'busy');
+  assert.equal(new Date(s.attemptsList[0].calledAt).toISOString(), at.toISOString());
+  assert.deepEqual([s.attemptsList[1].connected, s.attemptsList[1].duration, s.attemptsList[1].note], [true, '12 min 30 sec', 'Sleep better, appetite low']);
+  assert.match(doc.log.slice(-1)[0].text, /^Call 2 \(.+\): Picked up — talked, 12 min 30 sec — Sleep better/);
+  assert.equal((await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'connected' }, user: pcc })).body.session.attemptsList[2].duration, '', 'minutes are optional');
+  assert.match((await call(c.addAttempt, { params: { id: String(doc._id) }, body: {}, user: pcc })).error.message, /picked up/);
+  assert.match((await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'connected', calledAt: new Date(Date.now() + 3600000).toISOString() }, user: pcc })).error.message, /future/);
+  assert.match((await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'connected', minutes: '-3' }, user: pcc })).error.message, /minutes/);
+  const closed = await call(c.closeSession, { params: { id: String(doc._id) }, body: { reason: 'Other', details: 'Talked, session done on WhatsApp' }, user: pcc });
+  assert.equal(closed.body.session.closed.attempts, 1, 'only the call that did not connect');
+});
+
+test('the call time makes its own reminder 10 minutes before; a reschedule moves it; a recorded call stops it; it pops up for the assignee', async () => {
+  const doc = aSession();
+  const first = notWednesday(3);
+  await call(c.setCallTime, { params: { id: String(doc._id) }, body: { callAt: first.toISOString() }, user: pcc });
+  const own = () => doc.reminders.filter((r) => r.kind === 'call');
+  assert.equal(own().length, 1);
+  assert.equal(own()[0].at.getTime(), first.getTime() - 10 * 60000);
+  assert.match(own()[0].note, /^Call the parent — call time /);
+  const next = notWednesday(5);
+  await call(c.reschedule, { params: { id: String(doc._id) }, body: { callAt: next.toISOString(), reason: 'Parent busy' }, user: pcc });
+  assert.equal(own().length, 1, 'moved, not a second one');
+  assert.equal(own()[0].at.getTime(), next.getTime() - 10 * 60000);
+  await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'busy' }, user: pcc });
+  assert.equal(own()[0].doneAt, null, 'a call that did not connect before the reminder starts leaves it on');
+  // The call is in 5 minutes: the reminder is on.
+  const soon = new Date(Date.now() + 5 * 60000);
+  own()[0].at = new Date(soon.getTime() - 10 * 60000);
+  doc.callAt = soon;
+  const popping = c.remindersOf([doc.toObject()]);
+  assert.deepEqual(popping.map((r) => [r.kind, r.code, r.sessionId]), [['call', 'FU-02', String(doc._id)]]);
+  await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'not_connected' }, user: pcc });
+  assert.ok(own()[0].doneAt, 'a call recorded after it started stops it');
+  assert.equal(c.remindersOf([doc.toObject()]).length, 0);
+  // A call time set before these reminders were kept: the same reminder until a call is recorded.
+  const old = aSession({ callAt: soon, status: 'scheduled' }).toObject();
+  assert.equal(c.remindersOf([old])[0].kind, 'call');
+  assert.equal(c.remindersOf([{ ...old, callAt: new Date(Date.now() + 30 * 60000) }]).length, 0, 'not yet: 30 minutes ahead');
+  assert.equal(c.remindersOf([{ ...old, attempts: [{ at: new Date(), outcome: 'busy' }] }]).length, 0);
+  // Their own reminders pop up too.
+  const mineToo = aSession({ reminders: [{ at: new Date(Date.now() - 60000), note: 'Call after 6 pm' }] }).toObject();
+  assert.deepEqual(c.remindersOf([mineToo]).map((r) => [r.kind, r.note]), [['note', 'Call after 6 pm']]);
+});
+
+test('development tracker: no call time or form; "tracker sent" (date & time), then the filled tracker link completes it', async () => {
+  const doc = aSession({ kind: 'tracker', seq: 1, code: 'DT-01', title: 'Development Tracker 01', day: 60, targetDate: '2099-01-05' });
+  assert.equal(c.viewOf(doc.toObject()).state, 'upcoming', 'not "set call time"');
+  assert.match((await call(c.setCallTime, { params: { id: String(doc._id) }, body: { callAt: notWednesday(3).toISOString() }, user: pcc })).error.message, /no call time or form/);
+  assert.match((await call(c.completeSession, { params: { id: String(doc._id) }, body: { answers: {} }, user: pcc })).error.message, /no call time or form/);
+  assert.match((await call(c.trackerFilled, { params: { id: String(doc._id) }, body: { link: 'https://forms.example.com/r/1' }, user: pcc })).error.message, /First record when the tracker was sent/);
+  assert.match((await call(c.trackerSent, { params: { id: String(doc._id) }, body: {}, user: pcc })).error.message, /Choose when/);
+  assert.match((await call(c.trackerSent, { params: { id: String(doc._id) }, body: { sentAt: new Date(Date.now() + 3600000).toISOString() }, user: pcc })).error.message, /future/);
+  const sentAt = new Date(Date.now() - 3600000);
+  const sent = await call(c.trackerSent, { params: { id: String(doc._id) }, body: { sentAt: sentAt.toISOString() }, user: pcc });
+  assert.equal(sent.error, null);
+  assert.deepEqual([sent.body.session.state, sent.body.session.stateLabel, new Date(sent.body.session.tracker.sentAt).toISOString()], ['tracker_sent', 'Tracker sent · waiting', sentAt.toISOString()]);
+  assert.match((await call(c.trackerFilled, { params: { id: String(doc._id) }, body: { link: 'not a link' }, user: pcc })).error.message, /Paste the link/);
+  const done = await call(c.trackerFilled, { params: { id: String(doc._id) }, body: { link: 'https://forms.example.com/r/1' }, user: pcc });
+  assert.deepEqual([done.body.session.status, done.body.session.final, done.body.session.tracker.filledLink, done.body.session.completedByName], ['completed', 'Tracker filled', 'https://forms.example.com/r/1', pcc.name]);
+  assert.equal(new Date(done.body.session.tracker.sentAt).toISOString(), sentAt.toISOString(), 'the sent time is kept');
+  assert.match((await call(c.trackerSent, { params: { id: String(aSession()._id) }, body: { sentAt: sentAt.toISOString() }, user: pcc })).error.message, /Only a development tracker/);
+  // An old tracker with a call time: no call reminder pops up for it.
+  const old = aSession({ kind: 'tracker', code: 'DT-01', callAt: new Date(Date.now() + 60000), status: 'scheduled' }).toObject();
+  assert.equal(c.remindersOf([old]).length, 0);
+});
+
 test('the Manager gives a session to another person (PCC on leave), and back; the PCC cannot', async () => {
   const doc = aSession();
   const cover = { _id: id(), name: 'PCC Cover', role: 'assistant_doctor', isActive: true };

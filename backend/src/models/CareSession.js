@@ -4,11 +4,11 @@ const mongoose = require('mongoose');
 // made from the medicine start date the PCC fills after the explanation (utils/careSchedule.js): FU-01 ... FU-07 on
 // day 10, 20, 50, 80, 110, 140, 170; FS-01 ... FS-03 on day 15, 105, 165; DT-01 ... DT-03 on day 60, 120, 180 -
 // only the days the supplied medicine covers.
-// The call: the PCC sets the call time, may reschedule it (at most twice), records calls that did not connect, marks
-// it missed by the parents or cancelled (with a reason), or fills the session's form and marks it done.
+// The call: the PCC sets the call time, may reschedule it (at most twice), records every call made (when, picked up or
+// not, how long, what was said), marks it missed by the parents or cancelled (with a reason), or fills the session's form and marks it done.
 const STATUSES = ['pending', 'scheduled', 'completed', 'missed', 'cancelled'];
 const KINDS = ['followup', 'family', 'tracker'];
-const ATTEMPTS = ['not_connected', 'busy', 'switched_off', 'wrong_number', 'callback'];
+const ATTEMPTS = ['not_connected', 'busy', 'switched_off', 'wrong_number', 'callback', 'connected'];
 
 const by = {
   at: { type: Date, default: Date.now },
@@ -55,9 +55,24 @@ const careSessionSchema = new mongoose.Schema(
       type: [new mongoose.Schema({ ...by, from: Date, to: Date, reason: { type: String, trim: true, default: '' } }, { _id: false })],
       default: [],
     },
+    // Call details: every call made to the parents. `at` is when it was written down and `calledAt` when the call was
+    // made (older entries have only `at`). A call that connected ("connected") keeps how long it lasted and, in `note`,
+    // what was said; the others why it did not connect.
     attempts: {
-      type: [new mongoose.Schema({ ...by, outcome: { type: String, enum: ATTEMPTS, required: true }, note: { type: String, trim: true, default: '' } }, { _id: false })],
+      type: [new mongoose.Schema({
+        ...by, outcome: { type: String, enum: ATTEMPTS, required: true }, note: { type: String, trim: true, default: '' },
+        calledAt: { type: Date, default: null }, durationSec: { type: Number, default: null },
+      }, { _id: false })],
       default: [],
+    },
+    // Development trackers (DT-01 ... DT-03) have no form and no call: the PCC records when the tracker was sent to the
+    // parents, then pastes the link of the filled tracker, which completes the session.
+    tracker: {
+      type: new mongoose.Schema({
+        sentAt: { type: Date, default: null }, sentByName: { type: String, trim: true, default: '' }, sentRecordedAt: { type: Date, default: null },
+        filledLink: { type: String, trim: true, default: '' }, filledAt: { type: Date, default: null }, filledByName: { type: String, trim: true, default: '' },
+      }, { _id: false }),
+      default: undefined,
     },
     // The filled template (careTemplates/): answers by block id, which version, when it was opened and saved.
     form: {
@@ -86,10 +101,12 @@ const careSessionSchema = new mongoose.Schema(
       type: new mongoose.Schema({ reason: String, details: String, missed: Boolean, at: Date, byName: String, attempts: Number }, { _id: false }),
       default: undefined,
     },
-    // Reminders for this session (the PCC's own, e.g. "call again after 6 pm"); a due one shows in pending work.
+    // Reminders for this session (the PCC's own, e.g. "call again after 6 pm"); a due one shows in pending work and
+    // pops up for the person the session is given to. kind "call": made by the call time (10 minutes before it).
     reminders: {
       type: [new mongoose.Schema({
         at: { type: Date, required: true },
+        kind: { type: String, trim: true, default: '' },
         note: { type: String, trim: true, default: '' },
         byName: { type: String, trim: true, default: '' },
         createdAt: { type: Date, default: Date.now },

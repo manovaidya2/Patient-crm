@@ -71,6 +71,13 @@ const stateOf = (session, now = new Date()) => {
   if (session.status === 'completed') return 'done';
   if (session.status === 'missed') return 'missed';
   if (session.status === 'cancelled') return 'cancelled';
+  // A development tracker has no call and no form: it is sent to the parents, then their filled tracker's link is
+  // pasted (that completes it). Due by its day until it is sent; then it waits for the filled tracker.
+  if (session.kind === 'tracker') {
+    if (session.tracker?.sentAt) return 'tracker_sent';
+    const due = dueDayOf(session); const today = dayOf(now);
+    return due < today ? 'overdue' : due === today ? 'today' : 'upcoming';
+  }
   if ((session.reschedules || []).length >= RESCHEDULE_LIMIT) return 'alert';
   const today = dayOf(now);
   const day = session.callAt ? dayOf(session.callAt) : session.targetDate;
@@ -80,12 +87,17 @@ const stateOf = (session, now = new Date()) => {
   return 'upcoming';
 };
 const STATE_LABEL = {
-  done: 'Done', missed: 'Closed · Missed by patient', cancelled: 'Closed', alert: 'Action needed', overdue: 'Overdue', today: 'Today', needs_time: 'Set call time', upcoming: 'Scheduled',
+  done: 'Done', missed: 'Closed · Missed by patient', cancelled: 'Closed', alert: 'Action needed', overdue: 'Overdue', today: 'Today', needs_time: 'Set call time', upcoming: 'Scheduled', tracker_sent: 'Tracker sent · waiting',
 };
+// The call time's own reminder starts this long before the call (utils/careService.syncCallReminder).
+const CALL_LEAD_MS = 10 * 60000;
+const istText = (date) => new Date(date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+// The calls of a session that did not connect (the same list also keeps the calls that connected).
+const missedCalls = (session) => (session?.attempts || []).filter((a) => a.outcome !== 'connected');
 const dueDayOf = (session) => (session?.callAt ? dayOf(session.callAt) : session?.targetDate || '');
 
 module.exports = {
   PHASE_DAYS, RESCHEDULE_LIMIT, OFF_WEEKDAYS, KIND_LABEL, PLAN, PLAN_BY_CODE, OPEN, STATE_LABEL,
   fail, dayOf, addDays, diffDays, weekdayOf, validDay, isOffDay, workingDay, atTime,
-  supplyDays, coveredDays, supplyDone, itemsForPart, callTimeProblem, isOpen, stateOf, dueDayOf,
+  supplyDays, coveredDays, supplyDone, itemsForPart, callTimeProblem, isOpen, stateOf, dueDayOf, missedCalls, CALL_LEAD_MS, istText,
 };

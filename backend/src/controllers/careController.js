@@ -1,7 +1,7 @@
 // Care Schedule: the follow-ups, family sessions and development trackers of every phase whose medicine start date
 // was filled after the explanation (utils/careSchedule.js, utils/careService.js). The PCC sets the call time, can
 // reschedule it twice (then the session is on red alert until it is completed, marked missed by the parents or
-// cancelled), records calls that did not connect, and fills the session's form (careTemplates/) to mark it done.
+// cancelled), records every call made (Call details), and fills the session's form (careTemplates/) to mark it done.
 // The Manager / Admin reassigns a session to another person (e.g. the PCC is on leave that day).
 const mongoose = require('mongoose');
 const CareSession = require('../models/CareSession');
@@ -9,7 +9,7 @@ const User = require('../models/User');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES } = require('../constants/roles');
 const C = require('../utils/careSchedule');
-const { leavesOf, leaveOn } = require('../utils/careService');
+const { leavesOf, leaveOn, syncCallReminder } = require('../utils/careService');
 const { buildContext } = require('../utils/careContext');
 const R = require('../careTemplates/rules');
 const { basicTemplate } = require('../careTemplates/basic');
@@ -48,7 +48,12 @@ const CLOSE_REASONS = [
   { label: 'Done another way (in clinic / other session)', missed: false },
   { label: 'Other', missed: false },
 ];
-const ATTEMPT_LABEL = { not_connected: 'Not connected', busy: 'Busy — call later', switched_off: 'Switched off', wrong_number: 'Wrong number', callback: 'Asked to call back' };
+const ATTEMPT_LABEL = { not_connected: 'Not connected', busy: 'Busy — call later', switched_off: 'Switched off', wrong_number: 'Wrong number', callback: 'Asked to call back', connected: 'Picked up — talked' };
+const durationText = (sec) => {
+  if (sec == null) return '';
+  const m = Math.floor(sec / 60); const s = sec % 60;
+  return m ? `${m} min${s ? ` ${s} sec` : ''}` : `${s} sec`;
+};
 
 // One session for the lists and the patient page.
 const viewOf = (s, { now = new Date(), leaves = new Map(), full = false } = {}) => {
@@ -61,10 +66,13 @@ const viewOf = (s, { now = new Date(), leaves = new Map(), full = false } = {}) 
     callAt: s.callAt, dueDay: day, status: s.status, state, stateLabel: C.STATE_LABEL[state] || state,
     owner: s.owner ? String(s.owner) : null, ownerName: s.ownerName || '', assignee: s.assignee ? String(s.assignee) : null, assigneeName: s.assigneeName || '',
     covered: Boolean(s.cover && String(s.assignee) !== String(s.owner)), cover: s.cover || null,
-    reschedulesUsed: (s.reschedules || []).length, rescheduleLimit: C.RESCHEDULE_LIMIT, attempts: (s.attempts || []).length,
-    lastAttempt: (s.attempts || []).slice(-1)[0] || null,
+    // attempts: the calls that did not connect (as before); calls: every call recorded, talked: the ones that connected.
+    reschedulesUsed: (s.reschedules || []).length, rescheduleLimit: C.RESCHEDULE_LIMIT, attempts: C.missedCalls(s).length,
+    calls: (s.attempts || []).length, talked: (s.attempts || []).length - C.missedCalls(s).length,
+    lastAttempt: C.missedCalls(s).slice(-1)[0] || null,
     leave: leave ? { ...leave, text: `${s.assigneeName || s.ownerName || 'The PCC'} is on leave${leave.source === 'hr' ? ` (HR, ${leave.status === 'approved' ? 'approved' : 'requested'})` : ''} ${leave.from === leave.to ? leave.from : `${leave.from} to ${leave.to}`}` } : null,
-    final: s.form?.answers?.final || '', hasDraft: Boolean(s.form?.savedAt) && s.status !== 'completed',
+    final: s.form?.answers?.final || (s.status === 'completed' && s.tracker?.filledLink ? 'Tracker filled' : ''), hasDraft: Boolean(s.form?.savedAt) && s.status !== 'completed',
+    tracker: s.tracker || null,
     completedAt: s.completedAt, completedByName: s.completedByName || '', missedReason: s.missedReason || '', missedAt: s.missedAt, missedByName: s.missedByName || '',
     cancelReason: s.cancelReason || '', cancelledAt: s.cancelledAt, cancelledByName: s.cancelledByName || '',
     closed: s.closed || null,
@@ -72,7 +80,7 @@ const viewOf = (s, { now = new Date(), leaves = new Map(), full = false } = {}) 
     doctorRequests: (s.doctorRequests || []).map((d) => ({ advice: String(d.advice), level: d.level, at: d.at })),
     reminderDue: (s.reminders || []).some((r) => !r.doneAt && new Date(r.at) <= now),
     notesCount: (s.notes || []).length,
-    ...(full ? { notes: s.notes || [], reminders: s.reminders || [], reschedules: s.reschedules || [], attemptsList: (s.attempts || []).map((a) => ({ ...a, label: ATTEMPT_LABEL[a.outcome] || a.outcome })), log: s.log || [], form: s.form || null } : {}),
+    ...(full ? { notes: s.notes || [], reminders: s.reminders || [], reschedules: s.reschedules || [], attemptsList: (s.attempts || []).map((a) => ({ ...a, label: ATTEMPT_LABEL[a.outcome] || a.outcome, connected: a.outcome === 'connected', calledAt: a.calledAt || a.at, duration: durationText(a.durationSec) })), log: s.log || [], form: s.form || null } : {}),
   };
 };
 
@@ -100,7 +108,7 @@ const respond = async (req, res, session, extra = {}) => {
 
 // @route GET /api/care/sessions?view=work|today|overdue|alert|needs_time|upcoming|done|missed|cancelled|all&kind=&person=&q=
 // The worklist. A PCC sees the sessions assigned to them; Admin, Manager and Doctor see everyone's (person= filters).
-const WORK = ['alert', 'overdue', 'today', 'needs_time'];
+const WORK = ['alert', 'overdue', 'today', 'needs_time', 'tracker_sent'];
 const listSessions = asyncHandler(async (req, res) => {
   const now = new Date();
   const filter = {};
@@ -124,7 +132,7 @@ const listSessions = asyncHandler(async (req, res) => {
   const rows = await CareSession.find(filter).select('-form.answers -log').sort({ targetDate: 1 }).limit(['done', 'missed', 'cancelled', 'closed', 'all'].includes(view) ? 300 : 1000).lean();
   const leaves = await leavesFor(rows);
   let list = rows.map((s) => viewOf(s, { now, leaves }));
-  const counts = { work: 0, alert: 0, overdue: 0, today: 0, needs_time: 0, upcoming: 0, leave: 0, requests: 0 };
+  const counts = { work: 0, alert: 0, overdue: 0, today: 0, needs_time: 0, tracker_sent: 0, upcoming: 0, leave: 0, requests: 0 };
   list.forEach((s) => {
     if (counts[s.state] != null) counts[s.state] += 1;
     if (WORK.includes(s.state)) counts.work += 1;
@@ -135,7 +143,7 @@ const listSessions = asyncHandler(async (req, res) => {
   else if (view === 'requests') list = list.filter((s) => s.reassignAsked);
   else if (['alert', 'overdue', 'today', 'needs_time', 'upcoming'].includes(view)) list = list.filter((s) => s.state === view);
   else if (view === 'leave') list = list.filter((s) => s.leave);
-  const rank = { alert: 0, overdue: 1, today: 2, needs_time: 3, upcoming: 4 };
+  const rank = { alert: 0, overdue: 1, today: 2, needs_time: 3, tracker_sent: 3, upcoming: 4 };
   if (!['done', 'missed', 'cancelled', 'closed', 'all'].includes(view)) list.sort((a, b) => (rank[a.state] ?? 9) - (rank[b.state] ?? 9) || String(a.dueDay).localeCompare(String(b.dueDay)));
   else list.sort((a, b) => new Date(b.completedAt || b.missedAt || b.cancelledAt || 0) - new Date(a.completedAt || a.missedAt || a.cancelledAt || 0));
   const staff = seesAll(req.user) ? (await User.find({ role: ROLES.ASSISTANT_DOCTOR, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean()).map((u) => ({ id: String(u._id), name: u.name })) : [];
@@ -177,6 +185,9 @@ const getSession = asyncHandler(async (req, res) => {
 });
 
 const openOnly = (session) => { if (!C.isOpen(session)) fail(`This session is already ${session.status === 'completed' ? 'done' : session.status}`); };
+// A development tracker is sent and filled (no call time, no form).
+const NO_CALL_FOR_TRACKER = 'A development tracker has no call time or form: record when it was sent, then paste the link of the filled tracker';
+const notTracker = (session) => { if (session.kind === 'tracker') fail(NO_CALL_FOR_TRACKER); };
 const callTime = (value) => {
   const problem = C.callTimeProblem(value);
   if (problem) fail(problem);
@@ -184,13 +195,16 @@ const callTime = (value) => {
 };
 
 // @route PATCH /api/care/sessions/:id/call  { callAt }  - the first call time (a set time moves only by rescheduling).
+// It makes the call's reminder: 10 minutes before the call it pops up for the person the session is given to.
 const setCallTime = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
+  notTracker(session);
   if (session.callAt) fail('The call time is already set. Use Reschedule to change it.');
   session.callAt = callTime(req.body?.callAt);
   session.status = 'scheduled';
-  note(session, req.user, `Call time set: ${session.callAt.toISOString()}`);
+  syncCallReminder(session, req.user.name);
+  note(session, req.user, `Call time set: ${C.istText(session.callAt)} (reminder 10 minutes before)`);
   await respond(req, res, session);
 });
 
@@ -198,6 +212,7 @@ const setCallTime = asyncHandler(async (req, res) => {
 const reschedule = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
+  notTracker(session);
   if (!session.callAt) fail('Set the call time first');
   if (session.reschedules.length >= C.RESCHEDULE_LIMIT) fail(`This session was already rescheduled ${C.RESCHEDULE_LIMIT} times. Complete it, mark it missed by the parents, or cancel it.`);
   const reason = text(req.body?.reason, 500);
@@ -206,18 +221,38 @@ const reschedule = asyncHandler(async (req, res) => {
   session.reschedules.push({ at: new Date(), by: req.user._id, byName: req.user.name, from: session.callAt, to, reason });
   session.callAt = to;
   session.status = 'scheduled';
-  note(session, req.user, `Rescheduled (${session.reschedules.length}/${C.RESCHEDULE_LIMIT}) to ${to.toISOString()}: ${reason}`);
+  syncCallReminder(session, req.user.name);
+  note(session, req.user, `Rescheduled (${session.reschedules.length}/${C.RESCHEDULE_LIMIT}) to ${C.istText(to)}: ${reason} (reminder moved)`);
   await respond(req, res, session);
 });
 
-// @route POST /api/care/sessions/:id/attempt  { outcome, note }  - a call that did not connect.
+// @route POST /api/care/sessions/:id/attempt  { outcome, calledAt, minutes, note }  - Call details: a call made to the
+// parents. When it was made (default now, not in the future); picked up ("connected": how many minutes, what was said)
+// or not (why). Only the outcome is required.
 const addAttempt = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
   const outcome = String(req.body?.outcome || '');
-  if (!ATTEMPT_LABEL[outcome]) fail('Choose what happened on the call');
-  session.attempts.push({ at: new Date(), by: req.user._id, byName: req.user.name, outcome, note: text(req.body?.note, 500) });
-  note(session, req.user, `Call attempt ${session.attempts.length}: ${ATTEMPT_LABEL[outcome]}${req.body?.note ? ` — ${text(req.body.note, 200)}` : ''}`);
+  if (!ATTEMPT_LABEL[outcome]) fail('Choose whether the parent picked up, and if not, what happened');
+  const now = new Date();
+  const calledAt = req.body?.calledAt ? new Date(req.body.calledAt) : now;
+  if (Number.isNaN(calledAt.getTime())) fail('Choose when the call was made');
+  if (calledAt - now > 5 * 60000) fail('The call time cannot be in the future');
+  const connected = outcome === 'connected';
+  const raw = req.body?.minutes;
+  let durationSec = null;
+  if (connected && raw !== undefined && raw !== null && String(raw).trim() !== '') {
+    const minutes = Number(raw);
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 600) fail('Duration: enter the minutes (0 to 600)');
+    durationSec = Math.round(minutes * 60);
+  }
+  const said = text(req.body?.note, connected ? 3000 : 500);
+  session.attempts.push({ at: now, by: req.user._id, byName: req.user.name, outcome, note: said, calledAt, durationSec });
+  // The call was made: the call time's reminder stops (once it has started, or whenever the parent picked up).
+  const callReminder = session.reminders.find((r) => r.kind === 'call' && !r.doneAt);
+  if (callReminder && (connected || callReminder.at <= now)) Object.assign(callReminder, { doneAt: now, doneByName: `${req.user.name} (call recorded)` });
+  const how = [ATTEMPT_LABEL[outcome], durationText(durationSec)].filter(Boolean).join(', ');
+  note(session, req.user, `Call ${session.attempts.length} (${C.istText(calledAt)}): ${how}${said ? ` — ${said.slice(0, 200)}` : ''}`);
   await respond(req, res, session);
 });
 
@@ -245,10 +280,11 @@ const closeSession = asyncHandler(async (req, res) => {
   if (details.length < 3) fail('Write the details: what happened (calls made, messages sent, what the parent said)');
   const now = new Date();
   const line = `${picked.label} — ${details}`;
-  session.closed = { reason: picked.label, details, missed: picked.missed, at: now, byName: req.user.name, attempts: session.attempts.length };
+  const notConnected = C.missedCalls(session).length;
+  session.closed = { reason: picked.label, details, missed: picked.missed, at: now, byName: req.user.name, attempts: notConnected };
   if (picked.missed) Object.assign(session, { status: 'missed', missedAt: now, missedReason: line, missedByName: req.user.name });
   else Object.assign(session, { status: 'cancelled', cancelledAt: now, cancelReason: line, cancelledByName: req.user.name });
-  note(session, req.user, `Closed: ${line} (${session.attempts.length} call${session.attempts.length === 1 ? '' : 's'} not connected)`);
+  note(session, req.user, `Closed: ${line} (${notConnected} call${notConnected === 1 ? '' : 's'} not connected)`);
   await respond(req, res, session);
 });
 
@@ -383,6 +419,7 @@ const writeForm = (session, template, body, user) => {
 const saveForm = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
+  notTracker(session);
   const template = templateFor(session);
   const answers = writeForm(session, template, req.body, req.user);
   const sent = await escalate(req, session, template, answers);
@@ -394,6 +431,7 @@ const saveForm = asyncHandler(async (req, res) => {
 const completeSession = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
+  notTracker(session);
   const template = templateFor(session);
   const answers = writeForm(session, template, req.body, req.user);
   const sent = await escalate(req, session, template, answers);
@@ -444,6 +482,41 @@ const uploadNotes = asyncHandler(async (req, res) => {
   await respond(req, res, session, { recordRoom: { id: String(record._id), pdfUrl: record.pdfUrl, pdfName: record.pdfName, pages: record.pdfPageCount } });
 });
 
+// ---- Development tracker --------------------------------------------------------------------------------------------
+const trackerOnly = (session) => { if (session.kind !== 'tracker') fail('Only a development tracker is sent and filled'); };
+const plainOf = (value) => (value?.toObject ? value.toObject() : value || {});
+// @route POST /api/care/sessions/:id/tracker-sent  { sentAt }  - when the tracker was sent to the parents (it can be
+// corrected until the filled tracker comes).
+const trackerSent = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  trackerOnly(session);
+  openOnly(session);
+  const sentAt = req.body?.sentAt ? new Date(req.body.sentAt) : null;
+  if (!sentAt || Number.isNaN(sentAt.getTime())) fail('Choose when the tracker was sent');
+  if (sentAt - Date.now() > 5 * 60000) fail('The sent time cannot be in the future');
+  const again = Boolean(session.tracker?.sentAt);
+  session.tracker = { ...plainOf(session.tracker), sentAt, sentByName: req.user.name, sentRecordedAt: new Date() };
+  note(session, req.user, `${again ? 'Tracker sent time changed' : 'Tracker sent'}: ${C.istText(sentAt)}`);
+  await respond(req, res, session);
+});
+// @route POST /api/care/sessions/:id/tracker-filled  { link }  - the link of the parents' filled tracker; this completes
+// the session.
+const trackerFilled = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  trackerOnly(session);
+  openOnly(session);
+  if (!session.tracker?.sentAt) fail('First record when the tracker was sent');
+  const link = text(req.body?.link, 1000);
+  let web = false;
+  try { web = ['http:', 'https:'].includes(new URL(link).protocol); } catch { web = false; }
+  if (!web) fail('Paste the link of the filled tracker (it starts with https://)');
+  const now = new Date();
+  session.tracker = { ...plainOf(session.tracker), filledLink: link, filledAt: now, filledByName: req.user.name };
+  Object.assign(session, { status: 'completed', completedAt: now, completedBy: req.user._id, completedByName: req.user.name });
+  note(session, req.user, `Tracker filled — done: ${link}`);
+  await respond(req, res, session);
+});
+
 // ---- Reminders ------------------------------------------------------------------------------------------------------
 // @route POST /api/care/sessions/:id/reminders  { at, note }
 const addReminder = asyncHandler(async (req, res) => {
@@ -475,7 +548,7 @@ const sessionAdvice = asyncHandler(async (req, res) => {
   const session = await loadSession(req);
   const AdviceRequest = require('../models/AdviceRequest');
   const rows = await AdviceRequest.find({ patient: session.patient }).sort({ createdAt: -1 }).limit(50)
-    .select('stage query askedAt createdAt status isUrgent requestedByName advice adviceGivenAt adviceGivenByName adviceVoice.url sentToPatientAt resolvedAt rounds').lean();
+    .select('stage query askedAt createdAt status isUrgent requestedByName advice adviceGivenAt adviceGivenByName adviceVoice.url sentToPatientAt resolvedAt rounds alarms lastAlarmAt').lean();
   const mineIds = new Set((session.doctorRequests || []).map((d) => String(d.advice)));
   res.json({
     success: true,
@@ -483,6 +556,8 @@ const sessionAdvice = asyncHandler(async (req, res) => {
       id: String(a._id), phase: a.stage, query: a.query, askedAt: a.askedAt || a.createdAt, urgent: Boolean(a.isUrgent), by: a.requestedByName || '',
       status: a.resolvedAt ? 'solved' : a.status === 'advice_given' ? (a.sentToPatientAt ? 'sent to patient' : 'answered') : 'waiting for the doctor',
       advice: a.advice || '', adviceAt: a.adviceGivenAt, adviceBy: a.adviceGivenByName || '', voice: a.adviceVoice?.url || '', fromThisSession: mineIds.has(String(a._id)), rounds: (a.rounds || []).length,
+      // Still with the doctor: the PCC can ring the doctor's alarm (POST /api/advice/:id/alarm).
+      canRing: !a.resolvedAt && a.status === 'requested', rings: (a.alarms || []).length, lastAlarmAt: a.lastAlarmAt || null, lastAlarmBy: (a.alarms || []).slice(-1)[0]?.byName || '',
     })),
   });
 });
@@ -505,6 +580,34 @@ const askDoctor = asyncHandler(async (req, res) => {
   await respond(req, res, session);
 });
 
+// @route GET /api/care/reminders  - the reminders popping up now for the signed-in person: the call time's (from 10
+// minutes before the call) and their own, of the open sessions given to them. A call time set before these reminders
+// were kept gets the same reminder until a call is recorded.
+const myReminders = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const soon = new Date(now.getTime() + C.CALL_LEAD_MS);
+  const rows = mongoose.connection.readyState !== 1 ? [] : await CareSession.find({ assignee: req.user._id, status: { $in: C.OPEN }, $or: [
+    { reminders: { $elemMatch: { doneAt: null, at: { $lte: now } } } },
+    { callAt: { $ne: null, $lte: soon }, 'reminders.kind': { $ne: 'call' } },
+  ] }).select('patient patientName patientCode phase kind code title day callAt reminders attempts.at attempts.calledAt').lean();
+  res.json({ success: true, reminders: remindersOf(rows, now) });
+});
+const remindersOf = (rows, now = new Date()) => {
+  const items = [];
+  rows.forEach((s) => {
+    const base = { sessionId: String(s._id), patientId: String(s.patient), patientName: s.patientName, patientCode: s.patientCode || '', phase: s.phase, code: s.code, title: s.title, callAt: s.callAt || null };
+    const tracker = s.kind === 'tracker';
+    (s.reminders || []).filter((r) => !r.doneAt && new Date(r.at) <= now && !(tracker && r.kind === 'call'))
+      .forEach((r) => items.push({ ...base, id: `care-${r._id}`, kind: r.kind === 'call' ? 'call' : 'note', at: r.at, note: r.note }));
+    if (s.callAt && !tracker && !(s.reminders || []).some((r) => r.kind === 'call')) {
+      const from = new Date(new Date(s.callAt).getTime() - C.CALL_LEAD_MS);
+      const called = (s.attempts || []).some((a) => new Date(a.at) >= from);
+      if (from <= now && !called) items.push({ ...base, id: `care-call-${s._id}-${from.getTime()}`, kind: 'call', at: from, note: `Call the parent — call time ${C.istText(s.callAt)}` });
+    }
+  });
+  return items.sort((a, b) => new Date(a.at) - new Date(b.at));
+};
+
 // Open sessions waiting on a person (sidebar count / Your pending work): red alert, overdue, today, no call time
 // within 3 days, a reminder due, or on a leave day (for the Manager / Admin).
 const careWork = async (user, now = new Date()) => {
@@ -516,7 +619,7 @@ const careWork = async (user, now = new Date()) => {
     ...(manages(user) ? [{ 'reassignRequest.status': 'open' }] : []),
   ] };
   if (!seesAll(user)) filter.assignee = user._id;
-  const rows = await CareSession.find(filter).select('patient patientName patientCode phase kind seq code title day targetDate callAt status owner ownerName assignee assigneeName reschedules cover reminders reassignRequest').lean();
+  const rows = await CareSession.find(filter).select('patient patientName patientCode phase kind seq code title day targetDate callAt status owner ownerName assignee assigneeName reschedules cover reminders reassignRequest tracker').lean();
   const leaves = manages(user) ? await leavesFor(rows) : new Map();
   return rows.map((s) => viewOf(s, { now, leaves })).filter((s) => WORK.includes(s.state) || s.leave || s.reminderDue || (manages(user) && s.reassignAsked))
     .sort((a, b) => ({ alert: 0, overdue: 1 }[a.state] ?? 2) - ({ alert: 0, overdue: 1 }[b.state] ?? 2) || String(a.dueDay).localeCompare(String(b.dueDay)));
@@ -628,5 +731,5 @@ module.exports = {
   convertPreview, convertRun,
   calendar, markLeave, removeLeave,
   listSessions, patientSessions, getSession, setCallTime, reschedule, addAttempt, markMissed, cancelSession, reopenSession, listStaff, assignSession,
-  saveForm, completeSession, closeSession, careWork, viewOf, MISSED_REASONS, CLOSE_REASONS, ATTEMPT_LABEL,
+  saveForm, completeSession, closeSession, careWork, viewOf, MISSED_REASONS, CLOSE_REASONS, ATTEMPT_LABEL, myReminders, remindersOf, trackerSent, trackerFilled,
 };

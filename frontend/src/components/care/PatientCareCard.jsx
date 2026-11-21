@@ -34,7 +34,7 @@ export default function PatientCareCard({ patientId }) {
                     <span className={`mt-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-bold ${kind.chip}`}>{s.code}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] font-bold text-charcoal">{s.title} · Day {s.day}</span>
-                      <span className="block text-[11.5px] text-charcoal/60">{s.status === 'completed' ? `Done ${fmtAt(s.completedAt)}` : s.callAt ? `Call ${fmtAt(s.callAt)}` : `Due ${fmtDay(s.targetDate)}`}{s.assigneeName ? ` · ${s.assigneeName}` : ''}</span>
+                      <span className="block text-[11.5px] text-charcoal/60">{s.status === 'completed' ? `Done ${fmtAt(s.completedAt)}` : s.kind === 'tracker' ? (s.tracker?.sentAt ? `Tracker sent ${fmtAt(s.tracker.sentAt)}` : `Due ${fmtDay(s.targetDate)}`) : s.callAt ? `Call ${fmtAt(s.callAt)}` : `Due ${fmtDay(s.targetDate)}`}{s.assigneeName ? ` · ${s.assigneeName}` : ''}</span>
                       {s.final && <span className="block truncate text-[11px] text-[#1F4F3D]">{s.final}</span>}
                       {s.leave && <span className="flex items-center gap-1 text-[11px] font-semibold text-[#9A5B00]"><UserX size={11} />PCC on leave</span>}
                     </span>

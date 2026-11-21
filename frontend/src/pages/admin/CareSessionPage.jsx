@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
-  AlertTriangle, Bell, CalendarClock, Camera, FileText, NotebookPen, Upload, CheckCircle2, ClipboardList, History, Phone, PhoneOff, RotateCcw, Save, Stethoscope,
+  AlarmClock, AlertTriangle, Bell, CalendarClock, Camera, FileText, NotebookPen, Upload, CheckCircle2, ClipboardList, History, Link2, Phone, PhoneCall, PhoneOff, RotateCcw, Save, Send, Stethoscope,
   UserRoundCog, UserX, XCircle,
 } from 'lucide-react';
 import api from '../../api/axios.js';
 import Button from '../../components/ui/Button.jsx';
+import DictationButton from '../../components/ui/DictationButton.jsx';
 import CareForm, { withContext } from '../../components/care/CareForm.jsx';
 import { KIND_STYLE, STATE_STYLE, fmtAt, fmtDay } from '../../components/care/careUi.js';
 
@@ -13,6 +14,10 @@ const errorText = (error) => error?.response?.data?.message || error?.message ||
 const wednesday = (value) => value && new Date(value).getDay() === 3;
 const atEleven = (day) => (day ? `${day}T11:00` : '');
 const localNow = () => { const d = new Date(Date.now() + 3600000); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`; };
+const pad = (n) => String(n).padStart(2, '0');
+// A date for a datetime-local box (now, by default: the call was just made).
+const inputOf = (value) => { const d = value ? new Date(value) : new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const nowInput = () => inputOf();
 const AUTOSAVE_MS = 4000;
 const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 const fileUrl = (url) => (/^https?:/.test(url || '') ? url : `${SERVER_BASE}${url}`);
@@ -20,11 +25,14 @@ const TABS = [
   ['form', 'Form', ClipboardList], ['notes', 'Handwritten notes', NotebookPen], ['calls', 'Call details', Phone], ['advice', 'Doctor advice', Stethoscope],
   ['reminders', 'Reminders', Bell], ['reschedule', 'Reschedule', CalendarClock], ['history', 'History', History],
 ];
+// A development tracker has no form and no call time: its own tab (sent, then the filled tracker's link) instead.
+const TRACKER_TABS = [['tracker', 'Tracker', Send], ...TABS.filter(([key]) => !['form', 'reschedule'].includes(key))];
+const StepMark = ({ n, done }) => <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${done ? 'bg-[#1F5F4A] text-white' : 'bg-charcoal/[0.08] text-charcoal/60'}`}>{done ? <CheckCircle2 size={14} /> : n}</span>;
 const input = 'mt-1 w-full rounded-lg border border-cardline bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-sage';
 
-function Panel({ title, children, action }) {
+function Panel({ title, children, action, className = '' }) {
   return (
-    <section className="rounded-xl border border-cardline bg-white">
+    <section className={`rounded-xl border border-cardline bg-white ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cardline px-4 py-2.5"><h3 className="text-sm font-bold text-charcoal">{title}</h3>{action}</div>
       <div className="space-y-3 p-4">{children}</div>
     </section>
@@ -67,6 +75,9 @@ export default function CareSessionPage() {
   useEffect(() => { startedAt.current = new Date().toISOString(); setData(null); load(); }, [load]);
 
   const s = data?.session;
+  const isTracker = s?.kind === 'tracker';
+  const tabs = isTracker ? TRACKER_TABS : TABS;
+  const shownTab = tabs.some(([key]) => key === tab) ? tab : tabs[0][0];
   const isOpen = s && ['pending', 'scheduled'].includes(s.status);
   const canAct = Boolean(data?.canAct) && isOpen;
   const limitReached = s && s.reschedulesUsed >= s.rescheduleLimit;
@@ -126,10 +137,34 @@ export default function CareSessionPage() {
     api.get('/care/staff', { params: { day: s.dueDay }, skipCache: true }).then(({ data: res }) => { setStaff(res.staff || []); setStaffError(''); }).catch((e) => setStaffError(errorText(e)));
   }, [data?.canManage, data?.canAct, s?.dueDay]);
   const onFormAction = (name) => {
-    if (name === 'attempt') { setTab('calls'); set('panel', 'attempt'); }
+    if (name === 'attempt') { setTab('calls'); set('callKind', 'missed'); }
     if (name === 'reschedule') setTab('reschedule');
     top();
   };
+  // Call details: one call made to the parents (picked up: minutes + what was said; not: what happened).
+  const saveCall = () => {
+    const picked = fields.callKind === 'picked';
+    if (!picked && !fields.outcome) { setError('क्या हुआ चुनें (Not connected / Busy / Switched off …)'); top(); return; }
+    if (fields.calledAt && new Date(fields.calledAt) > new Date(Date.now() + 5 * 60000)) { setError('Call का time आगे का नहीं हो सकता'); top(); return; }
+    run(() => api.post(`/care/sessions/${id}/attempt`, {
+      outcome: picked ? 'connected' : fields.outcome,
+      ...(fields.calledAt ? { calledAt: new Date(fields.calledAt).toISOString() } : {}),
+      ...(picked ? { minutes: fields.minutes ?? '', note: fields.talk || '' } : { note: fields.note || '' }),
+    }), picked ? 'Call saved — picked up' : 'Call saved — not connected');
+  };
+  // The doctor has not answered a query yet: ring the doctor's alarm (it rings on the doctor's screen until answered).
+  const ringDoctor = async (adviceId) => {
+    const res = await run(() => api.post(`/advice/${adviceId}/alarm`, { note: fields.ringNote || '' }), 'Doctor का alarm बज गया — doctor के answer देने तक बजता रहेगा');
+    if (res) loadAdvice();
+  };
+  // Development tracker: when it was sent, then the filled tracker's link (completes the session).
+  const saveSent = () => {
+    const value = fields.sentAt ?? inputOf(s.tracker?.sentAt);
+    if (!value) { setError('Date और time चुनें'); top(); return; }
+    if (new Date(value) > new Date(Date.now() + 5 * 60000)) { setError('भेजने का time आगे का नहीं हो सकता'); top(); return; }
+    run(() => api.post(`/care/sessions/${id}/tracker-sent`, { sentAt: new Date(value).toISOString() }), 'Tracker sent — time saved');
+  };
+  const saveFilled = () => run(() => api.post(`/care/sessions/${id}/tracker-filled`, { link: String(fields.link || '').trim() }), 'Tracker filled — session complete');
   const kind = KIND_STYLE[s?.kind] || KIND_STYLE.followup;
   const openReminders = useMemo(() => (s?.reminders || []).filter((r) => !r.doneAt).length, [s]);
 
@@ -153,7 +188,7 @@ export default function CareSessionPage() {
           </div>
           <div className="text-right">
             <span className={`inline-block rounded-full px-3 py-1 text-xs font-bold ${STATE_STYLE[s.state] || ''}`}>{s.stateLabel}</span>
-            <p className="mt-1 text-[12.5px] text-charcoal/70">Call: <b>{s.callAt ? fmtAt(s.callAt) : 'not set'}</b></p>
+            <p className="mt-1 text-[12.5px] text-charcoal/70">{isTracker ? <>Tracker: <b>{s.tracker?.filledLink ? 'filled' : s.tracker?.sentAt ? `sent ${fmtAt(s.tracker.sentAt)}` : 'not sent yet'}</b></> : <>Call: <b>{s.callAt ? fmtAt(s.callAt) : 'not set'}</b></>}</p>
             {canAct && <Button size="sm" variant="outline" className="mt-2 border-[#B4232F]/40 text-[#8A1C25]" onClick={() => setClosing(!closing)}><XCircle size={14} className="mr-1 inline" />{closing ? 'Keep open' : 'Close'}</Button>}
           </div>
         </div>
@@ -197,19 +232,55 @@ export default function CareSessionPage() {
       {notice && <p className="flex items-start gap-2 rounded-lg border border-[#1F5F4A]/30 bg-[#F2F7F4] px-3 py-2 text-[13px] font-semibold text-[#1F4F3D]"><CheckCircle2 size={15} className="mt-0.5 shrink-0" />{notice}</p>}
 
       <div className="sticky top-0 z-10 -mx-1 flex gap-1.5 overflow-x-auto border-b border-cardline bg-offwhite-100/95 px-1 backdrop-blur">
-        {TABS.map(([key, label, Icon]) => {
-          const count = key === 'notes' ? (s.notes || []).length : key === 'reminders' ? openReminders : key === 'reschedule' ? s.reschedulesUsed : key === 'calls' ? s.attempts : key === 'advice' ? (s.doctorRequests || []).length : 0;
+        {tabs.map(([key, label, Icon]) => {
+          const count = key === 'notes' ? (s.notes || []).length : key === 'reminders' ? openReminders : key === 'reschedule' ? s.reschedulesUsed : key === 'calls' ? (s.calls ?? s.attempts) : key === 'advice' ? (s.doctorRequests || []).length : 0;
           return (
-            <button key={key} type="button" onClick={() => setTab(key)} aria-pressed={tab === key} className={`my-1.5 flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-bold transition ${tab === key ? 'bg-[#1F5F4A] text-white shadow-sm' : 'text-charcoal/60 hover:bg-[#EEF3F0] hover:text-charcoal'}`}>
-              <Icon size={15} />{label}{count > 0 && <span className={`rounded-full px-1.5 text-[11px] ${tab === key ? 'bg-white/25' : 'bg-charcoal/[0.08]'}`}>{count}</span>}
+            <button key={key} type="button" onClick={() => setTab(key)} aria-pressed={shownTab === key} className={`my-1.5 flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-bold transition ${shownTab === key ? 'bg-[#1F5F4A] text-white shadow-sm' : 'text-charcoal/60 hover:bg-[#EEF3F0] hover:text-charcoal'}`}>
+              <Icon size={15} />{label}{count > 0 && <span className={`rounded-full px-1.5 text-[11px] ${shownTab === key ? 'bg-white/25' : 'bg-charcoal/[0.08]'}`}>{count}</span>}
               {key === 'reminders' && s.reminderDue && <span className="h-2 w-2 rounded-full bg-[#F97316]" />}
             </button>
           );
         })}
       </div>
 
+      {/* Development tracker: (1) sent to the parents — when; (2) the filled tracker's link — that completes the session. */}
+      {shownTab === 'tracker' && (
+        <Panel title="Development tracker">
+          <p className="text-[12.5px] text-charcoal/65">इस tracker में form नहीं है। (1) Parents को tracker भेजें और भेजने का date &amp; time दर्ज करें। (2) Parents का भरा हुआ tracker आने पर उसकी link paste करें — session complete हो जाएगा।</p>
+          <ol className="space-y-3">
+            <li className={`rounded-lg border p-3 ${s.tracker?.sentAt ? 'border-[#1F5F4A]/35 bg-[#F6FAF7]' : 'border-cardline'}`}>
+              <p className="flex items-center gap-2 text-[13.5px] font-bold text-charcoal"><StepMark n={1} done={Boolean(s.tracker?.sentAt)} />Tracker sent</p>
+              {s.tracker?.sentAt && <p className="mt-1.5 text-[13px]">Sent: <b>{fmtAt(s.tracker.sentAt)}</b> <span className="text-[12px] text-charcoal/55">· recorded by {s.tracker.sentByName}</span>{canAct && !fields.editSent && <button type="button" onClick={() => set('editSent', true)} className="ml-2 text-[12px] font-bold text-[#1F5F4A] underline">Change</button>}</p>}
+              {canAct && (!s.tracker?.sentAt || fields.editSent) && (
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <label className="text-[12px] font-bold">Tracker कब भेजा (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.sentAt ?? inputOf(s.tracker?.sentAt)} onChange={(e) => set('sentAt', e.target.value)} /></label>
+                  <Button size="sm" disabled={busy} onClick={saveSent}><Send size={14} className="mr-1 inline" />{s.tracker?.sentAt ? 'Save time' : 'Tracker sent'}</Button>
+                  {fields.editSent && <Button size="sm" variant="outline" onClick={() => { set('editSent', false); set('sentAt', undefined); }}>Cancel</Button>}
+                </div>
+              )}
+              {!s.tracker?.sentAt && !canAct && <p className="mt-1 text-[12.5px] text-charcoal/55">Not sent.</p>}
+            </li>
+            <li className={`rounded-lg border p-3 ${s.tracker?.filledLink ? 'border-[#1F5F4A]/35 bg-[#F6FAF7]' : 'border-cardline'}`}>
+              <p className="flex items-center gap-2 text-[13.5px] font-bold text-charcoal"><StepMark n={2} done={Boolean(s.tracker?.filledLink)} />Tracker filled</p>
+              {s.tracker?.filledLink ? (
+                <p className="mt-1.5 text-[13px]">
+                  <a href={s.tracker.filledLink} target="_blank" rel="noreferrer" className="inline-flex items-start gap-1 break-all font-bold text-[#1F5F4A] underline"><Link2 size={14} className="mt-0.5 shrink-0" />{s.tracker.filledLink}</a>
+                  <span className="block text-[12px] text-charcoal/55">{s.tracker.filledByName} · {fmtAt(s.tracker.filledAt)}</span>
+                </p>
+              ) : !s.tracker?.sentAt ? <p className="mt-1 text-[12.5px] text-charcoal/55">पहले ऊपर tracker भेजने का time दर्ज करें।</p>
+                : canAct ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <label className="text-[12px] font-bold">भरे हुए tracker की link<input type="url" inputMode="url" className={input} placeholder="https://…" value={fields.link || ''} onChange={(e) => set('link', e.target.value)} /></label>
+                    <Button size="sm" disabled={busy || !String(fields.link || '').trim()} onClick={saveFilled}><CheckCircle2 size={14} className="mr-1 inline" />Save link &amp; complete</Button>
+                  </div>
+                ) : <p className="mt-1 text-[12.5px] text-charcoal/55">भरा हुआ tracker अभी नहीं आया।</p>}
+            </li>
+          </ol>
+        </Panel>
+      )}
+
       {/* 1. The form */}
-      {tab === 'form' && (s.status === 'completed' || canAct
+      {shownTab === 'form' && (s.status === 'completed' || canAct
         ? (
           <>
             <CareForm template={data.template} context={data.context} answers={answers} onChange={(next) => { setAnswers(next); setDirty(true); }} readOnly={!canAct} onAction={onFormAction} code={s.code} />
@@ -225,7 +296,7 @@ export default function CareSessionPage() {
         : <Panel title="Form"><Empty>{isOpen ? 'यह session आपका नहीं है — सिर्फ़ देख सकते हैं।' : 'यह session बंद है; form नहीं भरा गया।'}</Empty></Panel>)}
 
       {/* Handwritten notes: a photo from the camera or a file; each goes to the end of the patient's Records Room PDF. */}
-      {tab === 'notes' && (
+      {shownTab === 'notes' && (
         <div className="space-y-3">
           {data.canAct && (
             <Panel title="Upload a handwritten note">
@@ -268,7 +339,7 @@ export default function CareSessionPage() {
       )}
 
       {/* 2. Call details */}
-      {tab === 'calls' && (
+      {shownTab === 'calls' && (
         <div className="grid gap-3 lg:grid-cols-2">
           <Panel title="Parent contact">
             {c ? (
@@ -280,7 +351,7 @@ export default function CareSessionPage() {
               </div>
             ) : <Empty>Contact not found.</Empty>}
           </Panel>
-          <Panel title="Call time" action={canAct && !s.callAt && <Button size="sm" variant="orange" onClick={() => set('callAt', fields.callAt || atEleven(s.dueDay))}>Set call time</Button>}>
+          {!isTracker && <Panel title="Call time" action={canAct && !s.callAt && <Button size="sm" variant="orange" onClick={() => set('callAt', fields.callAt || atEleven(s.dueDay))}>Set call time</Button>}>
             <p className="text-[13px]">Due day: <b>{fmtDay(s.targetDate)}</b> · Call: <b>{s.callAt ? fmtAt(s.callAt) : 'not set'}</b></p>
             {canAct && !s.callAt && fields.callAt !== undefined && (
               <div className="flex flex-wrap items-end gap-2">
@@ -288,21 +359,66 @@ export default function CareSessionPage() {
                 <Button size="sm" disabled={busy} onClick={() => timeOk(fields.callAt) && run(() => api.patch(`/care/sessions/${id}/call`, { callAt: new Date(fields.callAt).toISOString() }), 'Call time set')}>Save</Button>
               </div>
             )}
+            {s.callAt && isOpen && <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[#7A4A06]"><Bell size={13} />Reminder: call से 10 min पहले ({fmtAt(new Date(new Date(s.callAt).getTime() - 600000))}) {s.assigneeName || 'PCC'} को popup आएगा।</p>}
             {s.callAt && <p className="text-[12px] text-charcoal/55">To change it use the Reschedule tab ({s.reschedulesUsed}/{s.rescheduleLimit} used).</p>}
-          </Panel>
-          <Panel title={`Calls not connected (${s.attempts})`}>
+          </Panel>}
+          {/* Call details: every call made — when, picked up or not, how long, what was said. */}
+          <Panel className="lg:col-span-2" title={`Call details (${s.calls ?? s.attempts})`} action={(s.calls ?? 0) > 0 && <span className="text-[12px] text-charcoal/55">{s.talked} picked up · {s.attempts} not connected</span>}>
             {canAct && (
-              <div className="grid gap-2 sm:grid-cols-[200px_1fr_auto] sm:items-end">
-                <label className="text-[12px] font-bold">What happened<select className={input} value={fields.outcome || ''} onChange={(e) => set('outcome', e.target.value)}><option value="">Choose</option>{Object.entries(data.attemptOutcomes || {}).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-                <label className="text-[12px] font-bold">Note<input className={input} value={fields.note || ''} onChange={(e) => set('note', e.target.value)} /></label>
-                <Button size="sm" disabled={busy} onClick={() => run(() => api.post(`/care/sessions/${id}/attempt`, { outcome: fields.outcome, note: fields.note }), 'Call attempt recorded')}><PhoneOff size={14} className="mr-1 inline" />Record</Button>
+              <div className="space-y-2.5 rounded-lg border border-cardline bg-[#FAF8F2] p-3">
+                <div className="grid gap-2.5 sm:grid-cols-[230px_1fr] sm:items-end">
+                  <label className="text-[12px] font-bold">Call कब हुआ (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.calledAt ?? nowInput()} onChange={(e) => set('calledAt', e.target.value)} /></label>
+                  <div>
+                    <p className="text-[12px] font-bold">Phone उठा?</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {[['picked', 'हाँ — बात हुई', PhoneCall, 'border-[#1F5F4A] bg-[#1F5F4A] text-white'], ['missed', 'नहीं उठा / नहीं लगा', PhoneOff, 'border-[#B4232F] bg-[#B4232F] text-white']].map(([key, label, Icon, on]) => (
+                        <button key={key} type="button" aria-pressed={fields.callKind === key} onClick={() => set('callKind', key)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-bold transition ${fields.callKind === key ? on : 'border-cardline bg-white text-charcoal/75 hover:border-charcoal/30'}`}><Icon size={14} />{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {fields.callKind === 'picked' && (
+                  <div className="grid gap-2.5 sm:grid-cols-[160px_1fr]">
+                    <label className="text-[12px] font-bold">Duration (minutes)<input type="number" min="0" max="600" step="0.5" inputMode="decimal" className={input} placeholder="e.g. 12" value={fields.minutes ?? ''} onChange={(e) => set('minutes', e.target.value)} /></label>
+                    <div className="text-[12px] font-bold">
+                      <span>Call पर क्या बात हुई</span>
+                      <div className="relative">
+                        <textarea rows={3} className={`${input} pr-12`} placeholder="Parent ने क्या बताया, क्या समझाया, आगे क्या करना है" value={fields.talk || ''} onChange={(e) => set('talk', e.target.value)} />
+                        <DictationButton value={fields.talk || ''} onChange={(v) => set('talk', v)} className="absolute bottom-2 right-2" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {fields.callKind === 'missed' && (
+                  <div className="grid gap-2.5 sm:grid-cols-[230px_1fr]">
+                    <label className="text-[12px] font-bold">क्या हुआ<select className={input} value={fields.outcome || ''} onChange={(e) => set('outcome', e.target.value)}><option value="">Choose</option>{Object.entries(data.attemptOutcomes || {}).filter(([k]) => k !== 'connected').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+                    <label className="text-[12px] font-bold">Note<input className={input} placeholder="e.g. Ring गई, किसी ने नहीं उठाया" value={fields.note || ''} onChange={(e) => set('note', e.target.value)} /></label>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {!fields.callKind && <span className="mr-auto text-[12px] text-charcoal/55">पहले चुनें: phone उठा या नहीं</span>}
+                  <Button size="sm" disabled={busy || !fields.callKind} onClick={saveCall}><Save size={14} className="mr-1 inline" />Save call</Button>
+                </div>
               </div>
             )}
             {(s.attemptsList || []).length ? (
               <ul className="divide-y divide-cardline rounded-lg border border-cardline text-[12.5px]">
-                {[...s.attemptsList].reverse().map((a, i) => <li key={i} className="flex flex-wrap justify-between gap-2 px-3 py-1.5"><span><b>{a.label}</b>{a.note ? ` — ${a.note}` : ''}</span><span className="text-charcoal/50">{fmtAt(a.at)} · {a.byName}</span></li>)}
+                {[...s.attemptsList].sort((a, b) => new Date(b.calledAt || b.at) - new Date(a.calledAt || a.at)).map((a, i) => (
+                  <li key={i} className="flex gap-2.5 px-3 py-2">
+                    <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${a.connected ? 'bg-[#E7F2EC] text-[#1F5F4A]' : 'bg-[#FDECEC] text-[#8A1C25]'}`}>{a.connected ? <PhoneCall size={14} /> : <PhoneOff size={14} />}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <b className={a.connected ? 'text-[#1F4F3D]' : 'text-[#8A1C25]'}>{a.label}</b>
+                        {a.duration && <span className="rounded bg-charcoal/[0.06] px-1.5 text-[11.5px] font-semibold text-charcoal/75">{a.duration}</span>}
+                        <span className="text-charcoal/65">{fmtAt(a.calledAt || a.at)}</span>
+                      </p>
+                      {a.note && <p className="mt-0.5 whitespace-pre-line text-charcoal/85">{a.note}</p>}
+                      <p className="text-[11px] text-charcoal/45">{a.byName}{Math.abs(new Date(a.at) - new Date(a.calledAt || a.at)) > 10 * 60000 ? ` · written ${fmtAt(a.at)}` : ''}</p>
+                    </div>
+                  </li>
+                ))}
               </ul>
-            ) : <Empty>No call attempt recorded.</Empty>}
+            ) : <Empty>अभी कोई call record नहीं हुआ।</Empty>}
           </Panel>
           <Panel title={isOpen ? 'Reassign' : 'Reopen'}>
             {staffError && <p className="text-[12.5px] font-semibold text-[#8A1C25]">Staff list could not load: {staffError}</p>}
@@ -347,7 +463,7 @@ export default function CareSessionPage() {
       )}
 
       {/* 3. Doctor advice */}
-      {tab === 'advice' && (
+      {shownTab === 'advice' && (
         <div className="space-y-3">
           {canAct && (
             <Panel title="Ask the doctor">
@@ -371,6 +487,16 @@ export default function CareSessionPage() {
                       <span className="ml-auto rounded-full bg-charcoal/[0.06] px-2 py-0.5 text-[11px] font-bold text-charcoal/65">{a.status}</span>
                     </p>
                     <p className="mt-1 whitespace-pre-line text-charcoal">{a.query}</p>
+                    {a.rings > 0 && <p className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-[#B91C1C]"><AlarmClock size={12} />Alarm rung {a.rings}×{a.lastAlarmAt ? ` · last ${fmtAt(a.lastAlarmAt)}` : ''}{a.lastAlarmBy ? ` by ${a.lastAlarmBy}` : ''}{a.canRing ? ' · doctor का answer बाकी' : ''}</p>}
+                    {a.canRing && data.canAct && (fields.ringId === a.id ? (
+                      <div className="mt-2 grid gap-2 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] p-2.5 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+                        <label className="text-[12px] font-bold text-[#8A1C25]">Doctor के लिए message (optional)<input className={input} value={fields.ringNote || ''} placeholder="e.g. Parent दोबारा call कर रहे हैं, जल्दी बताइए" onChange={(e) => set('ringNote', e.target.value)} /></label>
+                        <Button size="sm" variant="outline" onClick={() => { set('ringId', ''); set('ringNote', ''); }}>Cancel</Button>
+                        <Button size="sm" variant="danger" disabled={busy} onClick={() => ringDoctor(a.id)}><AlarmClock size={14} className="mr-1 inline" />Ring alarm</Button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex justify-end"><Button size="sm" variant="danger" onClick={() => set('ringId', a.id)}><AlarmClock size={14} className="mr-1 inline" />Ring doctor</Button></div>
+                    ))}
                     {a.advice && <p className="mt-1.5 whitespace-pre-line rounded bg-[#FBF1F2] px-2 py-1.5 text-[#5C1620]"><b>Doctor ({a.adviceBy}, {fmtAt(a.adviceAt)}):</b> {a.advice}</p>}
                     {a.voice && <audio controls src={a.voice} className="mt-1.5 h-8 w-full max-w-sm" />}
                   </li>
@@ -382,7 +508,7 @@ export default function CareSessionPage() {
       )}
 
       {/* 4. Reminders */}
-      {tab === 'reminders' && (
+      {shownTab === 'reminders' && (
         <div className="space-y-3">
           {canAct && (
             <Panel title="Add a reminder">
@@ -395,7 +521,7 @@ export default function CareSessionPage() {
           )}
           <Panel title="Reminders">
             <ul className="space-y-1.5 text-[13px]">
-              {s.callAt && isOpen && (
+              {s.callAt && isOpen && !isTracker && !(s.reminders || []).some((r) => r.kind === 'call') && (
                 <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cardline bg-[#FAF8F2] px-3 py-2">
                   <span><b>Call the parent</b> <span className="text-charcoal/55">(automatic, the call time)</span></span>
                   <span className="text-charcoal/60">{fmtAt(s.callAt)}</span>
@@ -405,20 +531,20 @@ export default function CareSessionPage() {
                 const due = !r.doneAt && new Date(r.at) <= new Date();
                 return (
                   <li key={r._id} className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${r.doneAt ? 'border-cardline opacity-60' : due ? 'border-[#F97316]/50 bg-[#FFF7ED]' : 'border-cardline'}`}>
-                    <span className="min-w-0"><b className={r.doneAt ? 'line-through' : ''}>{r.note}</b><span className="block text-[11.5px] text-charcoal/50">{fmtAt(r.at)} · {r.byName}{r.doneAt ? ` · done by ${r.doneByName}` : due ? ' · due now' : ''}</span></span>
+                    <span className="min-w-0"><b className={r.doneAt ? 'line-through' : ''}>{r.note}</b>{r.kind === 'call' && <span className="ml-1.5 rounded bg-[#FFF1DC] px-1.5 text-[10.5px] font-bold text-[#7A4A06]">automatic</span>}<span className="block text-[11.5px] text-charcoal/50">{r.kind === 'call' ? `Reminder from ${fmtAt(r.at)} (10 min before the call)` : `${fmtAt(r.at)} · ${r.byName}`}{r.doneAt ? ` · done by ${r.doneByName}` : due ? ' · due now' : ''}</span></span>
                     {canAct && <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() => api.patch(`/care/sessions/${id}/reminders/${r._id}`, { done: !r.doneAt }), r.doneAt ? 'Reminder opened again' : 'Reminder done')}>{r.doneAt ? 'Undo' : 'Done'}</Button>}
                   </li>
                 );
               })}
               {!(s.reminders || []).length && !(s.callAt && isOpen) && <li><Empty>No reminder.</Empty></li>}
             </ul>
-            <p className="text-[11.5px] text-charcoal/50">A reminder that is due shows in Your pending work / My Day.</p>
+            <p className="text-[11.5px] text-charcoal/50">Call time set होते ही उसका reminder अपने-आप बनता है — call से 10 min पहले जिसका session है उसे popup आने लगता है (call record होने तक, Done करने तक या session बंद होने तक)। Due reminder Your pending work / My Day में भी दिखता है।</p>
           </Panel>
         </div>
       )}
 
       {/* 5. Reschedule */}
-      {tab === 'reschedule' && (
+      {shownTab === 'reschedule' && (
         <div className="space-y-3">
           <Panel title={`Reschedule (${s.reschedulesUsed} of ${s.rescheduleLimit} used)`}>
             {/* No call time yet: the first time is set here (not counted); after that every change is a reschedule (2 at most). */}
@@ -457,7 +583,7 @@ export default function CareSessionPage() {
       )}
 
       {/* 6. History */}
-      {tab === 'history' && (
+      {shownTab === 'history' && (
         <Panel title="History">
           <ul className="space-y-1.5 text-[12.5px]">
             {[...(s.log || [])].reverse().map((entry, i) => (
