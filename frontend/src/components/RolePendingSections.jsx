@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ChevronRight, Users } from 'lucide-react';
 import { useTeamPending } from './TeamPending.jsx';
-import { PAGES } from './PendingWork.jsx';
+import { PAGES, sectionHint, sectionKey, sectionLabel } from './PendingWork.jsx';
 import { bucketOf, when } from '../utils/taskTiming.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -57,12 +57,13 @@ export default function RolePendingSections() {
                 const page = PAGES[section.page];
                 const items = section.items || [];
                 const open = canOpen(section.page);
+                const who = section.shared ? `Anyone in ${role.label}` : (section.byPerson || []).map((p) => `${p.name} ${p.count}`).join(' · ');
                 return (
-                  <div key={section.page} className={`flex min-w-0 flex-col rounded-lg border ${tone.ring} bg-white`}>
+                  <div key={sectionKey(section)} className={`flex min-w-0 flex-col rounded-lg border ${tone.ring} bg-white`}>
                     <div className={`flex items-start justify-between gap-2 border-b ${tone.ring} px-3 py-2`}>
                       <div className="min-w-0">
-                        <p className={`truncate text-sm font-bold ${tone.text}`}>{page?.[0] || section.page}{!open && <span className="ml-1.5 rounded bg-charcoal/[0.06] px-1.5 py-0.5 align-middle text-[10px] font-semibold text-charcoal/50">view only</span>}</p>
-                        <p className="truncate text-[11px] text-charcoal/55">{section.shared ? `Anyone in ${role.label}` : (section.byPerson || []).map((p) => `${p.name} ${p.count}`).join(' · ') || page?.[1]}</p>
+                        <p className={`truncate text-sm font-bold ${tone.text}`} title={sectionLabel(section)}>{sectionLabel(section)}{!open && <span className="ml-1.5 rounded bg-charcoal/[0.06] px-1.5 py-0.5 align-middle text-[10px] font-semibold text-charcoal/50">view only</span>}</p>
+                        <p className="truncate text-[11px] text-charcoal/55" title={section.step ? sectionHint(section) : undefined}>{section.step ? [sectionHint(section), section.shared ? '' : who].filter(Boolean).join(' · ') : who || page?.[1]}</p>
                       </div>
                       <span className={`flex h-7 min-w-7 items-center justify-center rounded-full ${tone.band} px-2 text-xs font-extrabold text-white`}>{section.count}</span>
                     </div>
@@ -86,7 +87,7 @@ export default function RolePendingSections() {
                       {!items.length && <li className="px-3 py-2 text-xs text-charcoal/50">{section.count} pending</li>}
                     </ul>
                     {section.count > Math.min(SHOW, items.length) && items.length > 0 && !open && <p className={`border-t ${tone.ring} px-3 py-1.5 text-center text-xs font-semibold text-charcoal/50`}>+{section.count - Math.min(SHOW, items.length)} more</p>}
-                    {section.count > Math.min(SHOW, items.length) && items.length > 0 && open && <Link to={section.page} className={`border-t ${tone.ring} px-3 py-1.5 text-center text-xs font-bold ${tone.text} hover:bg-charcoal/[0.03]`}>+{section.count - Math.min(SHOW, items.length)} more · open the page</Link>}
+                    {section.count > Math.min(SHOW, items.length) && items.length > 0 && open && <Link to={section.href || section.page} className={`border-t ${tone.ring} px-3 py-1.5 text-center text-xs font-bold ${tone.text} hover:bg-charcoal/[0.03]`}>+{section.count - Math.min(SHOW, items.length)} more · open the page</Link>}
                   </div>
                 );
               })}

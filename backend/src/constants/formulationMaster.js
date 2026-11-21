@@ -291,7 +291,7 @@ function doseValues(input) {
     if ((!dose && input.doseEntries.length > 1) || dose.length > 500) fail('Complete every dose instruction (maximum 500 characters each)');
     const text = (key, max = 500) => String(entry[key] || '').trim().slice(0, max);
     const doseFieldLabels = Array.isArray(entry.doseFieldLabels) ? entry.doseFieldLabels.slice(0, 250).map((label) => String(label || '').trim().slice(0, 120)) : [];
-    return { id: text('id', 80), dose, doseTemplate: text('doseTemplate', 80), dosePattern: text('dosePattern'), doseSpoons: text('doseSpoons', 40), doseWaterCups: text('doseWaterCups', 40), customDose: text('customDose'), doseFieldLabels, doseQuantities: Array.isArray(entry.doseQuantities) ? entry.doseQuantities.slice(0, 250).map((q) => String(q).trim().slice(0, 40)) : [] };
+    return { id: text('id', 80), dose, doseTemplate: text('doseTemplate', 80), dosePattern: text('dosePattern'), doseSpoons: text('doseSpoons', 40), doseWaterCups: text('doseWaterCups', 40), customDose: text('customDose'), doseFieldLabels, ...(entry.doseEdited === true ? { doseEdited: true } : {}), doseQuantities: Array.isArray(entry.doseQuantities) ? entry.doseQuantities.slice(0, 250).map((q) => String(q).trim().slice(0, 40)) : [] };
   });
   return { doseEntries, dose: doseEntries.map((entry) => entry.dose).filter(Boolean).join('\n') };
 }
@@ -367,6 +367,28 @@ function unlinkedLines(formulation) {
     .filter((l) => l.packed && !l.fromHome && !l.removed && !l.components && !l.stockCode)
     .map((l) => ({ key: l.key, name: l.name, qty: l.qty, unit: l.unit, when: l.when || '' }));
 }
+
+// A medicine added at serial number N goes to that place on the sheet: the medicine that was N becomes N + 1 and every
+// one below it moves down one (numbers set by hand too). A number past the end puts it last.
+function placeAt(lines, line, serial) {
+  const before = sheetNumbers({ lines });
+  const target = Math.min(serial, before.size + 1);
+  const want = new Map([...before].map(([key, n]) => [key, n >= target ? n + 1 : n]));
+  want.set(line.key, target);
+  // In the list it goes just before the medicine that had that number (or the next one after it).
+  const anchor = lines.filter((l) => !l.removed && before.get(l.key) >= target).sort((a, b) => before.get(a.key) - before.get(b.key))[0];
+  const at = anchor ? lines.indexOf(anchor) : lines.length;
+  const next = [...lines.slice(0, at), line, ...lines.slice(at)];
+  // Where the sheet order alone (ghrit first, numbers set by hand) would not give these numbers, they are kept by hand.
+  const got = sheetNumbers({ lines: next });
+  return next.map((l) => (want.has(l.key) && got.get(l.key) !== want.get(l.key) ? { ...l, displayNumber: want.get(l.key) } : l));
+}
+const serialOf = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const serial = Number(value);
+  if (!Number.isSafeInteger(serial) || serial < 1 || serial > 9999) fail('Enter a serial number from 1 to 9999');
+  return serial;
+};
 
 function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   if (!formulation) fail('There is no formulation sheet to edit');
@@ -453,8 +475,14 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
     next.edited = { byName, at: new Date().toISOString(), changes };
     return next;
   });
-  list.filter((o) => o.add).forEach((o) => lines.push(addedLine(o, { ...formulation, lines }, lines.length + 1, byName)));
-  return { ...formulation, lines, edited: lines.some((l) => l.edited), pending: lines.map((l) => l.pending).filter(Boolean) };
+  // Added medicines go last, or at the serial number given (the ones from there move down one).
+  let sheet = lines;
+  list.filter((o) => o.add).forEach((o) => {
+    const serial = serialOf(o.serialNumber);
+    const line = addedLine(o, { ...formulation, lines: sheet }, sheet.length + 1, byName);
+    sheet = serial ? placeAt(sheet, line, serial) : [...sheet, line];
+  });
+  return { ...formulation, lines: sheet, edited: sheet.some((l) => l.edited), pending: sheet.map((l) => l.pending).filter(Boolean) };
 }
 
 module.exports = { codeInName, linkByName, applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

@@ -13,6 +13,7 @@ const { explanationOwner } = require('./transitController');
 const { PAGES, stepRole, shared, countOf } = require('./taskCountController');
 const { STAGES } = require('../utils/medicineJobFlow');
 const { releaseView } = require('../utils/medicineRelease');
+const { jobStep, requestStep, splitSteps } = require('./pendingStepsController');
 
 // "My day": the same open work the orange counts show, as a list of items - who, what, when due, and where to act.
 // Every item comes from the current state of a record, so it leaves the list by itself once the work is done.
@@ -26,13 +27,13 @@ const callHandler = (handler, user, query = {}) => new Promise((resolve, reject)
 const item = (page, key, title, detail, due, href, extra = {}) => ({ page, key: `${page}|${key}`, title, detail, due: iso(due), href, ...extra });
 
 const REQUEST_STATUS = { requested: 'Accept the request', in_process: 'Being prepared', made: 'Made · waiting for release' };
-const requestItems = async (page, statuses, detailOf, extra = () => true) => {
+const requestItems = async (page, statuses, detailOf, extra = () => true, stepOf = () => null) => {
   const patients = await Patient.find({ isActive: { $ne: false }, $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
     .select('patientName patientCode stages.number stages.medicineRequest stages.medicineRequests').lean();
   const out = [];
   for (const p of patients) for (const st of p.stages || []) for (const r of allRequests(st)) {
     if (!statuses.includes(r.status) || !extra(r)) continue;
-    out.push(item(page, `${p._id}-${st.number}-${r.requestId || 'legacy'}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number}${r.poNumber ? ` · ${r.poNumber}` : ''} · ${detailOf(r)}`, r.readyByDate || r.requestedAt, page));
+    out.push(item(page, `${p._id}-${st.number}-${r.requestId || 'legacy'}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number}${r.poNumber ? ` · ${r.poNumber}` : ''} · ${detailOf(r)}`, r.readyByDate || r.requestedAt, page, stepOf(r) ? { step: stepOf(r) } : {}));
   }
   return out;
 };
@@ -86,13 +87,13 @@ const COLLECTORS = {
     const { courierHandovers } = require('./purchaseOrderController');
     return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode === 'pickup').map((r) => item('/admin/self-pickup-schedule', r.poId, r.patientName, `${r.poNumber} · Self pickup · ${r.medicine.label}`, r.expectedAt, `/admin/purchase-orders/${r.poId}`));
   },
-  async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status]); },
+  async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status], () => true, (r) => requestStep(r.status)); },
   async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },
   async '/admin/medicine-jobs'(user) {
     const finalPcc = user.role === ROLES.ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
-    const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] })).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold readyByDate requestId formulation.custom formulation.lines.key boxReceipt releaseRequest stages.key stages.doneAt').lean();
+    const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] })).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold returned readyByDate requestId formulation.custom formulation.lines.key boxReceipt releaseRequest stages.key stages.doneAt').lean();
     const handedOver = await handedOverRequestIds(jobs.map((j) => j.requestId));
-    return jobs.filter((j) => jobActionBy(j, handedOver, { user, finalPcc }).includes(stepRole(user))).map((j) => {
+    return jobs.map((j) => ({ j, actionBy: jobActionBy(j, handedOver, { user, finalPcc }) })).filter(({ actionBy }) => actionBy.includes(stepRole(user))).map(({ j, actionBy }) => {
       const release = releaseView(j);
       let detail = `${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`;
       let due = j.readyByDate;
@@ -105,7 +106,7 @@ const COLLECTORS = {
       } else if (j.status === 'ready' && release?.state === 'requested') detail = `Medicine release requested by ${release.requestedByName} — check payment and accept`;
       else if (j.status === 'ready' && release?.state === 'accepted') detail = 'Release request accepted — release medicine';
       else if (STAGES[j.currentStage || 0]?.key === 'formula') detail = `${j.formulation?.custom && !(j.formulation.lines || []).length ? 'Create' : 'Verify'} formulation of ${j.patientName}${j.formulation?.custom ? ' (custom)' : ''}`;
-      return item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${detail}`, due, `/admin/medicine-jobs/${j._id}`);
+      return item('/admin/medicine-jobs', String(j._id), j.patientName, `${j.poNumber || `Phase ${j.phase}`} · ${detail}`, due, `/admin/medicine-jobs/${j._id}`, { step: jobStep(j, actionBy, user) });
     });
   },
   async '/admin/stocks'() {
@@ -207,19 +208,20 @@ async function reminderItems(user, type, page) {
 const itemsOf = (page, user) => shared('items', page, user, () => COLLECTORS[page](user));
 
 // @route GET /api/tasks/my-day  -> { sections: [{ page, count, items: [...] }] }
+// Fulfilment and medicine requests come as one section per step ({ step, title, pendingWith, href } added).
 const getMyDay = asyncHandler(async (req, res) => {
   const pages = Object.keys(PAGES).filter((page) => PAGES[page].includes(req.user.role) && COLLECTORS[page]);
   const sections = await Promise.all(pages.map(async (page) => {
     try {
       const [items, count] = await Promise.all([itemsOf(page, req.user), countOf(page, req.user)]);
       const sorted = [...items].sort((a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity));
-      return { page, count: Math.max(count, items.length), items: sorted.slice(0, LIMIT) };
+      return splitSteps({ page, count: Math.max(count, items.length), items: sorted }).map((s) => ({ ...s, items: s.items.slice(0, LIMIT) }));
     } catch (error) {
       console.error(`My day ${page}: ${error.message}`);
       return { page, count: 0, items: [], error: true };
     }
   }));
-  res.json({ success: true, now: new Date().toISOString(), sections: sections.filter((s) => s.count > 0 || s.items.length) });
+  res.json({ success: true, now: new Date().toISOString(), sections: sections.flat().filter((s) => s.count > 0 || s.items.length) });
 });
 
 module.exports = { getMyDay, COLLECTORS, itemsOf };

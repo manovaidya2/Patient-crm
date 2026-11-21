@@ -74,7 +74,7 @@ export function TeamRoleCards({ roles, selected, onSelect }) {
               <span className={`rounded-lg px-2 font-display text-lg font-extrabold ${on ? 'bg-white text-charcoal' : r.total ? 'bg-[#F97316] text-white' : 'bg-[#E9EFE9] text-sage'}`}>{r.total}</span>
             </span>
             <span className={`text-[11.5px] ${on ? 'text-white/75' : 'text-charcoal/60'}`}>
-              {r.total ? `${late ? `${late} overdue · ` : ''}${r.sections.length} page${r.sections.length === 1 ? '' : 's'}` : 'All clear'}
+              {r.total ? `${late ? `${late} overdue · ` : ''}${new Set(r.sections.map((s) => s.page)).size} page${new Set(r.sections.map((s) => s.page)).size === 1 ? '' : 's'}` : 'All clear'}
               {busy.length ? ` · ${busy.map((p) => `${p.name} ${p.personal}`).join(', ')}` : ''}
             </span>
           </Tag>
@@ -123,7 +123,7 @@ export function TeamPendingButton({ dark = false }) {
                 <li key={r.role}>
                   <button type="button" onClick={() => { setOpen(false); navigate(`/admin/team-pending?role=${r.role}`); }} className="block w-full px-3 py-2 text-left hover:bg-[#F3F6F2]">
                     <p className="flex items-center justify-between gap-2"><span className="text-sm font-semibold">{r.label}</span><span className="flex items-center gap-1">{late > 0 && <span className="rounded-full bg-[#FDE2E1] px-2 py-0.5 text-[10px] font-bold text-[#9F1D1D]">{late} overdue</span>}<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${r.total ? 'bg-[#F97316] text-white' : 'bg-[#E9EFE9] text-sage'}`}>{r.total}</span></span></p>
-                    <p className="truncate text-xs text-charcoal/60">{r.total ? r.sections.map((s) => `${s.page.replace('/admin/', '').replace(/[-/]/g, ' ')} ${s.count}`).join(' · ') : 'All clear'}</p>
+                    <p className="truncate text-xs text-charcoal/60">{r.total ? r.sections.map((s) => `${s.title || s.page.replace('/admin/', '').replace(/[-/]/g, ' ')} ${s.count}`).join(' · ') : 'All clear'}</p>
                   </button>
                 </li>
               );

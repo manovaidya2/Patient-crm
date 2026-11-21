@@ -56,6 +56,9 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   // numbered again 1, 2, 3 ... unless a number was set by hand.
   const shownLines = visibleLines.filter((l) => !l.removed);
   const displayLines = showSelectedGhrits ? [...shownLines.filter(isGhrit), ...shownLines.filter((l) => !isGhrit(l))] : shownLines;
+  // The number each medicine has on the sheet; "Edit sheet" lists them in the same order with the same numbers.
+  const sheetNo = new Map(displayLines.map((l, i) => [l.key, l.displayNumber ?? i + 1]));
+  const editLines = showSelectedGhrits ? [...f.lines.filter(isGhrit), ...f.lines.filter((l) => !isGhrit(l))] : f.lines;
   const startEditing = () => { setEditing(true); if (f.custom && !f.lines.length) setAdds([emptyAdd()]); };
   const d = (key) => draft[key] || {};
   const setLine = (key, patch) => setDraft((o) => ({ ...o, [key]: { ...(o[key] || {}), ...patch } }));
@@ -116,6 +119,20 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
       onError?.(message); throw new Error(message);
     } finally { setBusy(false); }
   };
+  // Why "Save" cannot be pressed yet, in words (instead of a grey button with no reason).
+  const nameOf = (key) => f.lines.find((l) => l.key === key)?.name || 'a medicine';
+  const blocker = (() => {
+    const badAddDose = adds.find((a) => a.name.trim() && !doseTemplateComplete(a));
+    if (badAddDose) return `"${badAddDose.name.trim()}" की dose पूरी नहीं है: हर मात्रा संख्या में भरें (जैसे 1, 2, 1/2) या "इस दवा का dose / chit text" में पूरा text खुद लिखें।`;
+    const badLineDose = Object.entries(draft).find(([, v]) => !doseTemplateComplete(v));
+    if (badLineDose) return `"${nameOf(badLineDose[0])}" की dose पूरी नहीं है: हर मात्रा संख्या में भरें (जैसे 1, 2, 1/2) या dose text खुद लिखें।`;
+    const badAddPart = adds.find((a) => a.name.trim() && !extraComponentsComplete(a.extraComponents));
+    const badLinePart = Object.entries(draft).find(([, v]) => !extraComponentsComplete(v.extraComponents));
+    if (badAddPart || badLinePart) return `"${badAddPart ? badAddPart.name.trim() : nameOf(badLinePart[0])}" का added component Stocks से चुनें और मात्रा भरें, या खाली row हटाएँ।`;
+    if (adds.some((a) => !a.name.trim() && (a.qty || a.dose || a.doseEntries))) return 'नई दवा का नाम भरें।';
+    return '';
+  })();
+  const nothingChanged = !Object.keys(draft).length && !adds.some((a) => a.name.trim());
   if (editing) return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? 'There is no Formulation Master for this age group: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.' : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
@@ -130,10 +147,10 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         <p className="mt-2 text-xs text-charcoal/55">हर चुने हुए घृत की मात्रा और dose नीचे अलग से भरें।</p>
       </fieldset>
       <ol className="divide-y divide-dashed divide-cardline">
-        {f.lines.map((l) => (
+        {editLines.map((l) => (
           <li key={l.key} className="grid gap-2 py-3 sm:grid-cols-2">
             <div>
-              <p className="text-sm font-bold text-charcoal"><MedicineNameEditor name={String(d(l.key).displayNumber ?? l.displayNumber ?? l.n)} fieldLabel="medicine number" inputType="number" canEdit={canEdit && !l.removed} disabled={busy} onSave={(number) => renameNumber(l.key, number)} />. <MedicineNameEditor name={d(l.key).name ?? medicineName(l)} canEdit={canEdit && !l.removed} disabled={busy} onSave={(name) => renameMedicine(l.key, name)} /> <span className="font-normal text-charcoal/55">· {l.when}</span></p>
+              <p className="text-sm font-bold text-charcoal"><MedicineNameEditor name={l.removed ? '–' : String(d(l.key).displayNumber ?? sheetNo.get(l.key) ?? l.displayNumber ?? l.n)} fieldLabel="medicine number" inputType="number" canEdit={canEdit && !l.removed} disabled={busy} onSave={(number) => renameNumber(l.key, number)} />. <MedicineNameEditor name={d(l.key).name ?? medicineName(l)} canEdit={canEdit && !l.removed} disabled={busy} onSave={(name) => renameMedicine(l.key, name)} /> <span className="font-normal text-charcoal/55">· {l.when}</span></p>
               <label className="mt-1 flex items-center gap-2 text-xs font-semibold text-[#8C3B2E]"><input type="checkbox" className="h-4 w-4 accent-[#8C3B2E]" checked={d(l.key).removed ?? Boolean(l.removed)} onChange={(e) => setLine(l.key, { removed: e.target.checked })} />Remove this medicine for this patient</label>
               {l.fromHome ? <p className="mt-1 text-xs text-charcoal/55">घर से - nothing is packed, so there is nothing to correct here.</p>
                 : <label className="mt-1 flex items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4 accent-sage" checked={d(l.key).packed ?? l.packed} onChange={(e) => setLine(l.key, { packed: e.target.checked })} />Packed in this supply</label>}
@@ -155,7 +172,13 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
           const setAdd = (patch) => setAdds((list) => list.map((x, n) => (n === i ? { ...x, ...patch } : x)));
           return (
             <div key={i} className="grid gap-2 rounded-lg border border-cardline bg-white/70 p-3 sm:grid-cols-2">
-              <FieldLabel label="Medicine name" required><input className={poInput} value={a.name} onChange={(e) => setAdd({ name: e.target.value })} /></FieldLabel>
+              <div>
+                <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                  <FieldLabel label="Serial no."><input className={poInput} type="number" min="1" step="1" value={a.serialNumber ?? ''} onChange={(e) => setAdd({ serialNumber: e.target.value })} placeholder={String(displayLines.length + i + 1)} aria-describedby={`serial-hint-${i}`} /></FieldLabel>
+                  <FieldLabel label="Medicine name" required><input className={poInput} value={a.name} onChange={(e) => setAdd({ name: e.target.value })} /></FieldLabel>
+                </div>
+                <p id={`serial-hint-${i}`} className="mt-1 text-[11px] text-charcoal/55">{Number(a.serialNumber) >= 1 ? `Goes in at number ${Math.floor(Number(a.serialNumber))}: the medicine at ${Math.floor(Number(a.serialNumber))} and every one below it move down one.` : 'Leave the serial number blank to add it last.'}</p>
+              </div>
               <FieldLabel label="When (timing)">
                 <select className={poInput} value={a.when === '' ? '' : TIMINGS.includes(a.when) && !a.otherTiming ? a.when : OTHER} onChange={(e) => (e.target.value === OTHER ? setAdd({ when: '', otherTiming: true }) : setAdd({ when: e.target.value, otherTiming: false }))}>
                   <option value="">Select timing</option>
@@ -178,7 +201,8 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         })}
         <Button size="sm" variant="outline" onClick={() => setAdds((list) => [...list, emptyAdd()])}><Plus size={13} />Add medicine</Button>
       </div>
-      <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || Object.values(draft).some((entry) => !doseTemplateComplete(entry) || !extraComponentsComplete(entry.extraComponents)) || adds.some((a) => a.name.trim() && (!doseTemplateComplete(a) || !extraComponentsComplete(a.extraComponents))) || (!Object.keys(draft).length && !adds.some((a) => a.name.trim()))} onClick={save}>{busy ? 'Saving...' : f.custom ? 'Save formulation' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
+      {blocker && <p role="alert" className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-xs font-semibold text-[#8C3B2E]">Save नहीं हो रहा: {blocker}</p>}
+      <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || Boolean(blocker) || nothingChanged} onClick={save}>{busy ? 'Saving...' : f.custom ? 'Save formulation' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
     </div>
   );
   return (

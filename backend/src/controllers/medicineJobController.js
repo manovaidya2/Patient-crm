@@ -183,7 +183,9 @@ const editFormulation = asyncHandler(async (req, res) => {
   // A new medicine not in Stocks is added there (100 units) and linked, so preparation draws it like the rest.
   const linked = await linkNewMedicines(sheet, { user: req.user, job });
   await applyFormulation(job, sheet);
-  event(job, req.user, 'Formulation sheet corrected', `${[...changed.map((l) => `${l.name}: ${l.edited.changes.join(', ')}`), ...dropped.map((l) => `${l.name}: removed`)].join(' | ')}${note ? ` - ${note}` : ''}`);
+  // A medicine only moved down by one (a medicine added at its serial number) says so.
+  const what = (l) => (l.edited && l.edited !== before.find((b) => b.key === l.key)?.edited ? l.edited.changes.join(', ') : `now number ${l.displayNumber}`);
+  event(job, req.user, 'Formulation sheet corrected', `${[...changed.map((l) => `${l.name}: ${what(l)}`), ...dropped.map((l) => `${l.name}: removed`)].join(' | ')}${note ? ` - ${note}` : ''}`);
   linked.forEach((l) => event(job, req.user, l.created ? 'New medicine added to Stocks' : 'Medicine linked to Stocks', l.created ? `${l.name}: added to Stocks as ${l.code} with ${NEW_MEDICINE_OPENING} units` : `${l.name}: drawn from ${l.code}`));
   await job.save();
   await respond(res, job);

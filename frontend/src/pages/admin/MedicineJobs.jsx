@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Pill } from 'lucide-react';
 import { DelayChips } from '../../components/medicine/MedicineDelay.jsx';
 import FinalVerificationStatus from '../../components/medicine/FinalVerificationStatus.jsx';
@@ -33,7 +33,10 @@ export default function MedicineJobs() {
   const [boxRequests, setBoxRequests] = useStaleState('medicine-box-receipts', []);
   const [releaseRequests, setReleaseRequests] = useStaleState('medicine-release-requests', []);
   const [view, setView] = useState('board');
-  const [onlyMine, setOnlyMine] = useState(false);
+  // From a "Your pending work" step card: ?step=<stage index> shows that one step, &mine=1 only the jobs waiting on you.
+  const [params, setParams] = useSearchParams();
+  const exactStep = params.get('step') != null && params.get('step') !== '' ? Number(params.get('step')) : null;
+  const [onlyMine, setOnlyMine] = useState(params.get('mine') === '1');
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
   const [attention, setAttention] = useState('all');
@@ -60,6 +63,7 @@ export default function MedicineJobs() {
   const filteredItems = (items || []).filter((job) => {
     if (!matchesPatient(job) || (onlyMine && !roleAllowed(job.actionBy || [], user))) return false;
     const stage = job.status === 'released' ? job.totalStages : job.currentStage;
+    if (exactStep != null && (job.status !== 'open' || job.currentStage !== exactStep)) return false;
     if (stageFilter !== 'all') {
       const [, from, to] = BOARD[Number(stageFilter)];
       if (stage < from || stage > to) return false;
@@ -78,7 +82,8 @@ export default function MedicineJobs() {
         <label className="min-w-52 flex-1 space-y-1 text-xs font-semibold"><span>Search patient / PO</span><input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Patient name, patient ID or PO number" className="block w-full rounded-lg border border-cardline px-3 py-2 text-sm font-normal" /></label>
         <label className="space-y-1 text-xs font-semibold"><span>Queue stage</span><select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="block rounded-lg border border-cardline bg-white px-3 py-2 text-sm font-normal"><option value="all">All stages</option>{BOARD.map(([title], i) => <option key={i} value={i}>{title}</option>)}</select></label>
         <label className="space-y-1 text-xs font-semibold"><span>Attention</span><select value={attention} onChange={(e) => setAttention(e.target.value)} className="block rounded-lg border border-cardline bg-white px-3 py-2 text-sm font-normal"><option value="all">All jobs</option><option value="hold">On hold</option><option value="breached">Overdue</option><option value="due">Due within 24 h</option><option value="risk">Due within 48 h</option></select></label>
-        {(search || stageFilter !== 'all' || attention !== 'all' || onlyMine) && <button type="button" className="rounded-lg border border-cardline px-3 py-2 text-sm font-semibold text-sage" onClick={() => { setSearch(''); setStageFilter('all'); setAttention('all'); setOnlyMine(false); }}>Clear filters</button>}
+        {exactStep != null && <span className="inline-flex items-center gap-2 rounded-lg border border-[#F97316]/40 bg-[#FFF7ED] px-3 py-2 text-sm font-semibold text-[#9A3412]">Step {exactStep + 1}: {(items || []).find((j) => j.currentStage === exactStep)?.currentLabel || 'selected'}<button type="button" className="font-bold underline" onClick={() => setParams({}, { replace: true })}>Show all</button></span>}
+        {(search || stageFilter !== 'all' || attention !== 'all' || onlyMine) && <button type="button" className="rounded-lg border border-cardline px-3 py-2 text-sm font-semibold text-sage" onClick={() => { setSearch(''); setStageFilter('all'); setAttention('all'); setOnlyMine(false); setParams({}, { replace: true }); }}>Clear filters</button>}
         {items !== null && <span className="py-2 text-xs text-charcoal/65">Showing {filteredItems.length} of {items.length} jobs</span>}
       </div>
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}

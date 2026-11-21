@@ -3,6 +3,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, ROLE_LABELS } = require('../constants/roles');
 const { PAGES, countOf } = require('./taskCountController');
 const { COLLECTORS, itemsOf } = require('./myDayController');
+const { stageStep, splitSteps } = require('./pendingStepsController');
 
 // Team pending work for the Admin / Manager: every role's open work (the same lists each person sees in their own
 // "My day"), with who it is waiting on. Pages whose work belongs to one person (their patients, their enquiries)
@@ -28,8 +29,9 @@ const doctorJobs = async () => {
   const MedicineJob = require('../models/MedicineJob');
   const { STAGES } = require('../utils/medicineJobFlow');
   const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $in: ['open', 'ready'] }, 'hold.active': { $ne: true } })).select('patientName patientCode poNumber phase currentStage readyByDate formulation.custom').lean();
+  // The step: same name and grouping as everywhere else ("2. Prescription & formulation (Doctor)").
   const items = jobs.filter((j) => (STAGES[j.currentStage || 0]?.roles || []).includes(ROLES.DOCTOR))
-    .map((j) => ({ page: '/admin/medicine-jobs', key: `/admin/medicine-jobs|${j._id}`, title: j.patientName, detail: `${j.poNumber || `Phase ${j.phase}`} · ${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`, due: j.readyByDate ? new Date(j.readyByDate).toISOString() : null, href: `/admin/medicine-jobs/${j._id}` }));
+    .map((j) => ({ page: '/admin/medicine-jobs', key: `/admin/medicine-jobs|${j._id}`, title: j.patientName, detail: `${j.poNumber || `Phase ${j.phase}`} · ${(j.currentStage || 0) + 1}. ${STAGES[j.currentStage || 0]?.label || ''}`, due: j.readyByDate ? new Date(j.readyByDate).toISOString() : null, href: `/admin/medicine-jobs/${j._id}`, step: stageStep(j.currentStage || 0, STAGES[j.currentStage || 0]?.roles || [ROLES.DOCTOR]) }));
   return { items, count: items.length };
 };
 const LIMIT = 25;
@@ -61,6 +63,10 @@ const run = async (page, user) => {
   }
 };
 const byDue = (a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity);
+// Fulfilment and medicine requests: one section per step (its name, who it is pending with), the rest one per page.
+const addSections = (sections, base) => splitSteps(base).forEach((s) => {
+  if (s.count || s.items.length) sections.push({ ...s, items: [...s.items].sort(byDue).slice(0, LIMIT) });
+});
 
 const buildTeam = async () => {
   const users = await User.find({ isActive: { $ne: false }, role: { $in: ROLE_ORDER } }).select('name role').sort({ name: 1 }).lean();
@@ -79,11 +85,11 @@ const buildTeam = async () => {
         const items = results.flatMap(({ u, items: list }) => list.map((i) => ({ ...i, key: `${i.key}|${u._id}`, people: [u.name] })));
         results.forEach(({ u, count }) => personTotals.set(String(u._id), personTotals.get(String(u._id)) + count));
         const count = results.reduce((s, r) => s + r.count, 0);
-        if (count || items.length) sections.push({ page, shared: false, count, items: items.sort(byDue).slice(0, LIMIT), byPerson: results.filter((r) => r.count).map((r) => ({ id: String(r.u._id), name: r.u.name, count: r.count })) });
+        addSections(sections, { page, shared: false, count, items, byPerson: results.filter((r) => r.count).map((r) => ({ id: String(r.u._id), name: r.u.name, count: r.count })) });
       } else {
         // Shared by the role: anyone in it can do it.
         const { items, count } = role === ROLES.DOCTOR && page === '/admin/medicine-jobs' ? await doctorJobs() : await run(page, people[0]);
-        if (count || items.length) sections.push({ page, shared: true, count, items: items.sort(byDue).slice(0, LIMIT).map((i) => ({ ...i, people: [] })) });
+        addSections(sections, { page, shared: true, count, items: items.map((i) => ({ ...i, people: [] })) });
         await breathe();
       }
     }
@@ -118,7 +124,7 @@ const keepFresh = () => {
 // The small version for the top button and My day: totals per role and page, no item lists.
 const summaryOf = (data) => ({
   ...data,
-  roles: data.roles.map((r) => ({ ...r, sections: r.sections.map(({ page, shared, count }) => ({ page, shared, count })) })),
+  roles: data.roles.map((r) => ({ ...r, sections: r.sections.map(({ page, shared, count, step, title, pendingWith, href }) => ({ page, shared, count, step, title, pendingWith, href })) })),
 });
 
 // @route GET /api/tasks/team   (Admin, Manager)   ?summary=1 small version · ?fresh=1 rebuild now

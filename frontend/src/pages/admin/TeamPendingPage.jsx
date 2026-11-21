@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, RefreshCw, User, Users } from 'lucide-react';
 import Button from '../../components/ui/Button.jsx';
 import { PageHeader, Section } from '../../components/ui/Layout.jsx';
-import { PAGES } from '../../components/PendingWork.jsx';
+import { sectionHint, sectionKey, sectionLabel } from '../../components/PendingWork.jsx';
 import { TeamRoleCards, useTeamPending } from '../../components/TeamPending.jsx';
 import { BUCKETS, TONE, bucketOf, when } from '../../utils/taskTiming.js';
 
@@ -51,14 +51,14 @@ export default function TeamPendingPage() {
           {!sections.length && <p className="flex items-center gap-2 text-sm text-charcoal/70"><CheckCircle2 size={18} className="text-[#2F8F5B]" />Nothing pending{person ? ` for ${person}` : ''}.</p>}
           <div className="space-y-5">
             {sections.map((s) => (
-              <div key={s.page}>
+              <div key={sectionKey(s)}>
                 <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                   <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-charcoal">
-                    {PAGES[s.page]?.[0] || s.page}
+                    {sectionLabel(s)}
                     <span className="rounded-full bg-[#F97316] px-2 py-0.5 text-[11px] text-white">{s.count}</span>
-                    <span className="text-[11.5px] font-normal text-charcoal/55">{s.shared ? `Anyone in ${role.label}` : (s.byPerson || []).map((p) => `${p.name} ${p.count}`).join(' · ')}</span>
+                    <span className="text-[11.5px] font-normal text-charcoal/55">{[s.step ? sectionHint(s) : '', s.shared ? `Anyone in ${role.label}` : (s.byPerson || []).map((p) => `${p.name} ${p.count}`).join(' · ')].filter(Boolean).join(' · ')}</span>
                   </p>
-                  <Link to={s.page} className="text-xs font-semibold text-sage hover:underline">Open page</Link>
+                  <Link to={s.href || s.page} className="text-xs font-semibold text-sage hover:underline">Open page</Link>
                 </div>
                 <ul className="divide-y divide-[#F0E8D8] rounded-xl border border-[#F0E8D8]">
                   {s.items.map((i) => {
@@ -78,7 +78,7 @@ export default function TeamPendingPage() {
                     );
                   })}
                 </ul>
-                {s.count > s.items.length && <p className="mt-1 text-[11.5px] text-charcoal/55">Showing the first {s.items.length} of {s.count}. <Link to={s.page} className="font-semibold text-sage hover:underline">Open the page</Link> for all.</p>}
+                {s.count > s.items.length && <p className="mt-1 text-[11.5px] text-charcoal/55">Showing the first {s.items.length} of {s.count}. <Link to={s.href || s.page} className="font-semibold text-sage hover:underline">Open the page</Link> for all.</p>}
               </div>
             ))}
           </div>
