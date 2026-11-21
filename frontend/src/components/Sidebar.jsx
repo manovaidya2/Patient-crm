@@ -78,6 +78,7 @@ import {
   HeartPulse,
   Wrench,
   CalendarHeart,
+  Contact,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -124,6 +125,10 @@ export const navItems = [
   { to: '/admin/final-check', icon: FileText, label: 'Medicine Final Check', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/medicine-explanations', icon: MessagesSquare, label: 'Medicine Explanations', roles: [ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/care-schedule', icon: CalendarHeart, label: 'Follow-ups & Family Sessions', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR], group: 'care' },
+  { to: '/admin/patient-360', icon: Contact, label: 'Patient 360°', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR] },
+  { to: '/admin/pcc-report', icon: BarChart3, label: 'PCC Report', roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR], group: 'care' },
+  // The PCC's own numbers (the same page, their row only).
+  { to: '/admin/pcc-report', icon: BarChart3, label: 'My Report', roles: [ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: UserCheck, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },

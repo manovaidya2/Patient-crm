@@ -247,3 +247,22 @@ test('handwritten notes: kept on the session and added at the end of the patient
   assert.equal(fresh.body.session.notes.length, 2);
   assert.match((await call(c.uploadNotes, { params: { id: String(doc._id) }, files: [], user: pcc })).error.message, /photo/);
 });
+
+test('a session is given to a PCC only (not a counsellor, doctor or manager)', async () => {
+  const doc = aSession();
+  mock.method(User, 'findById', () => chain({ _id: id(), name: 'Pragya', role: 'post_counselor', isActive: true }));
+  assert.match((await call(c.assignSession, { params: { id: String(doc._id) }, body: { userId: String(id()), reason: 'leave' }, user: manager })).error.message, /PCC only/);
+  assert.match((await call(c.requestReassign, { params: { id: String(doc._id) }, body: { reason: 'leave', suggestedUserId: String(id()) }, user: pcc })).error.message, /Suggest a PCC/);
+});
+
+test('calendar: only the sessions given to that PCC (a reassigned one shows on the new PCC\'s calendar, not the old one\'s)', async () => {
+  let filter = null;
+  mock.method(User, 'findById', () => chain({ _id: pcc._id, name: pcc.name, role: 'assistant_doctor' }));
+  mock.method(CareSession, 'find', (f) => { filter = f; return chain([]); });
+  mock.method(require('../models/Patient'), 'find', () => chain([]));
+  const res = await call(c.calendar, { query: { month: '2026-12' }, user: pcc });
+  assert.equal(res.error, null);
+  assert.equal(String(filter.assignee), String(pcc._id));
+  assert.equal(filter.$or, undefined, 'not the sessions they only own');
+  assert.equal(res.body.days.length, 31);
+});

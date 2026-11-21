@@ -58,6 +58,8 @@ const AdviceGiven = lazy(() => import('./pages/admin/AdviceGiven.jsx'));
 const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
 const CareSchedule = lazy(() => import('./pages/admin/CareSchedule.jsx'));
 const CareSessionPage = lazy(() => import('./pages/admin/CareSessionPage.jsx'));
+const Patient360 = lazy(() => import('./pages/admin/Patient360.jsx'));
+const PccReport = lazy(() => import('./pages/admin/PccReport.jsx'));
 const Worksheet = lazy(() => import('./pages/admin/Worksheet.jsx'));
 const CrmChatGPT = lazy(() => import('./pages/admin/CrmChatGPT.jsx'));
 const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx'));
@@ -187,6 +189,8 @@ function App() {
         <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />
         <Route path="patient-queries" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><PatientQueries /></ProtectedRoute>} />
         <Route path="care-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><CareSchedule /></ProtectedRoute>} />
+        <Route path="patient-360" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR]}><Patient360 /></ProtectedRoute>} />
+        <Route path="pcc-report" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><PccReport /></ProtectedRoute>} />
         <Route path="care-schedule/session/:id" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><CareSessionPage /></ProtectedRoute>} />
         <Route path="treatment-delivery" element={<Navigate to="/admin/care-schedule" replace />} />
         <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />

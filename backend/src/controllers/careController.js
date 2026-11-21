@@ -276,8 +276,8 @@ const reopenSession = asyncHandler(async (req, res) => {
   await respond(req, res, session);
 });
 
-// @route GET /api/care/staff?day=YYYY-MM-DD  - who a session can be given to (PCCs first), with their leave that day.
-const STAFF_ROLES = [ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ADMIN];
+// @route GET /api/care/staff?day=YYYY-MM-DD  - who a session can be given to: the PCCs only, with their leave that day.
+const STAFF_ROLES = [ROLES.ASSISTANT_DOCTOR];
 const listStaff = asyncHandler(async (req, res) => {
   const users = await User.find({ role: { $in: STAFF_ROLES }, isActive: { $ne: false } }).select('name role').sort({ name: 1 }).lean();
   const day = C.validDay(req.query.day) ? req.query.day : C.dayOf(new Date());
@@ -298,6 +298,7 @@ const assignSession = asyncHandler(async (req, res) => {
   if (!mongoose.isValidObjectId(req.body?.userId)) fail('Choose who does this session');
   const to = await User.findById(req.body.userId).select('name role isActive').lean();
   if (!to || to.isActive === false) fail('That person was not found');
+  if (!STAFF_ROLES.includes(to.role)) fail('A session is given to a PCC only');
   if (String(session.assignee) === String(to._id)) fail(`${to.name} already has this session`);
   const back = String(to._id) === String(session.owner);
   const reason = text(req.body?.reason, 300);
@@ -322,8 +323,9 @@ const requestReassign = asyncHandler(async (req, res) => {
   let suggested = null;
   if (req.body?.suggestedUserId) {
     if (!mongoose.isValidObjectId(req.body.suggestedUserId)) fail('Choose a valid person');
-    suggested = await User.findById(req.body.suggestedUserId).select('name').lean();
+    suggested = await User.findById(req.body.suggestedUserId).select('name role').lean();
     if (!suggested) fail('That person was not found');
+    if (!STAFF_ROLES.includes(suggested.role)) fail('Suggest a PCC');
   }
   session.reassignRequest = { at: new Date(), by: req.user._id, byName: req.user.name, reason, suggested: suggested?._id || null, suggestedName: suggested?.name || '', status: 'open' };
   note(session, req.user, `Reassign requested${suggested ? ` (suggested: ${suggested.name})` : ''}: ${reason}`);
@@ -531,12 +533,13 @@ const calendar = asyncHandler(async (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : C.dayOf(new Date()).slice(0, 7);
   const from = `${month}-01`;
   const to = C.addDays(C.addDays(from, 32).slice(0, 7) + '-01', -1);
-  const rows = await CareSession.find({ $or: [{ assignee: userId }, { owner: userId }], targetDate: { $gte: C.addDays(from, -7), $lte: C.addDays(to, 7) } })
+  // Only the sessions given to this person: one reassigned to a colleague (e.g. while on leave) leaves this calendar
+  // and shows on the colleague's.
+  const rows = await CareSession.find({ assignee: userId, targetDate: { $gte: C.addDays(from, -7), $lte: C.addDays(to, 7) } })
     .select('-form.answers -log').lean();
   const leaves = await leavesOf([userId], from, to);
   const now = new Date();
-  const sessions = rows.map((s) => viewOf(s, { now, leaves })).filter((s) => s.dueDay >= from && s.dueDay <= to)
-    .filter((s) => s.assignee === String(userId) || (s.owner === String(userId) && s.assignee !== String(userId) && C.isOpen(s)));
+  const sessions = rows.map((s) => viewOf(s, { now, leaves })).filter((s) => s.dueDay >= from && s.dueDay <= to);
   // The old follow-ups / family sessions of this PCC's patients that month (done or still open; not the ones moved
   // to the Care Schedule), so the calendar shows everything.
   const Patient = require('../models/Patient');
