@@ -21,16 +21,33 @@ const MANAGES = [ROLES.ADMIN, ROLES.MANAGER];
 const seesAll = (user) => SEES_ALL.includes(user?.role);
 const manages = (user) => MANAGES.includes(user?.role);
 const mine = (user, s) => [s.assignee, s.owner].some((id) => id && String(id) === String(user._id));
-const mayView = (user, s) => seesAll(user) || mine(user, s);
+// Every PCC reads any session (e.g. a colleague's patient's earlier follow-ups); acting is for its own people.
+const mayView = (user, s) => seesAll(user) || mine(user, s) || user?.role === ROLES.ASSISTANT_DOCTOR;
 const mayAct = (user, s) => seesAll(user) || mine(user, s);
 
+// Nothing in the forms is required (asked 2026-11-21): the templates are served without their "required" marks.
+const withoutRequired = (template) => ({ ...template, sections: (template.sections || []).map((section) => ({ ...section, blocks: (section.blocks || []).map(({ req, ...block }) => block) })) });
 const templateFor = (session) => {
   let own = null;
   try { own = require('../careTemplates').templateOf(session.code); } catch (error) { own = null; }
-  return own || basicTemplate(session);
+  return withoutRequired(own || basicTemplate(session));
 };
 
 const MISSED_REASONS = ['Parent did not answer the calls', 'Parent busy / travelling', 'Parent refused the session', 'Child unwell / hospitalised', 'Wrong / switched-off number', 'Other'];
+// "Close" on the session page: a follow-up / family session that will not happen (the parents do not pick up or reply,
+// refused, ...). The first ones close it as missed by the patient, the rest as closed for that reason.
+const CLOSE_REASONS = [
+  { label: 'Missed by patient — no answer to calls', missed: true },
+  { label: 'Missed by patient — no reply on WhatsApp / messages', missed: true },
+  { label: 'Missed by patient — said they will call back, never did', missed: true },
+  { label: 'Parent refused / not interested now', missed: true },
+  { label: 'Parent busy / travelling', missed: true },
+  { label: 'Child unwell / hospitalised', missed: false },
+  { label: 'Wrong / switched-off number', missed: false },
+  { label: 'Treatment stopped / patient inactive', missed: false },
+  { label: 'Done another way (in clinic / other session)', missed: false },
+  { label: 'Other', missed: false },
+];
 const ATTEMPT_LABEL = { not_connected: 'Not connected', busy: 'Busy — call later', switched_off: 'Switched off', wrong_number: 'Wrong number', callback: 'Asked to call back' };
 
 // One session for the lists and the patient page.
@@ -50,8 +67,12 @@ const viewOf = (s, { now = new Date(), leaves = new Map(), full = false } = {}) 
     final: s.form?.answers?.final || '', hasDraft: Boolean(s.form?.savedAt) && s.status !== 'completed',
     completedAt: s.completedAt, completedByName: s.completedByName || '', missedReason: s.missedReason || '', missedAt: s.missedAt, missedByName: s.missedByName || '',
     cancelReason: s.cancelReason || '', cancelledAt: s.cancelledAt, cancelledByName: s.cancelledByName || '',
+    closed: s.closed || null,
+    reassignRequest: s.reassignRequest || null, reassignAsked: s.reassignRequest?.status === 'open',
     doctorRequests: (s.doctorRequests || []).map((d) => ({ advice: String(d.advice), level: d.level, at: d.at })),
-    ...(full ? { reschedules: s.reschedules || [], attemptsList: (s.attempts || []).map((a) => ({ ...a, label: ATTEMPT_LABEL[a.outcome] || a.outcome })), log: s.log || [], form: s.form || null } : {}),
+    reminderDue: (s.reminders || []).some((r) => !r.doneAt && new Date(r.at) <= now),
+    notesCount: (s.notes || []).length,
+    ...(full ? { notes: s.notes || [], reminders: s.reminders || [], reschedules: s.reschedules || [], attemptsList: (s.attempts || []).map((a) => ({ ...a, label: ATTEMPT_LABEL[a.outcome] || a.outcome })), log: s.log || [], form: s.form || null } : {}),
   };
 };
 
@@ -88,26 +109,34 @@ const listSessions = asyncHandler(async (req, res) => {
   if (['followup', 'family', 'tracker'].includes(req.query.kind)) filter.kind = req.query.kind;
   const view = String(req.query.view || 'work');
   if (['done', 'missed', 'cancelled'].includes(view)) filter.status = { done: 'completed', missed: 'missed', cancelled: 'cancelled' }[view];
+  else if (view === 'closed') filter.status = { $in: ['missed', 'cancelled'] };
   else if (view !== 'all') filter.status = { $in: C.OPEN };
   const q = text(req.query.q, 80);
   if (q) filter.$or = [{ patientName: new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }, { patientCode: new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }];
-  // Open work: everything due within the next 7 days or earlier; "upcoming" looks 60 days ahead.
-  const horizon = C.addDays(C.dayOf(now), view === 'upcoming' ? 60 : view === 'all' ? 400 : 7);
-  if (filter.status?.$in) filter.targetDate = { $lte: horizon };
-  const rows = await CareSession.find(filter).select('-form.answers -log').sort({ targetDate: 1 }).limit(['done', 'missed', 'cancelled', 'all'].includes(view) ? 300 : 1000).lean();
+  // Open work: everything due within the next 7 days or earlier (plus reminders due and reassign requests, whatever
+  // the day); "upcoming" looks 60 days ahead.
+  const horizon = C.addDays(C.dayOf(now), view === 'upcoming' ? 60 : ['all', 'requests'].includes(view) ? 400 : 7);
+  if (filter.status?.$in) {
+    const near = [{ targetDate: { $lte: horizon } }];
+    if (view === 'work' || view === 'leave') near.push({ reminders: { $elemMatch: { doneAt: null, at: { $lte: now } } } }, { 'reassignRequest.status': 'open' });
+    filter.$and = [{ $or: near }];
+  }
+  const rows = await CareSession.find(filter).select('-form.answers -log').sort({ targetDate: 1 }).limit(['done', 'missed', 'cancelled', 'closed', 'all'].includes(view) ? 300 : 1000).lean();
   const leaves = await leavesFor(rows);
   let list = rows.map((s) => viewOf(s, { now, leaves }));
-  const counts = { work: 0, alert: 0, overdue: 0, today: 0, needs_time: 0, upcoming: 0, leave: 0 };
+  const counts = { work: 0, alert: 0, overdue: 0, today: 0, needs_time: 0, upcoming: 0, leave: 0, requests: 0 };
   list.forEach((s) => {
     if (counts[s.state] != null) counts[s.state] += 1;
     if (WORK.includes(s.state)) counts.work += 1;
     if (s.leave) counts.leave += 1;
+    if (s.reassignAsked) counts.requests += 1;
   });
-  if (view === 'work') list = list.filter((s) => WORK.includes(s.state) || s.leave);
+  if (view === 'work') list = list.filter((s) => WORK.includes(s.state) || s.leave || s.reminderDue || (manages(req.user) && s.reassignAsked));
+  else if (view === 'requests') list = list.filter((s) => s.reassignAsked);
   else if (['alert', 'overdue', 'today', 'needs_time', 'upcoming'].includes(view)) list = list.filter((s) => s.state === view);
   else if (view === 'leave') list = list.filter((s) => s.leave);
   const rank = { alert: 0, overdue: 1, today: 2, needs_time: 3, upcoming: 4 };
-  if (!['done', 'missed', 'cancelled', 'all'].includes(view)) list.sort((a, b) => (rank[a.state] ?? 9) - (rank[b.state] ?? 9) || String(a.dueDay).localeCompare(String(b.dueDay)));
+  if (!['done', 'missed', 'cancelled', 'closed', 'all'].includes(view)) list.sort((a, b) => (rank[a.state] ?? 9) - (rank[b.state] ?? 9) || String(a.dueDay).localeCompare(String(b.dueDay)));
   else list.sort((a, b) => new Date(b.completedAt || b.missedAt || b.cancelledAt || 0) - new Date(a.completedAt || a.missedAt || a.cancelledAt || 0));
   const staff = seesAll(req.user) ? (await User.find({ role: ROLES.ASSISTANT_DOCTOR, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean()).map((u) => ({ id: String(u._id), name: u.name })) : [];
   res.json({ success: true, sessions: list, counts, staff, canManage: manages(req.user), seesAll: seesAll(req.user) });
@@ -120,7 +149,7 @@ const patientSessions = asyncHandler(async (req, res) => {
   const patient = await Patient.findById(req.params.patientId).select('assignedDoctor stages.number stages.carePlan').lean();
   if (!patient) fail('Patient not found', 404);
   const rows = await CareSession.find({ patient: patient._id }).select('-form.answers -log').sort({ phase: 1, day: 1 }).lean();
-  if (!seesAll(req.user) && String(patient.assignedDoctor || '') !== String(req.user._id) && !rows.some((s) => mine(req.user, s))) fail('This patient is not yours', 403);
+  if (!seesAll(req.user) && req.user.role !== ROLES.ASSISTANT_DOCTOR && String(patient.assignedDoctor || '') !== String(req.user._id) && !rows.some((s) => mine(req.user, s))) fail('This patient is not yours', 403);
   const leaves = await leavesFor(rows);
   const now = new Date();
   const phases = (patient.stages || []).filter((s) => s.carePlan?.parts?.length || rows.some((r) => r.phase === s.number)).map((s) => ({
@@ -131,13 +160,19 @@ const patientSessions = asyncHandler(async (req, res) => {
   res.json({ success: true, phases, canManage: manages(req.user) });
 });
 
-// @route GET /api/care/sessions/:id  - the session with its form template and what the CRM fills in it.
+// @route GET /api/care/sessions/:id  - the session with its form template, what the CRM fills in it and the
+// parents' phone numbers (for the call).
 const getSession = asyncHandler(async (req, res) => {
   const session = await loadSession(req);
-  const [context, leaves] = await Promise.all([buildContext(session.toObject(), req.user), leavesFor([session])]);
+  const Patient = require('../models/Patient');
+  const [context, leaves, contact] = await Promise.all([
+    buildContext(session.toObject(), req.user), leavesFor([session]),
+    Patient.findById(session.patient).select('patientName patientCode number alternateNumber guardianName relativeName age category').lean(),
+  ]);
   res.json({
     success: true, session: viewOf(session.toObject(), { leaves, full: true }), template: templateFor(session), context,
-    canAct: mayAct(req.user, session), canManage: manages(req.user), missedReasons: MISSED_REASONS, attemptOutcomes: ATTEMPT_LABEL,
+    contact: contact ? { name: contact.patientName, code: contact.patientCode || '', phone: contact.number || '', alternate: contact.alternateNumber || '', parent: contact.guardianName || contact.relativeName || '', age: contact.age || '', category: contact.category || '' } : null,
+    canAct: mayAct(req.user, session), canManage: manages(req.user), missedReasons: MISSED_REASONS, closeReasons: CLOSE_REASONS, attemptOutcomes: ATTEMPT_LABEL,
   });
 });
 
@@ -199,6 +234,24 @@ const markMissed = asyncHandler(async (req, res) => {
   await respond(req, res, session);
 });
 
+// @route POST /api/care/sessions/:id/close  { reason, details }  - close a session that will not happen, with the reason
+// and the details (both required). "Missed by patient" reasons close it as missed, the others as closed (cancelled).
+const closeSession = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  openOnly(session);
+  const picked = CLOSE_REASONS.find((r) => r.label === String(req.body?.reason || ''));
+  if (!picked) fail('Choose why it is closed');
+  const details = text(req.body?.details, 1000);
+  if (details.length < 3) fail('Write the details: what happened (calls made, messages sent, what the parent said)');
+  const now = new Date();
+  const line = `${picked.label} — ${details}`;
+  session.closed = { reason: picked.label, details, missed: picked.missed, at: now, byName: req.user.name, attempts: session.attempts.length };
+  if (picked.missed) Object.assign(session, { status: 'missed', missedAt: now, missedReason: line, missedByName: req.user.name });
+  else Object.assign(session, { status: 'cancelled', cancelledAt: now, cancelReason: line, cancelledByName: req.user.name });
+  note(session, req.user, `Closed: ${line} (${session.attempts.length} call${session.attempts.length === 1 ? '' : 's'} not connected)`);
+  await respond(req, res, session);
+});
+
 // @route POST /api/care/sessions/:id/cancel  { reason }
 const cancelSession = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
@@ -218,7 +271,7 @@ const reopenSession = asyncHandler(async (req, res) => {
   const reason = text(req.body?.reason, 500);
   if (!reason) fail('Write why it is reopened');
   const was = session.status;
-  Object.assign(session, { status: session.callAt ? 'scheduled' : 'pending', completedAt: null, completedBy: null, completedByName: '', missedAt: null, missedReason: '', missedByName: '', cancelledAt: null, cancelReason: '', cancelledByName: '' });
+  Object.assign(session, { status: session.callAt ? 'scheduled' : 'pending', completedAt: null, completedBy: null, completedByName: '', missedAt: null, missedReason: '', missedByName: '', cancelledAt: null, cancelReason: '', cancelledByName: '', closed: undefined });
   note(session, req.user, `Reopened (was ${was}): ${reason}`);
   await respond(req, res, session);
 });
@@ -226,7 +279,6 @@ const reopenSession = asyncHandler(async (req, res) => {
 // @route GET /api/care/staff?day=YYYY-MM-DD  - who a session can be given to (PCCs first), with their leave that day.
 const STAFF_ROLES = [ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ADMIN];
 const listStaff = asyncHandler(async (req, res) => {
-  if (!manages(req.user)) fail('Only the Admin or Manager assigns sessions', 403);
   const users = await User.find({ role: { $in: STAFF_ROLES }, isActive: { $ne: false } }).select('name role').sort({ name: 1 }).lean();
   const day = C.validDay(req.query.day) ? req.query.day : C.dayOf(new Date());
   const leaves = await leavesOf(users.map((u) => u._id), day, day);
@@ -254,7 +306,39 @@ const assignSession = asyncHandler(async (req, res) => {
   session.assignee = to._id;
   session.assigneeName = to.name;
   session.cover = back ? undefined : { at: new Date(), by: req.user._id, byName: req.user.name, reason, fromName };
+  if (session.reassignRequest?.status === 'open') Object.assign(session.reassignRequest, { status: 'done', decidedAt: new Date(), decidedByName: req.user.name, note: `Assigned to ${to.name}` });
   note(session, req.user, back ? `Given back to ${to.name} (the patient's PCC)` : `Assigned to ${to.name} (was ${fromName || 'nobody'}): ${reason}`);
+  await respond(req, res, session);
+});
+
+// @route POST /api/care/sessions/:id/reassign-request  { reason, suggestedUserId }  - the PCC asks the Manager / Admin
+// to give this session to someone else.
+const requestReassign = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  openOnly(session);
+  if (session.reassignRequest?.status === 'open') fail('A reassign request is already waiting for the Manager');
+  const reason = text(req.body?.reason, 500);
+  if (!reason) fail('Write why it should go to someone else');
+  let suggested = null;
+  if (req.body?.suggestedUserId) {
+    if (!mongoose.isValidObjectId(req.body.suggestedUserId)) fail('Choose a valid person');
+    suggested = await User.findById(req.body.suggestedUserId).select('name').lean();
+    if (!suggested) fail('That person was not found');
+  }
+  session.reassignRequest = { at: new Date(), by: req.user._id, byName: req.user.name, reason, suggested: suggested?._id || null, suggestedName: suggested?.name || '', status: 'open' };
+  note(session, req.user, `Reassign requested${suggested ? ` (suggested: ${suggested.name})` : ''}: ${reason}`);
+  await respond(req, res, session);
+});
+// @route POST /api/care/sessions/:id/reassign-request/decline  { note }  - Admin / Manager.
+const declineReassign = asyncHandler(async (req, res) => {
+  if (!manages(req.user)) fail('Only the Admin or Manager answers a reassign request', 403);
+  const session = await loadSession(req);
+  if (session.reassignRequest?.status !== 'open') fail('No reassign request is waiting');
+  const reply = text(req.body?.note, 500);
+  if (!reply) fail('Write why it stays with the same person');
+  Object.assign(session.reassignRequest, { status: 'declined', decidedAt: new Date(), decidedByName: req.user.name, note: reply });
+  session.markModified('reassignRequest');
+  note(session, req.user, `Reassign request declined: ${reply}`);
   await respond(req, res, session);
 });
 
@@ -303,17 +387,13 @@ const saveForm = asyncHandler(async (req, res) => {
   await respond(req, res, session, { sentToDoctor: sent });
 });
 
-// @route POST /api/care/sessions/:id/complete  { answers, startedAt }  - every required answer filled, then done.
+// @route POST /api/care/sessions/:id/complete  { answers, startedAt }  - saves the form as filled and marks it done
+// (no answer is required).
 const completeSession = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
   const template = templateFor(session);
   const answers = writeForm(session, template, req.body, req.user);
-  const missing = R.missingOf(template, answers);
-  if (missing.length) {
-    await session.save();
-    fail(`Fill these before marking done: ${missing.slice(0, 6).join('; ')}${missing.length > 6 ? ` (+${missing.length - 6} more)` : ''}`);
-  }
   const sent = await escalate(req, session, template, answers);
   Object.assign(session, { status: 'completed', completedAt: new Date(), completedBy: req.user._id, completedByName: req.user.name });
   if (!session.callAt) session.callAt = new Date();
@@ -321,15 +401,122 @@ const completeSession = asyncHandler(async (req, res) => {
   await respond(req, res, session, { sentToDoctor: sent });
 });
 
+// ---- Handwritten notes ----------------------------------------------------------------------------------------------
+// @route POST /api/care/sessions/:id/notes  (multipart "files": photos from the camera / scans / PDFs)
+// Each file is kept on the session and added at the end of the patient's Records Room PDF (their newest Records Room
+// entry; one is made for the patient when they have none yet).
+const uploadNotes = asyncHandler(async (req, res) => {
+  const fs = require('fs');
+  const files = req.files || [];
+  const cleanup = () => Promise.all(files.map((file) => fs.promises.unlink(file.path).catch(() => {})));
+  let session;
+  try { session = await loadSession(req, { act: true }); } catch (error) { await cleanup(); throw error; }
+  if (!files.length) fail('Take a photo or choose the note to upload');
+  if (files.some((file) => !String(file.mimetype).startsWith('image/') && file.mimetype !== 'application/pdf')) { await cleanup(); fail('Only photos / images or PDF files'); }
+  const Patient = require('../models/Patient');
+  const RecordRoom = require('../models/RecordRoom');
+  const { recordRoomConditions, looseSource } = require('../utils/recordRoomMatch');
+  const { rebuildPdf } = require('./recordRoomController');
+  const patient = await Patient.findById(session.patient).select('patientName patientCode').lean();
+  const code = String(patient?.patientCode || session.patientCode || '').trim();
+  const source = looseSource(code);
+  const entries = source ? await require('../models/AppointmentManagementEntry').find({ [`values.${require('../utils/receptionFlow').RECEPTION_IDS.patientId}`]: { $regex: source, $options: 'i' } }).select('appointmentCode').lean() : [];
+  const records = await RecordRoom.find({ $or: recordRoomConditions({ patientRef: session.patient, patientCode: code, appointmentCodes: entries.map((e) => e.appointmentCode) }) });
+  const rank = (r) => new Date(r.pdfUpdatedAt || r.updatedAt || 0).getTime() + (r.treatmentStatus === 'bought' ? 1e13 : 0);
+  let record = records.sort((a, b) => rank(b) - rank(a))[0];
+  const now = new Date();
+  if (!record) record = new RecordRoom({ patient: session.patient, patientId: code, patientName: patient?.patientName || session.patientName, treatmentStatus: 'bought', firstReceivedAt: now, createdByName: req.user.name });
+  const label = `Handwritten note - ${session.code} ${session.title} (${C.dayOf(now)})`;
+  const first = record.documents.length;
+  try {
+    record.documents.push(...files.map((file, i) => ({ url: `/uploads/records/${file.filename}`, fileName: `${label}${files.length > 1 ? ` ${i + 1}` : ''}${require('path').extname(file.filename)}`, uploadedAt: now, uploadedByName: req.user.name })));
+    await rebuildPdf(record);
+    await record.save();
+  } catch (error) {
+    record.documents.splice(first);
+    await cleanup();
+    throw error;
+  }
+  files.forEach((file, i) => session.notes.push({ url: `/uploads/records/${file.filename}`, fileName: file.originalname || `${label} ${i + 1}`, mimeType: file.mimetype, at: now, byName: req.user.name, recordRoom: record._id, recordRoomPdf: record.pdfUrl, pdfPageCount: record.pdfPageCount }));
+  note(session, req.user, `Handwritten note${files.length > 1 ? `s (${files.length})` : ''} uploaded and added to the Records Room PDF (${record.pdfPageCount} pages)`);
+  await respond(req, res, session, { recordRoom: { id: String(record._id), pdfUrl: record.pdfUrl, pdfName: record.pdfName, pages: record.pdfPageCount } });
+});
+
+// ---- Reminders ------------------------------------------------------------------------------------------------------
+// @route POST /api/care/sessions/:id/reminders  { at, note }
+const addReminder = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  openOnly(session);
+  const at = new Date(req.body?.at);
+  if (!req.body?.at || Number.isNaN(at.getTime())) fail('Choose when to be reminded');
+  if (at.getTime() > Date.now() + 200 * 86400000) fail('The reminder is too far ahead');
+  const noteText = text(req.body?.note, 300);
+  if (!noteText) fail('Write what the reminder is for');
+  session.reminders.push({ at, note: noteText, byName: req.user.name, createdAt: new Date() });
+  note(session, req.user, `Reminder set for ${at.toISOString()}: ${noteText}`);
+  await respond(req, res, session);
+});
+// @route PATCH /api/care/sessions/:id/reminders/:reminderId  { done: true | false }
+const updateReminder = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  const reminder = session.reminders.id(req.params.reminderId);
+  if (!reminder) fail('Reminder not found', 404);
+  const done = req.body?.done !== false;
+  Object.assign(reminder, done ? { doneAt: new Date(), doneByName: req.user.name } : { doneAt: null, doneByName: '' });
+  note(session, req.user, `Reminder ${done ? 'done' : 'opened again'}: ${reminder.note}`);
+  await respond(req, res, session);
+});
+
+// ---- Doctor advice --------------------------------------------------------------------------------------------------
+// @route GET /api/care/sessions/:id/advice  - the patient's queries to the doctor (newest first), those from this session marked.
+const sessionAdvice = asyncHandler(async (req, res) => {
+  const session = await loadSession(req);
+  const AdviceRequest = require('../models/AdviceRequest');
+  const rows = await AdviceRequest.find({ patient: session.patient }).sort({ createdAt: -1 }).limit(50)
+    .select('stage query askedAt createdAt status isUrgent requestedByName advice adviceGivenAt adviceGivenByName adviceVoice.url sentToPatientAt resolvedAt rounds').lean();
+  const mineIds = new Set((session.doctorRequests || []).map((d) => String(d.advice)));
+  res.json({
+    success: true,
+    advice: rows.map((a) => ({
+      id: String(a._id), phase: a.stage, query: a.query, askedAt: a.askedAt || a.createdAt, urgent: Boolean(a.isUrgent), by: a.requestedByName || '',
+      status: a.resolvedAt ? 'solved' : a.status === 'advice_given' ? (a.sentToPatientAt ? 'sent to patient' : 'answered') : 'waiting for the doctor',
+      advice: a.advice || '', adviceAt: a.adviceGivenAt, adviceBy: a.adviceGivenByName || '', voice: a.adviceVoice?.url || '', fromThisSession: mineIds.has(String(a._id)), rounds: (a.rounds || []).length,
+    })),
+  });
+});
+// @route POST /api/care/sessions/:id/advice  { query, urgent }  - ask the doctor from this session.
+const askDoctor = asyncHandler(async (req, res) => {
+  const session = await loadSession(req, { act: true });
+  const query = text(req.body?.query, 3000);
+  if (!query) fail('Write the question for the doctor');
+  const urgent = Boolean(req.body?.urgent);
+  const now = new Date();
+  const advice = await require('../models/AdviceRequest').create({
+    patient: session.patient, stage: session.phase, query: `${session.code} ${session.title} (day ${session.day}): ${query}`, askedAt: now, isUrgent: urgent,
+    requestedBy: req.user._id, requestedByName: req.user.name, requestedByRole: req.user.role,
+    timeline: [{ at: now, action: urgent ? 'Query raised (emergency) from the follow-up' : 'Query raised from the follow-up', details: query.slice(0, 1000), byName: req.user.name, byRole: req.user.role }],
+  });
+  session.doctorRequests.push({ advice: advice._id, level: urgent ? 'Asked (urgent)' : 'Asked', blockId: '', at: now });
+  note(session, req.user, `Asked the doctor${urgent ? ' (urgent)' : ''}: ${query.slice(0, 200)}`);
+  const server = req.app?.get?.('io');
+  if (server) { server.to('advice:doctors').emit('advice:changed', { id: String(advice._id) }); ['enquiry:admins', 'enquiry:managers'].forEach((room) => server.to(room).emit('advice:changed', { id: String(advice._id) })); }
+  await respond(req, res, session);
+});
+
 // Open sessions waiting on a person (sidebar count / Your pending work): red alert, overdue, today, no call time
-// within 3 days, or on a leave day (for the Manager / Admin).
+// within 3 days, a reminder due, or on a leave day (for the Manager / Admin).
 const careWork = async (user, now = new Date()) => {
   if (mongoose.connection.readyState !== 1) return [];
-  const filter = { status: { $in: C.OPEN }, targetDate: { $lte: C.addDays(C.dayOf(now), 3) } };
+  // Due within 3 days, or a reminder due, or (Manager / Admin) a reassign request waiting - whatever the day.
+  const filter = { status: { $in: C.OPEN }, $or: [
+    { targetDate: { $lte: C.addDays(C.dayOf(now), 3) } },
+    { reminders: { $elemMatch: { doneAt: null, at: { $lte: now } } } },
+    ...(manages(user) ? [{ 'reassignRequest.status': 'open' }] : []),
+  ] };
   if (!seesAll(user)) filter.assignee = user._id;
-  const rows = await CareSession.find(filter).select('patient patientName patientCode phase kind seq code title day targetDate callAt status owner ownerName assignee assigneeName reschedules cover').lean();
+  const rows = await CareSession.find(filter).select('patient patientName patientCode phase kind seq code title day targetDate callAt status owner ownerName assignee assigneeName reschedules cover reminders reassignRequest').lean();
   const leaves = manages(user) ? await leavesFor(rows) : new Map();
-  return rows.map((s) => viewOf(s, { now, leaves })).filter((s) => WORK.includes(s.state) || s.leave)
+  return rows.map((s) => viewOf(s, { now, leaves })).filter((s) => WORK.includes(s.state) || s.leave || s.reminderDue || (manages(user) && s.reassignAsked))
     .sort((a, b) => ({ alert: 0, overdue: 1 }[a.state] ?? 2) - ({ alert: 0, overdue: 1 }[b.state] ?? 2) || String(a.dueDay).localeCompare(String(b.dueDay)));
 };
 
@@ -350,9 +537,25 @@ const calendar = asyncHandler(async (req, res) => {
   const now = new Date();
   const sessions = rows.map((s) => viewOf(s, { now, leaves })).filter((s) => s.dueDay >= from && s.dueDay <= to)
     .filter((s) => s.assignee === String(userId) || (s.owner === String(userId) && s.assignee !== String(userId) && C.isOpen(s)));
+  // The old follow-ups / family sessions of this PCC's patients that month (done or still open; not the ones moved
+  // to the Care Schedule), so the calendar shows everything.
+  const Patient = require('../models/Patient');
+  const oldOf = await Patient.find({ assignedDoctor: userId, isActive: { $ne: false }, $or: [{ 'stages.followUps.dateTime': { $gte: C.atTime(from, '00:00'), $lte: C.atTime(to, '23:59') } }, { 'stages.familySessions.dateTime': { $gte: C.atTime(from, '00:00'), $lte: C.atTime(to, '23:59') } }] })
+    .select('patientName patientCode stages.number stages.followUps.dateTime stages.followUps.status stages.followUps.followUpType stages.followUps.convertedAt stages.familySessions.dateTime stages.familySessions.status stages.familySessions.convertedAt').lean();
+  const old = [];
+  oldOf.forEach((p) => (p.stages || []).forEach((stage) => {
+    const add = (entry, type) => {
+      if (!entry?.dateTime || entry.convertedAt) return;
+      const day = C.dayOf(entry.dateTime);
+      if (day < from || day > to) return;
+      old.push({ patientId: String(p._id), patientName: p.patientName, patientCode: p.patientCode || '', phase: stage.number, at: entry.dateTime, day, type, status: entry.status });
+    };
+    (stage.followUps || []).forEach((e) => add(e, e.followUpType === 'tracker' ? 'tracker' : 'followup'));
+    (stage.familySessions || []).forEach((e) => add(e, 'family'));
+  }));
   const days = [];
   for (let day = from; day <= to; day = C.addDays(day, 1)) {
-    days.push({ day, weekday: C.weekdayOf(day), closed: C.isOffDay(day), leave: leaveOn(leaves, userId, day), sessions: sessions.filter((s) => s.dueDay === day) });
+    days.push({ day, weekday: C.weekdayOf(day), closed: C.isOffDay(day), leave: leaveOn(leaves, userId, day), sessions: sessions.filter((s) => s.dueDay === day), old: old.filter((o) => o.day === day).sort((a, b) => new Date(a.at) - new Date(b.at)) });
   }
   const staff = seesAll(req.user) ? (await User.find({ role: { $in: PCC_ROLES }, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean()).map((u) => ({ id: String(u._id), name: u.name })) : [];
   res.json({ success: true, user: { id: String(person._id), name: person.name, role: person.role }, month, days, leaves: leaves.get(String(userId)) || [], staff, canMark: manages(req.user) || String(userId) === String(req.user._id) });
@@ -392,8 +595,35 @@ const removeLeave = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
+// ---- Old patients onto the Care Schedule (utils/careConvert.js, utils/careMigration.js) -----------------------------
+// @route GET /api/care/convert  (Admin / Manager) - what moving the old patients would do, phase by phase.
+const convertPreview = asyncHandler(async (req, res) => {
+  if (!manages(req.user)) fail('Only the Admin or Manager moves old patients to the Care Schedule', 403);
+  const { oldPatients, previewRows } = require('../utils/careMigration');
+  const rows = previewRows(await oldPatients(), new Date());
+  const ready = rows.filter((r) => r.ok);
+  res.json({
+    success: true, rows,
+    totals: { phases: rows.length, ready: ready.length, newSessions: ready.reduce((n, r) => n + r.items.length, 0), closed: ready.reduce((n, r) => n + r.close, 0) },
+  });
+});
+
+// @route POST /api/care/convert  { items: [{ patientId, phase }] } or { all: true }  (Admin / Manager)
+const convertRun = asyncHandler(async (req, res) => {
+  if (!manages(req.user)) fail('Only the Admin or Manager moves old patients to the Care Schedule', 403);
+  const wanted = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [];
+  if (!req.body?.all && !wanted.length) fail('Choose the patients to move');
+  const out = await require('../utils/careMigration').moveOldPatients({ user: req.user, all: Boolean(req.body?.all), wanted });
+  req.app?.get?.('io')?.emit?.('care:changed', { converted: out.moved });
+  res.json({ success: true, ...out });
+});
+
 module.exports = {
+  uploadNotes,
+  requestReassign, declineReassign,
+  addReminder, updateReminder, sessionAdvice, askDoctor,
+  convertPreview, convertRun,
   calendar, markLeave, removeLeave,
   listSessions, patientSessions, getSession, setCallTime, reschedule, addAttempt, markMissed, cancelSession, reopenSession, listStaff, assignSession,
-  saveForm, completeSession, careWork, viewOf, MISSED_REASONS, ATTEMPT_LABEL,
+  saveForm, completeSession, closeSession, careWork, viewOf, MISSED_REASONS, CLOSE_REASONS, ATTEMPT_LABEL,
 };

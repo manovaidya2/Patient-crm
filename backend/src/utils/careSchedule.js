@@ -80,7 +80,7 @@ const stateOf = (session, now = new Date()) => {
   return 'upcoming';
 };
 const STATE_LABEL = {
-  done: 'Done', missed: 'Missed by parents', cancelled: 'Cancelled', alert: 'Action needed', overdue: 'Overdue', today: 'Today', needs_time: 'Set call time', upcoming: 'Scheduled',
+  done: 'Done', missed: 'Closed · Missed by patient', cancelled: 'Closed', alert: 'Action needed', overdue: 'Overdue', today: 'Today', needs_time: 'Set call time', upcoming: 'Scheduled',
 };
 const dueDayOf = (session) => (session?.callAt ? dayOf(session.callAt) : session?.targetDate || '');
 

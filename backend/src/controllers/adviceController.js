@@ -209,7 +209,9 @@ const listPatientAdvice = asyncHandler(async (req, res) => {
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
-  if (!canAccessPatient(req.user, patient)) {
+  // Every PCC may read the advice of any approved patient (only the assigned one raises queries).
+  const pccReads = req.user.role === ROLES.ASSISTANT_DOCTOR && (patient.approvalStatus || 'approved') === 'approved';
+  if (!pccReads && !canAccessPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 

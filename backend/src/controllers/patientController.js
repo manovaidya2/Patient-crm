@@ -142,6 +142,14 @@ const canAccessPatient = (user, patient) => {
   return String(assignedId) === String(user._id);
 };
 
+// Every PCC may read any approved patient (e.g. to cover one follow-up of a colleague's patient); only the assigned PCC
+// changes anything (canAccessPatient). Other roles: the same as canAccessPatient.
+const canViewPatient = (user, patient) => {
+  if (user.role === ROLES.ASSISTANT_DOCTOR) return (patient.approvalStatus || 'approved') === 'approved';
+  return canAccessPatient(user, patient);
+};
+const readOnlyFor = (user, patient) => user?.role === ROLES.ASSISTANT_DOCTOR && !canAccessPatient(user, patient);
+
 const canReviewPatientApproval = (user) => [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT].includes(user?.role);
 const { paymentSummary: transitPaymentSummary, isInTransit, beginSupplyRound, ensureSupplyRound } = require('../utils/transitFlow');
 // The next supply of a phase on the Care Schedule reached the patient: the screen is told that the PCC now fills its
@@ -262,6 +270,8 @@ const formatScheduleEntry = (e) => {
     completionPdfUrl: e.completionPdfUrl || null,
     completionPdfName: e.completionPdfName || '',
     cancelReason: e.cancelReason || '',
+    // Moved to the Care Schedule (utils/careConvert.js): closed here, the new session is on the Care Schedule.
+    convertedAt: e.convertedAt || null,
     cancelledAt: e.cancelledAt || null,
     cancelledByName: e.cancelledByName || '',
     outcome: e.outcome || '',
@@ -556,6 +566,8 @@ const cannotUpdateScheduleType = (user, fieldKey) =>
 
 const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   id: p._id,
+  // A PCC reading a patient who is not theirs: the page shows everything, read only.
+  readOnly: user ? readOnlyFor(user, p) : false,
   patientCode: p.patientCode || `PT-${String(p._id).slice(-6).toUpperCase()}`,
   patientName: p.patientName,
   category: p.category,
@@ -584,7 +596,7 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   canToggleActive: canTogglePatientActive(user),
   tags: p.tags || [],
   tagMeta: p.tagMeta || {},
-  canEditTags: TAG_EDIT_ROLES.includes(user?.role),
+  canEditTags: TAG_EDIT_ROLES.includes(user?.role) && !(user && readOnlyFor(user, p)),
   assignedDoctor: formatAssignedUser(p.assignedDoctor),
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
   hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
@@ -849,7 +861,8 @@ const getPatients = asyncHandler(async (req, res) => {
   // and only once accounts has approved the patient (see approvalStatus on the model).
   // Post Counselor has full All Patients access, same as Admin/Doctor/Manager.
   if (req.user.role === ROLES.ASSISTANT_DOCTOR) {
-    filter.assignedDoctor = req.user._id;
+    // Their own patients; every approved patient with ?scope=all (read only for the ones not theirs).
+    if (req.query.scope !== 'all') filter.assignedDoctor = req.user._id;
     filter.approvalStatus = { $ne: 'pending' }; // treat missing (pre-existing patients) as approved
   } else if (req.user.role === ROLES.PSYCHOLOGIST) {
     filter.assignedPsychologist = req.user._id;
@@ -1590,7 +1603,7 @@ const getPatientById = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
 
-  if (!canAccessPatient(req.user, patient)) {
+  if (!canViewPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
 
@@ -1613,7 +1626,7 @@ const getPatientCallLogs = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Patient not found' });
   }
 
-  if (!canAccessPatient(req.user, patient)) {
+  if (!canViewPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'You can only view calls for assigned patients' });
   }
 
@@ -1629,7 +1642,7 @@ const getPatientCallLogs = asyncHandler(async (req, res) => {
 const getPatientRecordRoom = asyncHandler(async (req, res) => {
   const patient = await Patient.findById(req.params.id).select('patientCode assignedDoctor assignedPsychologist approvalStatus').lean();
   if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
-  if (!canAccessPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'You can only view records of assigned patients' });
+  if (!canViewPatient(req.user, patient)) return res.status(403).json({ success: false, message: 'You can only view records of assigned patients' });
   const code = String(patient.patientCode || '').trim();
   // Also follow the Patient ID to the appointment(s) that carry it: the Records Room may be filed under the appointment code.
   const source = looseSource(code);
@@ -3628,6 +3641,11 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
 // @access  Private/Admin, Manager, Post Counselor, Psychologist, Assistant Doctor (scoped)
 const addScheduleEntry = (fieldKey) =>
   asyncHandler(async (req, res) => {
+    // From 2026-11-21 follow-ups, family sessions and trackers are made only by the Care Schedule (from the medicine
+    // start date); the old ones are kept and closed there.
+    if (!req.allowOldSchedule) {
+      return res.status(410).json({ success: false, message: 'Follow-ups and family sessions are on the Care Schedule now (made from the medicine start date). Open "Follow-ups & Family Sessions".' });
+    }
     if (fieldKey === 'followUps' && req.user.role === ROLES.PSYCHOLOGIST) {
       return res.status(403).json({ success: false, message: 'Follow-ups are only visible to the assigned Assistant Doctor' });
     }

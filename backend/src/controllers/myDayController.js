@@ -172,7 +172,7 @@ const COLLECTORS = {
   },
   async '/admin/care-schedule'(user) {
     const work = await require('./careController').careWork(user);
-    return work.slice(0, LIMIT).map((w) => item('/admin/care-schedule', w.id, w.patientName, [w.patientCode, `Phase ${w.phase}`, `${w.code} (day ${w.day})`, w.leave ? w.leave.text : w.stateLabel, w.assigneeName && w.assigneeName !== user.name ? w.assigneeName : ''].filter(Boolean).join(' · '), w.callAt || `${w.dueDay}T05:30:00.000Z`, `/admin/care-schedule?s=${w.id}`));
+    return work.slice(0, LIMIT).map((w) => item('/admin/care-schedule', w.id, w.patientName, [w.patientCode, `Phase ${w.phase}`, `${w.code} (day ${w.day})`, w.reassignAsked && ['admin', 'manager'].includes(user.role) ? `Reassign requested by ${w.reassignRequest?.byName || 'PCC'}` : w.leave ? w.leave.text : w.reminderDue && !['alert', 'overdue', 'today'].includes(w.state) ? 'Reminder due' : w.stateLabel, w.assigneeName && w.assigneeName !== user.name ? w.assigneeName : ''].filter(Boolean).join(' · '), w.callAt || `${w.dueDay}T05:30:00.000Z`, `/admin/care-schedule/session/${w.id}`));
   },
   async '/admin/team-chat'(user) {
     const TeamChat = require('../models/TeamChat');

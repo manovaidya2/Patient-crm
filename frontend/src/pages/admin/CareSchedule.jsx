@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, CalendarHeart, ChevronLeft, ChevronRight, ListChecks, Search, Trash2, UserX } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, ArrowRightLeft, CalendarDays, CalendarHeart, ChevronLeft, ChevronRight, History, ListChecks, Search, Trash2, UserX } from 'lucide-react';
 import api from '../../api/axios.js';
 import useApiQuery from '../../api/useApiQuery.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
 import Button from '../../components/ui/Button.jsx';
-import CareSessionModal from '../../components/care/CareSessionModal.jsx';
+import ConvertOldPanel from '../../components/care/ConvertOldPanel.jsx';
+import ScheduleListPage from '../../components/ScheduleListPage.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { KIND_STYLE, STATE_STYLE, fmtAt, fmtDay, fmtTime } from '../../components/care/careUi.js';
 
 const VIEWS = [
-  ['work', 'My work'], ['alert', 'Red alert'], ['overdue', 'Overdue'], ['today', 'Today'], ['needs_time', 'Set call time'], ['leave', 'PCC on leave'],
-  ['upcoming', 'Upcoming'], ['done', 'Done'], ['missed', 'Missed'], ['cancelled', 'Cancelled'],
+  ['work', 'My work'], ['alert', 'Red alert'], ['overdue', 'Overdue'], ['today', 'Today'], ['needs_time', 'Set call time'], ['leave', 'PCC on leave'], ['requests', 'Reassign requests'],
+  ['upcoming', 'Upcoming'], ['done', 'Done'], ['closed', 'Closed'],
 ];
 const KINDS = [['', 'All'], ['followup', 'Follow-ups'], ['family', 'Family sessions'], ['tracker', 'Trackers']];
 const errorText = (error) => error?.response?.data?.message || error?.message || 'Something went wrong';
@@ -34,11 +36,13 @@ function SessionRow({ s, onOpen }) {
         {s.leave && <span className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-[#9A5B00]"><UserX size={12} />{s.leave.text}</span>}
         {s.reschedulesUsed > 0 && <span className="block text-[11px] text-charcoal/50">Rescheduled {s.reschedulesUsed}/{s.rescheduleLimit}{s.attempts ? ` · ${s.attempts} call${s.attempts === 1 ? '' : 's'} not connected` : ''}</span>}
         {!s.reschedulesUsed && s.attempts > 0 && <span className="block text-[11px] text-charcoal/50">{s.attempts} call{s.attempts === 1 ? '' : 's'} not connected</span>}
+        {s.closed && <span className="block truncate text-[11px] text-charcoal/55" title={`${s.closed.reason} — ${s.closed.details}`}>{s.closed.reason} — {s.closed.details}</span>}
       </span>
       <span className="flex flex-wrap items-center gap-1.5 md:justify-end">
         {s.state === 'alert' && <AlertTriangle size={14} className="text-[#B4232F]" />}
         <span className={`rounded-full px-2.5 py-0.5 text-[11.5px] font-bold ${STATE_STYLE[s.state] || ''}`}>{s.stateLabel}</span>
         {s.hasDraft && <span className="rounded-full bg-[#E6EEF8] px-2 py-0.5 text-[10.5px] font-bold text-[#24476F]">Draft</span>}
+        {s.reassignAsked && <span className="rounded-full bg-[#EEF3FB] px-2 py-0.5 text-[10.5px] font-bold text-[#24476F]" title={s.reassignRequest?.reason}>Reassign asked</span>}
       </span>
     </button>
   );
@@ -156,6 +160,11 @@ function Calendar({ onOpen }) {
                   </p>
                 )}
                 <div className="mt-1 space-y-0.5">
+                  {(d.old || []).map((o, i) => (
+                    <Link key={`old-${i}`} to={`/admin/patients/${o.patientId}`} className={`flex w-full items-center gap-1 truncate rounded border border-dashed border-charcoal/20 px-1 py-0.5 text-[10.5px] font-semibold text-charcoal/60 hover:bg-charcoal/[0.04] ${o.status === 'completed' ? 'opacity-60' : ''}`} title={`Old ${o.type} · ${o.patientName} · ${o.status}`}>
+                      <History size={10} className="shrink-0" />{fmtTime(o.at)} {o.type === 'family' ? 'FS' : o.type === 'tracker' ? 'Tracker' : 'FU'} {o.patientName}
+                    </Link>
+                  ))}
                   {d.sessions.map((s) => {
                     const kind = KIND_STYLE[s.kind] || KIND_STYLE.followup;
                     return (
@@ -170,30 +179,54 @@ function Calendar({ onOpen }) {
           </div>
         </div>
       )}
-      <p className="flex flex-wrap gap-3 text-[11.5px] text-charcoal/55">{Object.values(KIND_STYLE).map((k) => <span key={k.label} className="flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${k.dot}`} />{k.label}</span>)}<span>Orange day = leave · grey = clinic closed (Wednesday)</span></p>
+      <p className="flex flex-wrap gap-3 text-[11.5px] text-charcoal/55">{Object.values(KIND_STYLE).map((k) => <span key={k.label} className="flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${k.dot}`} />{k.label}</span>)}<span className="flex items-center gap-1"><History size={11} />dashed = old follow-up / family session</span><span>Orange day = leave · grey = clinic closed (Wednesday)</span></p>
     </div>
   );
 }
 
-// Care Schedule: every follow-up, family session and development tracker made from the medicine start dates (the
-// worklist), and each PCC's calendar with their leave (marked by the PCC or the Manager).
+function OldRecords() {
+  const [params] = useSearchParams();
+  const [type, setType] = useState(params.get('type') === 'family' ? 'family' : 'followup');
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border border-cardline bg-white p-0.5">
+          {[['followup', 'Old follow-ups'], ['family', 'Old family sessions']].map(([key, label]) => <button key={key} type="button" onClick={() => setType(key)} className={`rounded-md px-3 py-1 text-[12.5px] font-bold ${type === key ? 'bg-[#EEF3F0] text-[#1F4F3D]' : 'text-charcoal/60'}`}>{label}</button>)}
+        </div>
+        <p className="text-[12px] text-charcoal/55">The old system's entries: done ones as saved, the ones moved to the new schedule show "Moved to the new Care Schedule".</p>
+      </div>
+      {type === 'followup'
+        ? <ScheduleListPage key="fu" title="Old follow-ups" subtitle="Follow-ups of the old system (history)." apiPath="/schedule/followups" showFollowUpTypeFilter />
+        : <ScheduleListPage key="fs" title="Old family sessions" subtitle="Family sessions of the old system (history)." apiPath="/schedule/family-sessions" showFamilySessionTypeFilter />}
+    </div>
+  );
+}
+
+const TABS = ['list', 'calendar', 'old', 'convert'];
+// Follow-ups & Family Sessions (the Care Schedule): every follow-up, family session and development tracker made from
+// the medicine start dates (the worklist), each PCC's calendar with their leave (marked by the PCC or the Manager),
+// the old system's entries, and (Admin / Manager) moving old patients to the new pattern.
 export default function CareSchedule() {
-  const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState(params.get('tab') === 'calendar' ? 'calendar' : 'list');
-  const [openId, setOpenId] = useState(params.get('s') || '');
-  useEffect(() => { const s = params.get('s'); if (s) setOpenId(s); }, [params]);
-  const close = () => { setOpenId(''); if (params.get('s')) { params.delete('s'); setParams(params, { replace: true }); } };
+  const { user } = useAuth();
+  const canManage = ['admin', 'manager'].includes(user?.role);
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(TABS.includes(params.get('tab')) ? params.get('tab') : 'list');
+  const navigate = useNavigate();
+  // A session opens on its own page (tabs: form, calls, doctor advice, reminders, reschedule, history).
+  const open = (sessionId) => navigate(`/admin/care-schedule/session/${sessionId}`);
+  useEffect(() => { const s = params.get('s'); if (s) navigate(`/admin/care-schedule/session/${s}`, { replace: true }); }, [params, navigate]);
   return (
     <div className="space-y-4">
-      <PageHeader icon={CalendarHeart} title="Care Schedule" subtitle="Follow-ups, family sessions and trackers from the medicine start date — call times, reschedules, missed calls and the forms." />
-      <div className="flex gap-1 border-b border-cardline">
-        {[['list', 'Worklist', ListChecks], ['calendar', 'PCC calendar & leave', CalendarDays]].map(([key, label, Icon]) => (
-          <button key={key} type="button" onClick={() => setTab(key)} className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-bold ${tab === key ? 'border-[#1F5F4A] text-[#1F5F4A]' : 'border-transparent text-charcoal/55'}`}><Icon size={15} />{label}</button>
+      <PageHeader icon={CalendarHeart} title="Follow-ups & Family Sessions" subtitle="The Care Schedule: follow-ups, family sessions and trackers from the medicine start date — call times, reschedules, missed calls, leave and the forms." />
+      <div className="flex gap-1 overflow-x-auto border-b border-cardline">
+        {[['list', 'Worklist', ListChecks], ['calendar', 'Calendar & leave', CalendarDays], ['old', 'Old records', History], ...(canManage ? [['convert', 'Move old patients', ArrowRightLeft]] : [])].map(([key, label, Icon]) => (
+          <button key={key} type="button" onClick={() => setTab(key)} className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-bold ${tab === key ? 'border-[#1F5F4A] text-[#1F5F4A]' : 'border-transparent text-charcoal/55'}`}><Icon size={15} />{label}</button>
         ))}
-        <Link to="/admin/followups" className="ml-auto self-center text-[12px] font-semibold text-charcoal/50 hover:underline">Old follow-ups</Link>
       </div>
-      {tab === 'list' ? <Worklist onOpen={setOpenId} /> : <Calendar onOpen={setOpenId} />}
-      <CareSessionModal id={openId} open={Boolean(openId)} onClose={close} />
+      {tab === 'list' && <Worklist onOpen={open} />}
+      {tab === 'calendar' && <Calendar onOpen={open} />}
+      {tab === 'old' && <OldRecords />}
+      {tab === 'convert' && canManage && <ConvertOldPanel />}
     </div>
   );
 }

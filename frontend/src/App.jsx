@@ -20,8 +20,6 @@ const PatientsByStage = lazy(() => import('./pages/admin/PatientsByStage.jsx'));
 const Accounts = lazy(() => import('./pages/admin/Accounts.jsx'));
 const Invoices = lazy(() => import('./pages/admin/Invoices.jsx'));
 const Expenses = lazy(() => import('./pages/admin/Expenses.jsx'));
-const FollowUps = lazy(() => import('./pages/admin/FollowUps.jsx'));
-const FamilySessions = lazy(() => import('./pages/admin/FamilySessions.jsx'));
 const PatientImprovement = lazy(() => import('./pages/admin/PatientImprovement.jsx'));
 const Payments = lazy(() => import('./pages/admin/Payments.jsx'));
 const FinancialLedger = lazy(() => import('./pages/admin/FinancialLedger.jsx'));
@@ -59,6 +57,7 @@ const RequestForAdvice = lazy(() => import('./pages/admin/RequestForAdvice.jsx')
 const AdviceGiven = lazy(() => import('./pages/admin/AdviceGiven.jsx'));
 const PatientQueries = lazy(() => import('./pages/admin/PatientQueries.jsx'));
 const CareSchedule = lazy(() => import('./pages/admin/CareSchedule.jsx'));
+const CareSessionPage = lazy(() => import('./pages/admin/CareSessionPage.jsx'));
 const Worksheet = lazy(() => import('./pages/admin/Worksheet.jsx'));
 const CrmChatGPT = lazy(() => import('./pages/admin/CrmChatGPT.jsx'));
 const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx'));
@@ -91,8 +90,6 @@ const HrWorksheet = lazy(() => import('./pages/hr/HrWorksheet.jsx'));
 const HrIncidents = lazy(() => import('./pages/hr/HrIncidents.jsx'));
 const HrClinicExpenses = lazy(() => import('./pages/hr/HrClinicExpenses.jsx'));
 
-const FOLLOWUP_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(role));
-const FAMILY_SESSION_ACCESS_ROLES = PATIENT_ACCESS_ROLES.filter((role) => ![ROLES.RECEPTIONIST, ROLES.POST_COUNSELOR].includes(role));
 const WORKSHEET_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR];
 const DASHBOARD_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR, ROLES.RECEPTIONIST];
 const DIGITAL_MARKETING_ACCESS_ROLES = [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING];
@@ -190,6 +187,7 @@ function App() {
         <Route path="medicine-explanations" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><MedicineExplanations /></ProtectedRoute>} />
         <Route path="patient-queries" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR]}><PatientQueries /></ProtectedRoute>} />
         <Route path="care-schedule" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><CareSchedule /></ProtectedRoute>} />
+        <Route path="care-schedule/session/:id" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR]}><CareSessionPage /></ProtectedRoute>} />
         <Route path="treatment-delivery" element={<Navigate to="/admin/care-schedule" replace />} />
         <Route path="invoices" element={<Navigate to="/admin/invoices/final-bill" replace />} />
         <Route path="invoices/final-bill" element={<ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.RECEPTIONIST]}><Invoices type="final-bill" /></ProtectedRoute>} />
@@ -430,14 +428,8 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="followups"
-          element={
-            <ProtectedRoute roles={FOLLOWUP_ACCESS_ROLES}>
-              <FollowUps />
-            </ProtectedRoute>
-          }
-        />
+        {/* Follow-ups and family sessions are one page now (the Care Schedule); the old lists are its "Old records" tab. */}
+        <Route path="followups" element={<Navigate to="/admin/care-schedule?tab=old&type=followup" replace />} />
         <Route
           path="appointment-management"
           element={
@@ -495,14 +487,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="family-sessions"
-          element={
-            <ProtectedRoute roles={FAMILY_SESSION_ACCESS_ROLES}>
-              <FamilySessions />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="family-sessions" element={<Navigate to="/admin/care-schedule?tab=old&type=family" replace />} />
         <Route
           path="patient-improvement"
           element={

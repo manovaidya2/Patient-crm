@@ -1367,7 +1367,7 @@ const ScheduleCard = ({
                     <p className="mt-0.5 text-[11px] text-charcoal/40">By {e.createdByName || 'Unknown'}</p>
                   </div>
                   <div className="max-w-full sm:shrink-0 flex flex-wrap items-center sm:justify-end gap-1.5">
-                    <Badge tone={DISPLAY_STATUS_BADGE_TONE[e.displayStatus]}>{e.displayStatusLabel}</Badge>
+                    {e.convertedAt ? <Badge tone="default">Moved to Care Schedule</Badge> : <Badge tone={DISPLAY_STATUS_BADGE_TONE[e.displayStatus]}>{e.displayStatusLabel}</Badge>}
                     {canEditEntries && !isPlan && (
                       <Button size="sm" variant="outline" onClick={() => openEditModal(e)}>
                         <Pencil size={14} /> Edit
@@ -2346,6 +2346,8 @@ const PatientDetails = () => {
   const isAutism = patient?.category === PATIENT_CATEGORIES.AUTISM_ADHD;
   const guardianKey = isAutism ? 'guardianName' : 'relativeName';
   const isPsychologist = user?.role === ROLES.PSYCHOLOGIST;
+  // A PCC reading a patient who is not theirs (e.g. covering one follow-up): everything read only.
+  const readOnlyView = Boolean(patient?.readOnly);
   const isReceptionistAccounts = user?.role === ROLES.IN_TRANSIT;
   const isAdmin = user?.role === ROLES.ADMIN; // deleting stays Admin-only
   const canManage = isAdminLike(user);
@@ -2355,7 +2357,7 @@ const PatientDetails = () => {
   const isPostCounselor = user?.role === ROLES.POST_COUNSELOR;
   const canEditStageDetails = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR], user);
   // Marking a phase Not started / In progress / Completed, right in the Care team list.
-  const canSetPhaseStatus = canEditStageDetails || roleAllowed([ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER], user);
+  const canSetPhaseStatus = (canEditStageDetails || roleAllowed([ROLES.ASSISTANT_DOCTOR, ROLES.MANAGER], user)) && !readOnlyView;
   const [phaseStatusError, setPhaseStatusError] = useState('');
   const setPhaseStatus = async (stage, status) => {
     if (status === stage.status) return;
@@ -2364,15 +2366,15 @@ const PatientDetails = () => {
     try { const { data } = await api.patch(`/patients/${id}/stages/${stage.number}`, { status }); setPatient(data.patient); }
     catch (err) { setPhaseStatusError(err.response?.data?.message || 'Phase status could not be changed'); }
   };
-  const canEditMedicineSupply = canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR;
-  const canEditPatientIdentity = roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
-  const canEditPatientRecords = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
-  const canAddPayment = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
+  const canEditMedicineSupply = (canEditStageDetails || user?.role === ROLES.ASSISTANT_DOCTOR) && !readOnlyView;
+  const canEditPatientIdentity = roleAllowed([ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user) && !readOnlyView;
+  const canEditPatientRecords = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user) && !readOnlyView;
+  const canAddPayment = roleAllowed([ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT, ROLES.POST_COUNSELOR, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user) && !readOnlyView;
   // Medicine is requested from its purchase order (Purchase Orders > PO details). Only Admin keeps the old
   // direct request here, for records made before purchase orders.
   const canRequestMedicine = canManage;
-  const canUpdateFamilySessions = true;
-  const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isReceptionistAccounts;
+  const canUpdateFamilySessions = !readOnlyView;
+  const canEditPatientDetails = !isLimitedViewer && !isPsychologist && !isReceptionistAccounts && !readOnlyView;
   const canEditPostCounselor = canManage || isPostCounselor;
   const canEditPayments = canManage || isPostCounselor;
 
@@ -2729,7 +2731,7 @@ const PatientDetails = () => {
   // The typed medicine-connect reminder (next connect date) was retired: the supply is read PO by PO now.
   const activeMedicineConnectDue = false;
   const activeStageAdviceRows = adviceRows.filter((row) => Number(row.stage) === Number(activeStageTab));
-  const canRequestAdvice = roleAllowed([ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user);
+  const canRequestAdvice = roleAllowed([ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR, ROLES.PSYCHOLOGIST], user) && !readOnlyView;
   const postCounselorSelectOptions = [
     { value: '', label: 'Not selected' },
     ...(activeStage?.postCounselor?.id && !postCounselorOptions.some((counselor) => String(counselor.id) === String(activeStage.postCounselor.id))
@@ -2930,6 +2932,7 @@ const PatientDetails = () => {
           )}
 
           {/* At-a-glance strip: where the patient is and what is owed */}
+          {readOnlyView && <p className="flex flex-wrap items-center gap-2 border-t border-[#F0E8D8] bg-[#EEF3FB] px-4 py-2 text-[12.5px] font-semibold text-[#24476F]"><UserRound size={14} />Read only — is patient ke PCC {patient.assignedDoctor?.name || '—'} hain. Aap sab padh sakte hain; badlav sirf assigned PCC karega. Aapko diya gaya follow-up / session Follow-ups &amp; Family Sessions se complete karein.</p>}
           <div className="grid gap-2.5 border-t border-[#F0E8D8] bg-[#FCFAF5] p-3 sm:p-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
             {[
               ['Current phase', STAGE_LABELS[patient.currentStage] || '-', Layers, ''],
@@ -3417,50 +3420,54 @@ const PatientDetails = () => {
 
               {activeTab === 'sessions' && !isLimitedViewer && <>
               {canOpenDeliveryPlan && <div className="mt-5"><PatientCareCard patientId={patient.id || patient._id} /></div>}
-              <ScheduleCard
-                canOpenPlan={canOpenDeliveryPlan}
-                icon={CalendarClock}
-                title="Follow-ups"
-                entries={activeStage.followUps}
-                onAdd={handleAddFollowUp}
-                onUpdateStatus={handleUpdateFollowUpStatus}
-                onUploadVideo={handleUploadFollowUpVideo}
-                onNoteOutcome={(entry) => setOutcomeTarget({ field: 'followups', stage: activeStage.number, entryId: entry.id, label: 'Follow-up', outcome: entry.outcome, note: entry.outcomeNote })}
-                onDelete={handleDeleteFollowUp}
-                onFetchNotes={() => fetchScheduleNotes('followups')}
-                onAddNote={(text) => addScheduleNote('followups', text)}
-                onDeleteNote={(noteId) => deleteScheduleNote('followups', noteId)}
-                canAdd={!isPsychologist && !activeStage.hasCareSchedule}
-                canUpdate={!isPsychologist}
-                canEditEntries={canManage}
-                canDeleteEntries={isAdmin}
-                formType="followup_full"
-                patient={patient}
-                stageNumber={activeStage.number}
-                onAttachmentDeleted={() => loadPatientData({ silent: true })}
-              />
-              <ScheduleCard
-                canOpenPlan={canOpenDeliveryPlan}
-                icon={HeartHandshake}
-                title="Family Sessions"
-                entries={activeStage.familySessions}
-                onAdd={handleAddFamilySession}
-                onUpdateStatus={handleUpdateFamilySessionStatus}
-                onNoteOutcome={(entry) => setOutcomeTarget({ field: 'family-sessions', stage: activeStage.number, entryId: entry.id, label: 'Family session', outcome: entry.outcome, note: entry.outcomeNote })}
-                onDelete={handleDeleteFamilySession}
-                onFetchNotes={() => fetchScheduleNotes('family-sessions')}
-                onAddNote={(text) => addScheduleNote('family-sessions', text)}
-                onDeleteNote={(noteId) => deleteScheduleNote('family-sessions', noteId)}
-                canAdd={!activeStage.hasCareSchedule}
-                canUpdate={canUpdateFamilySessions}
-                canEditEntries={canManage}
-                canDeleteEntries={isAdmin}
-                formType="family_section_a"
-                allowShortFollowUp
-                patient={patient}
-                stageNumber={activeStage.number}
-                onAttachmentDeleted={() => loadPatientData({ silent: true })}
-              />
+              {/* The old follow-ups / family sessions stay exactly as they were (forms, photos, PDFs, videos, outcomes); nothing
+                  new is scheduled here any more - new ones are on the Care Schedule above. Shown only when the phase has old ones. */}
+              {(activeStage.followUps || []).length > 0 && (
+                <ScheduleCard
+                  icon={CalendarClock}
+                  title="Follow-ups (old)"
+                  entries={activeStage.followUps}
+                  onAdd={handleAddFollowUp}
+                  onUpdateStatus={handleUpdateFollowUpStatus}
+                  onUploadVideo={handleUploadFollowUpVideo}
+                  onNoteOutcome={(entry) => setOutcomeTarget({ field: 'followups', stage: activeStage.number, entryId: entry.id, label: 'Follow-up', outcome: entry.outcome, note: entry.outcomeNote })}
+                  onDelete={handleDeleteFollowUp}
+                  onFetchNotes={() => fetchScheduleNotes('followups')}
+                  onAddNote={(text) => addScheduleNote('followups', text)}
+                  onDeleteNote={(noteId) => deleteScheduleNote('followups', noteId)}
+                  canAdd={false}
+                  canUpdate={!isPsychologist && !readOnlyView}
+                  canEditEntries={canManage}
+                  canDeleteEntries={isAdmin}
+                  formType="followup_full"
+                  patient={patient}
+                  stageNumber={activeStage.number}
+                  onAttachmentDeleted={() => loadPatientData({ silent: true })}
+                />
+              )}
+              {(activeStage.familySessions || []).length > 0 && (
+                <ScheduleCard
+                  icon={HeartHandshake}
+                  title="Family Sessions (old)"
+                  entries={activeStage.familySessions}
+                  onAdd={handleAddFamilySession}
+                  onUpdateStatus={handleUpdateFamilySessionStatus}
+                  onNoteOutcome={(entry) => setOutcomeTarget({ field: 'family-sessions', stage: activeStage.number, entryId: entry.id, label: 'Family session', outcome: entry.outcome, note: entry.outcomeNote })}
+                  onDelete={handleDeleteFamilySession}
+                  onFetchNotes={() => fetchScheduleNotes('family-sessions')}
+                  onAddNote={(text) => addScheduleNote('family-sessions', text)}
+                  onDeleteNote={(noteId) => deleteScheduleNote('family-sessions', noteId)}
+                  canAdd={false}
+                  canUpdate={canUpdateFamilySessions}
+                  canEditEntries={canManage}
+                  canDeleteEntries={isAdmin}
+                  formType="family_section_a"
+                  allowShortFollowUp
+                  patient={patient}
+                  stageNumber={activeStage.number}
+                  onAttachmentDeleted={() => loadPatientData({ silent: true })}
+                />
+              )}
               <AdvicePanel
                 rows={activeStageAdviceRows}
                 canRequest={canRequestAdvice}

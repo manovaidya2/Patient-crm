@@ -40,6 +40,17 @@ const careSessionSchema = new mongoose.Schema(
       type: new mongoose.Schema({ ...by, reason: { type: String, trim: true, default: '' }, fromName: { type: String, trim: true, default: '' } }, { _id: false }),
       default: undefined,
     },
+    // The PCC asks the Manager / Admin to give this session to someone else (with why, and who they suggest); the
+    // Manager assigns it (done) or declines with a note.
+    reassignRequest: {
+      type: new mongoose.Schema({
+        ...by, reason: { type: String, trim: true, default: '' },
+        suggested: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, suggestedName: { type: String, trim: true, default: '' },
+        status: { type: String, enum: ['open', 'done', 'declined'], default: 'open' },
+        decidedAt: { type: Date, default: null }, decidedByName: { type: String, trim: true, default: '' }, note: { type: String, trim: true, default: '' },
+      }, { _id: false }),
+      default: undefined,
+    },
     reschedules: {
       type: [new mongoose.Schema({ ...by, from: Date, to: Date, reason: { type: String, trim: true, default: '' } }, { _id: false })],
       default: [],
@@ -70,7 +81,33 @@ const careSessionSchema = new mongoose.Schema(
     cancelledAt: { type: Date, default: null },
     cancelReason: { type: String, trim: true, default: '' },
     cancelledByName: { type: String, trim: true, default: '' },
-    // Advice requests the form sent to the doctor (Emergency / Urgent Doctor Review triage).
+    // Closed by hand ("Close" on the session page): why, the details, who / when, and how many calls had not connected.
+    closed: {
+      type: new mongoose.Schema({ reason: String, details: String, missed: Boolean, at: Date, byName: String, attempts: Number }, { _id: false }),
+      default: undefined,
+    },
+    // Reminders for this session (the PCC's own, e.g. "call again after 6 pm"); a due one shows in pending work.
+    reminders: {
+      type: [new mongoose.Schema({
+        at: { type: Date, required: true },
+        note: { type: String, trim: true, default: '' },
+        byName: { type: String, trim: true, default: '' },
+        createdAt: { type: Date, default: Date.now },
+        doneAt: { type: Date, default: null },
+        doneByName: { type: String, trim: true, default: '' },
+      })],
+      default: [],
+    },
+    // Handwritten notes of the session (photo / scan / PDF), each also added at the end of the patient's Records Room PDF.
+    notes: {
+      type: [new mongoose.Schema({
+        url: { type: String, default: '' }, fileName: { type: String, trim: true, default: '' }, mimeType: { type: String, default: '' },
+        at: { type: Date, default: Date.now }, byName: { type: String, trim: true, default: '' },
+        recordRoom: { type: mongoose.Schema.Types.ObjectId, ref: 'RecordRoom', default: null }, recordRoomPdf: { type: String, default: '' }, pdfPageCount: { type: Number, default: 0 },
+      })],
+      default: [],
+    },
+    // Advice requests sent to the doctor from this session (the form's Emergency / Urgent triage, or asked by hand).
     doctorRequests: {
       type: [new mongoose.Schema({ advice: { type: mongoose.Schema.Types.ObjectId, ref: 'AdviceRequest' }, level: String, blockId: String, at: Date }, { _id: false })],
       default: [],

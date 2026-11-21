@@ -314,4 +314,4 @@ const collect = asyncHandler(async (req, res) => {
   await record.save(); res.json({ success: true, record: serialize(record) });
 });
 
-module.exports = { overdue, list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, replaceDocument, replaceAllDocuments, deleteDocument, deleteAllDocuments, issue, collect };
+module.exports = { rebuildPdf, removeFile, overdue, list, detail, summary, movements, lookup, create, update, remove, uploadDocuments, replaceDocument, replaceAllDocuments, deleteDocument, deleteAllDocuments, issue, collect };

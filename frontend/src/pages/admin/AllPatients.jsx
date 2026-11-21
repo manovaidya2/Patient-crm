@@ -73,6 +73,9 @@ const AllPatients = () => {
   }, [center]);
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || '');
+  // A PCC sees their own patients, or every patient (read only for the ones not theirs).
+  const isPcc = user?.role === 'assistant_doctor';
+  const [scopeAll, setScopeAll] = useState(() => searchParams.get('scope') === 'all');
   const [amountStatus, setAmountStatus] = useState(() => searchParams.get('amountStatus') || '');
   const [dateFilter, setDateFilter] = useState(() => searchParams.get('date') || '');
   const [consultationDateFilter, setConsultationDateFilter] = useState(
@@ -151,6 +154,7 @@ const AllPatients = () => {
       amountStatus: amountStatus || undefined,
       receivedDate: dateFilter || undefined,
       consultationDate: consultationDateFilter || undefined,
+      scope: isPcc && scopeAll ? 'all' : undefined,
     },
   });
   const patients = data?.patients || [];
@@ -243,6 +247,11 @@ const AllPatients = () => {
     <div>
       <PageHeader icon={Users} title="All Patients" subtitle={`Patients - ${total} total.`}
         actions={<div className="flex flex-wrap items-center gap-2">
+          {isPcc && (
+            <div className="inline-flex overflow-hidden rounded-[10px] border border-cardline bg-white" role="group" aria-label="Which patients">
+              {[[false, 'My patients'], [true, 'All patients']].map(([all, label]) => <button key={label} type="button" aria-pressed={scopeAll === all} onClick={() => { setScopeAll(all); setPage(1); }} className={`px-3 py-2 text-xs font-bold ${scopeAll === all ? 'bg-charcoal text-white' : 'text-charcoal/70 hover:bg-[#FBF7ED]'}`}>{label}</button>)}
+            </div>
+          )}
           <Button variant="outline" onClick={() => setColumnsOpen(true)}>
             <SlidersHorizontal size={15} /> Columns
           </Button>

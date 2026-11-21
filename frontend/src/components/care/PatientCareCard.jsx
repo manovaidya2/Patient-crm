@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CalendarHeart, UserX } from 'lucide-react';
 import useApiQuery from '../../api/useApiQuery.js';
-import CareSessionModal from './CareSessionModal.jsx';
 import { KIND_STYLE, STATE_STYLE, fmtAt, fmtDay } from './careUi.js';
 
 const lengthText = (days) => (days % 30 === 0 ? `${days / 30} month${days === 30 ? '' : 's'}` : `${days} days`);
@@ -11,7 +9,7 @@ const lengthText = (days) => (days % 30 === 0 ? `${days / 30} month${days === 30
 // medicine covers so far), where each stands, and the form of each one. Nothing shows for a patient without it.
 export default function PatientCareCard({ patientId }) {
   const { data } = useApiQuery(`/care/patients/${patientId}`, {}, { enabled: Boolean(patientId) });
-  const [openId, setOpenId] = useState('');
+  const navigate = useNavigate();
   const phases = data?.phases || [];
   if (!phases.length) return null;
   return (
@@ -32,7 +30,7 @@ export default function PatientCareCard({ patientId }) {
               {phase.sessions.map((s) => {
                 const kind = KIND_STYLE[s.kind] || KIND_STYLE.followup;
                 return (
-                  <button key={s.id} type="button" onClick={() => setOpenId(s.id)} className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:border-[#1F5F4A]/50 ${s.state === 'alert' ? 'border-[#B4232F]/50 bg-[#FFF5F5]' : 'border-cardline bg-white'}`}>
+                  <button key={s.id} type="button" onClick={() => navigate(`/admin/care-schedule/session/${s.id}`)} className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:border-[#1F5F4A]/50 ${s.state === 'alert' ? 'border-[#B4232F]/50 bg-[#FFF5F5]' : 'border-cardline bg-white'}`}>
                     <span className={`mt-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-bold ${kind.chip}`}>{s.code}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] font-bold text-charcoal">{s.title} · Day {s.day}</span>
@@ -48,7 +46,6 @@ export default function PatientCareCard({ patientId }) {
           </div>
         ))}
       </div>
-      <CareSessionModal id={openId} open={Boolean(openId)} onClose={() => setOpenId('')} />
     </section>
   );
 }

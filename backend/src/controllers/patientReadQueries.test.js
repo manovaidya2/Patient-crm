@@ -230,3 +230,26 @@ test('amount column uses current phase and invalid amount filters are rejected',
   const invalid = await invoke(controller.getPatients, { query: { amountStatus: 'bad' } });
   assert.equal(invalid.response.code, 400);
 });
+
+test('every PCC reads any approved patient (read only when it is not theirs); a pending one stays closed to them', async () => {
+  const original = Patient.findById;
+  const originalEntry = AppointmentManagementEntry.findOne;
+  AppointmentManagementEntry.findOne = () => ({ select: () => ({ lean: async () => null }) });
+  const mine = '507f1f77bcf86cd799439021';
+  let record = { _id: '507f1f77bcf86cd799439011', patientName: 'Test', category: 'autism_adhd', currentStage: 1, approvalStatus: 'approved', assignedDoctor: { _id: mine, name: 'PCC Aditi' }, stages: [{ number: 1, payments: [], followUps: [], familySessions: [] }], tags: ['actor'] };
+  Patient.findById = () => ({ populate() { return this; }, lean: async () => record });
+  const read = async (userId) => {
+    let body; let status = 200;
+    await controller.getPatientById({ params: { id: record._id }, user: { _id: userId, role: ROLES.ASSISTANT_DOCTOR } }, { status(code) { status = code; return this; }, json(value) { body = value; } }, (err) => { throw err; });
+    return { body, status };
+  };
+  try {
+    const other = await read('507f1f77bcf86cd799439022');
+    assert.equal(other.status, 200);
+    assert.deepEqual([other.body.patient.readOnly, other.body.patient.canEditTags], [true, false]);
+    const own = await read(mine);
+    assert.equal(own.body.patient.readOnly, false, 'their own patient: they work it');
+    record = { ...record, approvalStatus: 'pending' };
+    assert.equal((await read('507f1f77bcf86cd799439022')).status, 403);
+  } finally { Patient.findById = original; AppointmentManagementEntry.findOne = originalEntry; }
+});

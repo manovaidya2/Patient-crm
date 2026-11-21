@@ -70,6 +70,11 @@ const connectDB = async () => {
     } catch (error) {
       console.error(`Formulation Master not loaded: ${error.message}`);
     }
+    // Old patients' open follow-ups / family sessions move to the Care Schedule (new pattern for the days left; done
+    // entries stay). Runs in the background on every start; a phase already moved is never touched again.
+    require('../utils/careMigration').moveOldPatients({ user: { name: 'System (move to Care Schedule)', role: 'system' }, all: true })
+      .then((out) => { if (out.moved || out.results.length) console.log(`Care Schedule: ${out.moved} old phase(s) moved, ${out.sessions} new session(s), ${out.closed} old entr(ies) closed${out.results.some((r) => !r.ok) ? `; not moved: ${out.results.filter((r) => !r.ok).map((r) => `${r.patientName} P${r.phase} (${r.reason})`).join(', ')}` : ''}`); })
+      .catch((error) => console.error(`Care Schedule move skipped: ${error.message}`));
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
     process.exit(1);

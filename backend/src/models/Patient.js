@@ -94,6 +94,10 @@ const scheduleEntrySchema = new mongoose.Schema(
     cancelReason: { type: String, trim: true, default: '' },
     cancelledAt: { type: Date, default: null },
     cancelledByName: { type: String, trim: true, default: '' },
+    // Moved to the Care Schedule (utils/careConvert.js): the entry is closed (cancelled) and its status before is kept.
+    convertedAt: { type: Date, default: null },
+    convertedByName: { type: String, trim: true, default: '' },
+    statusBeforeConvert: { type: String, trim: true, default: '' },
     // Only on entries of the Treatment Delivery plan.
     delivery: { type: sessionDeliverySchema, default: undefined },
   },
@@ -465,6 +469,8 @@ const carePlanSchema = new mongoose.Schema(
   {
     startedAt: { type: Date, default: null },
     startedByName: { type: String, trim: true, default: '' },
+    // Made from an old phase's follow-ups (utils/careConvert.js): where its start date came from.
+    convertedFrom: { type: mongoose.Schema.Types.Mixed, default: undefined },
     phaseDays: { type: Number, default: 180 },
     parts: {
       type: [new mongoose.Schema({

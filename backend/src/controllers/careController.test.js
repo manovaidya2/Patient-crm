@@ -120,24 +120,130 @@ test('the Manager gives a session to another person (PCC on leave), and back; th
   assert.equal(back.body.session.covered, false);
 });
 
-test('Mark done needs the filled form; an Emergency answer sends the doctor an urgent advice request once', async () => {
+test('Mark done saves the form as filled (nothing is required); an Emergency answer sends the doctor an urgent advice request once', async () => {
   const doc = aSession();
   const advices = [];
   mock.method(AdviceRequest, 'create', async (data) => { advices.push(data); return { _id: id(), ...data }; });
-  const answers = { response: 'Available → Start', mode: 'Call', spokeWith: 'Mother', safety: 'New Concern', triage: 'Emergency', concern: { symptom: { value: 'seizure' } }, medRoutine: 'All Regular', support: 'No Further Support Needed' };
-  const early = await call(c.completeSession, { params: { id: String(doc._id) }, body: { answers }, user: pcc });
-  assert.match(early.error.message, /Final Status/);
-  assert.equal(doc.status, 'pending', 'not done');
+  const answers = { response: 'Busy → Schedule Again', safety: 'New Concern', triage: 'Emergency', concern: { symptom: { value: 'seizure' } } };
   const draft = await call(c.saveForm, { params: { id: String(doc._id) }, body: { answers }, user: pcc });
   assert.deepEqual(draft.body.sentToDoctor, ['Emergency']);
   assert.equal(advices.length, 1);
   assert.equal(advices[0].isUrgent, true);
   assert.match(advices[0].query, /FU-02.*Emergency/s);
   assert.match(advices[0].query, /seizure/);
-  const done = await call(c.completeSession, { params: { id: String(doc._id) }, body: { answers: { ...answers, final: 'Urgent Clinical Escalation' } }, user: pcc });
-  assert.equal(done.error, null);
+  assert.equal(draft.body.session.status, 'pending', 'a draft is not done');
+  const done = await call(c.completeSession, { params: { id: String(doc._id) }, body: { answers }, user: pcc });
+  assert.equal(done.error, null, 'no Final Status / required answer is asked for');
   assert.equal(done.body.session.status, 'completed');
   assert.equal(advices.length, 1, 'the same Emergency is not sent twice');
   assert.equal(doc.form.templateKey, 'MV-FU-02');
-  assert.equal(doc.form.answers.final, 'Urgent Clinical Escalation');
+});
+
+test('the forms are served without "required" marks', async () => {
+  const doc = aSession();
+  mock.method(require('../models/Patient'), 'findById', () => chain({ patientName: 'Aarav', number: '9999999999', guardianName: 'Mother' }));
+  const res = await call(c.getSession, { params: { id: String(doc._id) }, user: pcc });
+  assert.equal(res.error, null);
+  assert.equal(res.body.template.sections.flatMap((s) => s.blocks).filter((b) => b.req).length, 0);
+  assert.deepEqual([res.body.contact.phone, res.body.contact.parent], ['9999999999', 'Mother']);
+});
+test('reminders: added with a note, a due one puts the session in pending work, marked done', async () => {
+  const doc = aSession({ targetDate: '2027-02-10' });
+  assert.match((await call(c.addReminder, { params: { id: String(doc._id) }, body: { at: new Date().toISOString() }, user: pcc })).error.message, /what the reminder/);
+  const added = await call(c.addReminder, { params: { id: String(doc._id) }, body: { at: new Date(Date.now() - 60000).toISOString(), note: 'Call after 6 pm' }, user: pcc });
+  assert.equal(added.body.session.reminders.length, 1);
+  assert.equal(added.body.session.reminderDue, true);
+  assert.equal(c.viewOf(doc.toObject()).state, 'needs_time', 'the session itself is not late (no call time yet, due in February)');
+  const done = await call(c.updateReminder, { params: { id: String(doc._id), reminderId: String(doc.reminders[0]._id) }, body: { done: true }, user: pcc });
+  assert.equal(done.body.session.reminderDue, false);
+  assert.ok(done.body.session.reminders[0].doneAt);
+});
+
+test('ask the doctor from the session: an advice request linked to the session', async () => {
+  const doc = aSession();
+  const advices = [];
+  mock.method(AdviceRequest, 'create', async (data) => { advices.push(data); return { _id: id(), ...data }; });
+  assert.match((await call(c.askDoctor, { params: { id: String(doc._id) }, body: {}, user: pcc })).error.message, /question/);
+  const asked = await call(c.askDoctor, { params: { id: String(doc._id) }, body: { query: 'Child not sleeping since the new medicine', urgent: true }, user: pcc });
+  assert.equal(asked.error, null);
+  assert.equal(advices[0].isUrgent, true);
+  assert.match(advices[0].query, /^FU-02 Medical Follow-up 02 \(day 20\): Child not sleeping/);
+  assert.equal(asked.body.session.doctorRequests.length, 1);
+});
+
+test('Close: a reason and the details are required; "missed by patient" closes it as missed with the calls made, others as closed', async () => {
+  const doc = aSession();
+  await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'not_connected' }, user: pcc });
+  await call(c.addAttempt, { params: { id: String(doc._id) }, body: { outcome: 'switched_off' }, user: pcc });
+  assert.match((await call(c.closeSession, { params: { id: String(doc._id) }, body: { details: 'no answer' }, user: pcc })).error.message, /why/);
+  assert.match((await call(c.closeSession, { params: { id: String(doc._id) }, body: { reason: 'Missed by patient — no answer to calls' }, user: pcc })).error.message, /details/);
+  const closed = await call(c.closeSession, { params: { id: String(doc._id) }, body: { reason: 'Missed by patient — no answer to calls', details: '2 calls, WhatsApp sent, no reply' }, user: pcc });
+  assert.equal(closed.body.session.status, 'missed');
+  assert.equal(closed.body.session.stateLabel, 'Closed · Missed by patient');
+  assert.deepEqual([closed.body.session.closed.attempts, closed.body.session.closed.details], [2, '2 calls, WhatsApp sent, no reply']);
+  const other = aSession();
+  const done = await call(c.closeSession, { params: { id: String(other._id) }, body: { reason: 'Treatment stopped / patient inactive', details: 'Parents stopped the treatment' }, user: pcc });
+  assert.deepEqual([done.body.session.status, done.body.session.stateLabel], ['cancelled', 'Closed']);
+  const reopened = await call(c.reopenSession, { params: { id: String(other._id) }, body: { reason: 'Closed by mistake' }, user: manager });
+  assert.equal(reopened.body.session.closed, null);
+});
+
+test('reassign request: the PCC asks (with why), the Manager declines with a note or assigns (which closes the request)', async () => {
+  const doc = aSession();
+  const cover = { _id: id(), name: 'PCC Cover', role: 'assistant_doctor', isActive: true };
+  mock.method(User, 'findById', () => chain(cover));
+  assert.match((await call(c.requestReassign, { params: { id: String(doc._id) }, body: {}, user: pcc })).error.message, /why/);
+  const asked = await call(c.requestReassign, { params: { id: String(doc._id) }, body: { reason: 'On leave that day', suggestedUserId: String(cover._id) }, user: pcc });
+  assert.equal(asked.body.session.reassignAsked, true);
+  assert.equal(asked.body.session.reassignRequest.suggestedName, 'PCC Cover');
+  assert.match((await call(c.requestReassign, { params: { id: String(doc._id) }, body: { reason: 'again' }, user: pcc })).error.message, /already waiting/);
+  assert.equal((await call(c.declineReassign, { params: { id: String(doc._id) }, body: { note: 'x' }, user: pcc })).error.statusCode, 403);
+  const declined = await call(c.declineReassign, { params: { id: String(doc._id) }, body: { note: 'Leave is the next day, keep it' }, user: manager });
+  assert.deepEqual([declined.body.session.reassignAsked, declined.body.session.reassignRequest.status], [false, 'declined']);
+  await call(c.requestReassign, { params: { id: String(doc._id) }, body: { reason: 'Leave moved', suggestedUserId: String(cover._id) }, user: pcc });
+  const given = await call(c.assignSession, { params: { id: String(doc._id) }, body: { userId: String(cover._id), reason: 'Leave moved' }, user: manager });
+  assert.equal(given.body.session.assigneeName, 'PCC Cover');
+  assert.deepEqual([given.body.session.reassignRequest.status, given.body.session.reassignRequest.note], ['done', 'Assigned to PCC Cover']);
+});
+
+test('another PCC reads a colleague\'s session (read only); acting on it is refused until it is assigned to them', async () => {
+  const doc = aSession({ status: 'completed' });
+  const other = { _id: id(), name: 'PCC Two', role: 'assistant_doctor' };
+  mock.method(require('../models/Patient'), 'findById', () => chain({ patientName: 'Aarav' }));
+  const seen = await call(c.getSession, { params: { id: String(doc._id) }, user: other });
+  assert.equal(seen.error, null);
+  assert.equal(seen.body.canAct, false);
+  assert.equal((await call(c.addAttempt, { params: { id: String(aSession()._id) }, body: { outcome: 'busy' }, user: other })).error.statusCode, 403);
+  const theirs = aSession({ assignee: other._id, assigneeName: other.name });
+  assert.equal((await call(c.addAttempt, { params: { id: String(theirs._id) }, body: { outcome: 'busy' }, user: other })).error, null, 'assigned to them: they work it');
+});
+
+test('handwritten notes: kept on the session and added at the end of the patient\'s newest Records Room entry (one is made when there is none)', async () => {
+  const RecordRoom = require('../models/RecordRoom');
+  const recordRoom = require('./recordRoomController');
+  const doc = aSession();
+  mock.method(require('../models/Patient'), 'findById', () => chain({ patientName: 'Aarav', patientCode: 'A-1' }));
+  mock.method(require('../models/AppointmentManagementEntry'), 'find', () => chain([]));
+  const older = new RecordRoom({ patientName: 'Aarav', patientId: 'A-1', pdfUpdatedAt: new Date('2026-01-01'), documents: [{ url: '/uploads/records/a.jpg', fileName: 'a.jpg' }] });
+  const newer = new RecordRoom({ patientName: 'Aarav', patientId: 'A-1', pdfUpdatedAt: new Date('2026-10-01'), documents: [{ url: '/uploads/records/b.jpg', fileName: 'b.jpg' }] });
+  [older, newer].forEach((r) => mock.method(r, 'save', async () => r));
+  mock.method(RecordRoom, 'find', async () => [older, newer]);
+  mock.method(recordRoom, 'rebuildPdf', async (record) => { Object.assign(record, { pdfUrl: `/uploads/records/record-room-${record._id}.pdf`, pdfName: 'Aarav record room (2 pages).pdf', pdfPageCount: record.documents.length }); });
+  const files = [{ filename: '111-note.jpg', originalname: 'IMG_1.jpg', mimetype: 'image/jpeg', path: '/tmp/none' }];
+  const res = await call(c.uploadNotes, { params: { id: String(doc._id) }, files, user: pcc });
+  assert.equal(res.error, null);
+  assert.equal(newer.documents.length, 2, 'added to the newest entry');
+  assert.equal(older.documents.length, 1);
+  assert.match(newer.documents[1].fileName, /^Handwritten note - FU-02 Medical Follow-up 02/);
+  assert.equal(res.body.session.notes.length, 1);
+  assert.equal(res.body.session.notes[0].recordRoomPdf, newer.pdfUrl);
+  assert.equal(res.body.recordRoom.pages, 2);
+
+  mock.method(RecordRoom, 'find', async () => []);
+  const madeSave = mock.method(RecordRoom.prototype, 'save', async function save() { return this; });
+  const fresh = await call(c.uploadNotes, { params: { id: String(doc._id) }, files, user: pcc });
+  assert.equal(fresh.error, null);
+  assert.equal(madeSave.mock.callCount(), 1, 'a Records Room entry is made for the patient');
+  assert.equal(fresh.body.session.notes.length, 2);
+  assert.match((await call(c.uploadNotes, { params: { id: String(doc._id) }, files: [], user: pcc })).error.message, /photo/);
 });

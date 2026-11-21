@@ -29,7 +29,8 @@ const listNotesFor = (patientId, scheduleType, stageNum, authorId) =>
     .lean()
     .then((rows) => rows.map(formatNote));
 
-const loadPatientForAccess = async (req, res) => {
+// read: listing the notes - every PCC may read any approved patient (only the assigned one writes).
+const loadPatientForAccess = async (req, res, { read = false } = {}) => {
   const patient = await Patient.findById(req.params.id)
     .select('patientName patientCode assignedDoctor assignedPsychologist approvalStatus')
     .lean();
@@ -37,7 +38,8 @@ const loadPatientForAccess = async (req, res) => {
     res.status(404).json({ success: false, message: 'Patient not found' });
     return null;
   }
-  if (!canAccessPatient(req.user, patient)) {
+  const readable = read && req.user.role === ROLES.ASSISTANT_DOCTOR && (patient.approvalStatus || 'approved') === 'approved';
+  if (!readable && !canAccessPatient(req.user, patient)) {
     res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
     return null;
   }
@@ -51,7 +53,7 @@ const listScheduleNotes = (scheduleType) =>
       return res.status(400).json({ success: false, message: 'Invalid stage number' });
     }
 
-    const patient = await loadPatientForAccess(req, res);
+    const patient = await loadPatientForAccess(req, res, { read: true });
     if (!patient) return;
 
     const notes = await listNotesFor(patient._id, scheduleType, stageNum, req.user._id);
