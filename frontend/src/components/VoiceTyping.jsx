@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, Square } from 'lucide-react';
 import { applyCorrections, getSpeechRecognition, joinWithSpace } from './ui/DictationButton.jsx';
+import { VOICE_LANGS, nextVoiceLang, spokenText, useVoiceLanguage, voiceLangTitle } from '../utils/voiceLanguage.js';
 
 // Voice typing on every form, page-wide: whichever note / text box is in use gets a small mic in its corner. Speak and
-// the words are written into that box (the box's own onChange runs, so the form saves them as if typed). English
-// (India) or Hindi, remembered per browser. Works in Chrome / Edge; elsewhere nothing shows. A box opts out with
+// the words are written into that box (the box's own onChange runs, so the form saves them as if typed). Hinglish
+// (default), English (India) or Hindi - one choice for every mic, remembered per browser (utils/voiceLanguage). Works in Chrome / Edge; elsewhere nothing shows. A box opts out with
 // data-dictation="off" (on it or a parent); boxes that already have their own mic button are skipped.
-const LANG_KEY = 'voiceTyping:lang';
-const LANGS = { 'en-IN': 'EN', 'hi-IN': 'हि' };
 const TEXT_INPUTS = ['text', 'search'];
 const NO_INPUT_MODES = ['numeric', 'decimal', 'tel', 'email', 'url'];
 
@@ -30,14 +29,12 @@ const writeInto = (el, text) => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 };
 
-const readLang = () => { try { return localStorage.getItem(LANG_KEY) === 'hi-IN' ? 'hi-IN' : 'en-IN'; } catch { return 'en-IN'; } };
-
 export default function VoiceTyping() {
   const [supported] = useState(() => Boolean(getSpeechRecognition()));
   const [target, setTarget] = useState(null);
   const [box, setBox] = useState(null);
   const [listening, setListening] = useState(false);
-  const [lang, setLang] = useState(readLang);
+  const [lang, setLang] = useVoiceLanguage();
   const targetRef = useRef(null);
   const listeningRef = useRef(false);
   const recognitionRef = useRef(null);
@@ -104,7 +101,7 @@ export default function VoiceTyping() {
 
   useEffect(() => () => { manualStopRef.current = true; try { recognitionRef.current?.abort?.(); } catch { /* ignore */ } }, []);
 
-  const push = (spoken) => { const el = targetRef.current; if (el?.isConnected) writeInto(el, joinWithSpace(baseRef.current, applyCorrections(spoken))); };
+  const push = (spoken) => { const el = targetRef.current; if (el?.isConnected) writeInto(el, joinWithSpace(baseRef.current, applyCorrections(spokenText(lang, spoken)))); };
 
   const start = () => {
     const SpeechRecognition = getSpeechRecognition();
@@ -113,7 +110,7 @@ export default function VoiceTyping() {
     baseRef.current = String(el.value || '').trimEnd();
     priorRef.current = ''; sessionRef.current = ''; manualStopRef.current = false;
     const recognition = new SpeechRecognition();
-    recognition.lang = lang;
+    recognition.lang = VOICE_LANGS[lang].recognition;
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
@@ -142,9 +139,7 @@ export default function VoiceTyping() {
   };
 
   const switchLang = () => {
-    const next = lang === 'en-IN' ? 'hi-IN' : 'en-IN';
-    setLang(next);
-    try { localStorage.setItem(LANG_KEY, next); } catch { /* not remembered */ }
+    setLang(nextVoiceLang(lang));
     if (listeningRef.current) stop();
   };
 
@@ -155,8 +150,8 @@ export default function VoiceTyping() {
   const keepFocus = (e) => e.preventDefault();
   return (
     <div className="fixed z-[1000] flex items-center gap-1" style={{ top, left }} onMouseDown={keepFocus}>
-      <button type="button" onMouseDown={keepFocus} onClick={switchLang} title={lang === 'en-IN' ? 'Speaking English - switch to Hindi' : 'Speaking Hindi - switch to English'}
-        className="h-7 w-7 rounded-md border border-cardline bg-white text-[10.5px] font-bold text-charcoal/70 shadow-sm hover:bg-[#FBF7ED]">{LANGS[lang]}</button>
+      <button type="button" onMouseDown={keepFocus} onClick={switchLang} title={voiceLangTitle(lang)} aria-label={voiceLangTitle(lang)}
+        className="h-7 w-7 rounded-md border border-cardline bg-white text-[9.5px] font-bold text-charcoal/70 shadow-sm hover:bg-[#FBF7ED]">{VOICE_LANGS[lang].short}</button>
       <button type="button" onMouseDown={keepFocus} onClick={() => (listening ? stop() : start())}
         aria-label={listening ? 'Stop voice typing' : 'Start voice typing'} title={listening ? 'Listening... click (or Esc) to stop' : 'Voice typing: speak and it is written here'}
         className={`flex h-7 w-7 items-center justify-center rounded-md border shadow-sm transition ${listening ? 'animate-pulse border-[#B42318]/40 bg-[#B42318] text-white' : 'border-cardline bg-white text-sage hover:bg-[#F3F6F2]'}`}>

@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, ROLE_LABELS } = require('../constants/roles');
-const { PAGES, countOf } = require('./taskCountController');
+const { PAGES, countOf, stepRole } = require('./taskCountController');
 const { COLLECTORS, itemsOf } = require('./myDayController');
 const { stageStep, splitSteps } = require('./pendingStepsController');
 
@@ -64,8 +64,9 @@ const run = async (page, user) => {
 };
 const byDue = (a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity);
 // Fulfilment and medicine requests: one section per step (its name, who it is pending with), the rest one per page.
-const addSections = (sections, base) => splitSteps(base).forEach((s) => {
-  if (s.count || s.items.length) sections.push({ ...s, items: [...s.items].sort(byDue).slice(0, LIMIT) });
+// Only the role's own steps: a request waiting on the Doctor is in the Doctor's section, not here.
+const addSections = (sections, base, role) => splitSteps(base, stepRole({ role })).forEach((s) => {
+  if (s.mine !== false && (s.count || s.items.length)) sections.push({ ...s, items: [...s.items].sort(byDue).slice(0, LIMIT) });
 });
 
 const buildTeam = async () => {
@@ -85,11 +86,11 @@ const buildTeam = async () => {
         const items = results.flatMap(({ u, items: list }) => list.map((i) => ({ ...i, key: `${i.key}|${u._id}`, people: [u.name] })));
         results.forEach(({ u, count }) => personTotals.set(String(u._id), personTotals.get(String(u._id)) + count));
         const count = results.reduce((s, r) => s + r.count, 0);
-        addSections(sections, { page, shared: false, count, items, byPerson: results.filter((r) => r.count).map((r) => ({ id: String(r.u._id), name: r.u.name, count: r.count })) });
+        addSections(sections, { page, shared: false, count, items, byPerson: results.filter((r) => r.count).map((r) => ({ id: String(r.u._id), name: r.u.name, count: r.count })) }, role);
       } else {
         // Shared by the role: anyone in it can do it.
         const { items, count } = role === ROLES.DOCTOR && page === '/admin/medicine-jobs' ? await doctorJobs() : await run(page, people[0]);
-        addSections(sections, { page, shared: true, count, items: items.map((i) => ({ ...i, people: [] })) });
+        addSections(sections, { page, shared: true, count, items: items.map((i) => ({ ...i, people: [] })) }, role);
         await breathe();
       }
     }

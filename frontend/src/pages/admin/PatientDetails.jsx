@@ -2137,7 +2137,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, onChange
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Write the query for the doctor..."
-                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-24 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
               />
               <DictationButton value={query} onChange={setQuery} className="absolute bottom-2 right-2" />
             </div>
@@ -2180,7 +2180,7 @@ const AdvicePanel = ({ rows = [], canRequest, onRequest, onEditRequest, onChange
                 value={editQuery}
                 onChange={(e) => setEditQuery(e.target.value)}
                 placeholder="Write the query for the doctor..."
-                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-24 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
               />
               <DictationButton value={editQuery} onChange={setEditQuery} className="absolute bottom-2 right-2" />
             </div>

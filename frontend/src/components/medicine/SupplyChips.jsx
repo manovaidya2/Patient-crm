@@ -27,7 +27,7 @@ export default function SupplyChips({ value, onChange, locked = false }) {
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
         {SUPPLY_OPTIONS.map((o) => <Chip key={o.key} title={o.hint} active={value === o.key} disabled={locked && value !== o.key} onClick={() => !locked && onChange(o.key)}>{o.label}</Chip>)}
-        <Chip title="The Post Counselor chooses the months and days; the Medicine Department makes this patient's formulation" active={custom} disabled={locked && !custom} onClick={() => !locked && !custom && onChange('CUSTOM')}>Custom{length ? `: ${customText(length)}` : ''}</Chip>
+        <Chip title="The Post Counselor chooses the months and days; the sheet is made at the formulation check" active={custom} disabled={locked && !custom} onClick={() => !locked && !custom && onChange('CUSTOM')}>Custom{length ? `: ${customText(length)}` : ''}</Chip>
       </div>
       {custom && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-charcoal/75">
@@ -43,7 +43,7 @@ export default function SupplyChips({ value, onChange, locked = false }) {
             <input type="text" inputMode="numeric" className={`${field} w-20`} disabled={locked} value={typed.days} placeholder="0" onChange={change('days')} />
           </label>
           <span className="text-xs text-charcoal/55">
-            {length ? `${customText(length)} of medicine.` : 'For example 45 days: 0 months and 45 days.'} Up to 12 months in all. No master formulation: the Medicine Department makes this patient's formulation at the formulation check.
+            {length ? `${customText(length)} of medicine.` : 'For example 45 days: 0 months and 45 days.'} Up to 12 months in all. The formulation sheet is made at the formulation check (ready template or a new sheet).
           </span>
         </div>
       )}

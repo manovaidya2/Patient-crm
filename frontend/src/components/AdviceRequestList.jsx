@@ -231,7 +231,7 @@ const AdviceRequestList = ({ mode }) => {
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 placeholder="Write doctor's advice..."
-                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                className="w-full resize-y rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-24 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
               />
               <DictationButton value={reply} onChange={setReply} className="absolute bottom-2 right-2" />
             </div>

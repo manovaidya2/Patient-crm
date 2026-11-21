@@ -60,3 +60,24 @@ test('a chosen dose instruction edited by hand for one medicine is kept as writt
   const plain = applyOverrides(base(), [add({ doseEntries: [{ ...entry, doseEdited: false }] })], { byName: 'Doctor' });
   assert.equal('doseEdited' in plain.lines.find((l) => l.added).doseEntries[0], false);
 });
+
+test('a new sheet starts empty for any age group and supply; a development sheet starts from the ready master sheet', () => {
+  const { blankSheetFor, templateSheetFor, formulationFor: build } = require('./formulationMaster');
+  const blank = blankSheetFor({ ageBand: '4-12', plan: '6M', part: 'full' });
+  assert.equal(blank.lines.length, 0);
+  assert.equal(blank.custom, true);
+  assert.equal(blank.blank, true);
+  assert.equal(blank.days, 180);
+  const customBlank = blankSheetFor({ ageBand: '4-12', plan: 'C1m10d', part: 'full' });
+  assert.equal(customBlank.days, 40);
+  assert.equal(customBlank.lines.length, 0);
+  // With a master: the same sheet as before.
+  const ready = templateSheetFor({ ageBand: '4-12', plan: '6M', part: 'full' });
+  assert.deepEqual(ready.lines.map((l) => l.key), build({ ageBand: '4-12', plan: '6M', part: 'full' }).lines.map((l) => l.key));
+  assert.equal(ready.sampleFrom, undefined);
+  // 0-3 years has no master: the 3-4 years sheet, marked as its sample, for the 0-3 age group.
+  const young = templateSheetFor({ ageBand: '0-3', plan: '6M', part: 'full' });
+  assert.ok(young.lines.length > 0);
+  assert.equal(young.ageBand, '0-3');
+  assert.equal(young.sampleFrom.ageBand, '3-4');
+});

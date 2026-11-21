@@ -53,6 +53,10 @@ const medicineJobSchema = new mongoose.Schema(
     poNumber: { type: String, trim: true, default: '' },
     supplyPlan: { type: String, validate: { validator: isValidPlan, message: 'Unknown medicine supply plan' }, default: '' },
     supplyPart: { type: String, enum: ['', 'full', 'first', 'rest'], default: '' },
+    // How the formulation sheet starts, chosen with the age group & supply: 'template' (development sheet: the
+    // Formulation Master's ready sheet) or 'blank' (new sheet: every medicine added for this patient). Not set on
+    // older jobs: the master when the age group has one, an empty sheet for 0-3 years.
+    sheetStart: { type: String, enum: ['template', 'blank'] },
     ageBand: { type: String, enum: ['', '0-3', '3-4', '4-12', '12-70', '70+'], default: '' },
     medicines: { type: String, trim: true, default: '' },
     caseCategory: { type: String, trim: true, default: '' },

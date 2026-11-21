@@ -104,8 +104,10 @@ export default function ReminderBell({ dark = false }) {
     document.addEventListener('mousedown', away); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
   }, [open]);
-  const items = (data?.sections || []).flatMap((s) => s.items.map((i) => ({ ...i, pageLabel: PAGES[s.page]?.[0] || s.page })));
-  const total = (data?.sections || []).reduce((n, s) => n + (s.count || 0), 0);
+  // Only this person's own work (steps waiting on someone else are an overview on My day, not reminders).
+  const own = (data?.sections || []).filter((s) => s.mine !== false);
+  const items = own.flatMap((s) => s.items.map((i) => ({ ...i, pageLabel: PAGES[s.page]?.[0] || s.page })));
+  const total = own.reduce((n, s) => n + (s.count || 0), 0);
   const grouped = BUCKETS.map(([key, label, tone]) => [key, label, tone, items.filter((i) => bucketOf(i) === key)]).filter(([, , , list]) => list.length);
   const urgent = items.some((i) => bucketOf(i) === 'overdue');
   useEffect(() => { if (data) soundFor(items); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps

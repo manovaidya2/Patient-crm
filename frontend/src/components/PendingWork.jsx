@@ -43,21 +43,24 @@ export const PAGES = {
 // step - the step's name and who it is pending with.
 export const sectionKey = (s) => (s.step ? `${s.page}|${s.step}` : s.page);
 export const sectionLabel = (s) => s.title || PAGES[s.page]?.[0] || s.page;
-export const stepKind = (page) => (page === '/admin/medicine-jobs' ? 'Fulfilment' : 'Medicine request');
+export const stepKind = (page) => (page === '/admin/medicine-jobs' ? 'Fulfilment' : page === '/admin/medicine-made' ? 'Medicine made' : 'Medicine request');
 export const sectionHint = (s) => (s.pendingWith ? `Pending with ${s.pendingWith} · ${stepKind(s.page)}` : PAGES[s.page]?.[1] || '');
 
 // "Your pending work": one orange card per page that has work for this role (shown on the role's home page).
 // Pages shown step by step: a card per step with work waiting (its name, who it is pending with, how many).
-const STEP_PAGES = ['/admin/medicine-jobs', '/admin/medicine-requests'];
+const STEP_PAGES = ['/admin/medicine-jobs', '/admin/medicine-requests', '/admin/medicine-made'];
 
 export default function PendingWork() {
   const location = useLocation();
   const counts = useTaskCounts(location.pathname);
   const stepped = STEP_PAGES.some((to) => counts[to] > 0);
   const { data: stepData } = useApiQuery('/tasks/steps', {}, { enabled: stepped });
-  const steps = stepData?.steps || [];
-  // A page whose steps are loaded is shown as its steps; until then (or when a step list is empty) as one card.
-  const items = Object.entries(counts).filter(([to, n]) => n > 0 && PAGES[to] && !(STEP_PAGES.includes(to) && steps.some((s) => s.page === to)));
+  // This person's own steps; `mine: false` ones (only the Doctor / Admin / Manager get them) wait on someone else.
+  const steps = (stepData?.steps || []).filter((s) => s.mine !== false);
+  const others = (stepData?.steps || []).filter((s) => s.mine === false);
+  // Once the steps are loaded these pages are shown only as their steps (a page with none of this person's steps
+  // shows nothing); until then as one card.
+  const items = Object.entries(counts).filter(([to, n]) => n > 0 && PAGES[to] && !(STEP_PAGES.includes(to) && stepData));
   // Patients tagged "Actor patient" (for everyone who opens patients): a card that opens their list.
   const { user } = useAuth();
   const { data: actors } = useApiQuery('/patients/tagged/actor', {}, { enabled: PATIENT_ACCESS_ROLES.includes(user?.role) });
@@ -89,6 +92,21 @@ export default function PendingWork() {
           <ActorPatientsCard patients={actorPatients} />
         </div>
       ) : <p className="text-sm text-charcoal/60">Nothing is waiting for you right now.</p>}
+      {others.length > 0 && <>
+        <p className="mb-2 mt-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-charcoal/55">Pending with others <span className="rounded-full bg-charcoal/10 px-2 py-0.5 text-[11px] text-charcoal/70">{others.reduce((s, x) => s + x.count, 0)}</span><span className="font-normal normal-case tracking-normal text-charcoal/45">overview, not your step</span></p>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {others.map((s) => (
+            <Link key={`${s.page}|${s.key}`} to={s.href} className="group flex items-center gap-3 rounded-lg border border-cardline bg-white/70 px-3 py-2 transition hover:border-charcoal/30 hover:shadow-sm">
+              <span className="flex h-9 min-w-9 items-center justify-center rounded-full bg-charcoal/10 px-2 text-sm font-bold text-charcoal/75">{s.count > 99 ? '99+' : s.count}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-charcoal/80" title={s.title}>{s.title}</span>
+                <span className="block truncate text-xs text-charcoal/55" title={sectionHint(s)}>Pending with <b className="font-semibold text-charcoal/75">{s.pendingWith}</b> · {stepKind(s.page)}</span>
+              </span>
+              <ChevronRight size={15} className="shrink-0 text-charcoal/30 group-hover:text-charcoal/60" />
+            </Link>
+          ))}
+        </div>
+      </>}
     </section>
   );
 }

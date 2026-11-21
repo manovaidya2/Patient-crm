@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square } from 'lucide-react';
+import { VOICE_LANGS, nextVoiceLang, spokenText, useVoiceLanguage, voiceLangTitle } from '../../utils/voiceLanguage.js';
 
 // Native browser speech-to-text (Chrome / Edge). One engine only — whatever the
 // recognizer finalizes is appended and never rewritten, so text does not flicker
@@ -35,7 +36,11 @@ export const applyCorrections = (text = '') => {
   return next;
 };
 
-const DictationButton = ({ value, onChange, disabled = false, className = '', lang = 'en-IN' }) => {
+// The language is the one shared by every mic (Hinglish by default; the small button beside the mic changes it),
+// unless a `lang` ('hinglish' | 'en-IN' | 'hi-IN') is given.
+const DictationButton = ({ value, onChange, disabled = false, className = '', lang: fixedLang = '' }) => {
+  const [sharedLang, setSharedLang] = useVoiceLanguage();
+  const lang = VOICE_LANGS[fixedLang] ? fixedLang : sharedLang;
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(true);
 
@@ -77,7 +82,7 @@ const DictationButton = ({ value, onChange, disabled = false, className = '', la
   }, []);
 
   const pushText = (spoken) => {
-    onChangeRef.current(joinWithSpace(baseTextRef.current, applyCorrections(spoken)));
+    onChangeRef.current(joinWithSpace(baseTextRef.current, applyCorrections(spokenText(lang, spoken))));
   };
 
   const startListening = () => {
@@ -90,7 +95,7 @@ const DictationButton = ({ value, onChange, disabled = false, className = '', la
     manualStopRef.current = false;
 
     const recognition = new SpeechRecognition();
-    recognition.lang = lang;
+    recognition.lang = VOICE_LANGS[lang].recognition;
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
@@ -171,7 +176,19 @@ const DictationButton = ({ value, onChange, disabled = false, className = '', la
     startListening();
   };
 
+  const switchLang = () => {
+    if (listening) stopListening();
+    setSharedLang(nextVoiceLang(lang));
+  };
+
   return (
+    <span className={`inline-flex items-center gap-1 ${className}`}>
+    {!VOICE_LANGS[fixedLang] && (
+      <button type="button" onClick={switchLang} disabled={disabled || !supported} title={voiceLangTitle(lang)} aria-label={voiceLangTitle(lang)}
+        className="inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-cardline bg-offwhite-100 px-1 text-[10px] font-bold text-charcoal/70 transition hover:bg-sage-muted/20 disabled:cursor-not-allowed disabled:opacity-45">
+        {VOICE_LANGS[lang].short}
+      </button>
+    )}
     <button
       type="button"
       // The page-wide voice typing (components/VoiceTyping) skips a field that already has this button.
@@ -182,18 +199,19 @@ const DictationButton = ({ value, onChange, disabled = false, className = '', la
         listening
           ? 'border-[#B42318]/30 bg-[#B42318]/10 text-[#B42318]'
           : 'border-cardline bg-offwhite-100 text-sage hover:bg-sage-muted/20'
-      } disabled:cursor-not-allowed disabled:opacity-45 ${className}`}
+      } disabled:cursor-not-allowed disabled:opacity-45`}
       aria-label={listening ? 'Stop voice typing' : 'Start voice typing'}
       title={
         !supported
           ? 'Voice typing is not supported in this browser (use Chrome or Edge)'
           : listening
             ? 'Stop voice typing'
-            : 'Voice typing'
+            : `Voice typing (${VOICE_LANGS[lang].name})`
       }
     >
       {listening ? <Square size={14} /> : <Mic size={16} />}
     </button>
+    </span>
   );
 };
 

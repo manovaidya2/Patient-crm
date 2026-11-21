@@ -14,13 +14,8 @@ const BUILTIN_DOSES = [
   { id: 'morning-evening-before-meals', text: 'सुबह ___ — शाम ___, दोनों समय खाना खाने से पहले।', labels: ['सुबह की मात्रा', 'शाम की मात्रा'] },
 ];
 const instruction = (spoons, cups) => `सुबह खाली पेट: ${spoons || '___'} चम्मच दवा को ${cups || '___'} कप पानी में डालकर अच्छी तरह उबालें। जब पानी थोड़ा कम रह जाए, तब छानकर हल्का गुनगुना सेवन करें।`;
-const positive = (value) => {
-  const text = String(value ?? '').trim();
-  const decimal = '(?:\\d+(?:\\.\\d*)?|\\.\\d+)';
-  if (!new RegExp(`^${decimal}(?:\\s*/\\s*${decimal})?$`).test(text)) return false;
-  const [numerator, denominator = 1] = text.split('/').map(Number);
-  return Number.isFinite(numerator) && Number.isFinite(denominator) && numerator > 0 && denominator > 0;
-};
+// A quantity is anything written in its box (1, 1/2, 2-3, आधा ...): numbers are not required.
+const positive = (value) => String(value ?? '').trim() !== '';
 const patternParts = (text) => String(text || '').split(/[-_]{2,}/g);
 const fillPattern = (text, amounts = [], preview = false) => patternParts(text).map((part, i) => `${i ? amounts[i - 1] || (preview ? '___' : '') : ''}${part}`).join('');
 // A chosen instruction edited by hand for this medicine: complete when written out, with no blank (___) left.
@@ -35,9 +30,7 @@ export const doseTemplateComplete = (value) => value.doseEntries
   ? value.doseEntries.length > 0 && value.doseEntries.length <= 20 && value.doseEntries.every((entry) => singleDoseComplete(entry) && (value.doseEntries.length === 1 || Boolean(entry.dose?.trim())))
   : singleDoseComplete(value);
 
-// A quantity that is not a number (1, 2, 1/2, 0.5) is shown in red under its box, so it is clear why Save waits.
-const badQuantity = (v) => String(v ?? '').trim() !== '' && !positive(v);
-function DoseQuantityField({ label, onRename, invalid = false, children }) {
+function DoseQuantityField({ label, onRename, children }) {
   const id = useId();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -55,8 +48,7 @@ function DoseQuantityField({ label, onRename, invalid = false, children }) {
       <input autoFocus aria-label="Field name" className={poInput} maxLength={120} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(false); } }} />
       <div className="flex gap-2"><Button size="sm" disabled={!draft.trim()} onClick={save}>Save name</Button><Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button></div>
     </div>}
-    {cloneElement(children, { id, 'aria-invalid': invalid || undefined })}
-    {invalid && <p role="alert" className="text-xs font-semibold text-[#8C3B2E]">सिर्फ़ मात्रा लिखें, जैसे 1, 2, 1/2 या 0.5 (शब्द नहीं)।</p>}
+    {cloneElement(children, { id })}
   </div>;
 }
 
@@ -144,25 +136,25 @@ function DoseInstructionInput({ value, onChange }) {
       {error && <p role="alert" className="text-xs text-[#8C3B2E]">{error}</p>}
       {adding && <div className="space-y-2 rounded-lg border border-cardline bg-white p-3">
         <FieldLabel label="Dropdown में नई Dose / chit text जोड़ें" required><textarea className={poInput} rows={3} maxLength={500} value={newText} disabled={busy} onChange={(e) => setNewText(e.target.value)} /></FieldLabel>
-        <p className="text-xs text-charcoal/55">जहाँ मात्रा भरनी हो वहाँ ___ या ---- लिखें। चुनने पर हर खाली जगह की मात्रा अलग भर सकेंगे, जैसे 1/2 या 1/3।</p>
+        <p className="text-xs text-charcoal/55">जहाँ मात्रा भरनी हो वहाँ ___ या ---- लिखें। चुनने पर हर खाली जगह की मात्रा अलग भर सकेंगे, जैसे 1/2, 2-3 या आधा।</p>
         <div className="flex gap-2"><Button size="sm" disabled={busy || !newText.trim()} onClick={saveNewTemplate}>{busy ? 'Saving...' : 'Save & select instruction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setAdding(false); setNewText(''); }}>Cancel</Button></div>
       </div>}
       {selected === DECOCTION && <>
         {!value.doseEdited && <div className="grid gap-2 sm:grid-cols-2">
-          <DoseQuantityField label={value.doseFieldLabels?.[0] || 'दवा की मात्रा (चम्मच)'} invalid={badQuantity(value.doseSpoons)} onRename={(label) => renameField(0, label)}><input className={poInput} type="text" value={value.doseSpoons || ''} placeholder="जैसे 1/2, 1/3 या 0.5" onChange={(e) => setQuantity('doseSpoons', e.target.value)} /></DoseQuantityField>
-          <DoseQuantityField label={value.doseFieldLabels?.[1] || 'पानी की मात्रा (कप)'} invalid={badQuantity(value.doseWaterCups)} onRename={(label) => renameField(1, label)}><input className={poInput} type="text" value={value.doseWaterCups || ''} placeholder="जैसे 1/2, 1 या 2" onChange={(e) => setQuantity('doseWaterCups', e.target.value)} /></DoseQuantityField>
+          <DoseQuantityField label={value.doseFieldLabels?.[0] || 'दवा की मात्रा (चम्मच)'} onRename={(label) => renameField(0, label)}><input className={poInput} type="text" value={value.doseSpoons || ''} placeholder="जैसे 1/2, 1 या आधा" onChange={(e) => setQuantity('doseSpoons', e.target.value)} /></DoseQuantityField>
+          <DoseQuantityField label={value.doseFieldLabels?.[1] || 'पानी की मात्रा (कप)'} onRename={(label) => renameField(1, label)}><input className={poInput} type="text" value={value.doseWaterCups || ''} placeholder="जैसे 1/2, 1 या 2" onChange={(e) => setQuantity('doseWaterCups', e.target.value)} /></DoseQuantityField>
         </div>}
         <EditableDoseText value={value} onChange={onChange} preview={instruction(value.doseSpoons, value.doseWaterCups)} reset={() => onChange({ doseEdited: false, dose: positive(value.doseSpoons) && positive(value.doseWaterCups) ? instruction(value.doseSpoons, value.doseWaterCups) : '' })} />
-        {!value.doseEdited && !doseTemplateComplete(value) && <p className="text-xs text-charcoal/55">दोनों मात्रा भरें (जैसे 1/2 या 1/3); मात्रा शून्य से अधिक होनी चाहिए — या ऊपर का पूरा text खुद लिख दें।</p>}
+        {!value.doseEdited && !doseTemplateComplete(value) && <p className="text-xs text-charcoal/55">दोनों मात्रा भरें (जैसे 1/2, 2-3 या आधा) — या ऊपर का पूरा text खुद लिख दें।</p>}
       </>}
       {(builtin || selected.startsWith('saved:')) && <>
-        {!value.doseEdited && patternParts(value.dosePattern).length > 1 && <div className="grid gap-2 sm:grid-cols-2">{patternParts(value.dosePattern).slice(1).map((_, i) => <DoseQuantityField key={`${selected}-${i}`} label={value.doseFieldLabels?.[i] || builtin?.labels[i] || `मात्रा ${i + 1}`} invalid={badQuantity(value.doseQuantities?.[i])} onRename={(label) => renameField(i, label)}><input className={poInput} type="text" placeholder="जैसे 1/2, 1/3 या 1" value={value.doseQuantities?.[i] || ''} onChange={(e) => {
+        {!value.doseEdited && patternParts(value.dosePattern).length > 1 && <div className="grid gap-2 sm:grid-cols-2">{patternParts(value.dosePattern).slice(1).map((_, i) => <DoseQuantityField key={`${selected}-${i}`} label={value.doseFieldLabels?.[i] || builtin?.labels[i] || `मात्रा ${i + 1}`} onRename={(label) => renameField(i, label)}><input className={poInput} type="text" placeholder="जैसे 1/2, 2-3 या आधा" value={value.doseQuantities?.[i] || ''} onChange={(e) => {
           const amounts = [...(value.doseQuantities || [])]; amounts[i] = e.target.value;
           const next = { ...value, doseQuantities: amounts };
           onChange({ doseQuantities: amounts, dose: doseTemplateComplete(next) ? fillPattern(value.dosePattern, amounts) : '' });
         }} /></DoseQuantityField>)}</div>}
         <EditableDoseText value={value} onChange={onChange} preview={fillPattern(value.dosePattern, value.doseQuantities, true)} reset={() => onChange({ doseEdited: false, dose: doseTemplateComplete({ ...value, doseEdited: false }) ? fillPattern(value.dosePattern, value.doseQuantities) : '' })} />
-        {!value.doseEdited && !doseTemplateComplete(value) && <p className="text-xs text-charcoal/55">हर मात्रा भरें (जैसे 1/2 या 1/3); मात्रा शून्य से अधिक होनी चाहिए — या ऊपर का पूरा text खुद लिख दें।</p>}
+        {!value.doseEdited && !doseTemplateComplete(value) && <p className="text-xs text-charcoal/55">हर खाली जगह की मात्रा भरें (जैसे 1/2, 2-3 या आधा) — या ऊपर का पूरा text खुद लिख दें।</p>}
       </>}
       {selected === 'custom' && <textarea aria-label="Custom dose / chit text" className={poInput} rows={2} value={value.dose || ''} onChange={(e) => onChange({ dose: e.target.value, customDose: e.target.value })} />}
     </div>

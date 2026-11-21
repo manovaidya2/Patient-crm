@@ -13,7 +13,7 @@ const { explanationOwner } = require('./transitController');
 const { PAGES, stepRole, shared, countOf } = require('./taskCountController');
 const { STAGES } = require('../utils/medicineJobFlow');
 const { releaseView } = require('../utils/medicineRelease');
-const { jobStep, requestStep, splitSteps } = require('./pendingStepsController');
+const { jobStep, requestStepper, splitSteps, seesAll } = require('./pendingStepsController');
 
 // "My day": the same open work the orange counts show, as a list of items - who, what, when due, and where to act.
 // Every item comes from the current state of a record, so it leaves the list by itself once the work is done.
@@ -31,9 +31,16 @@ const requestItems = async (page, statuses, detailOf, extra = () => true, stepOf
   const patients = await Patient.find({ isActive: { $ne: false }, $or: [{ 'stages.medicineRequest.status': { $in: statuses } }, { 'stages.medicineRequests.status': { $in: statuses } }] })
     .select('patientName patientCode stages.number stages.medicineRequest stages.medicineRequests').lean();
   const out = [];
+  const seen = new Set();
   for (const p of patients) for (const st of p.stages || []) for (const r of allRequests(st)) {
-    if (!statuses.includes(r.status) || !extra(r)) continue;
-    out.push(item(page, `${p._id}-${st.number}-${r.requestId || 'legacy'}`, p.patientName, `${p.patientCode || ''} · Phase ${st.number}${r.poNumber ? ` · ${r.poNumber}` : ''} · ${detailOf(r)}`, r.readyByDate || r.requestedAt, page, stepOf(r) ? { step: stepOf(r) } : {}));
+    const key = `${p._id}-${st.number}-${r.requestId || 'legacy'}`;
+    if (seen.has(key) || !statuses.includes(r.status) || !extra(r)) continue;
+    seen.add(key);
+    const step = stepOf(r);
+    // A request this person works in Fulfilment is listed there, not twice.
+    if (step?.onFulfilment) continue;
+    // Opens the patient's fulfilment chart when the request has one, else the requests list.
+    out.push(item(page, key, p.patientName, `${p.patientCode || ''} · Phase ${st.number}${r.poNumber ? ` · ${r.poNumber}` : ''} · ${detailOf(r)}`, r.readyByDate || r.requestedAt, step?.jobId ? `/admin/medicine-jobs/${step.jobId}` : page === '/admin/medicine-requests' ? `${page}?status=${r.status}` : page, step ? { step } : {}));
   }
   return out;
 };
@@ -87,8 +94,9 @@ const COLLECTORS = {
     const { courierHandovers } = require('./purchaseOrderController');
     return (await courierHandovers()).filter((r) => r.section === 'pending' && r.mode === 'pickup').map((r) => item('/admin/self-pickup-schedule', r.poId, r.patientName, `${r.poNumber} · Self pickup · ${r.medicine.label}`, r.expectedAt, `/admin/purchase-orders/${r.poId}`));
   },
-  async '/admin/medicine-requests'() { return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status], () => true, (r) => requestStep(r.status)); },
-  async '/admin/medicine-made'() { const active = await activeJobRequestIds(); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active)); },
+  // Each request waits on its fulfilment job's step: whose action it is (left out when it is this person's own step).
+  async '/admin/medicine-requests'(user) { const stepOf = await requestStepper(user); return requestItems('/admin/medicine-requests', ['requested', 'in_process'], (r) => REQUEST_STATUS[r.status], () => true, stepOf); },
+  async '/admin/medicine-made'(user) { const [active, stepOf] = await Promise.all([activeJobRequestIds(), requestStepper(user)]); return requestItems('/admin/medicine-made', ['made'], (r) => REQUEST_STATUS[r.status], (r) => madeStillPending(r, active), stepOf); },
   async '/admin/medicine-jobs'(user) {
     const finalPcc = user.role === ROLES.ASSISTANT_DOCTOR ? await require('./treatmentPaperController').getKindPcc('final') : null;
     const jobs = await MedicineJob.find(await require('../utils/closedPatients').withoutClosedPatients({ status: { $ne: 'cancelled' }, $or: [{ status: { $in: ['open', 'ready'] } }, { 'boxReceipt.requestedAt': { $ne: null }, 'boxReceipt.receivedAt': null }] })).select('patientName patientCode poNumber purchaseOrder phase status currentStage hold returned readyByDate requestId formulation.custom formulation.lines.key boxReceipt releaseRequest stages.key stages.doneAt').lean();
@@ -208,20 +216,22 @@ async function reminderItems(user, type, page) {
 const itemsOf = (page, user) => shared('items', page, user, () => COLLECTORS[page](user));
 
 // @route GET /api/tasks/my-day  -> { sections: [{ page, count, items: [...] }] }
-// Fulfilment and medicine requests come as one section per step ({ step, title, pendingWith, href } added).
+// Fulfilment, medicine requests and made medicines come as one section per step ({ step, title, pendingWith, mine,
+// href } added); `mine: false` sections are waiting on someone else - only the Doctor, Admin and Manager get those (shown
+// apart, as an overview); everyone else sees only their own work.
 const getMyDay = asyncHandler(async (req, res) => {
   const pages = Object.keys(PAGES).filter((page) => PAGES[page].includes(req.user.role) && COLLECTORS[page]);
   const sections = await Promise.all(pages.map(async (page) => {
     try {
       const [items, count] = await Promise.all([itemsOf(page, req.user), countOf(page, req.user)]);
       const sorted = [...items].sort((a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity));
-      return splitSteps({ page, count: Math.max(count, items.length), items: sorted }).map((s) => ({ ...s, items: s.items.slice(0, LIMIT) }));
+      return splitSteps({ page, count: Math.max(count, items.length), items: sorted }, stepRole(req.user)).map((s) => ({ ...s, items: s.items.slice(0, LIMIT) }));
     } catch (error) {
       console.error(`My day ${page}: ${error.message}`);
       return { page, count: 0, items: [], error: true };
     }
   }));
-  res.json({ success: true, now: new Date().toISOString(), sections: sections.flat().filter((s) => s.count > 0 || s.items.length) });
+  res.json({ success: true, now: new Date().toISOString(), sections: sections.flat().filter((s) => (s.count > 0 || s.items.length) && (s.mine !== false || seesAll(req.user))) });
 });
 
 module.exports = { getMyDay, COLLECTORS, itemsOf };

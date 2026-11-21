@@ -374,7 +374,7 @@ const CrmChatGPT = () => {
                   onKeyDown={handleComposerKeyDown}
                   placeholder={isViewingOtherUserChat ? 'This chat history is read-only for admin.' : 'Ask about this CRM...'}
                   disabled={isViewingOtherUserChat}
-                  className="min-h-[44px] w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-12 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
+                  className="min-h-[44px] w-full resize-none rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 pr-24 text-sm text-charcoal placeholder:text-charcoal/40 focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20"
                 />
                 <DictationButton
                   value={message}

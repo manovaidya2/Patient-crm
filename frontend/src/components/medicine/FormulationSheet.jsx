@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { customLengthOf, lengthText } from '../../constants/supplyPlans.js';
 import { Pencil, Plus, X } from 'lucide-react';
 import api from '../../api/axios.js';
@@ -35,13 +35,17 @@ function StockPick({ value, onChange, options }) {
   );
 }
 
-export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', stockOptions = [], onSaved, onError, showSelectedGhrits = false, ghritSelection, ghritSelectionPending = false, onGhritSelectionChange, onSaveGhritSelection, savingGhritSelection = false }) {
+export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', stockOptions = [], onSaved, onError, onUnsavedChange, showSelectedGhrits = false, ghritSelection, ghritSelectionPending = false, onGhritSelectionChange, onSaveGhritSelection, savingGhritSelection = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
   // Medicines added for this patient in this edit (not in the Formulation Master).
   const [adds, setAdds] = useState([]);
   const [ghritName, setGhritName] = useState('\u092e\u0947\u0927\u094d\u092f \u0918\u0943\u0924 (GH-NM-01)');
+  // Tells the stage below when the sheet is open for editing or has changes not saved yet (the stage then waits).
+  const unsaved = editing || Object.keys(draft).length > 0 || adds.length > 0;
+  useEffect(() => { onUnsavedChange?.(unsaved); }, [unsaved, onUnsavedChange]);
+  useEffect(() => () => onUnsavedChange?.(false), [onUnsavedChange]);
   if (!f) return <p className="text-sm text-charcoal/55">Set the age group and medicine supply to build the sheet.</p>;
   const visibleLines = f.lines.filter((line) => {
     if (showSelectedGhrits && (line.key === 'ghrit' || GHRIT_VARIANTS.some((v) => isVariant(line, v))) && (draft[line.key]?.removed ?? line.removed)) return false;
@@ -82,7 +86,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
       return;
     }
     if (adds.some((a) => a.name.trim() && (!doseTemplateComplete(a) || !extraComponentsComplete(a.extraComponents))) || Object.values(draft).some((entry) => !doseTemplateComplete(entry) || !extraComponentsComplete(entry.extraComponents))) {
-      onError?.('चुनी हुई Dose instruction की सभी मात्रा शून्य से अधिक भरें (जैसे 1/2 या 1/3)।');
+      onError?.('चुनी हुई Dose instruction की हर खाली जगह की मात्रा भरें, या dose text खुद लिखें।');
       return;
     }
     setBusy(true); onError?.('');
@@ -123,9 +127,9 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   const nameOf = (key) => f.lines.find((l) => l.key === key)?.name || 'a medicine';
   const blocker = (() => {
     const badAddDose = adds.find((a) => a.name.trim() && !doseTemplateComplete(a));
-    if (badAddDose) return `"${badAddDose.name.trim()}" की dose पूरी नहीं है: हर मात्रा संख्या में भरें (जैसे 1, 2, 1/2) या "इस दवा का dose / chit text" में पूरा text खुद लिखें।`;
+    if (badAddDose) return `"${badAddDose.name.trim()}" की dose पूरी नहीं है: हर खाली जगह की मात्रा भरें या "इस दवा का dose / chit text" में पूरा text खुद लिखें।`;
     const badLineDose = Object.entries(draft).find(([, v]) => !doseTemplateComplete(v));
-    if (badLineDose) return `"${nameOf(badLineDose[0])}" की dose पूरी नहीं है: हर मात्रा संख्या में भरें (जैसे 1, 2, 1/2) या dose text खुद लिखें।`;
+    if (badLineDose) return `"${nameOf(badLineDose[0])}" की dose पूरी नहीं है: हर खाली जगह की मात्रा भरें या dose text खुद लिखें।`;
     const badAddPart = adds.find((a) => a.name.trim() && !extraComponentsComplete(a.extraComponents));
     const badLinePart = Object.entries(draft).find(([, v]) => !extraComponentsComplete(v.extraComponents));
     if (badAddPart || badLinePart) return `"${badAddPart ? badAddPart.name.trim() : nameOf(badLinePart[0])}" का added component Stocks से चुनें और मात्रा भरें, या खाली row हटाएँ।`;
@@ -135,7 +139,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   const nothingChanged = !Object.keys(draft).length && !adds.some((a) => a.name.trim());
   if (editing) return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? 'There is no Formulation Master for this age group: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.' : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? `${f.blank ? 'New sheet' : 'There is no Formulation Master for this age group'}: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.` : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
       <fieldset className="mb-3 rounded-lg border border-cardline bg-white/70 p-3">
         <legend className="px-1 text-sm font-bold text-charcoal">Ghrit medicine</legend>
         <div className="grid gap-2 sm:grid-cols-2">{ghritOptions.map((v) => {
@@ -208,7 +212,8 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
   return (
     <div className="rounded-lg border border-cardline bg-offwhite-100 p-4 sm:p-6">
       {canEdit && <div className="mb-2 flex justify-end"><Button size="sm" variant={f.custom && !f.lines.length ? 'primary' : 'outline'} onClick={startEditing}>{f.custom && !f.lines.length ? <><Plus size={13} />Create formulation</> : f.custom ? <><Pencil size={13} />Edit formulation</> : <><Pencil size={13} />Edit sheet</>}</Button></div>}
-      {f.custom && <p className="mb-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">{customLengthOf(f.plan) ? `Custom supply of ${lengthText(f.days)}` : f.ageBandLabel}: no Formulation Master for this age group. {f.lines.length ? 'This formulation was made for this child.' : 'No medicines yet - the formulation is made for this child.'}</p>}
+      {f.custom && <p className="mb-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">{customLengthOf(f.plan) ? `Custom supply of ${lengthText(f.days)}` : f.ageBandLabel}: {f.blank ? 'new sheet (blank), not from the Formulation Master.' : 'no Formulation Master for this age group.'} {f.lines.length ? 'This formulation was made for this child.' : 'No medicines yet - the formulation is made for this child.'}</p>}
+      {f.sampleFrom && <p className="mb-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">Development sheet: {f.ageBandLabel} has no Formulation Master of its own, so this sheet starts from the {f.sampleFrom.label} master. Check every medicine, dose and quantity for this child.</p>}
       {f.edited && <p className="mb-2 rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900">This sheet was corrected for this patient only (the Formulation Master is unchanged); master values are shown struck through.</p>}
       <div className="border-b border-charcoal pb-2 text-center"><p className="text-xs font-bold tracking-wide">AUTISM, ADHD &amp; CHILD DEVELOPMENT</p><p className="text-base font-bold">{f.title}</p><p className="text-xs text-charcoal/60">आयु: {f.ageBandLabel} · आपूर्ति: {f.months} महीने ({f.days} दिन) · गणना: 1 महीना = 30 दिन, माप-चम्मच = 5 ml</p></div>
       <p className="mt-2 text-xs text-charcoal/60">मरीज: <b className="text-charcoal">{patientName}</b> · ID {patientCode}</p>

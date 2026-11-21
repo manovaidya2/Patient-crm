@@ -41,11 +41,14 @@ export default function MyDay() {
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
 
-  const sections = data?.sections || [];
+  // This person's own work, and (Doctor / Admin / Manager only) steps waiting on someone else, shown apart.
+  const all = useMemo(() => data?.sections || [], [data]);
+  const sections = useMemo(() => all.filter((s) => s.mine !== false), [all]);
+  const others = useMemo(() => all.filter((s) => s.mine === false), [all]);
   const total = sections.reduce((s, x) => s + x.count, 0);
-  // `page` is the picked section: a page, or one step of fulfilment / medicine requests.
-  const picked = sections.find((s) => sectionKey(s) === page);
-  const items = useMemo(() => sections.filter((s) => !page || sectionKey(s) === page).flatMap((s) => s.items), [sections, page]);
+  // `page` is the picked section: a page, or one step of fulfilment / medicine requests (own or someone else's).
+  const picked = all.find((s) => sectionKey(s) === page);
+  const items = useMemo(() => (page ? all.filter((s) => sectionKey(s) === page) : sections).flatMap((s) => s.items), [all, sections, page]);
   const grouped = useMemo(() => BUCKETS.map(([key, label, tone]) => [key, label, tone, items.filter((i) => bucketOf(i) === key)]).filter(([, , , list]) => list.length), [items]);
   const dueToday = sections.flatMap((s) => s.items).filter((i) => ['today', 'overdue'].includes(bucketOf(i))).length;
 
@@ -74,6 +77,23 @@ export default function MyDay() {
               </button>
             );
           })}
+        </section>
+      )}
+
+      {others.length > 0 && (
+        <section aria-label="Pending with others">
+          <p className="mb-1.5 flex flex-wrap items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/55">Pending with others <span className="rounded-full bg-charcoal/10 px-2 py-0.5 text-charcoal/70">{others.reduce((s, x) => s + x.count, 0)}</span><span className="font-normal normal-case tracking-normal text-charcoal/45">overview, not your step · click to see the patients</span></p>
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+            {others.map((s) => {
+              const on = page === sectionKey(s);
+              return (
+                <button key={sectionKey(s)} type="button" aria-pressed={on} title={`${sectionLabel(s)} · ${sectionHint(s)}`} onClick={() => setPage(on ? '' : sectionKey(s))} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition hover:shadow-sm ${on ? 'border-charcoal bg-charcoal text-white' : 'border-cardline bg-white/70'}`}>
+                  <span className={`flex h-10 min-w-10 items-center justify-center rounded-xl px-2 font-display text-lg font-extrabold ${on ? 'bg-white text-charcoal' : 'bg-charcoal/10 text-charcoal/75'}`}>{s.count > 99 ? '99+' : s.count}</span>
+                  <span className="min-w-0"><span className="block truncate text-[13px] font-bold">{sectionLabel(s)}</span><span className={`block truncate text-[11.5px] ${on ? 'text-white/75' : 'text-charcoal/55'}`}>{sectionHint(s)}</span></span>
+                </button>
+              );
+            })}
+          </div>
         </section>
       )}
 

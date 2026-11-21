@@ -9,7 +9,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { STAGES: PHASES } = require('../constants/treatmentStages');
 const { AGE_BANDS, supplyOption, ageBandFor, customLength } = require('../constants/supplyPlans');
-const { formulationFor, stockNeeds, unlinkedLines, chitsFor, applyOverrides, linkByName } = require('../constants/formulationMaster');
+const { formulationFor, blankSheetFor, templateSheetFor, sampleBandOf, stockNeeds, unlinkedLines, chitsFor, applyOverrides, linkByName } = require('../constants/formulationMaster');
 const { STAGES, STAGE_INDEX, stageRoles, buildJobView } = require('../utils/medicineJobFlow');
 const { paymentSummary, ensureSupplyRound, requestKey, roundOwnerKey } = require('../utils/transitFlow');
 // The hand-over fields of `transit` belong to the newest supply of the phase; a job of an earlier supply leaves them.
@@ -128,18 +128,29 @@ const respond = async (res, job, status = 200) => {
 
 // An open job of a custom supply whose sheet is still empty and can have the master sample (an age group with a master).
 const emptyCustomSupply = (job) => job.status === 'open' && (job.currentStage || 0) <= STAGE_INDEX.formula && !job.hold?.active
-  && job.formulation?.custom && !(job.formulation.lines || []).length && Boolean(customLength(job.supplyPlan)) && Boolean(AGE_BANDS[job.ageBand]) && job.ageBand !== '0-3';
+  && job.formulation?.custom && !(job.formulation.lines || []).length && Boolean(customLength(job.supplyPlan)) && Boolean(AGE_BANDS[job.ageBand]) && job.ageBand !== '0-3'
+  // A new (blank) sheet was chosen on purpose: it stays empty.
+  && !job.sheetStart;
 
 // The formulation sheet and supply belong to the formulation-check stage; only its owner (or the admin) changes them.
 // Correcting the sheet for one patient is the doctor's call (or the admin's); the Medicine Department prepares from it.
 const SHEET_EDIT_ROLES = [ROLES.ADMIN, ROLES.DOCTOR];
 const needSheetOwner = (user, job = null) => { const roles = stageRoles(STAGES[STAGE_INDEX.formula], job); if (!roles.includes(stepRole(user))) fail(`The formulation sheet is handled by ${roles.map((r) => r.replace(/_/g, ' ')).join(' / ')}`, 403); };
 
+// The sheet a job starts from: a new (blank) sheet, a development sheet (the master's ready sheet; the nearest age group's
+// for 0-3 years), or - on older jobs where nothing was chosen - the master when the age group has one, else empty.
+const sheetFor = async (job) => {
+  const params = { ageBand: job.ageBand, plan: job.supplyPlan, part: job.supplyPart };
+  if (job.sheetStart === 'blank') return blankSheetFor(params);
+  if (job.sheetStart === 'template') { const band = sampleBandOf(job.ageBand); return templateSheetFor(params, band ? await getMaster(band) : null); }
+  return formulationFor(params, await getMaster(job.ageBand));
+};
+
 // Builds (or rebuilds) the formulation sheet, stock needs and chits of a job from its age band and supply using the
 // current (doctor-edited) Formulation Master, or from an already corrected sheet when one is given.
 const applyFormulation = async (job, sheet) => {
   const hasSupply = job.ageBand && job.supplyPlan && job.supplyPart;
-  const formulation = sheet !== undefined ? sheet : (hasSupply ? formulationFor({ ageBand: job.ageBand, plan: job.supplyPlan, part: job.supplyPart }, await getMaster(job.ageBand)) : null);
+  const formulation = sheet !== undefined ? sheet : (hasSupply ? await sheetFor(job) : null);
   job.formulation = formulation;
   job.markModified('formulation');
   job.chits = formulation ? chitsFor(formulation, job.patientName) : [];
@@ -384,7 +395,7 @@ const approveScope = asyncHandler(async (req, res) => {
   await respond(res, job);
 });
 
-// @route PATCH /api/medicine-jobs/:id/supply   body: { ageBand, supplyKey }  (before preparation only)
+// @route PATCH /api/medicine-jobs/:id/supply   body: { ageBand, supplyKey, sheet: 'template' | 'blank' }  (before preparation only)
 const setSupply = asyncHandler(async (req, res) => {
   const job = await MedicineJob.findById(req.params.id);
   if (!job) fail('Job not found', 404);
@@ -398,10 +409,13 @@ const setSupply = asyncHandler(async (req, res) => {
   const [plan, part] = String(req.body?.supplyKey || '').split(':');
   const option = supplyOption(plan, part);
   if (!option) fail(plan === 'CUSTOM' ? 'Custom supply: choose the months / days of medicine (1 day to 12 months)' : 'Select the medicine supply');
+  // How the sheet starts: development sheet (ready template) or new sheet (blank). Not sent: as it was.
+  const sheetStart = req.body?.sheet;
+  if (sheetStart !== undefined && !['template', 'blank'].includes(sheetStart)) fail('Choose a development sheet or a new sheet');
   // Post counselling provides the starting values; the formulation owner can correct them for this patient.
-  Object.assign(job, { ageBand, supplyPlan: option.plan, supplyPart: option.part });
+  Object.assign(job, { ageBand, supplyPlan: option.plan, supplyPart: option.part, ...(sheetStart ? { sheetStart } : {}) });
   await applyFormulation(job);
-  event(job, req.user, 'Supply set', `${option.label} | ${AGE_BANDS[ageBand]}`);
+  event(job, req.user, 'Supply set', `${option.label} | ${AGE_BANDS[ageBand]}${job.sheetStart ? ` | ${job.sheetStart === 'blank' ? 'New sheet (blank)' : 'Development sheet (template)'}` : ''}`);
   await job.save();
   await respond(res, job);
 });

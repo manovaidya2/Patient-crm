@@ -255,6 +255,8 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   const [paperRows, setPaperRows] = useState([]);
   const [removedPapers, setRemovedPapers] = useState([]);
   const [busy, setBusy] = useState(false);
+  // The formulation sheet above is open for editing / has unsaved changes: the stage waits until it is saved.
+  const [sheetUnsaved, setSheetUnsaved] = useState(false);
   useEffect(() => {
     setChecks({}); setNotes(''); setConsumption({}); setUnlinkedPick({}); setChits({}); setFiles({}); setPaperRows([]); setRemovedPapers([]);
     setFields(stage.key === 'accept' ? { readyByDate: inputDay(job.readyByDate) } : {});
@@ -263,6 +265,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
   // Step 2: the treatment components (section C of the purchase) are approved before the formulation is sent.
   const scopePending = stage.key === 'formula' && Boolean(job.treatmentScope) && !job.treatmentScope.missing && !job.treatmentScope.approval;
   const submit = async () => {
+    if (sheetUnsaved) { report('पहले Formulation sheet save करें, फिर stage पूरा करें।'); return; }
     if (stage.key === 'photos') {
       const missing = paperRows.findIndex((r, i) => !r.name.trim() || !(files[`paper_${i}`] || []).length);
       if (missing >= 0) { report(paperRows[missing].name.trim() ? `Upload the pages of "${paperRows[missing].name.trim()}"` : 'Enter the name of each paper you added'); return; }
@@ -324,7 +327,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
         </div>
       )}
       {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} />}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} onUnsavedChange={setSheetUnsaved} />}
       {stage.key === 'formula' && <TreatmentScopeCard job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} onSaved={onDone} onError={report} />}
       {['review', 'stock', 'prepare'].includes(stage.key) && <BottleEditor job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT], user)} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
@@ -365,10 +368,10 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
         <ul className="space-y-1.5">{stage.checks.map((c, i) => <li key={i}><label className={`flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] ${checks[i] ? 'border-[#A7D3B8] bg-[#F6FBF7] text-charcoal/60 line-through decoration-[#A7D3B8]' : 'border-[#EFE3CF] bg-[#FBF7ED] text-charcoal'} ${canAct ? 'cursor-pointer hover:border-[#DED2BD]' : ''}`}><input type="checkbox" className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-sage" checked={Boolean(checks[i])} disabled={!canAct} onChange={(e) => setChecks((o) => ({ ...o, [i]: e.target.checked }))} />{c}</label></li>)}</ul>
       </div>
       {stage.fields.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{stage.fields.map(field)}</div>}
-      <FieldLabel label="Stage notes"><input className={poInput} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canAct} /></FieldLabel>
       <ErrorText>{err}</ErrorText>
+      {canAct && sheetUnsaved && <p role="alert" className="flex items-center gap-2 rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2 text-sm font-semibold text-[#C2410C]"><Lock size={15} />पहले ऊपर की Formulation sheet save करें (Save correction) या Cancel करें। उसके बाद ही यह stage पूरा होकर अगले stage पर जाएगा।</p>}
       {canAct && scopePending && <p className="flex items-center gap-2 rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2 text-sm font-semibold text-[#C2410C]"><ShieldCheck size={15} />Approve the treatment &amp; support components above (as they are, or after changing the ticks) to send the formulation.</p>}
-      {canAct ? <Button disabled={busy || !allChecked || scopePending} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
+      {canAct ? <Button disabled={busy || !allChecked || scopePending || sheetUnsaved} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
         : <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />This stage is completed by {stage.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}
     </div>
   );
@@ -399,7 +402,9 @@ export default function MedicineJobPage() {
   useEffect(() => { load(); }, [load]);
   // Live: when anyone changes this job (the doctor's sheet edit or sign-off, a stage done), this page reloads at once.
   useLiveEvent('medicine-job:changed', (payload) => { if (!payload || payload.id === id) load(); });
-  useEffect(() => { if (job) setSupply({ ageBand: job.ageBand, supplyKey: supplyKeyOf(job.supplyPlan, job.supplyPart) }); }, [job?.id, job?.ageBand, job?.supplyPlan, job?.supplyPart]); // eslint-disable-line react-hooks/exhaustive-deps
+  // How the sheet starts: as chosen, or (older jobs) a blank one when the sheet was made empty, else the ready template.
+  const sheetStartOf = (j) => j?.sheetStart || (j?.formulation?.custom ? 'blank' : 'template');
+  useEffect(() => { if (job) setSupply({ ageBand: job.ageBand, supplyKey: supplyKeyOf(job.supplyPlan, job.supplyPart), sheet: sheetStartOf(job) }); }, [job?.id, job?.ageBand, job?.supplyPlan, job?.supplyPart, job?.sheetStart]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
   const done = (next, message) => { setJob(next); setNotice(message); setView(null); setHoldOpen(false); setHoldText(''); };
   const act = async (path, body) => { setError(''); try { const { data } = await api.post(`/medicine-jobs/${id}/${path}`, body); done(data.job, path === 'hold' ? 'Job put on hold.' : path === 'return' ? 'Sent back to In Transit with your note.' : path === 'ring-transit' ? 'Alarm rung.' : 'Job resumed.'); } catch (err) { setError(err.response?.data?.message || 'Could not save'); } };
@@ -412,7 +417,7 @@ export default function MedicineJobPage() {
     catch (err) { setError(err.response?.data?.message || 'Could not revert this stage'); }
   };
   const saveSupply = async () => {
-    if (job.formulation?.edited && !window.confirm('Changing the age group or supply rebuilds this patient\'s formulation and replaces the current medicine, dose and quantity edits. Continue?')) return;
+    if ((job.formulation?.edited || (supply.sheet === 'blank' && job.formulation?.lines?.length)) && !window.confirm('This rebuilds this patient\'s formulation sheet and replaces the medicines, doses and quantities on it now. Continue?')) return;
     setSavingSupply(true); setError('');
     try { const { data } = await api.patch(`/medicine-jobs/${id}/supply`, supply); done(data.job, 'Age group and supply saved; formulation rebuilt.'); }
     catch (err) { setError(err.response?.data?.message || 'Could not change the supply'); }
@@ -561,8 +566,14 @@ export default function MedicineJobPage() {
                       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-charcoal/50">Age group &amp; supply (choose as per the prescription)</p>
                       <div className="flex flex-wrap gap-1.5">{AGE_BANDS.map((b) => <Chip key={b.value} active={supply.ageBand === b.value} disabled={ageLocked && supply.ageBand !== b.value} onClick={() => !ageLocked && setSupply((s) => ({ ...s, ageBand: b.value }))}>{b.label}</Chip>)}</div>
                       <div className="mt-2"><SupplyChips value={supply.supplyKey} onChange={(key) => setSupply((s) => ({ ...s, supplyKey: key }))} locked={supplyLocked} /></div>
-                      <p className="mt-2 text-xs text-charcoal/60">Doctor/Admin can correct the age group and supply before sending the formulation. Saving rebuilds the sheet for the new selection.</p>
-                      {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart)) && <Button size="sm" className="mt-2" disabled={savingSupply} onClick={saveSupply}>{savingSupply ? 'Saving...' : 'Save age group & supply'}</Button>}
+                      <p className="mb-1.5 mt-3 text-xs font-bold uppercase tracking-wide text-charcoal/50">Formulation sheet</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Chip active={supply.sheet === 'template'} title="The Formulation Master's ready sheet for this age group and supply, to correct for this patient" onClick={() => setSupply((s) => ({ ...s, sheet: 'template' }))}>Development sheet (ready template)</Chip>
+                        <Chip active={supply.sheet === 'blank'} title="An empty sheet: every medicine is added for this patient" onClick={() => setSupply((s) => ({ ...s, sheet: 'blank' }))}>New sheet (blank)</Chip>
+                      </div>
+                      <p className="mt-1.5 text-xs text-charcoal/60">{supply.sheet === 'blank' ? 'Starts empty: add every medicine for this patient with "Create formulation" / "Add medicine".' : supply.ageBand === '0-3' ? 'There is no Formulation Master for 0-3 years: the sheet starts from the 3-4 years master. Check every medicine and dose.' : 'Starts from the Formulation Master for this age group and supply (scaled to the days of a custom supply). Remove, add or correct medicines as needed.'}</p>
+                      <p className="mt-2 text-xs text-charcoal/60">Doctor/Admin can correct the age group, supply and sheet before sending the formulation. Saving rebuilds the sheet for the new selection.</p>
+                      {(supply.ageBand !== job.ageBand || supply.supplyKey !== supplyKeyOf(job.supplyPlan, job.supplyPart) || supply.sheet !== sheetStartOf(job)) && <Button size="sm" className="mt-2" disabled={savingSupply} onClick={saveSupply}>{savingSupply ? 'Saving...' : 'Save & build the sheet'}</Button>}
                     </div>
                   )}
                   {shown.key !== 'release' && !stageCanAct && !job.hold && job.status !== 'released' && <p className="mb-3 flex items-center gap-2 rounded-lg bg-offwhite-200 px-3 py-2 text-sm font-semibold text-charcoal/70"><Lock size={14} />View only: this stage is filled by {shown.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}

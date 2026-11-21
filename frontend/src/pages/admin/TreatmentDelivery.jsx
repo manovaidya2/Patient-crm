@@ -7,10 +7,11 @@ import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { PageHeader, Section, StatRow, StatTile } from '../../components/ui/Layout.jsx';
 import DeliveryPlan from '../../components/delivery/DeliveryPlan.jsx';
-import DeliverySettings from '../../components/delivery/DeliverySettings.jsx';
 import { LEVEL_CLASS, STATE_TONE, STATUS_TONE, errText, fmtDT, fmtDay, fmtTime, istDay } from '../../components/delivery/deliveryUi.js';
 
-const TABS = [['today', 'Today and alerts'], ['patients', 'Patients'], ['settings', 'Settings']];
+// The rules (settings) tab was removed as no longer used: plans keep the rules they were made with, new plans use the
+// rules last saved (or the defaults).
+const TABS = [['today', 'Today and alerts'], ['patients', 'Patients']];
 const STATUSES = [['', 'All'], ['setup', 'Set-up needed'], ['running', 'Running'], ['delivered', 'Delivered'], ['waiting', 'Waiting for start date']];
 const empty = 'rounded-xl border border-dashed border-cardline bg-white py-8 text-center text-sm text-charcoal/55';
 const rowButton = 'flex w-full flex-wrap items-center justify-between gap-2 rounded-[12px] border border-[#E8DFCB] bg-white px-3 py-2.5 text-left transition hover:border-sage/60';
@@ -79,7 +80,7 @@ export default function TreatmentDelivery() {
     <div className="space-y-4">
       <PageHeader icon={HeartHandshake} title="Treatment Delivery" subtitle="Sessions and follow-ups made from each phase's section D ticks, counted from the medicine start date" />
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {TABS.map(([key, text]) => (
           <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)} className={`rounded-[12px] border px-3 py-2.5 text-left text-[13px] font-bold text-charcoal ${tab === key ? 'border-sage bg-[#F3F6F2] ring-1 ring-sage' : 'border-[#E8DFCB] bg-white hover:border-sage/50'}`}>
             {text}{key === 'patients' && rows ? <span className="ml-1.5 font-normal text-charcoal/55">({all.length})</span> : null}
@@ -88,8 +89,7 @@ export default function TreatmentDelivery() {
       </div>
 
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {tab === 'settings' && <DeliverySettings />}
-      {tab !== 'settings' && !rows && !error && <p className={empty}>Loading...</p>}
+      {!rows && !error && <p className={empty}>Loading...</p>}
 
       {tab === 'today' && rows && (
         <>

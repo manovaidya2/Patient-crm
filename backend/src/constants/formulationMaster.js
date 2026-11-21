@@ -231,6 +231,24 @@ function customSheet({ ageBand, plan, part, months = PART_MONTHS[`${plan}:${part
   };
 }
 
+// A new (blank) sheet for any age group and supply: no medicines yet, every one is added for this patient.
+function blankSheetFor({ ageBand, plan, part }) {
+  const custom = customLength(plan);
+  const sheet = custom ? customSheet({ ageBand, plan, part: 'full', months: custom.total / 30, days: custom.total }) : customSheet({ ageBand, plan, part });
+  return { ...sheet, blank: true };
+}
+// An age group with no Formulation Master of its own (0-3 years) takes its development sheet from the nearest one.
+const SAMPLE_BAND = { '0-3': '3-4' };
+const sampleBandOf = (ageBand) => (BANDS.includes(ageBand) ? ageBand : SAMPLE_BAND[ageBand] || '');
+// A development sheet: the ready sheet of the Formulation Master (of the nearest age group when it has none), to correct.
+function templateSheetFor({ ageBand, plan, part }, master = null) {
+  const band = sampleBandOf(ageBand);
+  if (!band) return blankSheetFor({ ageBand, plan, part });
+  const sheet = formulationFor({ ageBand: band, plan, part }, master);
+  if (!sheet || band === ageBand) return sheet;
+  return { ...sheet, ageBand, ageBandLabel: AGE_BANDS[ageBand] || '', sampleFrom: { ageBand: band, label: AGE_BANDS[band] } };
+}
+
 // What has to be drawn from stock for this supply (stock code -> quantity in the stock item's unit), bottles included.
 function stockNeeds(formulation) {
   const needs = [];
@@ -485,4 +503,4 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   return { ...formulation, lines: sheet, edited: sheet.some((l) => l.edited), pending: sheet.map((l) => l.pending).filter(Boolean) };
 }
 
-module.exports = { codeInName, linkByName, applyOverrides, formulationFor, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };
+module.exports = { codeInName, linkByName, applyOverrides, formulationFor, blankSheetFor, templateSheetFor, sampleBandOf, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

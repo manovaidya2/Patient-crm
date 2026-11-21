@@ -219,7 +219,8 @@ const getTaskCounts = asyncHandler(async (req, res) => {
 // (see utils/readCache: emptied by any save). A list is the same for everyone, for one role, or for one person.
 // Team Chat and Enquiries are cheap and change when read, so they are always worked out fresh.
 const PER_PERSON = new Set(['/admin/patient-queries', '/admin/treatment-delivery', '/admin/final-check', '/admin/treatment-papers', '/admin/medicine-explanations', '/admin/followups', '/admin/family-sessions', '/admin/post-counseling-patients']);
-const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs']);
+// Medicine requests / made: whose step each one is depends on the role (see pendingStepsController).
+const PER_ROLE = new Set(['/admin/purchase-orders', '/admin/medicine-jobs', '/admin/medicine-requests', '/admin/medicine-made']);
 const UNCACHED = new Set(['/admin/team-chat', '/admin/enquiries']);
 const scopeOf = (page, user) => (PER_PERSON.has(page) || (page === '/admin/medicine-jobs' && user.role === ASSISTANT_DOCTOR) ? `u:${user._id}:${user.role}` : PER_ROLE.has(page) ? `r:${stepRole(user)}` : 'all');
 const shared = (kind, page, user, fn) => (UNCACHED.has(page) ? fn() : cached(`${kind}|${page}|${scopeOf(page, user)}`, fn));
