@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, PackageX, Save, UserCheck } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, FileSignature, PackageX, Save, UserCheck } from 'lucide-react';
+import useLiveEvent from '../../api/useLiveEvent.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import DigitalPoPanel from './DigitalPoPanel.jsx';
 import api from '../../api/axios.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -60,6 +63,9 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
   const [form, setForm] = useState({});
   const [deciding, setDeciding] = useState(false);
   const [result, setResult] = useState(null);
+  const [dpoBusy, setDpoBusy] = useState(false);
+  const { user } = useAuth();
+  const dpoPanel = useRef(null);
 
   const patient = given && data?.patient ? { ...given, patientName: given.patientName || data.patient.patientName, patientId: given.patientId || data.patient.patientId } : given;
   useEffect(() => {
@@ -73,6 +79,41 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
   }, [given, recordUrl]);
 
   const defs = data?.definitions;
+  // Digital purchase order: the record again (the parent may have signed meanwhile).
+  const reloadData = async () => { const { data: fresh } = await api.get(recordUrl || `/post-counseling/patients/${given.id}/record`, { skipCache: true }); setData(fresh); };
+  useLiveEvent('post-counseling:changed', (payload) => {
+    if (payload?.id && payload.id === (data?.id || given?.id) && data?.digitalPo?.items?.some((item) => item.status === 'sent')) reloadData().catch(() => {});
+  });
+  const canMakeDpo = Boolean(data?.saved && data?.canEdit) && !readOnly;
+  // One digital PO per visit: made the first time, then updated in place (same number and link).
+  const currentDpo = (data?.digitalPo?.items || []).find((item) => !['replaced', 'deleted'].includes(item.status)) || null;
+  // Taking it back (before the parent signs): the visit's Post Counselor or the Admin, not the Manager.
+  const canDeleteDpo = canMakeDpo && user?.role !== 'manager';
+  const deleteDpo = async () => {
+    setError(''); setNotice('');
+    try {
+      const { data: response } = await api.delete(`/post-counseling/patients/${given.id}/digital-po`);
+      setData(response);
+      setNotice(`Digital PO ${response.deleted?.ref || ''} deleted — its link no longer works`);
+    } catch (err) { setError(err.response?.data?.message || 'Could not delete the digital PO'); }
+  };
+  const createDpo = async () => {
+    if (currentDpo?.status === 'signed' && !window.confirm(`${currentDpo.signed?.signerName || 'The parent'} has already signed ${currentDpo.ref}. Updating it puts the record's current package on the same link, and the parent signs again (the signed version is kept). Update it?`)) return;
+    setDpoBusy(true); setError(''); setNotice('');
+    try {
+      const { data: response } = await api.post(`/post-counseling/patients/${given.id}/digital-po`);
+      setData(response);
+      const c = response.created || {};
+      setNotice({
+        created: `Digital PO ${c.ref} made — send the link to the parent`,
+        updated: `Digital PO ${c.ref} updated (v${c.version}) — the same link now shows the new purchase order`,
+        extended: `Nothing changed in the record — ${c.ref}'s link works again for 30 days`,
+        resign: `Digital PO ${c.ref} updated (v${c.version}) — the parent signs again on the same link`,
+      }[c.action] || 'Digital PO saved');
+      window.setTimeout(() => dpoPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    } catch (err) { setError(err.response?.data?.message || 'Could not make the digital PO'); }
+    finally { setDpoBusy(false); }
+  };
   // The delivery scope as the doctor approved it at the formulation step, else the standard one.
   const doctorChange = (component) => {
     const before = record?.components?.postCounselorSelected;
@@ -275,6 +316,10 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
             </div>
           </section>}
 
+          {!only && data.saved && ((data.digitalPo?.items?.length || 0) > 0 || canMakeDpo) && (
+            <DigitalPoPanel panelRef={dpoPanel} digitalPo={data.digitalPo} fields={data.registration?.fields} patientName={patient.patientName} onReload={reloadData} canUpdate={canMakeDpo} onDelete={canDeleteDpo ? deleteDpo : null} />
+          )}
+
           {readOnly && data.saved && !only && (
             <section className="space-y-3">
               <SectionTitle letter="F-H">Purchase order &amp; payment</SectionTitle>
@@ -287,6 +332,7 @@ const PostCounselingRecordModal = ({ patient: given, onClose, onSaved, readOnly 
             {notice && <span className="mr-auto text-sm font-semibold text-sage">{notice}</span>}
             {onClose && <Button variant="outline" onClick={onClose}>{asPage ? 'Back' : 'Close'}</Button>}
             {editable && <Button onClick={save} disabled={busy}><Save size={15} />{busy ? 'Saving...' : 'Save'}</Button>}
+            {canMakeDpo && !only && <Button variant="outline" onClick={createDpo} disabled={dpoBusy || !saved} title={saved ? (currentDpo ? 'Put the record\'s current package into the same digital PO (same link)' : 'A link for the parent to tick the consent and sign') : 'Save the record first'}><FileSignature size={15} />{dpoBusy ? 'Saving...' : currentDpo ? 'Update digital PO' : 'Create digital PO'}</Button>}
             {saved && !readOnly && data.canEdit && !data.outcome && (
               <>
                 <Button variant="outline" onClick={openNotPurchased}><PackageX size={15} /> Package not purchased</Button>

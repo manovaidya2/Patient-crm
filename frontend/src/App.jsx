@@ -8,6 +8,8 @@ import { useAuth } from './context/AuthContext.jsx';
 import { ADMIN_LAYOUT_ROLES, HR_ACCESS_ROLES, PATIENT_ACCESS_ROLES, ROLES, getDefaultRoute, isAdminLike } from './constants/roles.js';
 
 const GenericDashboard = lazy(() => import('./pages/GenericDashboard.jsx'));
+// The parent's digital purchase order link (no login).
+const PublicPurchaseOrder = lazy(() => import('./pages/PublicPurchaseOrder.jsx'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard.jsx'));
 const StaffDashboard = lazy(() => import('./pages/admin/StaffDashboard.jsx'));
 const TeamMembers = lazy(() => import('./pages/admin/TeamMembers.jsx'));
@@ -66,6 +68,7 @@ const DigitalMarketing = lazy(() => import('./pages/admin/DigitalMarketing.jsx')
 const PackageNotBought = lazy(() => import('./pages/admin/PackageNotBought.jsx'));
 const PostCounselingPatients = lazy(() => import('./pages/admin/PostCounselingPatients.jsx'));
 const PostCounselingDone = lazy(() => import('./pages/admin/PostCounselingDone.jsx'));
+const DigitalPurchaseOrders = lazy(() => import('./pages/admin/DigitalPurchaseOrders.jsx'));
 const TreatmentNotGiven = lazy(() => import('./pages/admin/TreatmentNotGiven.jsx'));
 const PackageNotBoughtDetails = lazy(() => import('./pages/admin/PackageNotBoughtDetails.jsx'));
 const PaymentSettings = lazy(() => import('./pages/admin/PaymentSettings.jsx'));
@@ -369,6 +372,14 @@ function App() {
           }
         />
         <Route
+          path="digital-po"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER]}>
+              <DigitalPurchaseOrders />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="post-counseling-done"
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER]}>
@@ -520,6 +531,7 @@ function App() {
         }
       />
 
+      <Route path="/po/:token" element={<PublicPurchaseOrder />} />
       <Route path="/" element={<Navigate to={user ? getDefaultRoute(user.role) : '/login'} replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

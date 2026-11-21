@@ -83,11 +83,13 @@ const view = (entry, canEdit, existing = null) => {
 };
 
 const existingOf = async (entry) => (await withExistingPatient(registrationView(entry))).existingPatient || null;
+// The record with its digital purchase orders (links sent to the parent, signed papers).
+const fullView = async (entry, canEdit, existing = null) => ({ ...view(entry, canEdit, existing), digitalPo: await require('./digitalPoController').digitalPosOf(entry._id) });
 
 // @route GET /api/post-counseling/patients/:id/record
 const getRecord = asyncHandler(async (req, res) => {
   const { entry, canEdit } = await loadAccessible(req);
-  res.json({ success: true, ...view(entry, canEdit, await existingOf(entry)) });
+  res.json({ success: true, ...(await fullView(entry, canEdit, await existingOf(entry))) });
 });
 
 // @route GET /api/purchase-orders/:id/post-counselling
@@ -103,7 +105,7 @@ const getRecordForPo = asyncHandler(async (req, res) => {
   let entry = po.poNumber ? await Management.findOne({ 'postCounseling.purchase.values.poNo': po.poNumber }) : null;
   if (!entry && po.patient) entry = await Management.findOne({ 'postCounseling.outcome.patient': po.patient, 'postCounseling.savedAt': { $ne: null } }).sort({ 'postCounseling.outcome.at': -1 });
   if (!entry?.postCounseling?.savedAt) throw fail('No post-counselling record was filled for this purchase order', 404);
-  res.json({ success: true, id: String(entry._id), poNumber: po.poNumber, ...view(entry, false, await existingOf(entry)) });
+  res.json({ success: true, id: String(entry._id), poNumber: po.poNumber, ...(await fullView(entry, false, await existingOf(entry))) });
 });
 
 // @route PUT /api/post-counseling/patients/:id/record
@@ -118,7 +120,7 @@ const saveRecord = asyncHandler(async (req, res) => {
   }, { new: true });
   await audit(req, entry, 'Post counselling record saved', `Reference value Rs ${record.totals.referenceValue}`);
   emitChanged(req, entry);
-  res.json({ success: true, ...view(updated, canEdit, await existingOf(updated)) });
+  res.json({ success: true, ...(await fullView(updated, canEdit, await existingOf(updated))) });
 });
 
 // @route POST /api/post-counseling/upload   (payment screenshots for the purchase order step)
@@ -143,7 +145,7 @@ const savePurchase = asyncHandler(async (req, res) => {
   }, { new: true });
   await audit(req, entry, 'Purchase order details saved', `Approved fee Rs ${cleaned.totals.approvedProgramFee}, received Rs ${cleaned.totals.partPayment}`);
   emitChanged(req, entry);
-  res.json({ success: true, ...view(updated, canEdit, await existingOf(updated)) });
+  res.json({ success: true, ...(await fullView(updated, canEdit, await existingOf(updated))) });
 });
 
 // Claims the decision so pressing a button twice (or two people at once) can only ever do it once.
@@ -231,7 +233,7 @@ const setVisitPhase = asyncHandler(async (req, res) => {
   const updated = await Management.findOneAndUpdate({ _id: entry._id }, { $set: set }, { new: true });
   await audit(req, entry, 'Phase changed', `Phase ${before} -> Phase ${phase}`);
   emitChanged(req, entry);
-  res.json({ success: true, ...view(updated, canEdit, existing) });
+  res.json({ success: true, ...(await fullView(updated, canEdit, existing)) });
 });
 
 // @route POST /api/post-counseling/patients/:id/outcome/not-purchased
@@ -318,6 +320,34 @@ const restoreNotGiven = asyncHandler(async (req, res) => {
   res.json({ success: true, notGiven: notGivenView(updated) });
 });
 
+// @route POST /api/post-counseling/patients/:id/digital-po
+// The visit's digital purchase order from the saved record: a public link the parent opens to tick the consent and
+// sign. One per visit: made the first time, updated after that (same number and link; a signed one that changed is
+// signed again, its signed version kept).
+const createDigitalPo = asyncHandler(async (req, res) => {
+  const { entry, canEdit } = await loadAccessible(req);
+  if (!canEdit) throw fail('Only the assigned Post Counselor can do this', 403);
+  const registration = registrationView(entry);
+  const existing = await existingOf(entry);
+  const { doc, action } = await require('./digitalPoController').saveForEntry({ entry, registration, phase: visitPhaseOf(registration, existing), user: req.user });
+  const what = { created: 'Digital purchase order created', updated: `Digital purchase order updated (version ${doc.version})`, extended: 'Digital purchase order link renewed (no change)', resign: `Digital purchase order updated after signing (version ${doc.version}) — to be signed again` }[action];
+  await audit(req, entry, what, doc.ref);
+  emitChanged(req, entry);
+  res.status(action === 'created' ? 201 : 200).json({ success: true, created: { id: String(doc._id), ref: doc.ref, token: doc.token, version: doc.version || 1, action, expiresAt: doc.expiresAt }, ...(await fullView(entry, canEdit, existing)) });
+});
+
+// @route DELETE /api/post-counseling/patients/:id/digital-po
+// Takes the visit's digital purchase order back before the parent signs: the link stops working (the record is kept).
+// The visit's Post Counselor or the Admin (the Manager does not delete).
+const deleteDigitalPo = asyncHandler(async (req, res) => {
+  const { entry, canEdit } = await loadAccessible(req);
+  if (!canEdit || req.user.role === ROLES.MANAGER) throw fail('Only the Post Counselor of this visit or the Admin can delete the digital purchase order', 403);
+  const doc = await require('./digitalPoController').deleteForEntry({ entry, user: req.user });
+  await audit(req, entry, 'Digital purchase order deleted', `${doc.ref} — the link no longer works`);
+  emitChanged(req, entry);
+  res.json({ success: true, deleted: { id: String(doc._id), ref: doc.ref }, ...(await fullView(entry, canEdit, await existingOf(entry))) });
+});
+
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 
 // @route GET /api/post-counseling/done?from=&to=&q=&counselor=
@@ -352,4 +382,4 @@ const listDone = asyncHandler(async (req, res) => {
   res.json({ success: true, patients });
 });
 
-module.exports = { getRecord, getRecordForPo, saveRecord, savePurchase, setVisitPhase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone };
+module.exports = { getRecord, getRecordForPo, saveRecord, savePurchase, setVisitPhase, uploadScreenshots, convertToPatient, markNotPurchased, markNotGiven, restoreNotGiven, listDone, createDigitalPo, deleteDigitalPo };

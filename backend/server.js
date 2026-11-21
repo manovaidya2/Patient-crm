@@ -99,6 +99,8 @@ app.get('/api/health/pdf', async (req, res) => {
 // Inventory templates are served by the authenticated soft-copy endpoint only.
 app.use('/uploads/clinic-inventory', (req, res) => res.status(404).end());
 app.use('/uploads/invoices', (req, res) => res.status(404).end());
+// Signatures on digital purchase orders: never public (served to staff by /api/digital-po/:id/signature).
+app.use('/uploads/digital-po', (req, res) => res.status(404).end());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/auth', authRoutes);
@@ -115,6 +117,8 @@ app.use('/api/incoming-calls', require('./src/routes/incomingCallRoutes'));
 app.use('/api/appointments-board', require('./src/routes/appointmentBoardRoutes'));
 app.use('/api/expenses', require('./src/routes/expenseRoutes'));
 app.use('/api/purchase-orders', require('./src/routes/purchaseOrderRoutes'));
+// Digital purchase order: the parent's public link (no login) and the signature for staff.
+app.use('/api/digital-po', require('./src/routes/digitalPoRoutes'));
 app.use('/api/stocks', require('./src/routes/stockRoutes'));
 app.use('/api/control-room', require('./src/routes/controlRoomRoutes'));
 app.use('/api/medicine-jobs', require('./src/routes/medicineJobRoutes'));

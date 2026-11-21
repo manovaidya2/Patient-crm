@@ -79,6 +79,7 @@ import {
   Wrench,
   CalendarHeart,
   Contact,
+  FileSignature,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STAGES, STAGE_LABELS } from '../constants/treatmentStages.js';
@@ -89,7 +90,7 @@ import BrandLogo from './BrandLogo.jsx';
 // Pages shown at the very top of a role's menu, in this order.
 const ROLE_FIRST_PAGES = {
   [ROLES.DOCTOR]: ['/admin/my-day', '/admin/exception-payments'],
-  [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/treatment-not-given', '/admin/post-counseling-done'],
+  [ROLES.POST_COUNSELOR]: ['/admin/my-day', '/admin/post-counseling-patients', '/admin/patients', '/admin/package-not-bought', '/admin/treatment-not-given', '/admin/post-counseling-done', '/admin/digital-po'],
 };
 
 // The Manager sees every page the Admin sees.
@@ -132,6 +133,8 @@ export const navItems = [
   { to: '/admin/inactive-patients', icon: UserX, label: 'Inactive Patients', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.POST_COUNSELOR] },
   { to: '/admin/post-counseling-patients', icon: UserCheck, label: 'Post Counseling Patients', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/post-counseling-done', icon: ClipboardCheck, label: 'Post Counseling Done', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
+  // Digital purchase orders the parents signed on the link (consent + signature).
+  { to: '/admin/digital-po', icon: FileSignature, label: 'Digital PO', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/treatment-not-given', icon: Ban, label: 'Treatment Not Given', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER], group: 'postcounselling' },
   { to: '/admin/package-not-bought', icon: UserMinus, label: 'Package Not Bought', roles: [ROLES.ADMIN, ROLES.POST_COUNSELOR], group: 'postcounselling' },
   { to: '/admin/patient-approvals', icon: ShieldCheck, label: 'Patient Approvals', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT], group: 'transit' },
