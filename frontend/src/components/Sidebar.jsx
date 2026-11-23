@@ -167,6 +167,8 @@ export const navItems = [
   { to: '/admin/worksheet', icon: Table2, label: 'Worksheet', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], group: 'care' },
   { to: '/admin/digital-marketing', icon: Megaphone, label: 'Digital Marketing', roles: [ROLES.ADMIN, ROLES.DOCTOR, ROLES.ASSISTANT_DOCTOR, ROLES.DIGITAL_MARKETING], group: 'admin' },
   
+  // Calls with patients from the staff phones (call app webhook) and their recordings.
+  { to: '/admin/phone-calls', icon: PhoneCall, label: 'Calls & Recordings', adminOnly: true, group: 'admin' },
   { to: '/admin/team', icon: UsersRound, label: 'Team Members', adminOnly: true, group: 'admin' },
   { to: '/admin/history', icon: History, label: 'History & Timeline', adminOnly: true, group: 'admin' },
   { to: '/admin/settings', icon: Settings, label: 'Settings', adminOnly: true, group: 'admin' },

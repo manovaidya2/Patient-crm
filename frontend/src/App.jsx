@@ -69,6 +69,7 @@ const PackageNotBought = lazy(() => import('./pages/admin/PackageNotBought.jsx')
 const PostCounselingPatients = lazy(() => import('./pages/admin/PostCounselingPatients.jsx'));
 const PostCounselingDone = lazy(() => import('./pages/admin/PostCounselingDone.jsx'));
 const DigitalPurchaseOrders = lazy(() => import('./pages/admin/DigitalPurchaseOrders.jsx'));
+const PhoneCalls = lazy(() => import('./pages/admin/PhoneCalls.jsx'));
 const TreatmentNotGiven = lazy(() => import('./pages/admin/TreatmentNotGiven.jsx'));
 const PackageNotBoughtDetails = lazy(() => import('./pages/admin/PackageNotBoughtDetails.jsx'));
 const PaymentSettings = lazy(() => import('./pages/admin/PaymentSettings.jsx'));
@@ -376,6 +377,14 @@ function App() {
           element={
             <ProtectedRoute roles={[ROLES.ADMIN, ROLES.POST_COUNSELOR, ROLES.DOCTOR, ROLES.MANAGER]}>
               <DigitalPurchaseOrders />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="phone-calls"
+          element={
+            <ProtectedRoute roles={[ROLES.ADMIN]}>
+              <PhoneCalls />
             </ProtectedRoute>
           }
         />

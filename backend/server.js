@@ -101,12 +101,16 @@ app.use('/uploads/clinic-inventory', (req, res) => res.status(404).end());
 app.use('/uploads/invoices', (req, res) => res.status(404).end());
 // Signatures on digital purchase orders: never public (served to staff by /api/digital-po/:id/signature).
 app.use('/uploads/digital-po', (req, res) => res.status(404).end());
+// Call recordings from the staff phones: never public (served to the Admin by /api/phone-calls/:id/recording).
+app.use('/uploads/call-recordings', (req, res) => res.status(404).end());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/webhook', webhookRoutes);
+// Calls from the staff phones' call app (one webhook for every phone) and the Admin's Calls page.
+app.use('/api/phone-calls', require('./src/routes/phoneCallRoutes'));
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/medicine', medicineRoutes);
 app.use('/api/courier', courierRoutes);
