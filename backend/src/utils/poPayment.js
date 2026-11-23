@@ -3,6 +3,7 @@
 // before payments were linked) belong to the PO only when it is the phase's only PO.
 const mongoose = require('mongoose');
 const { paymentSummary } = require('./transitFlow');
+const { paymentWaived } = require('../constants/patientTags');
 
 const others = (po, phasePos) => phasePos.filter((o) => String(o._id) !== String(po._id));
 
@@ -62,7 +63,9 @@ const paymentForRequestFrom = (phasePos, stage, request) => {
   const po = poOfRequest(phasePos, request);
   return po ? poPaymentSummary(stage, po, phasePos) : paymentSummary(stage);
 };
-const paymentForRequest = async (patient, stage, request) => paymentForRequestFrom(await phasePurchaseOrders(patient._id, stage.number), stage, request);
+// A Known person (patient tag): the payment is marked waived, so every step that waits for a payment goes on.
+const withWaiver = (pay, patient) => (paymentWaived(patient) ? { ...pay, waived: true } : pay);
+const paymentForRequest = async (patient, stage, request) => withWaiver(paymentForRequestFrom(await phasePurchaseOrders(patient._id, stage.number), stage, request), patient);
 
 // A payment added for a request (In Transit) or for a chosen PO (Patient Details) is linked to that PO.
 const linkPaymentToPo = async (poId, paymentId) => {
@@ -73,6 +76,7 @@ const linkPaymentToPo = async (poId, paymentId) => {
 
 // Whether the medicine of a PO may go out: no payment waiting for verification and some verified payment. The full PO
 // value is not needed: a balance left is collected later, e.g. on a new PO made from this one (the rest of the months).
-const paymentCleared = (pay) => Boolean(pay) && !pay.pendingCount && (Number(pay.amountPaid || 0) > 0 || Number(pay.remaining || 0) <= 0);
+// A Known person's payment is waived (withWaiver): it goes out without one.
+const paymentCleared = (pay) => Boolean(pay) && (Boolean(pay.waived) || (!pay.pendingCount && (Number(pay.amountPaid || 0) > 0 || Number(pay.remaining || 0) <= 0)));
 
-module.exports = { earlierPhaseBalance, paymentCleared, paymentsOfPo, poPaymentSummary, phasePurchaseOrders, poOfRequest, paymentForRequest, paymentForRequestFrom, linkPaymentToPo };
+module.exports = { withWaiver, earlierPhaseBalance, paymentCleared, paymentsOfPo, poPaymentSummary, phasePurchaseOrders, poOfRequest, paymentForRequest, paymentForRequestFrom, linkPaymentToPo };

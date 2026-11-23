@@ -370,7 +370,8 @@ const createPurchaseOrder = asyncHandler(async (req, res) => {
     paperImages: paper.paperImages || [], status: 'pending', source: 'manual', createdByName: req.user.name, createdByRole: req.user.role,
     // Starts fresh: only its own payments count (never the phase's earlier payments made without a PO).
     ownPaymentsOnly: true,
-    ...(body.exceptionPayment === true ? { exceptionPayment: { required: true, reason: longText(body.exceptionPaymentReason), requestedAt: new Date(), requestedByName: req.user.name } } : {}),
+    // A Known person (patient tag): the exception comes approved (their payment is waived).
+    ...(body.exceptionPayment === true ? { exceptionPayment: { required: true, reason: longText(body.exceptionPaymentReason), requestedAt: new Date(), requestedByName: req.user.name, ...(require('../constants/patientTags').paymentWaived(patient) ? { approvedAt: new Date(), approvedByName: 'Known person (patient tag)', approvalNotes: 'Known person: payment waived' } : {}) } } : {}),
     ...(previous ? { previousPo: previous.noPo ? null : previous.id, previousPoNumber: previous.poNumber } : {}),
     events: [{ at: new Date(), action: 'PO created', details: `Phase ${phase} | ${supply.label} | Rs ${fee}${previous ? ` | balance of ${previous.poNumber}` : ''}${received > 0 ? ` | Rs ${received} received (${paper.mode})` : ''}`, byName: req.user.name, byRole: req.user.role }],
   });
@@ -836,7 +837,7 @@ const listPaymentExceptions = asyncHandler(async (req, res) => {
 });
 
 const approvePaymentException = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.DOCTOR) fail('Only the Doctor can verify an exception payment', 403);
+  if (![ROLES.DOCTOR, ROLES.ADMIN].includes(req.user.role)) fail('Only the Doctor or the Admin can verify an exception payment', 403);
   const po = await loadPo(req.params.id);
   if (!po.exceptionPayment?.required) fail('This PO does not require exception payment verification');
   const patient = await loadPatient(po.patient);
@@ -849,7 +850,7 @@ const approvePaymentException = asyncHandler(async (req, res) => {
     Object.assign(patient, { approvalStatus: 'approved', approvedAt: now, approvedByName: req.user.name });
     logActivity(patient, req.user, 'Patient approved', `Doctor verified exception payment for ${po.poNumber}`);
   }
-  event(po, req.user, 'Exception payment approved by Doctor', po.exceptionPayment.approvalNotes);
+  event(po, req.user, `Exception payment approved by ${req.user.role === ROLES.ADMIN ? 'Admin' : 'Doctor'}`, po.exceptionPayment.approvalNotes);
   logActivity(patient, req.user, 'Exception payment approved', po.poNumber);
   await patient.save(); await po.save();
   await respond(res, po, patient);

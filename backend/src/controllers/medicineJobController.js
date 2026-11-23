@@ -56,7 +56,7 @@ const loadPatientAndRequest = async (job) => {
 // The payment status of the job's PO (other POs of the phase are paid on their own).
 const paymentOf = async (patient, stage, request) => {
   const pay = await paymentForRequest(patient, stage, request);
-  return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && require('../utils/poPayment').paymentCleared(pay) && !(stage.transit?.holdActive || stage.transit?.removedAt) };
+  return { totalAmount: pay.totalAmount, amountPaid: pay.amountPaid, remaining: pay.remaining, pendingCount: pay.pendingCount, waived: Boolean(pay.waived), patientApproved: (patient.approvalStatus || 'approved') === 'approved', hold: Boolean(stage.transit?.holdActive || stage.transit?.removedAt), releasable: (patient.approvalStatus || 'approved') === 'approved' && require('../utils/poPayment').paymentCleared(pay) && !(stage.transit?.holdActive || stage.transit?.removedAt) };
 };
 
 const isoOf = (value) => (value ? new Date(value).toISOString() : null);

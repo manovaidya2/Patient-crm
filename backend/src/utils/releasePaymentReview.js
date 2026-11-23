@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { paymentsOfPo, poOfRequest, paymentForRequestFrom } = require('./poPayment');
+const { paymentsOfPo, poOfRequest, paymentForRequestFrom, withWaiver } = require('./poPayment');
 const { paymentSummary } = require('./transitFlow');
 
 function releasePaymentReview(patient, stage, request, phasePos = []) {
@@ -18,7 +18,8 @@ function releasePaymentReview(patient, stage, request, phasePos = []) {
       screenshots: files.filter((file, i) => file.url && files.findIndex((other) => other.url === file.url) === i),
     };
   }));
-  const summary = paymentForRequestFrom(phasePos, stage, request);
+  // A Known person's payment is waived (the release goes on without one).
+  const summary = withWaiver(paymentForRequestFrom(phasePos, stage, request), patient);
   const patientSummary = (patient.stages || []).reduce((totals, s) => {
     const pay = paymentSummary(s);
     totals.totalAmount += Number(pay.totalAmount || 0); totals.amountPaid += Number(pay.amountPaid || 0);

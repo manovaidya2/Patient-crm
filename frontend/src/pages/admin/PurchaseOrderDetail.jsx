@@ -52,6 +52,34 @@ const Section = ({ title, icon: Icon, action, children, className = '' }) => (
 );
 const Row = ({ label, value }) => (value === '' || value == null ? null : <div className="flex justify-between gap-3 py-0.5 text-sm"><span className="text-charcoal/55">{label}</span><span className="min-w-0 break-words text-right font-medium text-charcoal">{value}</span></div>);
 const ErrorText = ({ children }) => (children ? <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{children}</p> : null);
+
+// Step 2 "Doctor verifies exception payment", done right here by the Doctor or the Admin (also on the Exception Payment page).
+function ExceptionApprove({ po, onApproved }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const pay = po.poPayment || {};
+  const rupees = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
+  const approve = async () => {
+    setBusy(true); setError('');
+    try { const { data } = await api.post(`/purchase-orders/${po.id}/exception-payment/approve`, { confirmed, notes }); onApproved(data.purchaseOrder); }
+    catch (err) { setError(err.response?.data?.message || 'Could not approve this payment exception'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="space-y-2.5 text-sm">
+      <p className="text-charcoal/75">PO value {rupees(po.amount)} · verified paid {rupees(pay.amountPaid)} · balance {rupees(pay.remaining)}{pay.pendingCount ? ` · ${pay.pendingCount} payment(s) pending verification` : ''}</p>
+      {po.exceptionPayment?.reason && <p className="rounded-lg bg-[#FBF7ED] px-3 py-2">Exception reason: {po.exceptionPayment.reason}</p>}
+      <p className="text-xs text-charcoal/60">Approving sends the PO on to "Verify PO details" and "Verify payment", even without a payment yet. The medicine is released / handed over after a payment as usual - unless the patient is tagged <b>Known person</b> (payment waived).</p>
+      <label className="block text-xs font-semibold text-charcoal/70">Notes (optional)<textarea className={`${poInput} mt-1`} rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
+      <label className="flex items-start gap-2"><input type="checkbox" className="mt-1 h-4 w-4 accent-sage" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I reviewed this payment exception and approve sending the PO on.</label>
+      {!confirmed && <p className="text-xs font-semibold text-[#9A3412]">Tick the box above to approve.</p>}
+      <ErrorText>{error}</ErrorText>
+      <Button disabled={busy || !confirmed} onClick={approve}><ShieldCheck size={15} />{busy ? 'Approving...' : 'Approve exception & send on'}</Button>
+    </div>
+  );
+}
 const smallLink = 'inline-flex items-center gap-1 text-xs font-semibold text-sage hover:underline';
 
 // What each timeline step shows on the right: what is filled at that step, or where its status is seen.
@@ -839,8 +867,9 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           {role === ROLES.ADMIN && <Button size="sm" variant="outline" className="border-[#8C3B2E]/40 text-[#8C3B2E] hover:bg-[#8C3B2E]/5" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }}><Trash2 size={14} />Delete PO</Button>}
         </div>
       </header>
+      {po.knownPerson && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><b>Known person</b> (patient tag): payment waived - the medicine goes on to release and handover without waiting for a payment.</div>}
       {po.exceptionPayment && <div className={`rounded-lg border p-3 text-sm ${po.exceptionPayment.pending ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
-        {po.exceptionPayment.pending ? <>Exception payment: waiting for Doctor approval before the next PO step. {(role === ROLES.DOCTOR || role === ROLES.ADMIN) && <Link className="font-semibold underline" to="/admin/exception-payments">Open Exception Payment</Link>}</> : <>Exception payment approved by {po.exceptionPayment.approvedByName} · {poDateTime(po.exceptionPayment.approvedAt)}</>}
+        {po.exceptionPayment.pending ? <>Exception payment: waiting for the Doctor's (or Admin's) approval before the next PO step. {(role === ROLES.DOCTOR || role === ROLES.ADMIN) && <button type="button" className="font-semibold underline" onClick={() => setPicked('exception')}>Approve it in step 2</button>}</> : <>Exception payment approved by {po.exceptionPayment.approvedByName} · {poDateTime(po.exceptionPayment.approvedAt)}</>}
       </div>}
       <details className="rounded-[14px] border border-[#E8DFCB] bg-white px-4 py-2.5" open={(po.patientDocuments || []).length > 0}>
         <summary className="cursor-pointer text-sm font-bold text-charcoal">Patient file (Records Room) · {(po.patientDocuments || []).length ? `${po.patientDocuments.length} document${po.patientDocuments.length === 1 ? '' : 's'}` : 'not scanned yet'}</summary>
@@ -869,6 +898,14 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           <div className="xl:hidden"><PoStepStrip steps={po.steps.flatMap((s) => s.key === 'ready' && track.some((entry) => entry.auxiliary) ? [s, ...track.filter((entry) => entry.auxiliary)] : [s])} selected={selected} onSelect={setPicked} /></div>
           {selectedStep ? <StepHeader step={selectedStep} total={po.steps.length} onAll={() => setPicked('all')} onRevert={canRevert ? setRevert : undefined} po={po} /> : <p className="rounded-lg bg-[#FBF7ED] px-3 py-2 text-xs text-charcoal/70">Showing every detail of this PO. Click a step in the timeline to see only that step.</p>}
           {po.medicineJob && (selected === 'all' || selected === 'job:box-receipt') && <Section title="Receive medicine box" icon={Truck} action={<Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className={smallLink}><ExternalLink size={13} />Open in fulfilment</Link>}><MedicineBoxReceipt job={po.medicineJob} readOnly /></Section>}
+          {/* Step 2 open: the exception payment is approved right here (Doctor / Admin). */}
+          {selectedStep?.key === 'exception' && po.exceptionPayment?.pending && (
+            <Section title="To complete this step" icon={ShieldCheck} className="border-2 border-[#FDBA74]">
+              {role === ROLES.DOCTOR || role === ROLES.ADMIN
+                ? <ExceptionApprove po={po} onApproved={(next) => done(next, 'Exception payment approved - the PO goes on to verification.')} />
+                : <p className="text-sm text-charcoal/70">The Doctor or the Admin approves this exception payment (here, or on the Exception Payment page).</p>}
+            </Section>
+          )}
           {/* An open "Full payment verified": exactly what is left - each pending payment to verify, or the balance to collect. */}
           {selectedStep?.key === 'fullpay' && selectedStep.state !== 'done' && (
             <Section title="To complete this step" icon={IndianRupee} className="border-2 border-[#FDBA74]">

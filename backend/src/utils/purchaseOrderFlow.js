@@ -15,6 +15,7 @@ const { requestWithCompletedRelease } = require('./medicineRelease');
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
 const { exceptionPending } = require('./paymentException');
+const { paymentWaived } = require('../constants/patientTags');
 
 // The PO paper exactly as it was filled (sections F, G, H), for the PO details page.
 const PAPER_SECTIONS = [['F', 'Payment collection & instalment plan', 'sectionF'], ['G', 'EMI details', 'sectionG'], ['H', 'Purchase order & patient / guardian consent', 'sectionH']];
@@ -193,7 +194,7 @@ function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = t
     // Self pickup: the explanation date and the PCC are fixed before the payment and the handover.
     ...(selfPickup ? [pccStep] : []),
     // Verify payment: no payment pending and some verified (a balance may stay, to a next PO), plus the PO paper signed.
-    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify payment', done: paymentCleared(pay) && poSigned, text: `Verified Rs ${pay.amountPaid} of Rs ${pay.totalAmount}${pay.remaining > 0 ? ` · balance Rs ${pay.remaining}` : ''}${supplyDays ? ` · ${lengthText(supplyDays)} of medicine` : ''}${poSigned ? ' · PO paper signed' : ''}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : !paymentCleared(pay) ? 'In Transit collects a payment and verifies it' : 'In Transit ticks "PO paper signed by patient"' },
+    { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify payment', done: (paymentCleared(pay) || paymentWaived(patient)) && poSigned, text: `${paymentWaived(patient) ? 'Payment waived (Known person) · ' : ''}Verified Rs ${pay.amountPaid} of Rs ${pay.totalAmount}${pay.remaining > 0 ? ` · balance Rs ${pay.remaining}` : ''}${supplyDays ? ` · ${lengthText(supplyDays)} of medicine` : ''}${poSigned ? ' · PO paper signed' : ''}`, waitText: paymentWaived(patient) ? 'Payment waived (Known person): In Transit ticks "PO paper signed by patient"' : pay.pendingCount ? 'In Transit verifies the pending payments' : !paymentCleared(pay) ? 'In Transit collects a payment and verifies it' : 'In Transit ticks "PO paper signed by patient"' },
     { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Handover' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
     // Porter / courier: after the dispatch.
     ...(selfPickup ? [] : [pccStep]),
@@ -357,6 +358,8 @@ function buildPoView(poDoc, patientDoc, { includeEvents = false, includeHandover
     previousPo: po.previousPo || po.previousPoNumber ? { id: po.previousPo ? String(po.previousPo) : '', poNumber: po.previousPoNumber || '' } : null,
     carriedForward: po.carriedForwardTo ? { id: String(po.carriedForwardTo), poNumber: po.carriedForwardToNumber || '', amount: Number(po.carriedForwardAmount || 0), at: iso(po.carriedForwardAt) } : null,
     status: po.status,
+    // A Known person (patient tag): the medicine goes on without waiting for a payment.
+    knownPerson: paymentWaived(patient),
     exceptionPayment: po.exceptionPayment?.required ? { required: true, pending: exceptionPending(po), reason: po.exceptionPayment.reason || '', requestedAt: iso(po.exceptionPayment.requestedAt), requestedByName: po.exceptionPayment.requestedByName || '', approvedAt: iso(po.exceptionPayment.approvedAt), approvedByName: po.exceptionPayment.approvedByName || '', approvalNotes: po.exceptionPayment.approvalNotes || '' } : null,
     stageKey,
     patientId: String(patient._id || po.patient || ''),

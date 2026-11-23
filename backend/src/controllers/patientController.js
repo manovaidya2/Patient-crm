@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { PATIENT_TAGS, TAG_EDIT_ROLES } = require('../constants/patientTags');
+const { PATIENT_TAGS, TAG_EDIT_ROLES, canEditTag, paymentWaived, KNOWN_PERSON_TAG } = require('../constants/patientTags');
 const Patient = require('../models/Patient');
 const { cached } = require('../utils/readCache');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
@@ -585,6 +585,8 @@ const formatPatient = (p, user = null, { includeActivity = false } = {}) => ({
   tags: p.tags || [],
   tagMeta: p.tagMeta || {},
   canEditTags: TAG_EDIT_ROLES.includes(user?.role),
+  // The "Known person" tag (payment waived) is the Doctor's / Admin's.
+  canTagKnown: canEditTag(KNOWN_PERSON_TAG, user?.role),
   assignedDoctor: formatAssignedUser(p.assignedDoctor),
   assignedPsychologist: formatAssignedUser(p.assignedPsychologist),
   hasDueMedicineConnect: normalizeStages(p.stages).some(isMedicineConnectDue),
@@ -1910,9 +1912,9 @@ const updatePatientStatus = asyncHandler(async (req, res) => {
 // @route   PATCH /api/patients/:id/tags   body: { tag: 'actor', on: true | false }
 // Puts a tag on a patient or takes it off (Admin, Manager, Doctor, Post Counselor). Works for an inactive patient too.
 const setPatientTag = asyncHandler(async (req, res) => {
-  if (!TAG_EDIT_ROLES.includes(req.user.role)) return res.status(403).json({ success: false, message: 'You cannot change patient tags' });
   const tag = String(req.body.tag || '').trim();
   if (!PATIENT_TAGS[tag]) return res.status(400).json({ success: false, message: 'Unknown tag' });
+  if (!canEditTag(tag, req.user.role)) return res.status(403).json({ success: false, message: tag === KNOWN_PERSON_TAG ? 'Only the Doctor or the Admin can tag a Known person' : 'You cannot change patient tags' });
   const on = req.body.on !== false;
   const patient = await Patient.findById(req.params.id);
   if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
@@ -1924,8 +1926,19 @@ const setPatientTag = asyncHandler(async (req, res) => {
   else delete meta[tag];
   patient.tagMeta = meta;
   patient.markModified('tagMeta');
-  addActivity(patient, req.user, on ? `Tagged "${PATIENT_TAGS[tag]}"` : `Tag "${PATIENT_TAGS[tag]}" removed`, '');
+  addActivity(patient, req.user, on ? `Tagged "${PATIENT_TAGS[tag]}"` : `Tag "${PATIENT_TAGS[tag]}" removed`, tag === KNOWN_PERSON_TAG ? (on ? 'Payment waived: the medicine goes on without waiting for a payment' : 'Payments are needed again as usual') : '');
   await patient.save();
+  // Tagged a Known person: an exception payment still waiting on this patient's purchase orders counts as approved.
+  if (tag === KNOWN_PERSON_TAG && on) {
+    const now = new Date();
+    await require('../models/PurchaseOrder').updateMany(
+      { patient: patient._id, 'exceptionPayment.required': true, 'exceptionPayment.approvedAt': null, status: 'pending' },
+      {
+        $set: { 'exceptionPayment.approvedAt': now, 'exceptionPayment.approvedBy': req.user._id, 'exceptionPayment.approvedByName': req.user.name, 'exceptionPayment.approvalNotes': 'Known person (patient tag): payment waived' },
+        $push: { events: { at: now, action: 'Exception payment approved', details: 'Patient tagged Known person: payment waived', byName: req.user.name, byRole: req.user.role } },
+      },
+    );
+  }
   await populateAssignments(patient);
   await patient.populate('stages.postCounselor', 'name');
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });
@@ -3061,7 +3074,7 @@ const requestStageMedicine = asyncHandler(async (req, res) => {
   const requestedReadyBy = fixedDate && !canOverrideFixed(req.user) ? fixedDate : (req.body.readyByDate || stageEntry.transit?.expectedReadyDate);
   if (isInTransit(stageEntry)) {
     if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
-    if ((patient.approvalStatus || 'approved') !== 'approved' || transitPaymentSummary(stageEntry).pendingCount) return res.status(400).json({ success: false, message: 'Approve the patient and submitted payments before requesting medicine' });
+    if ((patient.approvalStatus || 'approved') !== 'approved' || (!paymentWaived(patient) && transitPaymentSummary(stageEntry).pendingCount)) return res.status(400).json({ success: false, message: 'Approve the patient and submitted payments before requesting medicine' });
     const ready = requestedReadyBy;
     if (!ready || !Number.isFinite(new Date(ready).getTime())) return res.status(400).json({ success: false, message: 'Set the medicine ready date in In Transit first' });
   }
@@ -3122,7 +3135,7 @@ const formatMedicineListItem = (patient, stage, request) => ({
   // Days late against the ready-by date (made, released) and the planned dispatch date - kept once done.
   delay: request ? medicineDelays({ expected: request.readyByDate, madeAt: request.madeAt, releasedAt: request.sentToCourierAt, ...dispatchDelayInput({ stage, request: request.toObject ? request.toObject() : request }) }) : null,
   payment: transitPaymentSummary(stage),
-  canRelease: !stage.transit?.holdActive && !stage.transit?.removedAt && (patient.approvalStatus || 'approved') === 'approved' && request?.status === 'made' && transitPaymentSummary(stage).remaining <= 0 && transitPaymentSummary(stage).pendingCount === 0,
+  canRelease: !stage.transit?.holdActive && !stage.transit?.removedAt && (patient.approvalStatus || 'approved') === 'approved' && request?.status === 'made' && (paymentWaived(patient) || (transitPaymentSummary(stage).remaining <= 0 && transitPaymentSummary(stage).pendingCount === 0)),
 });
 
 // @desc    Medicine department/admin list medicine requests by status
@@ -3307,7 +3320,7 @@ const updateMedicineRequestStatus = asyncHandler(async (req, res) => {
   if (status === MEDICINE_STATUSES.SENT_TO_COURIER) {
     if (currentRequest.status !== MEDICINE_STATUSES.MADE) return res.status(409).json({ success: false, message: 'Mark medicine ready before release' });
     const pay = await paymentForRequest(patient, stageEntry, currentRequest);
-    if ((patient.approvalStatus || 'approved') !== 'approved' || pay.remaining > 0 || pay.pendingCount) return res.status(400).json({ success: false, message: 'In Transit must approve the patient and full medicine payment before release' });
+    if ((patient.approvalStatus || 'approved') !== 'approved' || (!pay.waived && (pay.remaining > 0 || pay.pendingCount))) return res.status(400).json({ success: false, message: 'In Transit must approve the patient and full medicine payment before release' });
     if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
     if (!(req.body.packagedByName || currentRequest.packagedByName) || !(req.body.chitsWrittenByName || currentRequest.chitsWrittenByName) || !(req.body.lastMedicineCheckedByName || currentRequest.lastMedicineCheckedByName)) {
       return res.status(400).json({ success: false, message: 'Packaging by, chits written by and last medicine checking by are required before sending to courier' });
@@ -3507,7 +3520,7 @@ const updateCourierRequest = asyncHandler(async (req, res) => {
   }
 
   const pay = await paymentForRequest(patient, stageEntry, currentRequest);
-  if (pay.remaining > 0 || pay.pendingCount || (patient.approvalStatus || 'approved') !== 'approved') return res.status(400).json({ success: false, message: 'Patient approval and full verified payment required before handover' });
+  if ((!pay.waived && (pay.remaining > 0 || pay.pendingCount)) || (patient.approvalStatus || 'approved') !== 'approved') return res.status(400).json({ success: false, message: 'Patient approval and full verified payment required before handover' });
   if (stageEntry.transit?.holdActive || stageEntry.transit?.removedAt) return res.status(409).json({ success: false, message: 'This case is on hold or removed' });
   if (currentCourier.status === COURIER_STATUSES.DELIVERED || (status === COURIER_STATUSES.DISPATCHED && currentCourier.status === COURIER_STATUSES.DISPATCHED)) return res.status(409).json({ success: false, message: 'This handover has already been recorded' });
   if (isInTransit(stageEntry)) {

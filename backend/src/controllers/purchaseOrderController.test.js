@@ -95,8 +95,9 @@ test('exception payment waits for Doctor approval before normal PO verification,
   for (const handler of [controller.verifyDetails, controller.verifyPayment, controller.requestMedicine, controller.activatePhase]) {
     await assert.rejects(call(handler, { params: { id: po.id } }), /Doctor must verify the exception payment/);
   }
-  for (const user of [transit, counselor, { ...doctor, role: 'admin' }]) {
-    await assert.rejects(call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true }, user }), /Only the Doctor/);
+  // The Doctor or the Admin (Super Admin) approves; nobody else.
+  for (const user of [transit, counselor]) {
+    await assert.rejects(call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true }, user }), /Only the Doctor or the Admin/);
   }
   await assert.rejects(call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: false }, user: doctor }), /Confirm that you reviewed/);
   const approved = (await call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true, notes: 'Exception reviewed and approved' }, user: doctor })).purchaseOrder;
@@ -507,4 +508,29 @@ test('a new PO needs the medicine supply and the patient age (age group) on its 
   await assert.rejects(call(controller.createPurchaseOrder, { body: { ...body, purchase: { ...body.purchase, patientAge: '' } } }), /Enter the patient age on this PO/);
   const created = (await call(controller.createPurchaseOrder, { body })).purchaseOrder;
   assert.ok(created.poNumber);
+});
+
+test('Known person (patient tag): the Admin approves an exception too; a Known person\'s exception comes approved; their payment is waived', async () => {
+  const admin = { _id: new mongoose.Types.ObjectId(), name: 'Super Admin', role: 'admin' };
+  const patient = makePatient();
+  memoryPos();
+  const po = (await call(controller.createPurchaseOrder, { user: counselor, body: { ...paperBody(patient), exceptionPayment: true } })).purchaseOrder;
+  assert.equal(po.exceptionPayment.pending, true);
+  const approved = (await call(controller.approvePaymentException, { params: { id: po.id }, body: { confirmed: true }, user: admin })).purchaseOrder;
+  assert.deepEqual([approved.exceptionPayment.pending, approved.exceptionPayment.approvedByName], [false, 'Super Admin']);
+
+  const known = makePatient({ tags: ['known'] });
+  memoryPos();
+  const knownPo = (await call(controller.createPurchaseOrder, { user: counselor, body: { ...paperBody(known), exceptionPayment: true } })).purchaseOrder;
+  assert.equal(knownPo.exceptionPayment.pending, false, 'no Doctor step for a Known person');
+  assert.equal(knownPo.knownPerson, true);
+
+  const { paymentCleared, withWaiver } = require('../utils/poPayment');
+  const unpaid = { totalAmount: 4000, amountPaid: 0, remaining: 4000, pendingCount: 0 };
+  assert.equal(paymentCleared(unpaid), false, 'a payment is needed as usual');
+  assert.equal(paymentCleared(withWaiver(unpaid, { tags: ['known'] })), true, 'a Known person goes on without one');
+  assert.equal(paymentCleared(withWaiver(unpaid, { tags: ['actor'] })), false);
+  const { canEditTag } = require('../constants/patientTags');
+  assert.deepEqual(['admin', 'doctor', 'manager', 'post_counselor'].map((role) => canEditTag('known', role)), [true, true, false, false], 'only the Doctor / Admin tag a Known person');
+  assert.equal(canEditTag('actor', 'post_counselor'), true);
 });

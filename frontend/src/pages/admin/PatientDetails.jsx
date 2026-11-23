@@ -2699,6 +2699,22 @@ const PatientDetails = () => {
   // The "Actor patient" tag: put on / taken off here; the patient is then on the Actor patients card (home).
   const [tagSaving, setTagSaving] = useState(false);
   const isActorPatient = Boolean(patient?.tags?.includes('actor'));
+  // "Known person" (Doctor / Admin): their medicine goes on without waiting for a payment.
+  const isKnownPerson = Boolean(patient?.tags?.includes('known'));
+  const toggleKnownTag = async () => {
+    if (!window.confirm(isKnownPerson
+      ? 'Remove the "Known person" tag? Payments are needed again before medicine release and handover.'
+      : 'Tag as "Known person"? Their medicine then goes on to release and handover without waiting for a payment, and a pending exception payment of their PO counts as approved.')) return;
+    setTagSaving(true);
+    try {
+      const { data } = await api.patch(`/patients/${id}/tags`, { tag: 'known', on: !isKnownPerson });
+      setPatient(data.patient);
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not change the tag');
+    } finally {
+      setTagSaving(false);
+    }
+  };
   const toggleActorTag = async () => {
     if (isActorPatient && !window.confirm('Remove the "Actor patient" tag from this patient?')) return;
     setTagSaving(true);
@@ -2859,6 +2875,17 @@ const PatientDetails = () => {
                     className={`inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-xs font-bold transition disabled:opacity-50 ${isActorPatient ? 'border-[#4C2F8F]/30 bg-[#EFE9FA] text-[#4C2F8F] hover:bg-[#E4DBF7]' : 'border-cardline bg-white text-charcoal hover:bg-[#FBF7ED]'}`}
                   >
                     <Clapperboard size={14} />{tagSaving ? 'Saving...' : isActorPatient ? 'Remove Actor tag' : 'Tag as Actor patient'}
+                  </button>
+                )}
+                {(patient.canTagKnown || isKnownPerson) && (
+                  <button
+                    type="button"
+                    onClick={patient.canTagKnown ? toggleKnownTag : undefined}
+                    disabled={tagSaving || !patient.canTagKnown}
+                    title={patient.canTagKnown ? 'Known person: medicine goes on without waiting for a payment' : 'Known person (tagged by the Doctor / Admin)'}
+                    className={`inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-xs font-bold transition disabled:cursor-default ${isKnownPerson ? 'border-[#1F6B41]/30 bg-[#E7F4EC] text-[#1F6B41] hover:bg-[#DCEFE3]' : 'border-cardline bg-white text-charcoal hover:bg-[#FBF7ED]'}`}
+                  >
+                    <HeartHandshake size={14} />{tagSaving ? 'Saving...' : isKnownPerson ? (patient.canTagKnown ? 'Known person · remove' : 'Known person') : 'Tag as Known person'}
                   </button>
                 )}
                 {patient.canToggleActive && patient.isActive && (

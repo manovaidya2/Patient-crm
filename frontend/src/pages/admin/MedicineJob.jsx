@@ -403,7 +403,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       {stage.key === 'final' && <VerifySteps job={job} />}
       {stage.key === 'release' && job.payment && (
         <div className={`rounded-lg px-3 py-2 text-sm ${job.payment.releasable ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
-          <b>{job.payment.releasable ? 'Payment cleared by In Transit.' : 'Release blocked.'}</b> Phase {job.phase}: {money(job.payment.amountPaid)} verified of {money(job.payment.totalAmount)}{job.payment.remaining > 0 ? `, balance ${money(job.payment.remaining)}` : ''}{job.payment.pendingCount ? `, ${job.payment.pendingCount} payment(s) pending verification` : ''}{!job.payment.patientApproved ? ', patient not approved' : ''}{job.payment.hold ? ', phase on hold' : ''}.
+          <b>{job.payment.waived && job.payment.releasable ? 'Payment waived (Known person).' : job.payment.releasable ? 'Payment cleared by In Transit.' : 'Release blocked.'}</b> Phase {job.phase}: {money(job.payment.amountPaid)} verified of {money(job.payment.totalAmount)}{job.payment.remaining > 0 ? `, balance ${money(job.payment.remaining)}` : ''}{job.payment.pendingCount ? `, ${job.payment.pendingCount} payment(s) pending verification` : ''}{!job.payment.patientApproved ? ', patient not approved' : ''}{job.payment.hold ? ', phase on hold' : ''}.
         </div>
       )}
       <div>

@@ -54,7 +54,7 @@ function ExceptionReview({ po, onApproved }) {
         </a>)}</div> : <p className="text-charcoal/50">No screenshot attached.</p>}
       </div>)}</div>
     </section>
-    {exception.approvedAt ? <p className="text-sm text-emerald-900">Approved by {exception.approvedByName} · {when(exception.approvedAt)}{exception.approvalNotes ? ` · ${exception.approvalNotes}` : ''}</p> : user?.role === ROLES.DOCTOR && <>
+    {exception.approvedAt ? <p className="text-sm text-emerald-900">Approved by {exception.approvedByName} · {when(exception.approvedAt)}{exception.approvalNotes ? ` · ${exception.approvalNotes}` : ''}</p> : [ROLES.DOCTOR, ROLES.ADMIN].includes(user?.role) && <>
       <label className="block space-y-1 text-sm"><span>Doctor notes (optional)</span><textarea className="w-full rounded-lg border border-cardline p-2" value={notes} maxLength={2000} rows={2} onChange={(e) => setNotes(e.target.value)} /></label>
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 accent-sage" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I reviewed this payment exception and approve proceeding with the usual PO verification.</label>
       <Button disabled={busy || !confirmed} onClick={verify}>{busy ? 'Approving...' : 'Verify exception & approve'}</Button>

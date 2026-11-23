@@ -5,6 +5,7 @@
 // update on the Medicine / Courier / Patient pages shows up here and the other way round.
 
 const { supplyLabel } = require('../constants/supplyPlans');
+const { paymentWaived } = require('../constants/patientTags');
 const { phaseAge } = require('./phaseAge');
 const { openFollowUps } = require('./callFollowUps');
 const { medicineDelays, fixedReadyDate, dispatchDelayInput } = require('./medicineDelay');
@@ -276,7 +277,8 @@ function buildSteps({ patient, stage, t, request, courier, pay, mode, calls }) {
     { key: 'scheduled', group: 'contact', label: 'Schedule delivery', done: plan.done, action: 'schedule_delivery', by: t.fulfilmentSetByName, at: iso(t.fulfilmentSetAt), text: plan.text, waitText: 'Choose self pickup or porter / courier and the day' },
     // Self pickup: the explanation date and the PCC come before the payment and the handover.
     ...(mode === 'pickup' ? [pccStep] : []),
-    { key: 'payment', group: 'handover', label: 'Verify payment', done: !pay.pendingCount && (pay.amountPaid > 0 || pay.remaining <= 0) && (Boolean(t.poPaperSignedAt) || dispatched || delivered), action: pay.pendingCount ? null : 'add_payment', waitText: pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
+    // A Known person (patient tag): the payment is waived; only the PO paper tick is left.
+    { key: 'payment', group: 'handover', label: 'Verify payment', done: (paymentWaived(patient) || (!pay.pendingCount && (pay.amountPaid > 0 || pay.remaining <= 0))) && (Boolean(t.poPaperSignedAt) || dispatched || delivered), action: pay.pendingCount && !paymentWaived(patient) ? null : 'add_payment', waitText: paymentWaived(patient) ? 'Payment waived (Known person): tick "PO paper signed by patient"' : pay.pendingCount ? 'Verify the pending payments' : `Collect the balance of Rs ${pay.remaining} and verify it`, text: `${paymentWaived(patient) ? 'Payment waived (Known person) · ' : ''}Verified Rs ${pay.amountPaid} / Balance Rs ${pay.remaining}` },
     { key: 'released', group: 'handover', label: 'Release by Medicine Dept', done: released, waitText: 'Medicine Department releases the parcel once the full payment is verified', by: t.financialReleasedByName || request?.sentToCourierByName, at: iso(t.financialReleasedAt || request?.sentToCourierAt) },
     {
       key: 'handover', group: 'handover', label: mode === 'pickup' ? 'Handover' : shippedMode ? 'Dispatch courier' : 'Hand over / dispatch',
