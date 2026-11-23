@@ -22,6 +22,9 @@ router.get('/sessions/:id', c.getSession);
 router.patch('/sessions/:id/call', c.setCallTime);
 router.post('/sessions/:id/reschedule', c.reschedule);
 router.post('/sessions/:id/attempt', c.addAttempt);
+// Calls from the staff phones around the call time (with this patient's numbers) and their recordings.
+router.get('/sessions/:id/phone-calls', c.sessionPhoneCalls);
+router.get('/sessions/:id/phone-calls/:callId/recording', c.sessionCallRecording);
 router.post('/sessions/:id/missed', c.markMissed);
 router.post('/sessions/:id/cancel', c.cancelSession);
 router.post('/sessions/:id/close', c.closeSession);

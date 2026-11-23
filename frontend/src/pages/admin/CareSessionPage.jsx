@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
-  AlarmClock, AlertTriangle, Bell, CalendarClock, Camera, FileText, NotebookPen, Upload, CheckCircle2, ClipboardList, History, Link2, Phone, PhoneCall, PhoneOff, RotateCcw, Save, Send, Stethoscope,
+  AlarmClock, AlertTriangle, Bell, CalendarClock, Camera, FileText, NotebookPen, Upload, CheckCircle2, ClipboardList, History, Link2, Phone, Loader2, PhoneCall, PhoneOff, RotateCcw, Save, Send, Smartphone, Stethoscope,
   UserRoundCog, UserX, XCircle,
 } from 'lucide-react';
 import api from '../../api/axios.js';
+import useLiveEvent from '../../api/useLiveEvent.js';
 import Button from '../../components/ui/Button.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
 import CareForm, { withContext } from '../../components/care/CareForm.jsx';
+import CallRecording from '../../components/calls/CallRecording.jsx';
 import { KIND_STYLE, STATE_STYLE, fmtAt, fmtDay } from '../../components/care/careUi.js';
 
 const errorText = (error) => error?.response?.data?.message || error?.message || 'Something went wrong';
@@ -19,6 +21,9 @@ const pad = (n) => String(n).padStart(2, '0');
 const inputOf = (value) => { const d = value ? new Date(value) : new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const nowInput = () => inputOf();
 const AUTOSAVE_MS = 4000;
+const PHONE_DIRECTION = { incoming: 'Incoming', outgoing: 'Outgoing', missed: 'Missed', rejected: 'Rejected', unknown: 'Call' };
+// A call from the phones that was talked on (it lasted, and was not missed / rejected).
+const talkedOn = (call) => call.durationSec > 0 && !['missed', 'rejected'].includes(call.direction);
 const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
 const fileUrl = (url) => (/^https?:/.test(url || '') ? url : `${SERVER_BASE}${url}`);
 const TABS = [
@@ -58,6 +63,15 @@ export default function CareSessionPage() {
   const [advice, setAdvice] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
+  // Calls fetched from the staff phones around the call time, and the ones ticked to save.
+  const [phone, setPhone] = useState(null);
+  const [phoneError, setPhoneError] = useState('');
+  const [chosen, setChosen] = useState([]);
+  // "Call" pressed at (ms): looked around that moment, and again every 20 s for 10 minutes. seenCalls: calls already shown
+  // (a new one comes ticked; one the PCC unticked stays unticked).
+  const [watchFrom, setWatchFrom] = useState(0);
+  const [, setTick] = useState(0);
+  const seenCalls = useRef(new Set());
   const startedAt = useRef(new Date().toISOString());
   const latest = useRef({ answers: {}, dirty: false });
   latest.current = { answers, dirty };
@@ -72,7 +86,7 @@ export default function CareSessionPage() {
       setDirty(false);
     } catch (e) { setError(errorText(e)); }
   }, [id]);
-  useEffect(() => { startedAt.current = new Date().toISOString(); setData(null); load(); }, [load]);
+  useEffect(() => { startedAt.current = new Date().toISOString(); setData(null); setPhone(null); setPhoneError(''); setChosen([]); setWatchFrom(0); seenCalls.current = new Set(); load(); }, [load]);
 
   const s = data?.session;
   const isTracker = s?.kind === 'tracker';
@@ -137,7 +151,7 @@ export default function CareSessionPage() {
     api.get('/care/staff', { params: { day: s.dueDay }, skipCache: true }).then(({ data: res }) => { setStaff(res.staff || []); setStaffError(''); }).catch((e) => setStaffError(errorText(e)));
   }, [data?.canManage, data?.canAct, s?.dueDay]);
   const onFormAction = (name) => {
-    if (name === 'attempt') { setTab('calls'); set('callKind', 'missed'); }
+    if (name === 'attempt') { setTab('calls'); set('manual', true); set('callKind', 'missed'); }
     if (name === 'reschedule') setTab('reschedule');
     top();
   };
@@ -151,6 +165,46 @@ export default function CareSessionPage() {
       ...(fields.calledAt ? { calledAt: new Date(fields.calledAt).toISOString() } : {}),
       ...(picked ? { minutes: fields.minutes ?? '', note: fields.talk || '' } : { note: fields.note || '' }),
     }), picked ? 'Call saved — picked up' : 'Call saved — not connected');
+  };
+  // Call details from the staff phones. This patient's calls going on within 10 min of the call time and of now come
+  // by themselves (when the tab opens, and whenever a call of this patient comes in); "Call" also looks around that
+  // moment and keeps looking for 10 minutes (the phone sends a call when it ends). Another time can be typed too.
+  const WATCH_MS = 10 * 60000;
+  const watching = watchFrom > 0 && Date.now() - watchFrom < WATCH_MS;
+  const callsTabOpen = shownTab === 'calls' && canAct;
+  const fetchCalls = useCallback(async () => {
+    const typed = fields.findAt ? new Date(fields.findAt) : null;
+    const around = [s?.callAt ? new Date(s.callAt) : null, typed && !Number.isNaN(typed.getTime()) ? typed : null, watchFrom ? new Date(watchFrom) : null, new Date()]
+      .filter(Boolean).map((d) => d.toISOString());
+    try {
+      const { data: res } = await api.get(`/care/sessions/${id}/phone-calls`, { params: { around: around.join(',') }, skipCache: true });
+      setPhone(res); setPhoneError('');
+      setChosen((list) => {
+        const open = res.calls.filter((call) => !call.savedHere).map((call) => call.id);
+        const fresh = open.filter((callId) => !seenCalls.current.has(callId));
+        open.forEach((callId) => seenCalls.current.add(callId));
+        return [...list.filter((callId) => open.includes(callId)), ...fresh];
+      });
+    } catch (e) { setPhoneError(errorText(e)); }
+  }, [id, s?.callAt, fields.findAt, watchFrom]);
+  useEffect(() => { if (callsTabOpen) fetchCalls(); }, [callsTabOpen, fetchCalls]);
+  // A call of this patient came in from a phone: fetched at once.
+  useLiveEvent('phone-calls:changed', (payload) => { if (callsTabOpen && (!payload || (payload.patients || []).includes(String(s?.patientId)))) fetchCalls(); });
+  // After "Call": checked again every 20 s for 10 minutes (in case the live connection is down), then it stops.
+  useEffect(() => {
+    if (!watching || !callsTabOpen) return undefined;
+    const poll = window.setInterval(() => fetchCalls(), 20000);
+    const stop = window.setTimeout(() => setTick((n) => n + 1), Math.max(watchFrom + WATCH_MS - Date.now(), 0) + 500);
+    return () => { window.clearInterval(poll); window.clearTimeout(stop); };
+  }, [watching, callsTabOpen, fetchCalls, watchFrom]);
+  const startCall = () => { setError(''); setNotice(''); setWatchFrom(Date.now()); };
+  const openCalls = (phone?.calls || []).filter((call) => !call.savedHere);
+  const savedCalls = (phone?.calls || []).length - openCalls.length;
+  const toggleCall = (callId) => setChosen((list) => (list.includes(callId) ? list.filter((x) => x !== callId) : [...list, callId]));
+  const savePhoneCalls = async () => {
+    if (!chosen.length) { setError('Save करने के लिए call चुनें'); top(); return; }
+    const res = await run(() => api.post(`/care/sessions/${id}/attempt`, { phoneCallIds: chosen, note: fields.phoneNote || '' }), `${chosen.length} call${chosen.length > 1 ? 's' : ''} saved — phone से`);
+    if (res) fetchCalls();
   };
   // The doctor has not answered a query yet: ring the doctor's alarm (it rings on the doctor's screen until answered).
   const ringDoctor = async (adviceId) => {
@@ -365,7 +419,61 @@ export default function CareSessionPage() {
           {/* Call details: every call made — when, picked up or not, how long, what was said. */}
           <Panel className="lg:col-span-2" title={`Call details (${s.calls ?? s.attempts})`} action={(s.calls ?? 0) > 0 && <span className="text-[12px] text-charcoal/55">{s.talked} picked up · {s.attempts} not connected</span>}>
             {canAct && (
+              <div className="space-y-3 rounded-lg border border-[#1F5F4A]/25 bg-[#F4F8F5] p-3">
+                <div className="flex flex-wrap items-end gap-2">
+                  <Button size="sm" variant="orange" onClick={startCall}>{watching ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <PhoneCall size={14} className="mr-1 inline" />}{watching ? 'Call ढूँढ रहे हैं…' : 'Call'}</Button>
+                  <span className="min-w-[220px] flex-1 text-[11.5px] text-charcoal/60">Call app वाले phone से call करने के बाद <b>Call</b> दबाएँ: इस patient के किसी भी number (father / mother / WhatsApp …) पर हुई call recording के साथ यहाँ आ जाती है — न आई हो तो 10 min तक ढूँढते रहेंगे। Call time{s.callAt ? ` (${fmtAt(s.callAt)})` : ''} और अभी की calls अपने-आप भी आती रहती हैं।</span>
+                  <label className="text-[11.5px] font-bold text-charcoal/60">दूसरे time की call<input type="datetime-local" className={input} value={fields.findAt || ''} onChange={(e) => set('findAt', e.target.value)} /></label>
+                </div>
+                {openCalls.length ? (
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+                    <ul className="space-y-2">
+                      {openCalls.map((call) => {
+                        const talked = talkedOn(call);
+                        const ticked = chosen.includes(call.id);
+                        return (
+                          <li key={call.id} className={`rounded-lg border bg-white px-3 py-2 ${ticked ? 'border-[#1F5F4A]' : 'border-cardline'}`}>
+                            <div className="flex items-start gap-2.5">
+                              <input type="checkbox" className="mt-1 h-4 w-4 accent-[#1F5F4A]" checked={ticked} onChange={() => toggleCall(call.id)} aria-label="Save this call" />
+                              <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${talked ? 'bg-[#E7F2EC] text-[#1F5F4A]' : 'bg-[#FDECEC] text-[#8A1C25]'}`}>{talked ? <PhoneCall size={14} /> : <PhoneOff size={14} />}</span>
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <p className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]">
+                                  <b className={talked ? 'text-[#1F4F3D]' : 'text-[#8A1C25]'}>{call.directionLabel} · {talked ? `बात हुई ${call.duration}` : 'नहीं उठा / नहीं लगा'}</b>
+                                  <span className="text-charcoal/65">{fmtAt(call.startedAt)}</span>
+                                </p>
+                                <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-charcoal/55">{call.phoneNumber}{call.whose && <span>· {call.whose}</span>}{call.userName && <span className="inline-flex items-center gap-0.5">· <Smartphone size={11} />{call.userName} का phone</span>}</p>
+                                {call.recording ? <CallRecording url={`/care/sessions/${id}/phone-calls/${call.id}/recording`} size={call.size} fileName={`Call-${(c?.name || 'patient').replace(/[^a-zA-Z0-9]+/g, '-')}-${inputOf(call.startedAt).replace(/[T:]/g, '-')}`} /> : <p className="text-[11.5px] text-charcoal/45">No recording</p>}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <div className="space-y-2">
+                      <div className="text-[12px] font-bold">
+                        <span>Note (optional) — call पर क्या बात हुई</span>
+                        <div className="relative">
+                          <textarea rows={6} className={`${input} pr-12`} placeholder="Parent ने क्या बताया, क्या समझाया, आगे क्या करना है" value={fields.phoneNote || ''} onChange={(e) => set('phoneNote', e.target.value)} />
+                          <DictationButton value={fields.phoneNote || ''} onChange={(v) => set('phoneNote', v)} className="absolute bottom-2 right-2" />
+                        </div>
+                      </div>
+                      <p className="text-[11.5px] text-charcoal/55">जिन calls पर ✓ है वो Call details में save होंगी (phone उठा या नहीं, कब, कितनी देर, किसका phone)। Note बात हुई वाली call के साथ जाएगा।</p>
+                      <Button size="sm" disabled={busy || !chosen.length} onClick={savePhoneCalls}><Save size={14} className="mr-1 inline" />{chosen.length ? `Save ${chosen.length} call${chosen.length > 1 ? 's' : ''}` : 'Call चुनें'}</Button>
+                    </div>
+                  </div>
+                ) : watching ? (
+                  <p className="flex items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-2 text-[12.5px] font-semibold text-[#7A4A06]"><Loader2 size={15} className="animate-spin" />Call अभी नहीं आई — phone पर call ख़त्म होते ही यहाँ आ जाएगी (Call दबाने के 10 min तक अपने-आप ढूँढ रहे हैं)।</p>
+                ) : phone ? (
+                  <p className="rounded-lg bg-white px-3 py-2 text-[12.5px] text-charcoal/70">अभी कोई नई call नहीं{s.callAt ? ' (call time और अभी के आस-पास)' : ''}। Call app वाले phone से call करने के बाद <b>Call</b> दबाएँ — call उस phone से न हुई हो तो नीचे हाथ से लिखें।</p>
+                ) : <p className="text-[12px] text-charcoal/55">Calls देख रहे हैं…</p>}
+                {phoneError && <p className="text-[12px] font-semibold text-[#8A1C25]">Calls नहीं आ सकीं: {phoneError}</p>}
+                {savedCalls > 0 && <p className="text-[11.5px] text-charcoal/55">{savedCalls} call पहले से saved है — नीचे list में।</p>}
+                <button type="button" className="text-[12px] font-bold text-[#1F5F4A] underline" onClick={() => set('manual', !fields.manual)}>{fields.manual ? 'हाथ से लिखना बंद करें' : 'Call नहीं मिली? हाथ से लिखें'}</button>
+              </div>
+            )}
+            {canAct && fields.manual && (
               <div className="space-y-2.5 rounded-lg border border-cardline bg-[#FAF8F2] p-3">
+                <p className="text-[12px] font-bold text-charcoal/70">हाथ से लिखें (जब call, call app वाले phone से न हुई हो)</p>
                 <div className="grid gap-2.5 sm:grid-cols-[230px_1fr] sm:items-end">
                   <label className="text-[12px] font-bold">Call कब हुआ (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.calledAt ?? nowInput()} onChange={(e) => set('calledAt', e.target.value)} /></label>
                   <div>
@@ -412,6 +520,8 @@ export default function CareSessionPage() {
                         {a.duration && <span className="rounded bg-charcoal/[0.06] px-1.5 text-[11.5px] font-semibold text-charcoal/75">{a.duration}</span>}
                         <span className="text-charcoal/65">{fmtAt(a.calledAt || a.at)}</span>
                       </p>
+                      {a.phoneCall && <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-charcoal/60"><Smartphone size={12} />Phone से · {PHONE_DIRECTION[a.phoneDirection] || 'Call'}{a.phoneUser ? ` · ${a.phoneUser} का phone` : ''}</p>}
+                      {a.phoneCall && a.phoneRecording && <div className="mt-1"><CallRecording url={`/care/sessions/${id}/phone-calls/${a.phoneCall}/recording`} fileName={`Call-${(c?.name || 'patient').replace(/[^a-zA-Z0-9]+/g, '-')}-${inputOf(a.calledAt || a.at).replace(/[T:]/g, '-')}`} /></div>}
                       {a.note && <p className="mt-0.5 whitespace-pre-line text-charcoal/85">{a.note}</p>}
                       <p className="text-[11px] text-charcoal/45">{a.byName}{Math.abs(new Date(a.at) - new Date(a.calledAt || a.at)) > 10 * 60000 ? ` · written ${fmtAt(a.at)}` : ''}</p>
                     </div>

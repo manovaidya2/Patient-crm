@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ChevronLeft, ChevronRight, Copy, Download, Pause, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, Play, RefreshCw, Search, Smartphone } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Copy, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, RefreshCw, Search, Smartphone } from 'lucide-react';
 import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
 import { PageHeader, StatRow, StatTile } from '../../components/ui/Layout.jsx';
+import CallRecording from '../../components/calls/CallRecording.jsx';
 
 // Calls: every call with a patient's number from the staff phones (the call app sends each call and its recording to
 // one webhook). Only calls with a number the CRM has of a patient are kept; recordings are kept compressed. The user
@@ -24,52 +25,12 @@ const talk = (sec) => {
   const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const r = s % 60;
   return h ? `${h}h ${m}m` : m ? `${m}m ${String(r).padStart(2, '0')}s` : `${r}s`;
 };
-const kb = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((bytes || 0) / 1024))} KB`);
 const slug = (value) => String(value || '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
 
-// The recording is fetched with the login (it is not public), then played from memory.
+const stampOf = (value) => new Date(new Date(value).getTime() + 19800000).toISOString().slice(0, 16).replace('T', '-').replace(':', '');
 function Recording({ call }) {
-  const [src, setSrc] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [playing, setPlaying] = useState(false);
-  const audio = useRef(null);
-  useEffect(() => () => { if (src) URL.revokeObjectURL(src); }, [src]);
-  const fetchBlob = async () => {
-    const { data } = await api.get(`/phone-calls/${call.id}/recording`, { responseType: 'blob', skipCache: true });
-    return data;
-  };
-  const play = async () => {
-    if (src) { if (audio.current?.paused) audio.current.play(); else audio.current?.pause(); return; }
-    setBusy(true); setError('');
-    try { setSrc(URL.createObjectURL(await fetchBlob())); } catch { setError('Could not load the recording'); } finally { setBusy(false); }
-  };
-  const download = async () => {
-    setBusy(true); setError('');
-    try {
-      const blob = await fetchBlob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const stamp = new Date(new Date(call.startedAt).getTime() + 19800000).toISOString().slice(0, 16).replace('T', '-').replace(':', '');
-      link.href = url; link.download = `Call-${slug(call.matches[0]?.name) || call.phoneNumber}-${stamp}.${blob.type.includes('webm') ? 'webm' : blob.type.includes('mp4') ? 'm4a' : blob.type.includes('mpeg') ? 'mp3' : blob.type.includes('wav') ? 'wav' : 'audio'}`;
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch { setError('Could not download the recording'); } finally { setBusy(false); }
-  };
   if (!call.recording.has) return <span className="text-[11.5px] text-charcoal/45">{call.recording.error || 'No recording'}</span>;
-  return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5">
-        <button type="button" onClick={play} disabled={busy} title="Play" className="inline-flex items-center gap-1 rounded-lg bg-[#1F5F4A] px-2.5 py-1.5 text-[12px] font-bold text-white hover:bg-[#173F33] disabled:opacity-50">
-          {playing ? <Pause size={13} /> : <Play size={13} />}{busy && !src ? 'Loading…' : playing ? 'Pause' : 'Play'}
-        </button>
-        <button type="button" onClick={download} disabled={busy} title="Download" className="inline-flex items-center rounded-lg border border-cardline bg-white p-1.5 text-charcoal/70 hover:border-sage disabled:opacity-50"><Download size={14} /></button>
-        <span className="text-[11px] text-charcoal/45">{kb(call.recording.size)}</span>
-      </div>
-      {src && <audio ref={audio} src={src} controls autoPlay onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} className="mt-1.5 h-8 w-full max-w-[260px]" />}
-      {error && <p className="mt-1 text-[11.5px] font-semibold text-[#8A1C25]">{error}</p>}
-    </div>
-  );
+  return <CallRecording url={`/phone-calls/${call.id}/recording`} size={call.recording.size} fileName={`Call-${slug(call.matches[0]?.name) || call.phoneNumber}-${stampOf(call.startedAt)}`} />;
 }
 
 function CallRow({ call }) {

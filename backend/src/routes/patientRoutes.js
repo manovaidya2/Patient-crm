@@ -10,6 +10,8 @@ const {
   deletePatient,
   deletePatientAttachment,
   getPatientCallLogs,
+  getPatientPhoneCalls,
+  getPatientCallRecording,
   getPatientRecordRoom,
   addPoPaperImages,
   createPatient,
@@ -77,6 +79,9 @@ router.get('/payments-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRA
 router.get('/refunds-ledger', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), getRefundsLedger);
 router.get('/pending-approvals', authorize(ROLES.ADMIN, ROLES.DOCTOR, ROLES.IN_TRANSIT), getPendingApprovals);
 router.get('/:id/calls', getPatientCallLogs);
+// Calls from the staff phones (call app) with their recordings: the patient's Calls tab.
+router.get('/:id/phone-calls', getPatientPhoneCalls);
+router.get('/:id/phone-calls/:callId/recording', getPatientCallRecording);
 router.get('/:id/record-room', getPatientRecordRoom);
 router.get('/payment-cancel-alerts', getPaymentCancelAlerts);
 router.get('/:id/purchase-orders', getPatientPurchaseOrders);

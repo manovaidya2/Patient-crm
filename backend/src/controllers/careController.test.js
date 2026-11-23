@@ -126,6 +126,70 @@ test('Call details: when the call was made, picked up (minutes, what was said) o
   assert.equal(closed.body.session.closed.attempts, 1, 'only the call that did not connect');
 });
 
+test('Call details from the staff phones: the calls 10 min around the time on this patient\'s numbers, with recordings; the ticked ones saved with the note', async () => {
+  const PhoneCall = require('../models/PhoneCall');
+  const Patient = require('../models/Patient');
+  const phoneCalls = require('./phoneCallController');
+  const doc = aSession();
+  const at = new Date(Date.now() - 3600000);
+  mock.method(Patient, 'findById', () => chain({ number: '+91 98765 43210', alternateNumber: '', whatsappNumber: '9876543210' }));
+  const whose = [{ patient: doc.patient, label: "Father's mobile" }];
+  const missed = { _id: id(), startedAt: new Date(at.getTime() - 4 * 60000), direction: 'outgoing', durationSec: 0, userName: 'Sachin', phoneNumber: '9876543210', matches: whose, recording: {} };
+  const talked = { _id: id(), startedAt: new Date(at.getTime() + 60000), direction: 'outgoing', durationSec: 754, userName: 'Sachin', phoneNumber: '9876543210', matches: whose, recording: { file: '2026-11/x.webm', size: 90000 } };
+  let asked = null;
+  mock.method(PhoneCall, 'find', (q) => { asked = q; const rows = [missed, talked]; return chain(q._id ? rows.filter((r) => q._id.$in.map(String).includes(String(r._id))) : rows); });
+  const fetch = () => call(c.sessionPhoneCalls, { params: { id: String(doc._id) }, query: { at: at.toISOString() }, user: pcc });
+  const found = await fetch();
+  assert.equal(found.error, null);
+  assert.deepEqual(asked.$or, [{ patients: doc.patient }, { phoneTail: { $in: ['9876543210'] } }], 'the patient\'s calls, or any call on one of their numbers');
+  assert.deepEqual([asked.startedAt.$gte.getTime(), asked.startedAt.$lte.getTime()], [at.getTime() - 600000 - 6 * 3600000, at.getTime() + 600000], 'started up to 10 min after (and long calls that started earlier)');
+  assert.deepEqual(found.body.calls.map((x) => [x.directionLabel, x.duration, x.whose, x.userName, x.recording, x.savedHere]), [
+    ['Outgoing', '', "Father's mobile", 'Sachin', false, false],
+    ['Outgoing', '12 min 34 sec', "Father's mobile", 'Sachin', true, false],
+  ]);
+
+  // Going on within 10 minutes of the time: a long talk that started 40 min before and ended 5 min before counts; a
+  // call that ended 20 min before, or starts 15 min after, does not. Several times at once (call time, "Call" pressed, now).
+  const long = { ...talked, _id: id(), startedAt: new Date(at.getTime() - 40 * 60000), durationSec: 35 * 60 };
+  const ended = { ...missed, _id: id(), startedAt: new Date(at.getTime() - 30 * 60000), durationSec: 600 };
+  const later = { ...missed, _id: id(), startedAt: new Date(at.getTime() + 15 * 60000) };
+  mock.method(PhoneCall, 'find', () => chain([long, ended, later]));
+  assert.deepEqual((await fetch()).body.calls.map((x) => x.id), [String(long._id)]);
+  const both = await call(c.sessionPhoneCalls, { params: { id: String(doc._id) }, query: { around: `${at.toISOString()},${new Date(at.getTime() + 20 * 60000).toISOString()}` }, user: pcc });
+  assert.deepEqual(both.body.calls.map((x) => x.id), [String(long._id), String(later._id)]);
+  assert.match((await call(c.sessionPhoneCalls, { params: { id: String(doc._id) }, query: { around: 'not-a-time' }, user: pcc })).error.message, /call time/);
+  mock.method(PhoneCall, 'find', (q) => { asked = q; const rows = [missed, talked]; return chain(q._id ? rows.filter((r) => q._id.$in.map(String).includes(String(r._id))) : rows); });
+
+  // Both ticked: the one not picked up as not connected, the one talked on with its duration and the note.
+  const saved = await call(c.addAttempt, { params: { id: String(doc._id) }, body: { phoneCallIds: [String(talked._id), String(missed._id)], note: 'Sleep better, appetite low' }, user: pcc });
+  assert.equal(saved.error, null);
+  const s = saved.body.session;
+  assert.deepEqual([s.calls, s.talked], [2, 1]);
+  assert.deepEqual(s.attemptsList.map((a) => [a.outcome, a.durationSec, a.note, a.phoneUser, a.phoneDirection, a.phoneRecording, new Date(a.calledAt).getTime()]), [
+    ['not_connected', null, '', 'Sachin', 'outgoing', false, missed.startedAt.getTime()],
+    ['connected', 754, 'Sleep better, appetite low', 'Sachin', 'outgoing', true, talked.startedAt.getTime()],
+  ]);
+  assert.match(doc.log.slice(-1)[0].text, /^Phone calls saved: .+Outgoing, not picked up \(Sachin's phone\); .+Outgoing, 12 min 34 sec \(Sachin's phone\) — Sleep better/);
+
+  // Fetched again: already saved; saving one again is refused. A call that is not this patient's is refused.
+  assert.deepEqual((await fetch()).body.calls.map((x) => x.savedHere), [true, true]);
+  assert.match((await call(c.addAttempt, { params: { id: String(doc._id) }, body: { phoneCallIds: [String(talked._id)] }, user: pcc })).error.message, /already saved/);
+  mock.method(PhoneCall, 'find', () => chain([]));
+  assert.match((await call(c.addAttempt, { params: { id: String(doc._id) }, body: { phoneCallIds: [String(id())] }, user: pcc })).error.message, /not of this patient/);
+
+  // The recording: only a call of this patient; someone else's session is refused.
+  const sent = [];
+  mock.method(phoneCalls, 'sendRecording', async (req, res, callId) => { sent.push(String(callId)); });
+  mock.method(PhoneCall, 'findOne', () => chain({ _id: talked._id }));
+  await call(c.sessionCallRecording, { params: { id: String(doc._id), callId: String(talked._id) }, user: pcc });
+  assert.deepEqual(sent, [String(talked._id)]);
+  mock.method(PhoneCall, 'findOne', () => chain(null));
+  assert.equal((await call(c.sessionCallRecording, { params: { id: String(doc._id), callId: String(id()) }, user: pcc })).error.statusCode, 404);
+  // Saving needs the session to be yours (another PCC only reads it).
+  const other = { _id: id(), name: 'PCC Two', role: 'assistant_doctor' };
+  assert.equal((await call(c.addAttempt, { params: { id: String(aSession()._id) }, body: { phoneCallIds: [String(talked._id)] }, user: other })).error.statusCode, 403);
+});
+
 test('the call time makes its own reminder 10 minutes before; a reschedule moves it; a recorded call stops it; it pops up for the assignee', async () => {
   const doc = aSession();
   const first = notWednesday(3);

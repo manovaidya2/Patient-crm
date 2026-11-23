@@ -136,7 +136,7 @@ test('a patient\'s call is kept with its recording (moved to its month folder); 
   let saved = null;
   mock.method(PhoneCall, 'create', async (data) => { saved = data; return { _id: id(), ...data }; });
   const emitted = [];
-  const app = { get: () => ({ to: (room) => ({ emit: (event) => emitted.push([room, event]) }) }) };
+  const app = { get: () => ({ emit: (event, payload) => emitted.push([event, payload.patients]) }) };
   const file = tempFile(AMR);
   try {
     const out = await call(c.receive, { app, body: fields, files: [file] });
@@ -148,7 +148,7 @@ test('a patient\'s call is kept with its recording (moved to its month folder); 
     assert.equal(saved.recording.type, 'amr');
     assert.match(saved.recording.file, /^2026-11\/\d+-[0-9a-f]+\.amr$/);
     assert.match(moved[0], /call-recordings[\\/]2026-11[\\/]/);
-    assert.deepEqual(emitted, [['enquiry:admins', 'phone-calls:changed']]);
+    assert.deepEqual(emitted, [['phone-calls:changed', [String(patient)]]], 'every screen hears it, with the patient (the Calls page and the patient\'s Calls tab refresh)');
   } finally { fs.rmSync(file.path, { force: true }); }
 
   // Sent again (the app retried): not saved twice, the second recording is dropped.
@@ -218,4 +218,36 @@ test('Calls page filters: IST dates, who used the phone, direction, connected on
   const byName = c.queryOf({ q: 'Aar(av', direction: 'everything' });
   assert.equal(byName.direction, undefined);
   assert.ok(byName.$or[0]['matches.name'].test('aar(av'), 'searched as typed, not as a pattern');
+});
+
+test('a patient\'s Calls tab: the patient\'s calls (matched, or on one of their numbers now), the last 10 min on Call; a recording only of this patient', async () => {
+  const patientController = require('./patientController');
+  const patientId = id();
+  mock.method(Patient, 'findById', () => chain({ _id: patientId, approvalStatus: 'approved', number: '+91 70044 50064', alternateNumber: '', whatsappNumber: '9123456780' }));
+  let asked = null;
+  const callRow = { _id: id(), startedAt: new Date(), direction: 'outgoing', durationSec: 75, userName: 'Sachin', phoneNumber: '7004450064', matches: [{ patient: patientId, label: "Father's mobile" }], recording: { file: '2026-11/x.webm', size: 9000 } };
+  mock.method(PhoneCall, 'find', (q) => { asked = q; return chain([callRow]); });
+  const admin = { _id: id(), name: 'Admin', role: 'admin' };
+  const all = await call(patientController.getPatientPhoneCalls, { params: { id: String(patientId) }, user: admin });
+  assert.equal(all.error, null);
+  assert.deepEqual(asked.$or, [{ patients: patientId }, { phoneTail: { $in: ['7004450064', '9123456780'] } }]);
+  assert.equal(asked.startedAt, undefined, 'the tab: every call');
+  assert.deepEqual(all.body.calls.map((x) => [x.directionLabel, x.durationSec, x.whose, x.userName, x.recording]), [['Outgoing', 75, "Father's mobile", 'Sachin', true]]);
+  // ?minutes=10: calls going on in the last 10 minutes - a 30-minute talk that just ended counts, one that ended an hour ago not.
+  const before = Date.now();
+  const longTalk = { ...callRow, _id: id(), startedAt: new Date(before - 31 * 60000), durationSec: 30 * 60 };
+  const oldCall = { ...callRow, _id: id(), startedAt: new Date(before - 70 * 60000), durationSec: 600 };
+  mock.method(PhoneCall, 'find', (q) => { asked = q; return chain([longTalk, oldCall]); });
+  const recent = await call(patientController.getPatientPhoneCalls, { params: { id: String(patientId) }, query: { minutes: '10' }, user: admin });
+  assert.ok(Math.abs(asked.startedAt.$gte.getTime() - (before - 600000 - 6 * 3600000)) < 2000, 'looked up 6 hours back for long calls');
+  assert.deepEqual(recent.body.calls.map((x) => x.id), [String(longTalk._id)]);
+
+  const sent = [];
+  mock.method(require('./phoneCallController'), 'sendRecording', async (req, res, callId) => { sent.push(String(callId)); });
+  mock.method(PhoneCall, 'findOne', (q) => { asked = q; return chain({ _id: callRow._id }); });
+  await call(patientController.getPatientCallRecording, { params: { id: String(patientId), callId: String(callRow._id) }, user: admin });
+  assert.deepEqual(sent, [String(callRow._id)]);
+  assert.ok(asked.$or, 'looked up only among this patient\'s calls');
+  mock.method(PhoneCall, 'findOne', () => chain(null));
+  assert.equal((await call(patientController.getPatientCallRecording, { params: { id: String(patientId), callId: String(id()) }, user: admin })).status, 404);
 });

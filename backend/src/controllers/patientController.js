@@ -1637,6 +1637,57 @@ const getPatientCallLogs = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, callLogs: callLogs.map(formatCallLog) });
 });
 
+// Calls from the staff phones (phoneCallController): this patient's calls - matched to the patient when they came in,
+// or on one of the patient's numbers now - with their recordings. Anyone who can view the patient (not Sales).
+const phoneTailOf = (value) => { const d = String(value || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
+const patientPhoneQuery = (patient) => {
+  const tails = [...new Set([patient.number, patient.alternateNumber, patient.whatsappNumber].map(phoneTailOf).filter(Boolean))];
+  return { $or: [{ patients: patient._id }, ...(tails.length ? [{ phoneTail: { $in: tails } }] : [])] };
+};
+const viewablePatient = async (req) => {
+  const patient = await Patient.findById(req.params.id).select('assignedDoctor assignedPsychologist approvalStatus number alternateNumber whatsappNumber').lean();
+  if (!patient) throw Object.assign(new Error('Patient not found'), { statusCode: 404 });
+  if (!canViewPatient(req.user, patient)) throw Object.assign(new Error('You can only view calls for assigned patients'), { statusCode: 403 });
+  return patient;
+};
+const PHONE_CALL_DIRECTION = { incoming: 'Incoming', outgoing: 'Outgoing', missed: 'Missed', rejected: 'Rejected', unknown: 'Call' };
+
+// @desc    The patient's calls from the staff phones, newest first (?minutes=10: only the last minutes)
+// @route   GET /api/patients/:id/phone-calls
+const getPatientPhoneCalls = asyncHandler(async (req, res) => {
+  const patient = await viewablePatient(req);
+  const query = patientPhoneQuery(patient);
+  const minutes = Number(req.query.minutes);
+  const now = new Date();
+  const since = minutes > 0 && minutes <= 1440 ? now.getTime() - minutes * 60000 : 0;
+  // A call that was going on in those minutes (a long one started earlier): looked up 6 hours back, then by its end.
+  if (since) query.startedAt = { $gte: new Date(since - 6 * 3600000) };
+  const found = await require('../models/PhoneCall').find(query)
+    .select('startedAt direction durationSec userName phoneNumber matches recording.file recording.size').sort({ startedAt: -1 }).limit(200).lean();
+  const rows = since ? found.filter((call) => new Date(call.startedAt).getTime() + (call.durationSec || 0) * 1000 >= since) : found;
+  res.json({
+    success: true, now,
+    calls: rows.map((call) => {
+      const match = (call.matches || []).find((m) => String(m.patient) === String(patient._id)) || (call.matches || [])[0] || {};
+      return {
+        id: String(call._id), startedAt: call.startedAt, direction: call.direction, directionLabel: PHONE_CALL_DIRECTION[call.direction] || 'Call',
+        durationSec: call.durationSec || 0, userName: call.userName || '', phoneNumber: call.phoneNumber || '', whose: match.label || '',
+        recording: Boolean(call.recording?.file), size: call.recording?.size || 0,
+      };
+    }),
+  });
+});
+
+// @desc    A call's recording - only a call of this patient
+// @route   GET /api/patients/:id/phone-calls/:callId/recording
+const getPatientCallRecording = asyncHandler(async (req, res) => {
+  const patient = await viewablePatient(req);
+  if (!mongoose.isValidObjectId(req.params.callId)) return res.status(404).json({ success: false, message: 'Call not found' });
+  const call = await require('../models/PhoneCall').findOne({ _id: req.params.callId, ...patientPhoneQuery(patient) }).select('_id').lean();
+  if (!call) return res.status(404).json({ success: false, message: 'This call is not of this patient' });
+  await require('./phoneCallController').sendRecording(req, res, call._id);
+});
+
 // @desc    PDFs built in the Records Room for this patient (matched by the linked patient or by patient ID)
 // @route   GET /api/patients/:id/record-room
 const getPatientRecordRoom = asyncHandler(async (req, res) => {
@@ -4238,6 +4289,8 @@ module.exports = {
   deletePatient,
   deletePatientAttachment,
   getPatientCallLogs,
+  getPatientPhoneCalls,
+  getPatientCallRecording,
   getPatientRecordRoom,
   createPatient,
   createPatientRecord,

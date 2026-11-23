@@ -11,6 +11,7 @@ const { ROLES } = require('../constants/roles');
 const C = require('../utils/careSchedule');
 const { leavesOf, leaveOn, syncCallReminder } = require('../utils/careService');
 const { buildContext } = require('../utils/careContext');
+const { phoneTail, DIRECTION_LABEL } = require('../utils/phoneCalls');
 const R = require('../careTemplates/rules');
 const { basicTemplate } = require('../careTemplates/basic');
 
@@ -232,6 +233,9 @@ const reschedule = asyncHandler(async (req, res) => {
 const addAttempt = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
+  // Calls fetched from the staff phones: { phoneCallIds: [...], note }.
+  const phoneCallIds = Array.isArray(req.body?.phoneCallIds) ? [...new Set(req.body.phoneCallIds.map(String))].slice(0, 10) : [];
+  if (phoneCallIds.length) return addPhoneCalls(req, res, session, phoneCallIds);
   const outcome = String(req.body?.outcome || '');
   if (!ATTEMPT_LABEL[outcome]) fail('Choose whether the parent picked up, and if not, what happened');
   const now = new Date();
@@ -255,6 +259,104 @@ const addAttempt = asyncHandler(async (req, res) => {
   note(session, req.user, `Call ${session.attempts.length} (${C.istText(calledAt)}): ${how}${said ? ` — ${said.slice(0, 200)}` : ''}`);
   await respond(req, res, session);
 });
+
+// ---- Calls from the staff phones (phoneCallController): instead of writing the call by hand, the calls made around
+// the call time on any of this patient's numbers are fetched from the phones' call app, with their recordings.
+const PHONE_WINDOW_MS = 10 * 60000;
+const patientTails = async (patientId) => {
+  const p = await require('../models/Patient').findById(patientId).select('number alternateNumber whatsappNumber').lean();
+  return [...new Set([p?.number, p?.alternateNumber, p?.whatsappNumber].map(phoneTail).filter(Boolean))];
+};
+// This patient's calls: matched to the patient when they came in, or on one of the patient's numbers now.
+const patientCallsQuery = (session, tails) => ({ $or: [{ patients: session.patient }, ...(tails.length ? [{ phoneTail: { $in: tails } }] : [])] });
+const PHONE_FIELDS = 'startedAt direction durationSec userName phoneNumber matches recording.file recording.size';
+const phoneCallView = (call, session, linked = new Set()) => {
+  const match = (call.matches || []).find((m) => String(m.patient) === String(session.patient)) || (call.matches || [])[0] || {};
+  return {
+    id: String(call._id), startedAt: call.startedAt, direction: call.direction, directionLabel: DIRECTION_LABEL[call.direction] || 'Call',
+    durationSec: call.durationSec || 0, duration: call.durationSec ? durationText(call.durationSec) : '', userName: call.userName || '',
+    phoneNumber: call.phoneNumber || '', whose: match.label || '', recording: Boolean(call.recording?.file), size: call.recording?.size || 0,
+    savedHere: linked.has(String(call._id)),
+  };
+};
+const linkedCalls = (session) => new Set((session.attempts || []).filter((a) => a.phoneCall).map((a) => String(a.phoneCall)));
+
+// A call is "around" a time when it was going on within 10 minutes of it: it started at most 10 minutes after, and
+// ended (start + duration) at most 10 minutes before. The phone sends the call when it ends, with its start time, so a
+// long talk still counts. LONGEST_CALL_MS only bounds the database look-up.
+const LONGEST_CALL_MS = 6 * 3600000;
+const callAround = (call, centers) => {
+  const start = new Date(call.startedAt).getTime();
+  const end = start + (Number(call.durationSec) || 0) * 1000;
+  return centers.some((at) => start <= at + PHONE_WINDOW_MS && end >= at - PHONE_WINDOW_MS);
+};
+// The times to look around: ?around=<ISO>,<ISO>,... (the call time, the moment "Call" was pressed, now ...) or ?at=;
+// none: the call time (or now).
+const centersOf = (query, session) => {
+  const raw = [...String(query?.around || '').split(','), query?.at].map((v) => String(v || '').trim()).filter(Boolean);
+  const list = raw.map((v) => new Date(v).getTime()).filter((t) => Number.isFinite(t));
+  if (raw.length && !list.length) fail('Choose the call time');
+  if (!list.length) list.push((session.callAt ? new Date(session.callAt) : new Date()).getTime());
+  return [...new Set(list)].slice(0, 6);
+};
+
+// @route GET /api/care/sessions/:id/phone-calls?around=<ISO>,<ISO>  (or ?at=<ISO>)  - this patient's calls going on
+// within 10 minutes of those times (default: the call time).
+const sessionPhoneCalls = asyncHandler(async (req, res) => {
+  const session = await loadSession(req);
+  const centers = centersOf(req.query, session);
+  const PhoneCall = require('../models/PhoneCall');
+  const tails = await patientTails(session.patient);
+  const rows = await PhoneCall.find({
+    ...patientCallsQuery(session, tails),
+    startedAt: { $gte: new Date(Math.min(...centers) - PHONE_WINDOW_MS - LONGEST_CALL_MS), $lte: new Date(Math.max(...centers) + PHONE_WINDOW_MS) },
+  }).select(PHONE_FIELDS).sort({ startedAt: 1 }).limit(200).lean();
+  const linked = linkedCalls(session);
+  res.json({
+    success: true, at: new Date(centers[0]), around: centers.map((t) => new Date(t)), windowMinutes: PHONE_WINDOW_MS / 60000, numbers: tails.length,
+    calls: rows.filter((row) => callAround(row, centers)).slice(-30).map((row) => phoneCallView(row, session, linked)),
+  });
+});
+
+// @route GET /api/care/sessions/:id/phone-calls/:callId/recording  - a call's recording, only if it is this patient's.
+const sessionCallRecording = asyncHandler(async (req, res) => {
+  const session = await loadSession(req);
+  if (!mongoose.isValidObjectId(req.params.callId)) fail('Call not found', 404);
+  const tails = await patientTails(session.patient);
+  const call = await require('../models/PhoneCall').findOne({ _id: req.params.callId, ...patientCallsQuery(session, tails) }).select('_id').lean();
+  if (!call) fail('This call is not of this patient', 404);
+  await require('./phoneCallController').sendRecording(req, res, call._id);
+});
+
+// The calls chosen from the phones become the session's call details: picked up (it lasted) or not, when, how long,
+// who used the phone. The note goes with the call that was talked on (the longest), else with the latest one.
+const addPhoneCalls = async (req, res, session, ids) => {
+  if (ids.some((value) => !mongoose.isValidObjectId(value))) fail('Choose the calls again');
+  const tails = await patientTails(session.patient);
+  const calls = await require('../models/PhoneCall').find({ _id: { $in: ids }, ...patientCallsQuery(session, tails) }).select(PHONE_FIELDS).lean();
+  if (calls.length !== ids.length) fail('A chosen call is not of this patient');
+  const linked = linkedCalls(session);
+  const fresh = calls.filter((call) => !linked.has(String(call._id))).sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+  if (!fresh.length) fail('These calls are already saved in this session');
+  const talkedOn = (call) => call.durationSec > 0 && !['missed', 'rejected'].includes(call.direction);
+  const said = text(req.body?.note, 3000);
+  const noteOn = [...fresh].filter(talkedOn).sort((a, b) => b.durationSec - a.durationSec)[0] || fresh[fresh.length - 1];
+  const now = new Date();
+  for (const call of fresh) {
+    const connected = talkedOn(call);
+    session.attempts.push({
+      at: now, by: req.user._id, byName: req.user.name, outcome: connected ? 'connected' : 'not_connected', note: call === noteOn ? said : '',
+      calledAt: call.startedAt, durationSec: connected ? call.durationSec : null,
+      phoneCall: call._id, phoneUser: call.userName || '', phoneDirection: call.direction || '', phoneRecording: Boolean(call.recording?.file),
+    });
+  }
+  const anyConnected = fresh.some(talkedOn);
+  const callReminder = session.reminders.find((r) => r.kind === 'call' && !r.doneAt);
+  if (callReminder && (anyConnected || callReminder.at <= now)) Object.assign(callReminder, { doneAt: now, doneByName: `${req.user.name} (call recorded)` });
+  const lines = fresh.map((call) => `${C.istText(call.startedAt)} ${DIRECTION_LABEL[call.direction] || 'Call'}${talkedOn(call) ? `, ${durationText(call.durationSec)}` : ', not picked up'}${call.userName ? ` (${call.userName}'s phone)` : ''}`);
+  note(session, req.user, `Phone call${fresh.length > 1 ? 's' : ''} saved: ${lines.join('; ')}${said ? ` — ${said.slice(0, 200)}` : ''}`);
+  await respond(req, res, session);
+};
 
 // @route POST /api/care/sessions/:id/missed  { reason, note }  - the parents missed it (any time, with the reason).
 const markMissed = asyncHandler(async (req, res) => {
@@ -730,6 +832,7 @@ module.exports = {
   addReminder, updateReminder, sessionAdvice, askDoctor,
   convertPreview, convertRun,
   calendar, markLeave, removeLeave,
+  sessionPhoneCalls, sessionCallRecording,
   listSessions, patientSessions, getSession, setCallTime, reschedule, addAttempt, markMissed, cancelSession, reopenSession, listStaff, assignSession,
   saveForm, completeSession, closeSession, careWork, viewOf, MISSED_REASONS, CLOSE_REASONS, ATTEMPT_LABEL, myReminders, remindersOf, trackerSent, trackerFilled,
 };

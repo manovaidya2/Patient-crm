@@ -57,11 +57,16 @@ const careSessionSchema = new mongoose.Schema(
     },
     // Call details: every call made to the parents. `at` is when it was written down and `calledAt` when the call was
     // made (older entries have only `at`). A call that connected ("connected") keeps how long it lasted and, in `note`,
-    // what was said; the others why it did not connect.
+    // what was said; the others why it did not connect. phoneCall: fetched from the staff phone's call app (PhoneCall,
+    // with who used the phone, the direction and whether there is a recording) instead of written by hand.
     attempts: {
       type: [new mongoose.Schema({
         ...by, outcome: { type: String, enum: ATTEMPTS, required: true }, note: { type: String, trim: true, default: '' },
         calledAt: { type: Date, default: null }, durationSec: { type: Number, default: null },
+        phoneCall: { type: mongoose.Schema.Types.ObjectId, ref: 'PhoneCall', default: null },
+        phoneUser: { type: String, trim: true, default: '' },
+        phoneDirection: { type: String, trim: true, default: '' },
+        phoneRecording: { type: Boolean, default: false },
       }, { _id: false })],
       default: [],
     },

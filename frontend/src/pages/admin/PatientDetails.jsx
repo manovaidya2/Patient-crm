@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useStaleState from '../../hooks/useStaleState.js';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Clapperboard } from 'lucide-react';
-import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Check, X, Plus, IndianRupee, History, Paperclip, Inbox, ChevronDown, FileText, CalendarClock, HeartHandshake, Pencil, PackageCheck, PhoneCall, PhoneIncoming, PhoneOutgoing, Play, MessageSquarePlus, MessageSquareText, Send, CheckCircle2, Clock, Trash2, UserX, RotateCcw, UserRound, ClipboardList, Layers } from 'lucide-react';
 import PatientPurchaseOrders from '../../components/purchaseOrders/PatientPurchaseOrders.jsx';
 import BookNextAppointment from '../../components/patients/BookNextAppointment.jsx';
 import MedicineSupplyByPo from '../../components/purchaseOrders/MedicineSupplyByPo.jsx';
@@ -23,6 +23,7 @@ import DictationButton from '../../components/ui/DictationButton.jsx';
 import QueryCard from '../../components/advice/QueryCard.jsx';
 import RefundImages from '../../components/RefundImages.jsx';
 import PatientBillPanel from '../../components/PatientBillPanel.jsx';
+import PatientPhoneCalls from '../../components/calls/PatientPhoneCalls.jsx';
 import { PaperCompletionForm, createEmptyCompletionForm, flattenCompletionSummary, getCompletionPdfHtml } from '../../components/CompletionPaperForm.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { ALL_PATIENT_CATEGORIES, CATEGORY_LABELS, PATIENT_CATEGORIES } from '../../constants/patientCategories.js';
@@ -2219,6 +2220,8 @@ const PatientDetails = () => {
   const [loading, setLoading] = useState(!patient);
   const [loadError, setLoadError] = useState('');
   const [callLogs, setCallLogs] = useState([]);
+  // "Call" in the header: the time it was pressed - the Calls tab looks for the calls of the 10 minutes before.
+  const [callSearchAt, setCallSearchAt] = useState(0);
   const [adviceRows, setAdviceRows] = useState([]);
   const [doctorOptions, setDoctorOptions] = useState([]);
   const [postCounselorOptions, setPostCounselorOptions] = useState([]);
@@ -2747,7 +2750,7 @@ const PatientDetails = () => {
     ...(PO_TAB_ROLES.includes(user?.role) ? [{ key: 'orders', label: 'Purchase Orders', icon: ClipboardList }] : []),
     { key: 'phases', label: 'Phases & Payments', icon: IndianRupee, dot: anyPendingPayment },
     { key: 'medicine', label: 'Medicine', icon: PackageCheck, dot: Boolean(patient?.hasDueMedicineConnect) },
-    ...(!isLimitedViewer ? [{ key: 'sessions', label: 'Sessions & Advice', icon: CalendarClock }, { key: 'activity', label: 'Activity', icon: History }] : []),
+    ...(!isLimitedViewer ? [{ key: 'sessions', label: 'Sessions & Advice', icon: CalendarClock }, { key: 'calls', label: 'Calls', icon: PhoneCall }, { key: 'activity', label: 'Activity', icon: History }] : []),
   ];
   const requestedTab = searchParams.get('tab');
   const activeTab = pageTabs.some((tab) => tab.key === requestedTab) ? requestedTab : 'overview';
@@ -2840,7 +2843,10 @@ const PatientDetails = () => {
             </div>
             <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:items-end">
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                {patient.number && <a href={`tel:${patient.number}`} className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><PhoneOutgoing size={14} />Call</a>}
+                {/* Call: not a dial - fetches this patient's calls of the last 10 minutes from the staff phones (Calls tab). */}
+                {!isLimitedViewer
+                  ? <button type="button" onClick={() => { setCallSearchAt(Date.now()); openTab('calls'); }} title="पिछले 10 min की calls (call app वाले phones से) लाएँ" className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><PhoneOutgoing size={14} />Call</button>
+                  : patient.number && <a href={`tel:${patient.number}`} className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><PhoneOutgoing size={14} />Call</a>}
                 {patient.number && <a href={`https://wa.me/91${String(patient.number).replace(/\D/g, '').slice(-10)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-[10px] border border-cardline bg-white px-3 py-2 text-xs font-bold text-charcoal hover:bg-[#FBF7ED]"><MessageSquareText size={14} />WhatsApp</a>}
                 {/* Book the patient's next visit (PCC / Manager / Admin), like Reception's direct appointment. */}
                 {roleAllowed([ROLES.ADMIN, ROLES.MANAGER, ROLES.ASSISTANT_DOCTOR], user) && <BookNextAppointment patientId={id} compact />}
@@ -3482,6 +3488,7 @@ const PatientDetails = () => {
         </Card>
       )}
 
+      {!isLimitedViewer && !loading && !loadError && patient && activeTab === 'calls' && <PatientPhoneCalls patientId={id} patientName={patient.patientName} searchAt={callSearchAt} />}
       {!isLimitedViewer && !loading && !loadError && patient && activeTab === 'activity' && <ActivityTimeline entries={patient.activityLog || []} callLogs={callLogs} />}
 
       <Drawer

@@ -22,7 +22,6 @@ const P = require('../utils/phoneCalls');
 
 const DIR = path.join(__dirname, '../../uploads/call-recordings');
 const INCOMING = path.join(DIR, 'incoming');
-const ADMINS_ROOM = 'enquiry:admins';
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { statusCode }); };
 const unlink = (file) => (file ? fs.promises.unlink(file).catch(() => {}) : Promise.resolve());
 
@@ -99,7 +98,8 @@ const seen = (f, outcome, now = new Date()) => PhoneCallDevice.findOneAndUpdate(
   { upsert: true },
 ).catch((error) => console.warn(`Call phone not updated: ${error.message}`));
 
-const emitChanged = (req, id) => req.app?.get?.('io')?.to(ADMINS_ROOM).emit('phone-calls:changed', { id: String(id) });
+// Every screen hears it (only the ids): the Calls page and the patient's Calls tab refresh.
+const emitChanged = (req, id, patients = []) => req.app?.get?.('io')?.emit('phone-calls:changed', { id: String(id), patients: patients.map(String) });
 
 // @route POST /api/phone-calls/webhook?key=<secret>  (multipart: the call's fields + the recording file)
 const receive = asyncHandler(async (req, res) => {
@@ -125,12 +125,12 @@ const receive = asyncHandler(async (req, res) => {
     const callId = f.callId || `${deviceKeyOf(f)}|${startedAt.getTime()}|${tail}`;
 
     // The app sent the same call again: kept once (its recording added if the first time came without one).
-    const existing = await PhoneCall.findOne({ callId }).select('_id recording').lean();
+    const existing = await PhoneCall.findOne({ callId }).select('_id recording patients').lean();
     if (existing) {
       if (file && !existing.recording?.file) {
         const recording = await keepRecording(file, startedAt);
         await PhoneCall.updateOne({ _id: existing._id, 'recording.file': '' }, { $set: { recording } });
-        emitChanged(req, existing._id);
+        emitChanged(req, existing._id, existing.patients || []);
         if (recording.file) compressRecording(existing._id).catch(() => {});
       } else await drop();
       return res.json({ success: true, saved: true, duplicate: true, id: String(existing._id) });
@@ -152,7 +152,7 @@ const receive = asyncHandler(async (req, res) => {
       return res.json({ success: true, saved: true, duplicate: true });
     }
     await seen(f, 'saved', now);
-    emitChanged(req, doc._id);
+    emitChanged(req, doc._id, doc.patients || []);
     if (recording.file) compressRecording(doc._id).catch(() => {});
     res.status(201).json({ success: true, saved: true, id: String(doc._id), matched: matches.length });
   } catch (error) {
@@ -221,11 +221,10 @@ const compressRecording = (id) => {
 const istStamp = (date) => new Date(new Date(date).getTime() + 19800000).toISOString().slice(0, 16).replace('T', '-').replace(':', '');
 const fileLabel = (value) => String(value || '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
 
-// @route GET /api/phone-calls/:id/recording[?download=1]
-// The recording (compressed). download=1: saved as a file.
-const recordingFile = asyncHandler(async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) fail('Not found', 404);
-  const found = await PhoneCall.findById(req.params.id).select('recording startedAt matches phoneTail').lean();
+// The recording (compressed) of a call; ?download=1 saves it as a file. Shared by the Calls page and a care session
+// (careController.sessionCallRecording checks the call is of that session's patient first).
+const sendRecording = async (req, res, id) => {
+  const found = await PhoneCall.findById(id).select('recording startedAt matches phoneTail').lean();
   if (!found?.recording?.file) fail('This call has no recording', 404);
   // Not compressed yet (the server restarted before it was done): done now.
   const recording = found.recording.compressed ? found.recording : ((await compressRecording(found._id))?.recording || found.recording);
@@ -241,6 +240,12 @@ const recordingFile = asyncHandler(async (req, res) => {
     'Content-Disposition': `${req.query?.download ? 'attachment' : 'inline'}; filename="Call-${who}-${istStamp(doc.startedAt)}.${ext}"`,
   });
   res.sendFile(full);
+};
+
+// @route GET /api/phone-calls/:id/recording[?download=1]
+const recordingFile = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) fail('Not found', 404);
+  await sendRecording(req, res, req.params.id);
 });
 
 // ---- The Calls page -------------------------------------------------------------------------------------------------
@@ -305,4 +310,4 @@ const setup = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { verifySecret, takeRecording, receive, recordingFile, listCalls, setup, compressRecording, findMatches, queryOf, viewOf, DIR };
+module.exports = { verifySecret, takeRecording, receive, recordingFile, sendRecording, listCalls, setup, compressRecording, findMatches, queryOf, viewOf, DIR };
