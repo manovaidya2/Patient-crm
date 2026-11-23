@@ -97,10 +97,10 @@ function Block({ block, answers, set, context, disabled, onAction, code }) {
           {!disabled && value && value !== options[0] && (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-[#C2780C]/30 bg-[#FFF7E8] px-3 py-2 text-[12.5px] text-[#7A4A06]">
               {/not connected/i.test(value)
-                ? <><PhoneOff size={14} />Call नहीं लगी — call attempt दर्ज करें (session यहीं रहेगा)।<button type="button" onClick={() => onAction?.('attempt')} className="font-bold underline">Record call attempt</button></>
+                ? <><PhoneOff size={14} />Call not connected — record the call attempt (the session stays open).<button type="button" onClick={() => onAction?.('attempt')} className="font-bold underline">Record call attempt</button></>
                 : /guardian/i.test(value)
-                  ? <><Info size={14} />पहले authorization verify करें; फिर Available चुनकर आगे बढ़ें।</>
-                  : <><CalendarClock size={14} />Parent अभी बात नहीं कर सकते — नई तारीख / समय पर reschedule करें।<button type="button" onClick={() => onAction?.('reschedule')} className="font-bold underline">Reschedule</button></>}
+                  ? <><Info size={14} />First verify the authorization; then choose Available and go on.</>
+                  : <><CalendarClock size={14} />The parent cannot talk now — reschedule to a new date / time.<button type="button" onClick={() => onAction?.('reschedule')} className="font-bold underline">Reschedule</button></>}
             </div>
           )}
         </div>

@@ -103,7 +103,7 @@ export default function CareSessionPage() {
     try {
       const { data: res } = await fn();
       if (res.session) setData((d) => ({ ...d, session: res.session }));
-      if (res.sentToDoctor?.length) setNotice(`Doctor को advice request भेजी गई (${res.sentToDoctor.join(', ')})`);
+      if (res.sentToDoctor?.length) setNotice(`Advice request sent to the doctor (${res.sentToDoctor.join(', ')})`);
       else if (done) setNotice(done);
       setFields({});
       return res;
@@ -118,7 +118,7 @@ export default function CareSessionPage() {
       setDirty(false);
       setSavedAt(res.session?.form?.savedAt || new Date().toISOString());
       setData((d) => (d ? { ...d, session: res.session } : d));
-      if (res.sentToDoctor?.length) setNotice(`Doctor को advice request भेजी गई (${res.sentToDoctor.join(', ')})`);
+      if (res.sentToDoctor?.length) setNotice(`Advice request sent to the doctor (${res.sentToDoctor.join(', ')})`);
       else if (!quiet) setNotice('Form saved');
       return res;
     } catch (e) { if (!quiet) setError(errorText(e)); return null; }
@@ -136,8 +136,8 @@ export default function CareSessionPage() {
     if (res) { setDirty(false); setSavedAt(res.session?.form?.savedAt); }
   };
   const timeOk = (value) => {
-    if (!value) { setError('Date और time चुनें'); top(); return false; }
-    if (wednesday(value)) { setError('बुधवार को क्लिनिक बंद है — दूसरा दिन चुनें'); top(); return false; }
+    if (!value) { setError('Choose the date and time'); top(); return false; }
+    if (wednesday(value)) { setError('The clinic is closed on Wednesday — choose another day'); top(); return false; }
     return true;
   };
   const loadAdvice = useCallback(async () => {
@@ -158,8 +158,8 @@ export default function CareSessionPage() {
   // Call details: one call made to the parents (picked up: minutes + what was said; not: what happened).
   const saveCall = () => {
     const picked = fields.callKind === 'picked';
-    if (!picked && !fields.outcome) { setError('क्या हुआ चुनें (Not connected / Busy / Switched off …)'); top(); return; }
-    if (fields.calledAt && new Date(fields.calledAt) > new Date(Date.now() + 5 * 60000)) { setError('Call का time आगे का नहीं हो सकता'); top(); return; }
+    if (!picked && !fields.outcome) { setError('Choose what happened (Not connected / Busy / Switched off …)'); top(); return; }
+    if (fields.calledAt && new Date(fields.calledAt) > new Date(Date.now() + 5 * 60000)) { setError('The call time cannot be in the future'); top(); return; }
     run(() => api.post(`/care/sessions/${id}/attempt`, {
       outcome: picked ? 'connected' : fields.outcome,
       ...(fields.calledAt ? { calledAt: new Date(fields.calledAt).toISOString() } : {}),
@@ -202,20 +202,20 @@ export default function CareSessionPage() {
   const savedCalls = (phone?.calls || []).length - openCalls.length;
   const toggleCall = (callId) => setChosen((list) => (list.includes(callId) ? list.filter((x) => x !== callId) : [...list, callId]));
   const savePhoneCalls = async () => {
-    if (!chosen.length) { setError('Save करने के लिए call चुनें'); top(); return; }
-    const res = await run(() => api.post(`/care/sessions/${id}/attempt`, { phoneCallIds: chosen, note: fields.phoneNote || '' }), `${chosen.length} call${chosen.length > 1 ? 's' : ''} saved — phone से`);
+    if (!chosen.length) { setError('Tick the calls to save'); top(); return; }
+    const res = await run(() => api.post(`/care/sessions/${id}/attempt`, { phoneCallIds: chosen, note: fields.phoneNote || '' }), `${chosen.length} call${chosen.length > 1 ? 's' : ''} saved — from the phone`);
     if (res) fetchCalls();
   };
   // The doctor has not answered a query yet: ring the doctor's alarm (it rings on the doctor's screen until answered).
   const ringDoctor = async (adviceId) => {
-    const res = await run(() => api.post(`/advice/${adviceId}/alarm`, { note: fields.ringNote || '' }), 'Doctor का alarm बज गया — doctor के answer देने तक बजता रहेगा');
+    const res = await run(() => api.post(`/advice/${adviceId}/alarm`, { note: fields.ringNote || '' }), "The doctor's alarm is ringing — it keeps ringing until the doctor answers");
     if (res) loadAdvice();
   };
   // Development tracker: when it was sent, then the filled tracker's link (completes the session).
   const saveSent = () => {
     const value = fields.sentAt ?? inputOf(s.tracker?.sentAt);
-    if (!value) { setError('Date और time चुनें'); top(); return; }
-    if (new Date(value) > new Date(Date.now() + 5 * 60000)) { setError('भेजने का time आगे का नहीं हो सकता'); top(); return; }
+    if (!value) { setError('Choose the date and time'); top(); return; }
+    if (new Date(value) > new Date(Date.now() + 5 * 60000)) { setError('The sent time cannot be in the future'); top(); return; }
     run(() => api.post(`/care/sessions/${id}/tracker-sent`, { sentAt: new Date(value).toISOString() }), 'Tracker sent — time saved');
   };
   const saveFilled = () => run(() => api.post(`/care/sessions/${id}/tracker-filled`, { link: String(fields.link || '').trim() }), 'Tracker filled — session complete');
@@ -249,7 +249,7 @@ export default function CareSessionPage() {
         {canAct && closing && (
           <div className="mt-3 space-y-2 rounded-lg border border-[#B4232F]/25 bg-[#FFFAFA] p-3">
             <p className="text-[12.5px] font-bold text-[#8A1C25]">Close this {s.kindLabel?.toLowerCase() || 'session'}</p>
-            <p className="text-[12px] text-charcoal/65">Parents phone नहीं उठाते / reply नहीं देते या session नहीं होगा — reason चुनें और details लिखें। Calls not connected so far: <b>{s.attempts}</b>{s.lastAttempt ? ` (last: ${data.attemptOutcomes?.[s.lastAttempt.outcome] || s.lastAttempt.outcome}, ${fmtAt(s.lastAttempt.at)})` : ''}</p>
+            <p className="text-[12px] text-charcoal/65">The parents do not pick up / do not reply, or the session will not happen — choose the reason and write the details. Calls not connected so far: <b>{s.attempts}</b>{s.lastAttempt ? ` (last: ${data.attemptOutcomes?.[s.lastAttempt.outcome] || s.lastAttempt.outcome}, ${fmtAt(s.lastAttempt.at)})` : ''}</p>
             <div className="grid gap-2 md:grid-cols-[minmax(0,320px)_1fr]">
               <label className="block text-[12px] font-bold">Reason<select className={input} value={fields.closeReason || ''} onChange={(e) => set('closeReason', e.target.value)}><option value="">Choose</option>{(data.closeReasons || []).map((r) => <option key={r.label} value={r.label}>{r.label}</option>)}</select></label>
               <label className="block text-[12px] font-bold">Details <span className="text-[#B4232F]">*</span><textarea rows={2} className={input} value={fields.closeDetails || ''} placeholder="e.g. 4 calls on 21, 23, 25 Nov — no answer; WhatsApp sent on 24 Nov — no reply" onChange={(e) => set('closeDetails', e.target.value)} /></label>
@@ -265,8 +265,8 @@ export default function CareSessionPage() {
             {data.canManage && <button type="button" onClick={() => setTab('calls')} className="font-bold underline">Answer it</button>}
           </p>
         )}
-        {s.leave && <p className="mt-2 flex items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-1.5 text-[12.5px] font-semibold text-[#7A4A06]"><UserX size={14} />{s.leave.text}{data.canManage ? ' — Call details में Reassign से किसी और को दें' : ' — Manager इसे किसी और को assign करेंगे'}</p>}
-        {s.state === 'alert' && <p className="mt-2 flex items-center gap-2 rounded-lg bg-[#FDECEC] px-3 py-1.5 text-[12.5px] font-bold text-[#8A1C25]"><AlertTriangle size={14} />दो बार reschedule हो चुका है — अब Form भरकर complete करें, या ऊपर Close करें (reason के साथ)।</p>}
+        {s.leave && <p className="mt-2 flex items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-1.5 text-[12.5px] font-semibold text-[#7A4A06]"><UserX size={14} />{s.leave.text}{data.canManage ? ' — give it to someone else with Reassign in Call details' : ' — the Manager will assign it to someone else'}</p>}
+        {s.state === 'alert' && <p className="mt-2 flex items-center gap-2 rounded-lg bg-[#FDECEC] px-3 py-1.5 text-[12.5px] font-bold text-[#8A1C25]"><AlertTriangle size={14} />Rescheduled twice already — now fill the Form and complete it, or Close it above (with the reason).</p>}
         {s.status === 'completed' && <p className="mt-2 text-[12.5px] font-semibold text-[#1F4F3D]">Done by {s.completedByName} · {fmtAt(s.completedAt)}{s.final ? ` · ${s.final}` : ''}</p>}
         {['missed', 'cancelled'].includes(s.status) && (
           <div className={`mt-2 rounded-lg border px-3 py-2 text-[12.5px] ${s.status === 'missed' ? 'border-[#B4232F]/30 bg-[#FDF0F0] text-[#8A1C25]' : 'border-cardline bg-[#FAF8F2] text-charcoal/75'}`}>
@@ -276,7 +276,7 @@ export default function CareSessionPage() {
           </div>
         )}
         {canAct && s.attempts >= 3 && (
-          <p className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-1.5 text-[12.5px] font-semibold text-[#7A4A06]"><PhoneOff size={14} />{s.attempts} calls not connected. Parents phone नहीं उठा रहे / reply नहीं दे रहे तो इसे reason के साथ close करें।
+          <p className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-1.5 text-[12.5px] font-semibold text-[#7A4A06]"><PhoneOff size={14} />{s.attempts} calls not connected. If the parents do not pick up / do not reply, close it with the reason.
             <button type="button" onClick={() => setClosing(true)} className="font-bold underline">Close it</button>
           </p>
         )}
@@ -300,14 +300,14 @@ export default function CareSessionPage() {
       {/* Development tracker: (1) sent to the parents — when; (2) the filled tracker's link — that completes the session. */}
       {shownTab === 'tracker' && (
         <Panel title="Development tracker">
-          <p className="text-[12.5px] text-charcoal/65">इस tracker में form नहीं है। (1) Parents को tracker भेजें और भेजने का date &amp; time दर्ज करें। (2) Parents का भरा हुआ tracker आने पर उसकी link paste करें — session complete हो जाएगा।</p>
+          <p className="text-[12.5px] text-charcoal/65">This tracker has no form. (1) Send the tracker to the parents and enter the date &amp; time it was sent. (2) When the parents send it back filled, paste its link — the session is then complete.</p>
           <ol className="space-y-3">
             <li className={`rounded-lg border p-3 ${s.tracker?.sentAt ? 'border-[#1F5F4A]/35 bg-[#F6FAF7]' : 'border-cardline'}`}>
               <p className="flex items-center gap-2 text-[13.5px] font-bold text-charcoal"><StepMark n={1} done={Boolean(s.tracker?.sentAt)} />Tracker sent</p>
               {s.tracker?.sentAt && <p className="mt-1.5 text-[13px]">Sent: <b>{fmtAt(s.tracker.sentAt)}</b> <span className="text-[12px] text-charcoal/55">· recorded by {s.tracker.sentByName}</span>{canAct && !fields.editSent && <button type="button" onClick={() => set('editSent', true)} className="ml-2 text-[12px] font-bold text-[#1F5F4A] underline">Change</button>}</p>}
               {canAct && (!s.tracker?.sentAt || fields.editSent) && (
                 <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <label className="text-[12px] font-bold">Tracker कब भेजा (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.sentAt ?? inputOf(s.tracker?.sentAt)} onChange={(e) => set('sentAt', e.target.value)} /></label>
+                  <label className="text-[12px] font-bold">Tracker sent at (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.sentAt ?? inputOf(s.tracker?.sentAt)} onChange={(e) => set('sentAt', e.target.value)} /></label>
                   <Button size="sm" disabled={busy} onClick={saveSent}><Send size={14} className="mr-1 inline" />{s.tracker?.sentAt ? 'Save time' : 'Tracker sent'}</Button>
                   {fields.editSent && <Button size="sm" variant="outline" onClick={() => { set('editSent', false); set('sentAt', undefined); }}>Cancel</Button>}
                 </div>
@@ -321,13 +321,13 @@ export default function CareSessionPage() {
                   <a href={s.tracker.filledLink} target="_blank" rel="noreferrer" className="inline-flex items-start gap-1 break-all font-bold text-[#1F5F4A] underline"><Link2 size={14} className="mt-0.5 shrink-0" />{s.tracker.filledLink}</a>
                   <span className="block text-[12px] text-charcoal/55">{s.tracker.filledByName} · {fmtAt(s.tracker.filledAt)}</span>
                 </p>
-              ) : !s.tracker?.sentAt ? <p className="mt-1 text-[12.5px] text-charcoal/55">पहले ऊपर tracker भेजने का time दर्ज करें।</p>
+              ) : !s.tracker?.sentAt ? <p className="mt-1 text-[12.5px] text-charcoal/55">First enter the time the tracker was sent (above).</p>
                 : canAct ? (
                   <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                    <label className="text-[12px] font-bold">भरे हुए tracker की link<input type="url" inputMode="url" className={input} placeholder="https://…" value={fields.link || ''} onChange={(e) => set('link', e.target.value)} /></label>
+                    <label className="text-[12px] font-bold">Link of the filled tracker<input type="url" inputMode="url" className={input} placeholder="https://…" value={fields.link || ''} onChange={(e) => set('link', e.target.value)} /></label>
                     <Button size="sm" disabled={busy || !String(fields.link || '').trim()} onClick={saveFilled}><CheckCircle2 size={14} className="mr-1 inline" />Save link &amp; complete</Button>
                   </div>
-                ) : <p className="mt-1 text-[12.5px] text-charcoal/55">भरा हुआ tracker अभी नहीं आया।</p>}
+                ) : <p className="mt-1 text-[12.5px] text-charcoal/55">The filled tracker has not come yet.</p>}
             </li>
           </ol>
         </Panel>
@@ -347,14 +347,14 @@ export default function CareSessionPage() {
             )}
           </>
         )
-        : <Panel title="Form"><Empty>{isOpen ? 'यह session आपका नहीं है — सिर्फ़ देख सकते हैं।' : 'यह session बंद है; form नहीं भरा गया।'}</Empty></Panel>)}
+        : <Panel title="Form"><Empty>{isOpen ? 'This session is not yours — view only.' : 'This session is closed; the form was not filled.'}</Empty></Panel>)}
 
       {/* Handwritten notes: a photo from the camera or a file; each goes to the end of the patient's Records Room PDF. */}
       {shownTab === 'notes' && (
         <div className="space-y-3">
           {data.canAct && (
             <Panel title="Upload a handwritten note">
-              <p className="text-[12.5px] text-charcoal/65">Call के दौरान लिखा note — camera से photo लें या file (photo / scan / PDF) चुनें। Upload होते ही यह इस patient की Records Room PDF के आख़िर में जुड़ जाता है।</p>
+              <p className="text-[12.5px] text-charcoal/65">A note written during the call — take a photo with the camera or choose a file (photo / scan / PDF). Once uploaded it is added at the end of this patient's Records Room PDF.</p>
               <div className="flex flex-wrap items-center gap-2">
                 <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-[#1F5F4A] px-3.5 py-2 text-[13px] font-bold text-white hover:bg-[#184D3C] ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
                   <Camera size={16} />Take photo
@@ -362,7 +362,7 @@ export default function CareSessionPage() {
                 </label>
                 <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-cardline bg-white px-3.5 py-2 text-[13px] font-bold text-charcoal hover:border-[#1F5F4A]/50 ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
                   <Upload size={16} />Upload file
-                  <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={async (e) => { const list = [...e.target.files]; e.target.value = ''; if (!list.length) return; if (list.length > 10) { setError('एक बार में अधिकतम 10 files'); return; } const body = new FormData(); list.forEach((f) => body.append('files', f)); setUploading(true); const res = await run(() => api.post(`/care/sessions/${id}/notes`, body), list.length > 1 ? `${list.length} notes uploaded and added to the Records Room PDF` : 'Note uploaded and added to the Records Room PDF'); setUploading(false); if (res?.recordRoom) setLastRecord(res.recordRoom); }} />
+                  <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={async (e) => { const list = [...e.target.files]; e.target.value = ''; if (!list.length) return; if (list.length > 10) { setError('Up to 10 files at a time'); return; } const body = new FormData(); list.forEach((f) => body.append('files', f)); setUploading(true); const res = await run(() => api.post(`/care/sessions/${id}/notes`, body), list.length > 1 ? `${list.length} notes uploaded and added to the Records Room PDF` : 'Note uploaded and added to the Records Room PDF'); setUploading(false); if (res?.recordRoom) setLastRecord(res.recordRoom); }} />
                 </label>
                 {uploading && <span className="text-[12.5px] font-semibold text-charcoal/60">Uploading and adding to the Records Room PDF…</span>}
               </div>
@@ -413,7 +413,7 @@ export default function CareSessionPage() {
                 <Button size="sm" disabled={busy} onClick={() => timeOk(fields.callAt) && run(() => api.patch(`/care/sessions/${id}/call`, { callAt: new Date(fields.callAt).toISOString() }), 'Call time set')}>Save</Button>
               </div>
             )}
-            {s.callAt && isOpen && <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[#7A4A06]"><Bell size={13} />Reminder: call से 10 min पहले ({fmtAt(new Date(new Date(s.callAt).getTime() - 600000))}) {s.assigneeName || 'PCC'} को popup आएगा।</p>}
+            {s.callAt && isOpen && <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[#7A4A06]"><Bell size={13} />Reminder: {s.assigneeName || 'the PCC'} gets a popup 10 min before the call ({fmtAt(new Date(new Date(s.callAt).getTime() - 600000))}).</p>}
             {s.callAt && <p className="text-[12px] text-charcoal/55">To change it use the Reschedule tab ({s.reschedulesUsed}/{s.rescheduleLimit} used).</p>}
           </Panel>}
           {/* Call details: every call made — when, picked up or not, how long, what was said. */}
@@ -421,9 +421,9 @@ export default function CareSessionPage() {
             {canAct && (
               <div className="space-y-3 rounded-lg border border-[#1F5F4A]/25 bg-[#F4F8F5] p-3">
                 <div className="flex flex-wrap items-end gap-2">
-                  <Button size="sm" variant="orange" onClick={startCall}>{watching ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <PhoneCall size={14} className="mr-1 inline" />}{watching ? 'Call ढूँढ रहे हैं…' : 'Call'}</Button>
-                  <span className="min-w-[220px] flex-1 text-[11.5px] text-charcoal/60">Call app वाले phone से call करने के बाद <b>Call</b> दबाएँ: इस patient के किसी भी number (father / mother / WhatsApp …) पर हुई call recording के साथ यहाँ आ जाती है — न आई हो तो 10 min तक ढूँढते रहेंगे। Call time{s.callAt ? ` (${fmtAt(s.callAt)})` : ''} और अभी की calls अपने-आप भी आती रहती हैं।</span>
-                  <label className="text-[11.5px] font-bold text-charcoal/60">दूसरे time की call<input type="datetime-local" className={input} value={fields.findAt || ''} onChange={(e) => set('findAt', e.target.value)} /></label>
+                  <Button size="sm" variant="orange" onClick={startCall}>{watching ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <PhoneCall size={14} className="mr-1 inline" />}{watching ? 'Looking for the call…' : 'Call'}</Button>
+                  <span className="min-w-[220px] flex-1 text-[11.5px] text-charcoal/60">After calling from a phone with the call app, press <b>Call</b>: the call on any of this patient's numbers (father / mother / WhatsApp …) comes here with its recording — if it has not come yet, it keeps looking for 10 min. Calls around the call time{s.callAt ? ` (${fmtAt(s.callAt)})` : ''} and right now also come in by themselves.</span>
+                  <label className="text-[11.5px] font-bold text-charcoal/60">Call at another time<input type="datetime-local" className={input} value={fields.findAt || ''} onChange={(e) => set('findAt', e.target.value)} /></label>
                 </div>
                 {openCalls.length ? (
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
@@ -438,10 +438,10 @@ export default function CareSessionPage() {
                               <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${talked ? 'bg-[#E7F2EC] text-[#1F5F4A]' : 'bg-[#FDECEC] text-[#8A1C25]'}`}>{talked ? <PhoneCall size={14} /> : <PhoneOff size={14} />}</span>
                               <div className="min-w-0 flex-1 space-y-1">
                                 <p className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]">
-                                  <b className={talked ? 'text-[#1F4F3D]' : 'text-[#8A1C25]'}>{call.directionLabel} · {talked ? `बात हुई ${call.duration}` : 'नहीं उठा / नहीं लगा'}</b>
+                                  <b className={talked ? 'text-[#1F4F3D]' : 'text-[#8A1C25]'}>{call.directionLabel} · {talked ? `Talked ${call.duration}` : 'Not picked up / not connected'}</b>
                                   <span className="text-charcoal/65">{fmtAt(call.startedAt)}</span>
                                 </p>
-                                <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-charcoal/55">{call.phoneNumber}{call.whose && <span>· {call.whose}</span>}{call.userName && <span className="inline-flex items-center gap-0.5">· <Smartphone size={11} />{call.userName} का phone</span>}</p>
+                                <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-charcoal/55">{call.phoneNumber}{call.whose && <span>· {call.whose}</span>}{call.userName && <span className="inline-flex items-center gap-0.5">· <Smartphone size={11} />{call.userName}'s phone</span>}</p>
                                 {call.recording ? <CallRecording url={`/care/sessions/${id}/phone-calls/${call.id}/recording`} size={call.size} fileName={`Call-${(c?.name || 'patient').replace(/[^a-zA-Z0-9]+/g, '-')}-${inputOf(call.startedAt).replace(/[T:]/g, '-')}`} /> : <p className="text-[11.5px] text-charcoal/45">No recording</p>}
                               </div>
                             </div>
@@ -451,35 +451,35 @@ export default function CareSessionPage() {
                     </ul>
                     <div className="space-y-2">
                       <div className="text-[12px] font-bold">
-                        <span>Note (optional) — call पर क्या बात हुई</span>
+                        <span>Note (optional) — what was said on the call</span>
                         <div className="relative">
-                          <textarea rows={6} className={`${input} pr-12`} placeholder="Parent ने क्या बताया, क्या समझाया, आगे क्या करना है" value={fields.phoneNote || ''} onChange={(e) => set('phoneNote', e.target.value)} />
+                          <textarea rows={6} className={`${input} pr-12`} placeholder="What the parent told, what was explained, what to do next" value={fields.phoneNote || ''} onChange={(e) => set('phoneNote', e.target.value)} />
                           <DictationButton value={fields.phoneNote || ''} onChange={(v) => set('phoneNote', v)} className="absolute bottom-2 right-2" />
                         </div>
                       </div>
-                      <p className="text-[11.5px] text-charcoal/55">जिन calls पर ✓ है वो Call details में save होंगी (phone उठा या नहीं, कब, कितनी देर, किसका phone)। Note बात हुई वाली call के साथ जाएगा।</p>
-                      <Button size="sm" disabled={busy || !chosen.length} onClick={savePhoneCalls}><Save size={14} className="mr-1 inline" />{chosen.length ? `Save ${chosen.length} call${chosen.length > 1 ? 's' : ''}` : 'Call चुनें'}</Button>
+                      <p className="text-[11.5px] text-charcoal/55">The ticked (✓) calls are saved in Call details (picked up or not, when, how long, whose phone). The note goes with the call that was talked on.</p>
+                      <Button size="sm" disabled={busy || !chosen.length} onClick={savePhoneCalls}><Save size={14} className="mr-1 inline" />{chosen.length ? `Save ${chosen.length} call${chosen.length > 1 ? 's' : ''}` : 'Tick a call'}</Button>
                     </div>
                   </div>
                 ) : watching ? (
-                  <p className="flex items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-2 text-[12.5px] font-semibold text-[#7A4A06]"><Loader2 size={15} className="animate-spin" />Call अभी नहीं आई — phone पर call ख़त्म होते ही यहाँ आ जाएगी (Call दबाने के 10 min तक अपने-आप ढूँढ रहे हैं)।</p>
+                  <p className="flex items-center gap-2 rounded-lg bg-[#FFF7E8] px-3 py-2 text-[12.5px] font-semibold text-[#7A4A06]"><Loader2 size={15} className="animate-spin" />The call has not come yet — it shows here as soon as the call ends on the phone (looking by itself for 10 min after pressing Call).</p>
                 ) : phone ? (
-                  <p className="rounded-lg bg-white px-3 py-2 text-[12.5px] text-charcoal/70">अभी कोई नई call नहीं{s.callAt ? ' (call time और अभी के आस-पास)' : ''}। Call app वाले phone से call करने के बाद <b>Call</b> दबाएँ — call उस phone से न हुई हो तो नीचे हाथ से लिखें।</p>
-                ) : <p className="text-[12px] text-charcoal/55">Calls देख रहे हैं…</p>}
-                {phoneError && <p className="text-[12px] font-semibold text-[#8A1C25]">Calls नहीं आ सकीं: {phoneError}</p>}
-                {savedCalls > 0 && <p className="text-[11.5px] text-charcoal/55">{savedCalls} call पहले से saved है — नीचे list में।</p>}
-                <button type="button" className="text-[12px] font-bold text-[#1F5F4A] underline" onClick={() => set('manual', !fields.manual)}>{fields.manual ? 'हाथ से लिखना बंद करें' : 'Call नहीं मिली? हाथ से लिखें'}</button>
+                  <p className="rounded-lg bg-white px-3 py-2 text-[12.5px] text-charcoal/70">No new call yet{s.callAt ? ' (around the call time and now)' : ''}. After calling from a phone with the call app, press <b>Call</b> — if the call was not made from such a phone, write it by hand below.</p>
+                ) : <p className="text-[12px] text-charcoal/55">Looking for calls…</p>}
+                {phoneError && <p className="text-[12px] font-semibold text-[#8A1C25]">Calls could not be loaded: {phoneError}</p>}
+                {savedCalls > 0 && <p className="text-[11.5px] text-charcoal/55">{savedCalls} call{savedCalls > 1 ? 's' : ''} already saved — in the list below.</p>}
+                <button type="button" className="text-[12px] font-bold text-[#1F5F4A] underline" onClick={() => set('manual', !fields.manual)}>{fields.manual ? 'Close writing by hand' : 'Call not found? Write it by hand'}</button>
               </div>
             )}
             {canAct && fields.manual && (
               <div className="space-y-2.5 rounded-lg border border-cardline bg-[#FAF8F2] p-3">
-                <p className="text-[12px] font-bold text-charcoal/70">हाथ से लिखें (जब call, call app वाले phone से न हुई हो)</p>
+                <p className="text-[12px] font-bold text-charcoal/70">Write by hand (when the call was not made from a phone with the call app)</p>
                 <div className="grid gap-2.5 sm:grid-cols-[230px_1fr] sm:items-end">
-                  <label className="text-[12px] font-bold">Call कब हुआ (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.calledAt ?? nowInput()} onChange={(e) => set('calledAt', e.target.value)} /></label>
+                  <label className="text-[12px] font-bold">When was the call (date &amp; time)<input type="datetime-local" className={input} max={nowInput()} value={fields.calledAt ?? nowInput()} onChange={(e) => set('calledAt', e.target.value)} /></label>
                   <div>
-                    <p className="text-[12px] font-bold">Phone उठा?</p>
+                    <p className="text-[12px] font-bold">Picked up?</p>
                     <div className="mt-1 flex flex-wrap gap-1.5">
-                      {[['picked', 'हाँ — बात हुई', PhoneCall, 'border-[#1F5F4A] bg-[#1F5F4A] text-white'], ['missed', 'नहीं उठा / नहीं लगा', PhoneOff, 'border-[#B4232F] bg-[#B4232F] text-white']].map(([key, label, Icon, on]) => (
+                      {[['picked', 'Yes — talked', PhoneCall, 'border-[#1F5F4A] bg-[#1F5F4A] text-white'], ['missed', 'Not picked up / not connected', PhoneOff, 'border-[#B4232F] bg-[#B4232F] text-white']].map(([key, label, Icon, on]) => (
                         <button key={key} type="button" aria-pressed={fields.callKind === key} onClick={() => set('callKind', key)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-bold transition ${fields.callKind === key ? on : 'border-cardline bg-white text-charcoal/75 hover:border-charcoal/30'}`}><Icon size={14} />{label}</button>
                       ))}
                     </div>
@@ -489,9 +489,9 @@ export default function CareSessionPage() {
                   <div className="grid gap-2.5 sm:grid-cols-[160px_1fr]">
                     <label className="text-[12px] font-bold">Duration (minutes)<input type="number" min="0" max="600" step="0.5" inputMode="decimal" className={input} placeholder="e.g. 12" value={fields.minutes ?? ''} onChange={(e) => set('minutes', e.target.value)} /></label>
                     <div className="text-[12px] font-bold">
-                      <span>Call पर क्या बात हुई</span>
+                      <span>What was said on the call</span>
                       <div className="relative">
-                        <textarea rows={3} className={`${input} pr-12`} placeholder="Parent ने क्या बताया, क्या समझाया, आगे क्या करना है" value={fields.talk || ''} onChange={(e) => set('talk', e.target.value)} />
+                        <textarea rows={3} className={`${input} pr-12`} placeholder="What the parent told, what was explained, what to do next" value={fields.talk || ''} onChange={(e) => set('talk', e.target.value)} />
                         <DictationButton value={fields.talk || ''} onChange={(v) => set('talk', v)} className="absolute bottom-2 right-2" />
                       </div>
                     </div>
@@ -499,12 +499,12 @@ export default function CareSessionPage() {
                 )}
                 {fields.callKind === 'missed' && (
                   <div className="grid gap-2.5 sm:grid-cols-[230px_1fr]">
-                    <label className="text-[12px] font-bold">क्या हुआ<select className={input} value={fields.outcome || ''} onChange={(e) => set('outcome', e.target.value)}><option value="">Choose</option>{Object.entries(data.attemptOutcomes || {}).filter(([k]) => k !== 'connected').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-                    <label className="text-[12px] font-bold">Note<input className={input} placeholder="e.g. Ring गई, किसी ने नहीं उठाया" value={fields.note || ''} onChange={(e) => set('note', e.target.value)} /></label>
+                    <label className="text-[12px] font-bold">What happened<select className={input} value={fields.outcome || ''} onChange={(e) => set('outcome', e.target.value)}><option value="">Choose</option>{Object.entries(data.attemptOutcomes || {}).filter(([k]) => k !== 'connected').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+                    <label className="text-[12px] font-bold">Note<input className={input} placeholder="e.g. It rang, nobody picked up" value={fields.note || ''} onChange={(e) => set('note', e.target.value)} /></label>
                   </div>
                 )}
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {!fields.callKind && <span className="mr-auto text-[12px] text-charcoal/55">पहले चुनें: phone उठा या नहीं</span>}
+                  {!fields.callKind && <span className="mr-auto text-[12px] text-charcoal/55">First choose: picked up or not</span>}
                   <Button size="sm" disabled={busy || !fields.callKind} onClick={saveCall}><Save size={14} className="mr-1 inline" />Save call</Button>
                 </div>
               </div>
@@ -520,7 +520,7 @@ export default function CareSessionPage() {
                         {a.duration && <span className="rounded bg-charcoal/[0.06] px-1.5 text-[11.5px] font-semibold text-charcoal/75">{a.duration}</span>}
                         <span className="text-charcoal/65">{fmtAt(a.calledAt || a.at)}</span>
                       </p>
-                      {a.phoneCall && <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-charcoal/60"><Smartphone size={12} />Phone से · {PHONE_DIRECTION[a.phoneDirection] || 'Call'}{a.phoneUser ? ` · ${a.phoneUser} का phone` : ''}</p>}
+                      {a.phoneCall && <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-charcoal/60"><Smartphone size={12} />From the phone · {PHONE_DIRECTION[a.phoneDirection] || 'Call'}{a.phoneUser ? ` · ${a.phoneUser}'s phone` : ''}</p>}
                       {a.phoneCall && a.phoneRecording && <div className="mt-1"><CallRecording url={`/care/sessions/${id}/phone-calls/${a.phoneCall}/recording`} fileName={`Call-${(c?.name || 'patient').replace(/[^a-zA-Z0-9]+/g, '-')}-${inputOf(a.calledAt || a.at).replace(/[T:]/g, '-')}`} /></div>}
                       {a.note && <p className="mt-0.5 whitespace-pre-line text-charcoal/85">{a.note}</p>}
                       <p className="text-[11px] text-charcoal/45">{a.byName}{Math.abs(new Date(a.at) - new Date(a.calledAt || a.at)) > 10 * 60000 ? ` · written ${fmtAt(a.at)}` : ''}</p>
@@ -528,7 +528,7 @@ export default function CareSessionPage() {
                   </li>
                 ))}
               </ul>
-            ) : <Empty>अभी कोई call record नहीं हुआ।</Empty>}
+            ) : <Empty>No call recorded yet.</Empty>}
           </Panel>
           <Panel title={isOpen ? 'Reassign' : 'Reopen'}>
             {staffError && <p className="text-[12.5px] font-semibold text-[#8A1C25]">Staff list could not load: {staffError}</p>}
@@ -566,8 +566,8 @@ export default function CareSessionPage() {
                 <Button size="sm" disabled={busy} onClick={() => run(() => api.post(`/care/sessions/${id}/reopen`, { reason: fields.reopenReason }), 'Reopened')}><RotateCcw size={14} className="mr-1 inline" />Reopen</Button>
               </div>
             )}
-            {!data.canManage && !isOpen && <Empty>बंद session Admin / Manager reopen कर सकते हैं।</Empty>}
-            {!data.canManage && isOpen && s.reassignAsked && <Empty>Request Manager के पास है — वो किसी और को assign करेंगे या note के साथ मना करेंगे।</Empty>}
+            {!data.canManage && !isOpen && <Empty>The Admin / Manager can reopen a closed session.</Empty>}
+            {!data.canManage && isOpen && s.reassignAsked && <Empty>The request is with the Manager — they will assign it to someone else or decline it with a note.</Empty>}
           </Panel>
         </div>
       )}
@@ -577,12 +577,12 @@ export default function CareSessionPage() {
         <div className="space-y-3">
           {canAct && (
             <Panel title="Ask the doctor">
-              <textarea rows={3} className={input} placeholder="Parent की परेशानी / सवाल जो doctor से पूछना है" value={fields.query || ''} onChange={(e) => set('query', e.target.value)} />
+              <textarea rows={3} className={input} placeholder="The parent's problem / question to ask the doctor" value={fields.query || ''} onChange={(e) => set('query', e.target.value)} />
               <div className="flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#8A1C25]"><input type="checkbox" className="h-4 w-4 accent-[#B4232F]" checked={Boolean(fields.urgent)} onChange={(e) => set('urgent', e.target.checked)} />Urgent / emergency</label>
                 <Button size="sm" className="ml-auto" disabled={busy} onClick={async () => { const res = await run(() => api.post(`/care/sessions/${id}/advice`, { query: fields.query, urgent: fields.urgent }), 'Sent to the doctor'); if (res) loadAdvice(); }}><Stethoscope size={14} className="mr-1 inline" />Send to doctor</Button>
               </div>
-              <p className="text-[11.5px] text-charcoal/50">Form में Emergency / Urgent Doctor Review चुनने पर भी request अपने-आप जाती है।</p>
+              <p className="text-[11.5px] text-charcoal/50">Choosing Emergency / Urgent Doctor Review in the form also sends a request by itself.</p>
             </Panel>
           )}
           <Panel title="This patient's doctor advice" action={<Link to="/admin/patient-queries" className="text-[12px] font-bold text-[#1F5F4A] underline">Patient Queries</Link>}>
@@ -597,10 +597,10 @@ export default function CareSessionPage() {
                       <span className="ml-auto rounded-full bg-charcoal/[0.06] px-2 py-0.5 text-[11px] font-bold text-charcoal/65">{a.status}</span>
                     </p>
                     <p className="mt-1 whitespace-pre-line text-charcoal">{a.query}</p>
-                    {a.rings > 0 && <p className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-[#B91C1C]"><AlarmClock size={12} />Alarm rung {a.rings}×{a.lastAlarmAt ? ` · last ${fmtAt(a.lastAlarmAt)}` : ''}{a.lastAlarmBy ? ` by ${a.lastAlarmBy}` : ''}{a.canRing ? ' · doctor का answer बाकी' : ''}</p>}
+                    {a.rings > 0 && <p className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-[#B91C1C]"><AlarmClock size={12} />Alarm rung {a.rings}×{a.lastAlarmAt ? ` · last ${fmtAt(a.lastAlarmAt)}` : ''}{a.lastAlarmBy ? ` by ${a.lastAlarmBy}` : ''}{a.canRing ? " · waiting for the doctor's answer" : ''}</p>}
                     {a.canRing && data.canAct && (fields.ringId === a.id ? (
                       <div className="mt-2 grid gap-2 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] p-2.5 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-                        <label className="text-[12px] font-bold text-[#8A1C25]">Doctor के लिए message (optional)<input className={input} value={fields.ringNote || ''} placeholder="e.g. Parent दोबारा call कर रहे हैं, जल्दी बताइए" onChange={(e) => set('ringNote', e.target.value)} /></label>
+                        <label className="text-[12px] font-bold text-[#8A1C25]">Message for the doctor (optional)<input className={input} value={fields.ringNote || ''} placeholder="e.g. The parent is calling again, please answer soon" onChange={(e) => set('ringNote', e.target.value)} /></label>
                         <Button size="sm" variant="outline" onClick={() => { set('ringId', ''); set('ringNote', ''); }}>Cancel</Button>
                         <Button size="sm" variant="danger" disabled={busy} onClick={() => ringDoctor(a.id)}><AlarmClock size={14} className="mr-1 inline" />Ring alarm</Button>
                       </div>
@@ -648,7 +648,7 @@ export default function CareSessionPage() {
               })}
               {!(s.reminders || []).length && !(s.callAt && isOpen) && <li><Empty>No reminder.</Empty></li>}
             </ul>
-            <p className="text-[11.5px] text-charcoal/50">Call time set होते ही उसका reminder अपने-आप बनता है — call से 10 min पहले जिसका session है उसे popup आने लगता है (call record होने तक, Done करने तक या session बंद होने तक)। Due reminder Your pending work / My Day में भी दिखता है।</p>
+            <p className="text-[11.5px] text-charcoal/50">Setting the call time makes its reminder by itself — the person whose session it is gets a popup from 10 min before the call (until the call is recorded, marked Done or the session is closed). A due reminder also shows in Your pending work / My Day.</p>
           </Panel>
         </div>
       )}
@@ -662,8 +662,8 @@ export default function CareSessionPage() {
               <div className="grid gap-2 sm:grid-cols-[220px_1fr_auto] sm:items-end">
                 <label className="text-[12px] font-bold">{s.callAt ? 'New date & time' : 'Call date & time'}<input type="datetime-local" className={input} value={fields.rescheduleAt ?? atEleven(s.dueDay)} onChange={(e) => set('rescheduleAt', e.target.value)} /></label>
                 {s.callAt
-                  ? <label className="text-[12px] font-bold">Reason (parent ने क्या कहा)<input className={input} value={fields.rescheduleReason || ''} onChange={(e) => set('rescheduleReason', e.target.value)} /></label>
-                  : <p className="text-[12px] text-charcoal/60">Call time अभी set नहीं है — पहली बार set करना reschedule में नहीं गिना जाता। Due day: {fmtDay(s.targetDate)} (बुधवार को नहीं)</p>}
+                  ? <label className="text-[12px] font-bold">Reason (what the parent said)<input className={input} value={fields.rescheduleReason || ''} onChange={(e) => set('rescheduleReason', e.target.value)} /></label>
+                  : <p className="text-[12px] text-charcoal/60">The call time is not set yet — setting it the first time is not counted as a reschedule. Due day: {fmtDay(s.targetDate)} (not on a Wednesday)</p>}
                 <Button size="sm" disabled={busy} onClick={() => {
                   const value = fields.rescheduleAt ?? atEleven(s.dueDay);
                   if (!timeOk(value)) return;
@@ -675,8 +675,8 @@ export default function CareSessionPage() {
             )}
             {s.callAt && <p className="text-[12.5px] text-charcoal/70">Current call time: <b>{fmtAt(s.callAt)}</b></p>}
             {!isOpen && <Empty>This session is closed.</Empty>}
-            {isOpen && !canAct && <Empty>यह session आपका नहीं है — reschedule उसका PCC (या Admin / Manager / Doctor) करेगा।</Empty>}
-            {limitReached && isOpen && <p className="flex items-center gap-2 rounded-lg bg-[#FDECEC] px-3 py-2 text-[12.5px] font-bold text-[#8A1C25]"><AlertTriangle size={14} />दो बार reschedule हो चुका है — अब complete करें (Form), या Call details में missed / cancel करें।</p>}
+            {isOpen && !canAct && <Empty>This session is not yours — its PCC (or the Admin / Manager / Doctor) reschedules it.</Empty>}
+            {limitReached && isOpen && <p className="flex items-center gap-2 rounded-lg bg-[#FDECEC] px-3 py-2 text-[12.5px] font-bold text-[#8A1C25]"><AlertTriangle size={14} />Rescheduled twice already — now complete it (Form), or mark it missed / cancelled in Call details.</p>}
             {(s.reschedules || []).length ? (
               <ul className="divide-y divide-cardline rounded-lg border border-cardline text-[12.5px]">
                 {s.reschedules.map((r, i) => (

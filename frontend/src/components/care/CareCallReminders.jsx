@@ -86,7 +86,7 @@ export default function CareCallReminders() {
     persist: true,
     title: r.kind === 'call' ? `Call ${callWhen(r.callAt || r.at)} — ${r.code}` : `Reminder — ${r.code}`,
     message: r.kind === 'call'
-      ? `${r.patientName}${r.patientCode ? ` (${r.patientCode})` : ''} · Phase ${r.phase} · ${r.title}. Parent को call करना है — call के बाद Call details में record करें।`
+      ? `${r.patientName}${r.patientCode ? ` (${r.patientCode})` : ''} · Phase ${r.phase} · ${r.title}. Call the parent — after the call, record it in Call details.`
       : `${r.patientName}${r.patientCode ? ` (${r.patientCode})` : ''} · ${r.title}: ${r.note}`,
     actionLabel: 'Open',
     cancelLabel: 'Remind later',
