@@ -81,3 +81,20 @@ test('a new sheet starts empty for any age group and supply; a development sheet
   assert.equal(young.ageBand, '0-3');
   assert.equal(young.sampleFrom.ageBand, '3-4');
 });
+
+test('pack days are typed as text, any way; empty or without a number is one pack for the whole supply (not required)', () => {
+  const { packDaysOf } = require('./formulationMaster');
+  assert.deepEqual(['1, 1, 1', '1 1 1', '15+15', '4', '4 din', '', 'abc', '0, 30'].map((typed) => packDaysOf(typed, 30)), [[1, 1, 1], [1, 1, 1], [15, 15], [4], [4], [30], [30], [30]]);
+  assert.deepEqual(packDaysOf([10, 20], 30), [10, 20]);
+});
+
+test('the pack text is kept as typed (shown on the sheet); changing only the text is a change; the days come from its numbers', () => {
+  const sheet = base();
+  const line = sheet.lines.find((l) => l.packed && l.chitNo && l.containers.length === 1);
+  const days = line.containers[0];
+  const edited = applyOverrides(sheet, [{ key: line.key, containers: `${days} chamaach` }], { byName: 'Dr' });
+  const after = edited.lines.find((l) => l.key === line.key);
+  assert.deepEqual([after.packsText, after.containers, after.edited.changes], [`${days} chamaach`, [days], ['packs']]);
+  const added = applyOverrides(sheet, [add({ containers: '4 chamaach' })], { byName: 'Dr' }).lines.find((l) => l.added);
+  assert.deepEqual([added.packsText, added.containers], ['4 chamaach', [4]]);
+});

@@ -35,12 +35,15 @@ function StockPick({ value, onChange, options }) {
   );
 }
 
-export default function FormulationSheet({ f, patientName, patientCode, canEdit = false, jobId = '', stockOptions = [], onSaved, onError, onUnsavedChange, showSelectedGhrits = false, ghritSelection, ghritSelectionPending = false, onGhritSelectionChange, onSaveGhritSelection, savingGhritSelection = false }) {
+export default function FormulationSheet({ f, patientName, patientCode, remarks = '', canEdit = false, jobId = '', stockOptions = [], onSaved, onError, onUnsavedChange, showSelectedGhrits = false, ghritSelection, ghritSelectionPending = false, onGhritSelectionChange, onSaveGhritSelection, savingGhritSelection = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
   // Medicines added for this patient in this edit (not in the Formulation Master).
   const [adds, setAdds] = useState([]);
+  // The last save that the server refused: shown right above the Save button (and at the top of the page).
+  const [saveError, setSaveError] = useState('');
+  useEffect(() => { setSaveError(''); }, [draft, adds]);
   const [ghritName, setGhritName] = useState('\u092e\u0947\u0927\u094d\u092f \u0918\u0943\u0924 (GH-NM-01)');
   // Tells the stage below when the sheet is open for editing or has changes not saved yet (the stage then waits).
   const unsaved = editing || Object.keys(draft).length > 0 || adds.length > 0;
@@ -80,16 +83,17 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
     const generic = f.lines.find((l) => l.key === 'ghrit');
     if (generic) setLine(generic.key, { removed: true });
   };
+  const failSave = (message) => { setSaveError(message); onError?.(message); };
   const save = async () => {
     if (adds.some((a) => a.name.trim() && !extraComponentsComplete(a.extraComponents)) || Object.values(draft).some((entry) => !extraComponentsComplete(entry.extraComponents))) {
-      onError?.('Select each added component from Stocks and enter a positive quantity, or remove the empty row.');
+      failSave('Select each added component from Stocks and enter a positive quantity, or remove the empty row.');
       return;
     }
     if (adds.some((a) => a.name.trim() && (!doseTemplateComplete(a) || !extraComponentsComplete(a.extraComponents))) || Object.values(draft).some((entry) => !doseTemplateComplete(entry) || !extraComponentsComplete(entry.extraComponents))) {
-      onError?.('चुनी हुई Dose instruction की हर खाली जगह की मात्रा भरें, या dose text खुद लिखें।');
+      failSave('चुनी हुई Dose instruction की हर खाली जगह की मात्रा भरें, या dose text खुद लिखें।');
       return;
     }
-    setBusy(true); onError?.('');
+    setBusy(true); setSaveError(''); onError?.('');
     try {
       const lines = [
         ...Object.entries(draft).map(([key, v]) => ({ key, ...v, components: v.components ? Object.entries(v.components).map(([code, qty]) => ({ code, qty })) : undefined })),
@@ -97,7 +101,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
       ];
       const { data } = await api.patch(`/medicine-jobs/${jobId}/formulation`, { lines });
       setEditing(false); setDraft({}); setAdds([]); onSaved?.(data.job, 'Formulation sheet corrected.');
-    } catch (err) { onError?.(err.response?.data?.message || 'Could not save the correction'); } finally { setBusy(false); }
+    } catch (err) { failSave(err.response?.data?.message || 'Could not save the correction'); } finally { setBusy(false); }
   };
   const renameMedicine = async (key, name) => {
     if (editing) { setLine(key, { name }); return; }
@@ -134,9 +138,16 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
     const badLinePart = Object.entries(draft).find(([, v]) => !extraComponentsComplete(v.extraComponents));
     if (badAddPart || badLinePart) return `"${badAddPart ? badAddPart.name.trim() : nameOf(badLinePart[0])}" का added component Stocks से चुनें और मात्रा भरें, या खाली row हटाएँ।`;
     if (adds.some((a) => !a.name.trim() && (a.qty || a.dose || a.doseEntries))) return 'नई दवा का नाम भरें।';
+    const noQty = adds.find((a) => a.name.trim() && !(Number(a.qty) > 0));
+    if (noQty) return `"${noQty.name.trim()}" की Total quantity भरें (0 से ज़्यादा)।`;
     return '';
   })();
   const nothingChanged = !Object.keys(draft).length && !adds.some((a) => a.name.trim());
+  // Nothing to save yet: say what to do instead of a grey button with no reason.
+  const nothingHint = !nothingChanged ? '' : f.custom && !f.lines.length
+    ? 'इस formulation में अभी कोई दवा नहीं है: "Add medicine" दबाकर दवा का नाम, timing, Total quantity और dose भरें, फिर Save करें।'
+    : 'अभी कुछ नहीं बदला: कोई value बदलें, दवा हटाएँ या "Add medicine" से जोड़ें, फिर Save करें।';
+  const ghritQtyMissing = adds.find((a) => a.ghritVariantCode && !(Number(a.qty) > 0));
   if (editing) return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-charcoal">{f.custom ? `Formulation for this child (${f.ageBandLabel})` : 'Correct the sheet for this patient'}</p><p className="text-xs text-charcoal/60">{f.custom ? `${f.blank ? 'New sheet' : 'There is no Formulation Master for this age group'}: add each medicine with its total quantity for the supply, timing, dose (chit text) and packs. It is for this child only.` : "For this patient's request only: the Formulation Master is not changed. Leave a box as it is to keep the value; the master value stays visible beside every change."}</p></div>
@@ -163,7 +174,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
             <div className="grid gap-2 sm:grid-cols-2">
               {l.components ? l.components.map((c) => <FieldLabel key={c.code} label={`${c.name} (${c.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).components?.[c.code] ?? c.qty} onChange={(e) => setLine(l.key, { components: { ...(d(l.key).components || {}), [c.code]: e.target.value } })} /></FieldLabel>)
                 : l.unit ? <FieldLabel label={`Total quantity (${l.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).qty ?? l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} /></FieldLabel> : null}
-              {l.packed && l.chitNo && <FieldLabel label="Packs (days each, comma separated)"><input className={poInput} value={d(l.key).containers ?? l.containers.join(', ')} onChange={(e) => setLine(l.key, { containers: e.target.value })} /></FieldLabel>}
+              {l.packed && l.chitNo && <FieldLabel label="Packs (days each)"><input type="text" className={poInput} value={d(l.key).containers ?? l.packsText ?? l.containers.join(', ')} onChange={(e) => setLine(l.key, { containers: e.target.value })} placeholder={`e.g. 15 15 — empty: one pack of ${l.days || f.days} days`} /></FieldLabel>}
               <ExtraComponentsEditor components={d(l.key).extraComponents ?? l.extraComponents} medicineName={d(l.key).name ?? l.name} stockOptions={stockOptions} onChange={(extraComponents) => setLine(l.key, { extraComponents })} />
               {l.added && <FieldLabel label="Drawn from Stocks" className="sm:col-span-2"><StockPick value={d(l.key).stockCode ?? (l.stockCode || '')} options={stockOptions} onChange={(code) => setLine(l.key, { stockCode: code })} /></FieldLabel>}
             </div>
@@ -195,7 +206,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
                 <FieldLabel label="Total quantity" required><input className={poInput} type="number" step="0.001" min="0" value={a.qty} onChange={(e) => setAdd({ qty: e.target.value })} /></FieldLabel>
                 <FieldLabel label="Unit"><select className={poInput} disabled={Boolean(a.ghritVariantCode)} value={a.unit} onChange={(e) => setAdd({ unit: e.target.value })}>{UNITS.map((u) => <option key={u} value={u}>{u}</option>)}</select></FieldLabel>
               </div>
-              <FieldLabel label="Packs (days each, comma separated)"><input className={poInput} value={a.containers} onChange={(e) => setAdd({ containers: e.target.value })} placeholder={`${f.days}`} /></FieldLabel>
+              <FieldLabel label="Packs (days each)"><input type="text" className={poInput} value={a.containers} onChange={(e) => setAdd({ containers: e.target.value })} placeholder={`e.g. 15 15 — empty: one pack of ${f.days} days`} /></FieldLabel>
               <DoseChitInput value={a} onChange={setAdd} />
               <ExtraComponentsEditor components={a.extraComponents} medicineName={a.name || "New medicine"} stockOptions={stockOptions} onChange={(extraComponents) => setAdd({ extraComponents })} />
               <FieldLabel label="Drawn from Stocks"><StockPick value={a.stockCode} options={stockOptions} onChange={(code) => setAdd({ stockCode: code })} /></FieldLabel>
@@ -205,7 +216,9 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         })}
         <Button size="sm" variant="outline" onClick={() => setAdds((list) => [...list, emptyAdd()])}><Plus size={13} />Add medicine</Button>
       </div>
-      {blocker && <p role="alert" className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-xs font-semibold text-[#8C3B2E]">Save नहीं हो रहा: {blocker}</p>}
+      {blocker ? <p role="alert" className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-xs font-semibold text-[#8C3B2E]">Save नहीं हो रहा: {blocker}</p>
+        : saveError ? <p role="alert" className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-xs font-semibold text-[#8C3B2E]">Save नहीं हुआ: {saveError}</p>
+        : nothingHint ? <p className="mt-3 rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs font-semibold text-[#9A3412]">{nothingHint}</p> : null}
       <div className="mt-3 flex gap-2"><Button size="sm" disabled={busy || Boolean(blocker) || nothingChanged} onClick={save}>{busy ? 'Saving...' : f.custom ? 'Save formulation' : 'Save correction'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setDraft({}); setAdds([]); }}>Cancel</Button></div>
     </div>
   );
@@ -227,7 +240,8 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
           const update = (patch) => existing ? setLine(existing.key, patch) : setAdds((list) => list.map((a) => a.ghritVariantCode === v.code ? { ...a, ...patch } : a));
           return <div key={v.code} className="rounded-lg border border-cardline p-2"><label className="flex items-center gap-2 text-sm font-semibold text-charcoal"><input type="checkbox" aria-label="Include ghrit medicine" className="h-4 w-4 accent-sage" checked={selected} onChange={(e) => toggleVariant(v, e.target.checked)} /></label><MedicineNameEditor name={value?.name || ghritName} canEdit={canEdit} disabled={busy} onSave={async (name) => { setGhritName(name); if (existing) await renameMedicine(existing.key, name); else if (added) update({ name }); }} />{selected && value && <div className="mt-2 space-y-2"><FieldLabel label="Total quantity (ml)"><input className={poInput} type="number" min="0.001" step="0.001" value={value.qty} onChange={(e) => update({ qty: e.target.value })} /></FieldLabel><FieldLabel label="Dose / chit text"><textarea className={poInput} rows={2} value={value.dose || ''} onChange={(e) => update({ dose: e.target.value })} /></FieldLabel></div>}</div>;
         })}</div>
-        {(Object.keys(draft).length > 0 || adds.length > 0) && <div className="mt-3 flex items-center gap-2"><Button size="sm" disabled={busy || adds.some((a) => a.ghritVariantCode && !(Number(a.qty) > 0))} onClick={save}>{busy ? 'Saving...' : 'Save घृत selection'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setDraft({}); setAdds([]); }}>Cancel</Button><span className="text-xs text-charcoal/55">इस मरीज की formulation में save करें।</span></div>}
+        {(Object.keys(draft).length > 0 || adds.length > 0) && (ghritQtyMissing || saveError) && <p role="alert" className="mt-3 rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-xs font-semibold text-[#8C3B2E]">{ghritQtyMissing ? `Save नहीं हो रहा: "${ghritQtyMissing.name || 'घृत'}" की मात्रा (ml) भरें।` : `Save नहीं हुआ: ${saveError}`}</p>}
+        {(Object.keys(draft).length > 0 || adds.length > 0) && <div className="mt-3 flex items-center gap-2"><Button size="sm" disabled={busy || Boolean(ghritQtyMissing)} onClick={save}>{busy ? 'Saving...' : 'Save घृत selection'}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { setDraft({}); setAdds([]); }}>Cancel</Button><span className="text-xs text-charcoal/55">इस मरीज की formulation में save करें।</span></div>}
       </fieldset>}
       {ghritSelection && <fieldset className="mt-3 rounded-lg border border-cardline bg-white p-3" disabled={savingGhritSelection}>
         <legend className="px-1 text-sm font-bold text-charcoal">मेध्य घृत चुनें (एक से अधिक चुन सकते हैं)</legend>
@@ -245,7 +259,7 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
               {(l.components?.length || l.extraComponents?.length) > 0 && <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">{[...(l.components || []), ...(l.extraComponents || [])].map((c, componentIndex) => <span key={`${c.code}-${componentIndex}`} className="rounded border border-cardline bg-white px-2 py-0.5">{c.name}: {num(c.qty)} {c.unit}{c.grams ? ` = ${num(c.grams)} g` : ''}{c.pinches ? ` / ${c.pinches} चुटकी` : ''}</span>)}</div>}
               {l.note && <p className="text-xs text-charcoal/55">{l.note}</p>}
               {l.honey && <p className="text-xs text-charcoal/55">शहद कुल: {num(l.honey[0])} {l.honey[1]} (औषधि से अलग, मरीज स्वयं)</p>}
-              {l.containers?.length > 1 && <p className="text-xs text-charcoal/55">{l.containers.length} पैक: {l.containers.map((d) => `${d} दिन`).join(' + ')}</p>}
+              {l.packsText ? <p className="text-xs text-charcoal/55">पैक: {l.packsText}</p> : l.containers?.length > 1 && <p className="text-xs text-charcoal/55">{l.containers.length} पैक: {l.containers.map((d) => `${d} दिन`).join(' + ')}</p>}
               {l.pending && <p className="text-[11px] font-semibold text-amber-800">पुष्टि बाकी: {l.pending}</p>}
               {l.packed && !l.components && !l.fromHome && !l.removed && (l.stockCode ? <p className="font-mono text-[11px] text-charcoal/55">Stocks: {l.stockCode}</p> : l.added || f.custom ? <p className="text-[11px] font-semibold text-sky-800">Not linked to Stocks - picked at preparation</p> : null)}
             </div>
@@ -254,6 +268,8 @@ export default function FormulationSheet({ f, patientName, patientCode, canEdit 
         ))}
       </ol>
       <p className="mt-3 text-xs"><b>साथ जाने वाले Treatment Papers:</b> {f.papers.length ? f.papers.join(' · ') : f.papersNote}</p>
+      {/* The doctor's remarks (step 2) go with the sheet. */}
+      {String(remarks || '').trim() && <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm"><b className="text-sky-900">Doctor remarks (डॉक्टर की टिप्पणी):</b> <span className="whitespace-pre-line text-charcoal">{String(remarks).trim()}</span></div>}
     </div>
   );
 }

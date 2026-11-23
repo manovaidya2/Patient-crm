@@ -8,6 +8,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { ROLES, isAdminLike } = require('../constants/roles');
 const { dateRoom, postCounselingUserRoom, POST_COUNSELING_ALL_ROOM } = require('../realtime/salesSheetSocket');
 const { notGivenView } = require('../utils/postCounselingNotGiven');
+const { syncRegistration } = require('../utils/registrationSync');
 const { PATIENT_TYPE_ID, EXISTING, existingCodeFrom, resolveExisting, findByCode, summaryOf } = require('../utils/existingPatient');
 const {
   SALES_IDS, RECEPTION_IDS, FIRST_SERIAL, TIME_PATTERN, REGISTRATION_FIELDS, FIELD_GROUPS, istDate, patientIdFor, cleanRegistration, missingForSend, defaultsFromSales,
@@ -174,19 +175,30 @@ const saveRegistration = asyncHandler(async (req, res) => {
   if (!valueOf(entry, RECEPTION_IDS.patientId)) throw fail('Mark the patient as arrived first');
   const fields = cleanRegistration(req.body.fields);
   if (entry.registration?.status === 'sent') {
-    // Already with the Post Counselor: details can be corrected until the post-counselling record is saved.
-    if (entry.postCounseling?.savedAt) throw fail('The Post Counselor has saved the record. The registration can no longer be changed.', 409);
-    if (!fields.phase) fields.phase = Object.fromEntries(entry.registration.fields || []).phase || '1';
+    // Already with the Post Counselor: details can be corrected until the post-counselling record is saved. After that
+    // only the Admin can, and the correction follows to wherever the registration went (utils/registrationSync.js:
+    // the patient, the PO paper, Package Not Bought, the appointment and sales sheet ...). The phase stays then.
+    const pcSaved = Boolean(entry.postCounseling?.savedAt);
+    if (pcSaved && req.user.role !== ROLES.ADMIN) throw fail('The Post Counselor has saved the record. Only the Admin can change the registration now.', 409);
+    const before = Object.fromEntries(entry.registration.fields || []);
+    if (!fields.phase || pcSaved) fields.phase = before.phase || fields.phase || '1';
     const missing = missingForSend(fields);
     if (missing.length) throw fail(`Fill these before saving: ${missing.join(', ')}`);
-    const changed = await Management.updateOne({ _id: entry._id, 'registration.status': 'sent', 'postCounseling.savedAt': null }, {
+    const changed = await Management.updateOne({ _id: entry._id, 'registration.status': 'sent', ...(pcSaved ? {} : { 'postCounseling.savedAt': null }) }, {
       $set: { 'registration.fields': fields, 'registration.editedAt': new Date(), 'registration.editedByName': req.user.name, updatedByName: req.user.name, lastEditedAt: new Date() },
     });
-    if (!changed.modifiedCount) throw fail('The Post Counselor has saved the record. The registration can no longer be changed.', 409);
-    await audit(req, entry, 'Registration edited', `Registration details corrected after sending (Post Counselor ${entry.registration.postCounselorName || '-'})`);
+    if (!changed.modifiedCount) throw fail(pcSaved ? 'The registration could not be saved. Open it again and retry.' : 'The Post Counselor has saved the record. Only the Admin can change the registration now.', 409);
+    let synced = null;
+    if (pcSaved) {
+      const changedLabels = REGISTRATION_FIELDS.filter((d) => String(before[d.key] ?? '').trim() !== String(fields[d.key] ?? '').trim()).map((d) => d.label);
+      synced = await syncRegistration({ entry, before, after: fields, user: req.user });
+      await audit(req, entry, 'Registration edited by Admin', `After the post-counselling record was saved. Changed: ${changedLabels.join(', ') || 'nothing'}. Also updated: ${synced.updated.join('; ') || 'nothing else'}${synced.failed.length ? `. Not updated: ${synced.failed.join('; ')}` : ''}`);
+    } else {
+      await audit(req, entry, 'Registration edited', `Registration details corrected after sending (Post Counselor ${entry.registration.postCounselorName || '-'})`);
+    }
     emitChanged(req, entry);
     if (entry.registration.postCounselor) req.app.get('io')?.to(postCounselingUserRoom(entry.registration.postCounselor)).to(POST_COUNSELING_ALL_ROOM).emit('post-counseling:changed', { id: String(entry._id) });
-    return res.json({ success: true, registration: registrationView(await Management.findById(entry._id)) });
+    return res.json({ success: true, registration: registrationView(await Management.findById(entry._id)), ...(synced ? { synced } : {}) });
   }
   await Management.updateOne({ _id: entry._id, 'registration.status': { $ne: 'sent' } }, {
     $set: { 'registration.fields': fields, 'registration.status': 'draft', 'registration.savedAt': new Date(), 'registration.savedByName': req.user.name },

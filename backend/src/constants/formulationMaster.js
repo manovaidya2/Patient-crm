@@ -332,6 +332,16 @@ function normalizeExtraComponents(input, reference = []) {
   });
 }
 
+// Pack days as typed, any way ("15, 15", "15 15", "15+15", "4 chamaach"): the text is kept as typed (packsText, shown
+// on the sheet) and the numbers in it are the days of each pack (one chit each). Not required: empty, or no number in
+// it, is one pack for the whole supply.
+const packsTextOf = (raw) => String(Array.isArray(raw) ? raw.join(', ') : raw ?? '').trim().slice(0, 120);
+function packDaysOf(raw, wholeSupplyDays) {
+  const parts = Array.isArray(raw) ? raw : (String(raw ?? '').match(/\d+(?:\.\d+)?/g) || []);
+  const days = parts.map((d) => Math.round(Number(d))).filter((v) => Number.isFinite(v) && v > 0);
+  return days.length ? days : [wholeSupplyDays];
+}
+
 // A medicine added for this patient only (not in the master): name, timing, quantity, dose and packs.
 function addedLine(o, formulation, n, byName) {
   const variant = o.ghritVariantCode ? GHRIT_VARIANTS.find((v) => v.code === o.ghritVariantCode) : null;
@@ -344,12 +354,13 @@ function addedLine(o, formulation, n, byName) {
   const qty = numberOf(o.qty, `${name} quantity`);
   if (!(qty > 0)) fail(`Enter the total quantity of ${name}`);
   const days = formulation.days;
-  const containers = o.containers === undefined || o.containers === '' ? [days] : (Array.isArray(o.containers) ? o.containers : String(o.containers).split(/[,+]/)).map((d) => String(d).trim()).filter(Boolean).map((d) => { const v = Number(d); if (!Number.isInteger(v) || v <= 0) fail(`Pack days for ${name} must be whole days`); return v; });
+  const containers = packDaysOf(o.containers, days);
+  const packsText = packsTextOf(o.containers);
   const chitNo = Math.max(0, ...formulation.lines.map((l) => Number(l.chitNo) || 0)) + 1;
   const at = new Date().toISOString();
   return {
     n, key: `added-${Date.now().toString(36)}-${n}`, name, when: String(o.when || '').trim().slice(0, 80), qty, unit, packed: true, days,
-    containers: containers.length ? containers : [days], ...doseValues(o), chitNo,
+    containers: containers.length ? containers : [days], ...(packsText ? { packsText } : {}), ...doseValues(o), chitNo,
     stockCode: String(o.stockCode || '').trim().toUpperCase().slice(0, 40) || undefined,
     ...(o.extraComponents !== undefined ? { extraComponents: normalizeExtraComponents(o.extraComponents) } : {}),
     ...(variant ? { ghritVariantCode: variant.code, bottles: bottles(qty) } : {}),
@@ -466,9 +477,14 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
       if (code !== (line.stockCode || '')) { next.stockCode = code || undefined; changes.push(code ? `stock item ${code}` : 'not from Stocks'); }
     }
     if (o.containers !== undefined) {
-      const containers = (Array.isArray(o.containers) ? o.containers : String(o.containers).split(/[,+]/)).map((d) => String(d).trim()).filter(Boolean).map((d) => { const n = Number(d); if (!Number.isInteger(n) || n <= 0) fail(`Pack days for ${line.name} must be whole days`); return n; });
-      if (!containers.length) fail(`Enter the pack days for ${line.name}`);
-      if (containers.join('+') !== (line.containers || []).join('+')) { next.containers = containers; changes.push('packs'); }
+      const containers = packDaysOf(o.containers, line.days || formulation.days);
+      const typed = packsTextOf(o.containers);
+      // What the box showed before: the text typed last time, else the pack days.
+      const shownBefore = line.packsText ?? (line.containers || []).join(', ');
+      const daysChanged = containers.join('+') !== (line.containers || []).join('+');
+      if (daysChanged) next.containers = containers;
+      if (typed !== shownBefore) next.packsText = typed;
+      if (daysChanged || typed !== shownBefore) changes.push('packs');
     }
     if (line.components) {
       if (Array.isArray(o.components)) {
@@ -503,4 +519,4 @@ function applyOverrides(formulation, overrides = [], { byName = '' } = {}) {
   return { ...formulation, lines: sheet, edited: sheet.some((l) => l.edited), pending: sheet.map((l) => l.pending).filter(Boolean) };
 }
 
-module.exports = { codeInName, linkByName, applyOverrides, formulationFor, blankSheetFor, templateSheetFor, sampleBandOf, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };
+module.exports = { packDaysOf, packsTextOf, codeInName, linkByName, applyOverrides, formulationFor, blankSheetFor, templateSheetFor, sampleBandOf, stockNeeds, unlinkedLines, chitsFor, sheetNumbers, defaultMasterFor, normalizeMaster, BANDS, CUSTOM_BANDS, MASTER_ITEMS, MASTER_DOSES, SPLIT_DAYS, PENDING_KEYS, SIX_MONTH, STOCK, TREATMENT_PAPERS, SHIVA_LEH_SPLIT, PART_FRACTION, NOTE_WATER };

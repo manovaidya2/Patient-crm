@@ -286,3 +286,26 @@ test('a sent registration can be corrected until the Post Counselor saves the re
     assert.equal(locked.error.statusCode, 409);
   });
 });
+
+test('after the Post Counselor saved the record only the Admin changes the registration (the phase stays); it follows elsewhere', async () => {
+  const fields = { phase: '1', patientName: 'Vyom Sharma', nameMatchesAadhaar: 'Yes', age: '4', category: 'autism_adhd' };
+  const current = entry({ [RECEPTION_IDS.patientId]: 'V-171026-11' }, {
+    registration: { status: 'sent', postCounselor: COUNSELOR, postCounselorName: 'Abhishek', fields: new Map(Object.entries({ ...fields, phase: '2', age: '3' })) },
+    postCounseling: { savedAt: new Date() },
+  });
+  const updates = [];
+  await withStubs([
+    [Management, 'findById', async () => current],
+    [Management, 'updateOne', async (filter, change) => { updates.push([filter, change.$set]); return { modifiedCount: 1 }; }],
+  ], async () => {
+    const reception = await call(controller.saveRegistration, { body: { fields } });
+    assert.match(reception.error.message, /Only the Admin/);
+    assert.equal(reception.error.statusCode, 409);
+    const ok = await call(controller.saveRegistration, { body: { fields }, user: { _id: 'a1', name: 'Admin Asha', role: 'admin' } });
+    assert.equal(ok.error, null);
+    const [filter, set] = updates[0];
+    assert.equal(filter['postCounseling.savedAt'], undefined, 'allowed after the record was saved');
+    assert.deepEqual([set['registration.fields'].age, set['registration.fields'].phase, set['registration.editedByName']], ['4', '2', 'Admin Asha'], 'the phase of the purchase stays');
+    assert.deepEqual(ok.res.body.synced, { updated: [], failed: [] }, 'nothing else had the old age (not converted yet)');
+  });
+});

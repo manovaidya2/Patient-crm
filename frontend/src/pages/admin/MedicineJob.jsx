@@ -95,6 +95,7 @@ function sheetChanges(f) {
     if (o.qty !== undefined && o.qty !== l.qty) parts.push(`quantity ${num(o.qty)} → ${num(l.qty)} ${unit(l)}`);
     if (o.dose !== undefined && (o.dose || '') !== (l.dose || '')) parts.push(`dose: "${o.dose || '-'}" → "${l.dose || '-'}"`);
     if (o.containers && (o.containers || []).join('+') !== (l.containers || []).join('+')) parts.push(`packs ${o.containers.join(' + ')} → ${(l.containers || []).join(' + ')} दिन`);
+    if (l.packsText && l.packsText !== (o.containers || l.containers || []).join(', ')) parts.push(`packs: "${l.packsText}"`);
     (l.components || []).forEach((c) => { const oc = (o.components || []).find((x) => x.code === c.code); if (oc && oc.qty !== c.qty) parts.push(`${c.name} ${num(oc.qty)} → ${num(c.qty)} ${c.unit}`); });
     if (o.packed !== undefined && o.packed !== l.packed) parts.push(l.packed ? 'packed' : 'not packed');
     if (!parts.length && l.edited?.changes?.length) parts.push(l.edited.changes.join(', '));
@@ -141,6 +142,33 @@ function DoneList({ stage, job }) {
           <li key={i} className="flex gap-2">
             <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-emerald-600 text-white" role="img" aria-label="Done"><Check size={12} strokeWidth={3} /></span>
             <span className="min-w-0"><span className="font-semibold text-emerald-900">{item.text}</span>{item.sub && <span className="block text-xs text-emerald-800/75">{item.sub}</span>}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// What earlier fulfilment steps wrote - the doctor's remarks, QC findings, remarks and notes of any step - in every
+// later step, so the next person reads them before working. (The In Transit request's notes are not repeated here.)
+const doctorRemarksOf = (job) => String(job.stages.find((s) => s.key === 'formula')?.values?.remarks || '').trim();
+function EarlierNotes({ job, stage }) {
+  const at = job.stages.findIndex((s) => s.key === stage.key);
+  const rows = [];
+  job.stages.slice(0, Math.max(at, 0)).forEach((s) => {
+    if (s.state !== 'done') return;
+    (s.fields || []).filter((f) => f.type === 'textarea' && String(s.values?.[f.key] ?? '').trim()).forEach((f) => rows.push({ key: `${s.key}-${f.key}`, step: `${s.n} · ${s.label}`, label: f.label, text: s.values[f.key], by: s.doneByName, at: s.doneAt }));
+    if (String(s.notes || '').trim()) rows.push({ key: `${s.key}-notes`, step: `${s.n} · ${s.label}`, label: 'Notes', text: s.notes, by: s.doneByName, at: s.doneAt });
+  });
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-3">
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-sky-900">Remarks &amp; notes from earlier steps</p>
+      <ul className="space-y-1.5">
+        {rows.map((r) => (
+          <li key={r.key} className="rounded-md bg-white/80 px-3 py-2 text-sm">
+            <p className="text-[11px] font-semibold text-sky-900/80">{r.step} · {r.label}{r.by ? ` · ${r.by}` : ''}{r.at ? ` · ${dateTime(r.at)}` : ''}</p>
+            <p className="whitespace-pre-line text-charcoal">{r.text}</p>
           </li>
         ))}
       </ul>
@@ -303,8 +331,23 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
     return <FieldLabel key={f.key} label={f.label} required={f.required}><input className={poInput} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} {...(f.type === 'number' ? { min: 0, step: f.step || 'any', inputMode: 'decimal' } : {})} value={v} onChange={(e) => set(e.target.value)} disabled={!canAct || fixed} />{fixed && <FixedNote />}</FieldLabel>;
   };
   const endDate = job.readyByDate && job.formulation ? new Date(new Date(job.readyByDate).getTime() + job.formulation.days * 86400000) : null;
+  const unticked = stage.checks.filter((_, i) => !checks[i]).length;
+  const missingFields = stage.fields.filter((f) => f.required && !String(fields[f.key] ?? '').trim()).map((f) => f.label);
+  // A photo uploaded earlier (e.g. before a revert) counts.
+  const missingFiles = (stage.files || []).filter((f) => f.required && !(files[f.key] || []).length && !(f.key === 'photoA' && (job.photos?.overview || []).length)).map((f) => f.label);
+  const chitsLeft = stage.key === 'fill' ? (job.chits || []).filter((c) => !c.confirmed && !chits[c.key]).length : 0;
+  const notDone = [
+    sheetUnsaved && 'पहले ऊपर की Formulation sheet save करें (Save) या Cancel करें। उसके बाद ही यह stage पूरा होकर अगले stage पर जाएगा।',
+    scopePending && 'ऊपर के Treatment & support components approve करें (जैसे हैं, या ticks बदलकर), तब formulation भेजी जाएगी।',
+    unticked > 0 && `Checklist: ${unticked} point${unticked > 1 ? 's' : ''} पर tick बाकी है (${stage.checks.length - unticked} of ${stage.checks.length} ticked)।`,
+    missingFields.length > 0 && `भरें: ${missingFields.join(', ')}`,
+    missingFiles.length > 0 && `Photo upload करें: ${missingFiles.join(', ')}`,
+    chitsLeft > 0 && `${chitsLeft} chit${chitsLeft > 1 ? 's' : ''} पर tick बाकी है (pack पर लगने के बाद tick करें)।`,
+  ].filter(Boolean);
+  const doctorRemarks = doctorRemarksOf(job);
   return (
     <div className="space-y-4">
+      <EarlierNotes job={job} stage={stage} />
       {stage.key === 'formula' && (
         <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">Changes made here (dose, quantity, a medicine added or removed) are for <b>{job.patientName}</b>'s request only. The Formulation Master is not changed.</p>
       )}
@@ -327,7 +370,7 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
         </div>
       )}
       {stage.key === 'review' && <p className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-charcoal/80">The formulation exactly as the doctor sent it. Work from it as it is; anything unclear goes back to the doctor (Hold).</p>}
-      {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} onUnsavedChange={setSheetUnsaved} />}
+      {['review', 'formula'].includes(stage.key) && <FormulationSheet showSelectedGhrits remarks={stage.key === 'formula' ? String(fields.remarks ?? '').trim() : doctorRemarks} f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} canEdit={stage.key === 'formula' && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} jobId={job.id} stockOptions={job.stockOptions || []} onSaved={onDone} onError={report} onUnsavedChange={setSheetUnsaved} />}
       {stage.key === 'formula' && <TreatmentScopeCard job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.DOCTOR], user)} onSaved={onDone} onError={report} />}
       {['review', 'stock', 'prepare'].includes(stage.key) && <BottleEditor job={job} canEdit={canAct && roleAllowed([ROLES.ADMIN, ROLES.MEDICINE_DEPARTMENT], user)} onSaved={onDone} onError={report} />}
       {stage.key === 'qc' && job.preparerName && (
@@ -369,8 +412,12 @@ function StageWork({ job, stage, canAct, onDone, onError }) {
       </div>
       {stage.fields.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{stage.fields.map(field)}</div>}
       <ErrorText>{err}</ErrorText>
-      {canAct && sheetUnsaved && <p role="alert" className="flex items-center gap-2 rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2 text-sm font-semibold text-[#C2410C]"><Lock size={15} />पहले ऊपर की Formulation sheet save करें (Save correction) या Cancel करें। उसके बाद ही यह stage पूरा होकर अगले stage पर जाएगा।</p>}
-      {canAct && scopePending && <p className="flex items-center gap-2 rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2 text-sm font-semibold text-[#C2410C]"><ShieldCheck size={15} />Approve the treatment &amp; support components above (as they are, or after changing the ticks) to send the formulation.</p>}
+      {canAct && notDone.length > 0 && (
+        <div role="alert" className="rounded-lg border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2 text-sm text-[#9A3412]">
+          <p className="flex items-center gap-2 font-bold text-[#C2410C]"><Lock size={15} />Stage अभी complete नहीं होगा:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-6">{notDone.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+        </div>
+      )}
       {canAct ? <Button disabled={busy || !allChecked || scopePending || sheetUnsaved} onClick={submit}><Check size={15} />{busy ? 'Saving...' : stage.key === 'release' ? 'Release to In Transit' : stage.key === 'final' ? 'Mark medicine ready' : 'Complete stage'}</Button>
         : <p className="flex items-center gap-2 text-sm text-charcoal/55"><Lock size={14} />This stage is completed by {stage.roles.map((r) => ROLE_LABELS[r]).join(' / ')}.</p>}
     </div>
@@ -542,7 +589,7 @@ export default function MedicineJobPage() {
                       : <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8C3B2E] hover:underline" title="Undo this stage and every stage after it" onClick={() => { setRevertKey(shown.key); setRevertReason(''); }}><RotateCcw size={12} />Revert</button>)}
                   </div>
                   <DoneList stage={shown} job={job} />
-                  {['review', 'formula'].includes(shown.key) && <FormulationSheet showSelectedGhrits f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
+                  {['review', 'formula'].includes(shown.key) && <FormulationSheet showSelectedGhrits remarks={doctorRemarksOf(job)} f={job.formulation} patientName={job.patientName} patientCode={job.patientCode} />}
                   {shown.key === 'formula' && <TreatmentScopeCard job={job} done />}
                   {shown.key === 'stock' && (
                     <div className="space-y-1.5">

@@ -1981,6 +1981,7 @@ const updatePatient = asyncHandler(async (req, res) => {
   if (!canAccessPatient(req.user, patient)) {
     return res.status(403).json({ success: false, message: 'This patient is not assigned to you' });
   }
+  const nameBefore = patient.patientName;
 
   const identityFields = ['patientCode', 'patientName', 'category'];
   const hasNonIdentityUpdate = Object.keys(req.body || {}).some((key) => !identityFields.includes(key));
@@ -2105,6 +2106,11 @@ const updatePatient = asyncHandler(async (req, res) => {
   }
 
   await patient.save();
+  // A new name goes to the patient's purchase orders, medicine fulfilment jobs, Records Room ... too.
+  if (!sameValue(nameBefore, patient.patientName)) {
+    try { await require('../utils/patientNameCopies').syncPatientNameCopies(patient); }
+    catch (error) { console.error(`Patient name not copied to the other records: ${error.message}`); }
+  }
   await populateAssignments(patient);
 
   res.status(200).json({ success: true, patient: formatPatient(patient, req.user, { includeActivity: true }) });

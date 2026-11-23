@@ -5,6 +5,8 @@ import Input from '../ui/Input.jsx';
 import Modal from '../ui/Modal.jsx';
 import { Field, Value } from '../AppointmentForm.jsx';
 import { columnSection } from '../../utils/appointmentSections.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { ROLES } from '../../constants/roles.js';
 
 const selectClass = 'w-full rounded-lg border border-cardline bg-offwhite-200 px-3.5 py-2.5 text-sm text-charcoal focus:border-sage focus:outline-none focus:ring-2 focus:ring-sage/20';
 // Set by the arrival step / Patient ID generator, so they are shown here but not edited here.
@@ -23,6 +25,8 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
   const [form, setForm] = useState(null);
   const [details, setDetails] = useState({});
   const [uploading, setUploading] = useState(false);
+  const { user } = useAuth();
+  const isAdmin = user?.role === ROLES.ADMIN;
 
   useEffect(() => {
     if (!row) return undefined;
@@ -44,8 +48,10 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
 
   const set = (key) => (event) => setFields((current) => ({ ...current, [key]: event.target.value }));
   const sent = data?.status === 'sent';
-  // Sent, but the Post Counselor has not saved the record yet: still correctable here.
-  const locked = sent && data?.postCounselingSaved;
+  // Sent, but the Post Counselor has not saved the record yet: still correctable here. After that only the Admin can
+  // (the correction then also goes to the patient, the PO paper, Package Not Bought ...); the phase stays.
+  const pcSaved = sent && Boolean(data?.postCounselingSaved);
+  const locked = pcSaved && !isAdmin;
   const visibleDefs = (data?.fieldDefs || []).filter((definition) => !definition.onlyFor || definition.onlyFor === fields.category);
   const missing = visibleDefs.filter((definition) => definition.required && !String(fields[definition.key] || '').trim()).map((definition) => definition.label);
 
@@ -64,7 +70,15 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
 
   const save = async () => {
     setBusy(true); setError(''); setNotice('');
-    try { await saveDetails(); const { data: saved } = await api.put(`/sales-sheet/management/${row.id}/registration`, { fields }); if (saved?.registration) setData(saved.registration); setNotice('Saved'); onChanged?.(); }
+    try {
+      await saveDetails();
+      const { data: saved } = await api.put(`/sales-sheet/management/${row.id}/registration`, { fields });
+      if (saved?.registration) { setData(saved.registration); setFields(saved.registration.fields); }
+      const synced = saved?.synced;
+      setNotice(synced?.updated?.length ? `Saved — also updated: ${synced.updated.join(', ')}` : 'Saved');
+      if (synced?.failed?.length) setError(`Saved, but not updated: ${synced.failed.join('; ')}`);
+      onChanged?.();
+    }
     catch (err) { setError(err.response?.data?.message || 'Could not save'); }
     finally { setBusy(false); }
   };
@@ -107,7 +121,9 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
       {data && step === 'form' && (
         <div className="space-y-4">
           {sent && (locked
-            ? <div className="rounded border border-sage/40 bg-sage/10 px-3 py-2 text-sm text-charcoal">Sent to <b>{data.postCounselorName}</b>, who has saved the post-counselling record. These details can no longer be changed here.</div>
+            ? <div className="rounded border border-sage/40 bg-sage/10 px-3 py-2 text-sm text-charcoal">Sent to <b>{data.postCounselorName}</b>, who has saved the post-counselling record. Only the Admin can change these details now.</div>
+            : pcSaved
+            ? <div className="rounded border border-[#93C5FD] bg-[#EFF6FF] px-3 py-2 text-sm text-[#1E3A5F]"><b>Admin edit.</b> {data.postCounselorName} has saved the post-counselling record. When you save, the change also goes to the patient record, the PO paper, Package Not Bought and the appointment / sales sheet — wherever the old value is still there (a value changed there since is kept). The phase stays. Bills already issued are not changed.</div>
             : <div className="rounded border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-sm text-[#78350F]">Sent to <b>{data.postCounselorName}</b>. You can still correct these details until the Post Counselor saves the record - press "Save changes".</div>)}
           {!sent && data.returned && (
             <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-sm text-[#7F1D1D]">
@@ -145,7 +161,7 @@ const RegistrationModal = ({ row, onClose, onChanged }) => {
                       return (
                         <div key={definition.key}>
                           <label className="mb-1.5 block text-sm font-medium text-charcoal">{label}</label>
-                          <select value={fields[definition.key] || ''} onChange={set(definition.key)} className={selectClass}>
+                          <select value={fields[definition.key] || ''} onChange={set(definition.key)} className={selectClass} disabled={pcSaved && definition.key === 'phase'} title={pcSaved && definition.key === 'phase' ? 'The purchase is in this phase: it is not changed here' : undefined}>
                             <option value="">Select</option>
                             {definition.options.map((option) => <option key={option} value={option}>{definition.optionLabels?.[option] || option}</option>)}
                           </select>
