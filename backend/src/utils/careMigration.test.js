@@ -30,9 +30,9 @@ test('every old phase with open entries moves once: new sessions for the days le
   mock.method(Patient, 'updateOne', async (filter, update, options) => { updates.push({ filter, update, options }); return { modifiedCount: updates.length === 1 ? 1 : 0 }; });
 
   const first = await moveOldPatients({ user: { name: 'System' }, all: true, now: NOW, ready: () => true });
-  assert.deepEqual([first.moved, first.sessions, first.closed], [1, 4, 2], 'phase 1 only (phase 2 has nothing open)');
-  assert.deepEqual(stored.map((s) => s.code), ['FU-06', 'FS-03', 'FU-07', 'DT-03']);
-  assert.deepEqual(stored.map((s) => s.status), ['pending', 'scheduled', 'scheduled', 'pending'], 'call times carried from the old entries close by');
+  assert.deepEqual([first.moved, first.sessions, first.closed], [1, 3, 2], 'phase 1 only (phase 2 has nothing open)');
+  assert.deepEqual(stored.map((s) => s.code), ['FU-05', 'FS-03', 'FU-06']);
+  assert.deepEqual(stored.map((s) => s.status), ['pending', 'scheduled', 'scheduled'], 'call times carried from the old entries close by');
   assert.equal(stored[1].callAt.toISOString(), at('2026-12-26').toISOString());
   assert.ok(stored.every((s) => s.assigneeName === 'PCC Neha' && s.supplyKey === 'converted'));
   assert.equal(String(updates[0].filter._id), String(patient._id));
@@ -40,7 +40,7 @@ test('every old phase with open entries moves once: new sessions for the days le
 
   const again = await moveOldPatients({ user: { name: 'System' }, all: true, now: NOW, ready: () => true });
   assert.equal(again.moved, 0);
-  assert.equal(stored.length, 4, 'no session is made twice');
+  assert.equal(stored.length, 3, 'no session is made twice');
 });
 
 test('nothing runs without a database, and a chosen list moves only those phases', async () => {

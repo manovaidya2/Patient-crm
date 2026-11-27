@@ -2,7 +2,7 @@
 const {
   sessionInfo, greeting, safetyScreen, medicineContinuity, openIssues, parentSupport, futureConnection, closing, crmSummary,
   DIFFICULTY, DIFFICULTY_ACTION, GREETING_LINE, CLOSING_LINE, journeyRule,
-} = require('./blocks');
+} = require('../blocks');
 
 const DIFF = { id: 'activityStatus', any: ['Difficulty'] };
 

@@ -14,7 +14,7 @@ const VIEWS = [
   ['work', 'My work'], ['alert', 'Red alert'], ['overdue', 'Overdue'], ['today', 'Today'], ['needs_time', 'Set call time'], ['leave', 'PCC on leave'], ['requests', 'Reassign requests'],
   ['upcoming', 'Upcoming'], ['done', 'Done'], ['closed', 'Closed'],
 ];
-const KINDS = [['', 'All'], ['followup', 'Follow-ups'], ['family', 'Family sessions'], ['tracker', 'Trackers']];
+const KINDS = [['', 'All'], ['foundation', 'Foundation'], ['followup', 'Follow-ups'], ['family', 'Family sessions'], ['tracker', 'Trackers']];
 const errorText = (error) => error?.response?.data?.message || error?.message || 'Something went wrong';
 
 function SessionRow({ s, onOpen }) {
@@ -88,7 +88,7 @@ function Worklist({ onOpen }) {
         {!loading && !error && !rows.length && <p className="px-3 py-6 text-center text-sm text-charcoal/55">{view === 'work' ? 'Nothing waiting right now.' : 'No sessions here.'}</p>}
         {rows.map((s) => <SessionRow key={s.id} s={s} onOpen={onOpen} />)}
       </div>
-      <p className="text-[11.5px] text-charcoal/50">Follow-ups: Day 10, 20, 50, 80, 110, 140, 170 · Family sessions: Day 15, 105, 165 · Trackers: Day 60, 120, 180 — from the medicine start date, only the days the medicine covers. Wednesday clinic closed. A call can be rescheduled twice; then it must be completed, marked missed or cancelled.</p>
+      <p className="text-[11.5px] text-charcoal/50">Foundation: Day 1–7 (one a day) · Family sessions: Day 15, 105, 165 · Follow-ups: Day 20, 50, 80, 110, 140, 170 · Trackers: Day 60, 120 (Day 180 in the clinic) — from the medicine start date, only the days the medicine covers. Clinic closed on Wednesday and holidays: a session falling on one moves to the next open day. A call can be rescheduled twice; then it must be completed, marked missed or cancelled.</p>
     </div>
   );
 }
@@ -180,7 +180,7 @@ function Calendar({ onOpen }) {
           </div>
         </div>
       )}
-      <p className="flex flex-wrap gap-3 text-[11.5px] text-charcoal/55">{Object.values(KIND_STYLE).map((k) => <span key={k.label} className="flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${k.dot}`} />{k.label}</span>)}<span className="flex items-center gap-1"><History size={11} />dashed = old follow-up / family session</span><span>Orange day = leave · grey = clinic closed (Wednesday)</span></p>
+      <p className="flex flex-wrap gap-3 text-[11.5px] text-charcoal/55">{Object.values(KIND_STYLE).map((k) => <span key={k.label} className="flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${k.dot}`} />{k.label}</span>)}<span className="flex items-center gap-1"><History size={11} />dashed = old follow-up / family session</span><span>Orange day = leave · grey = clinic closed (Wednesday / holiday)</span></p>
     </div>
   );
 }

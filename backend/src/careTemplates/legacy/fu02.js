@@ -2,7 +2,7 @@
 const {
   sessionInfo, greeting, safetyScreen, medicineContinuity, openIssues, parentSupport, futureConnection, closing, crmSummary,
   DIFFICULTY, DIFFICULTY_ACTION, GREETING_LINE, CLOSING_LINE, STATUS_BRANCH, journeyRule,
-} = require('./blocks');
+} = require('../blocks');
 
 const A = { id: 'fsStatus', any: ['Family Session 01 Completed → Script A'] };
 const B = { id: 'fsStatus', any: ['Family Session 01 Pending → Script B'] };

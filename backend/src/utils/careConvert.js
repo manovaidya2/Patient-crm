@@ -1,6 +1,6 @@
 // Old patients onto the Care Schedule (asked 2026-11-21): a phase still running on the old follow-ups / family sessions
-// gets the new pattern for the days it still has (e.g. 2 months left -> FU-06, FS-03, FU-07 and the trackers on their
-// days). Done entries stay exactly as saved. The old entries not done are closed as "Moved to the new Care Schedule"
+// gets the new pattern for the days it still has (e.g. 2 months left -> FU-05, FS-03, FU-06 and the trackers on their
+// days; the foundation days 1-7 are long past, so a running phase gets none). Done entries stay exactly as saved. The old entries not done are closed as "Moved to the new Care Schedule"
 // (status cancelled, the status before is kept on the entry); a call time agreed on an old entry close to a new day
 // is carried over. Nothing is deleted.
 //

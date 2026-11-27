@@ -28,9 +28,11 @@ const mayAct = (user, s) => seesAll(user) || mine(user, s);
 
 // Nothing in the forms is required (asked 2026-11-21): the templates are served without their "required" marks.
 const withoutRequired = (template) => ({ ...template, sections: (template.sections || []).map((section) => ({ ...section, blocks: (section.blocks || []).map(({ req, ...block }) => block) })) });
+// The form of a session: the one its saved form was filled on, else the earlier plan's form for a session made on it,
+// else the current one (careTemplates/index.js templateForSession).
 const templateFor = (session) => {
   let own = null;
-  try { own = require('../careTemplates').templateOf(session.code); } catch (error) { own = null; }
+  try { own = require('../careTemplates').templateForSession(session); } catch (error) { own = null; }
   return withoutRequired(own || basicTemplate(session));
 };
 
@@ -48,7 +50,11 @@ const CLOSE_REASONS = [
   { label: 'Treatment stopped / patient inactive', missed: false },
   { label: 'Done another way (in clinic / other session)', missed: false },
   { label: 'Other', missed: false },
+  // A foundation session that does not apply to the child (FCF-05 therapy not prescribed, FCF-04 with no nasya / oil):
+  // closed, and the next foundation sessions take its day (careService.repackFoundation).
+  { label: C.NOT_APPLICABLE, missed: false, kinds: ['foundation'] },
 ];
+const closeReasonsFor = (session) => CLOSE_REASONS.filter((r) => !r.kinds || r.kinds.includes(session?.kind));
 const ATTEMPT_LABEL = { not_connected: 'Not connected', busy: 'Busy — call later', switched_off: 'Switched off', wrong_number: 'Wrong number', callback: 'Asked to call back', connected: 'Picked up — talked' };
 const durationText = (sec) => {
   if (sec == null) return '';
@@ -115,7 +121,7 @@ const listSessions = asyncHandler(async (req, res) => {
   const filter = {};
   if (!seesAll(req.user)) filter.assignee = req.user._id;
   else if (mongoose.isValidObjectId(req.query.person)) filter.assignee = req.query.person;
-  if (['followup', 'family', 'tracker'].includes(req.query.kind)) filter.kind = req.query.kind;
+  if (C.KINDS.includes(req.query.kind)) filter.kind = req.query.kind;
   const view = String(req.query.view || 'work');
   if (['done', 'missed', 'cancelled'].includes(view)) filter.status = { done: 'completed', missed: 'missed', cancelled: 'cancelled' }[view];
   else if (view === 'closed') filter.status = { $in: ['missed', 'cancelled'] };
@@ -174,14 +180,15 @@ const patientSessions = asyncHandler(async (req, res) => {
 const getSession = asyncHandler(async (req, res) => {
   const session = await loadSession(req);
   const Patient = require('../models/Patient');
+  const template = templateFor(session);
   const [context, leaves, contact] = await Promise.all([
-    buildContext(session.toObject(), req.user), leavesFor([session]),
+    buildContext(session.toObject(), req.user, template), leavesFor([session]),
     Patient.findById(session.patient).select('patientName patientCode number alternateNumber guardianName relativeName age category').lean(),
   ]);
   res.json({
-    success: true, session: viewOf(session.toObject(), { leaves, full: true }), template: templateFor(session), context,
+    success: true, session: viewOf(session.toObject(), { leaves, full: true }), template, context,
     contact: contact ? { name: contact.patientName, code: contact.patientCode || '', phone: contact.number || '', alternate: contact.alternateNumber || '', parent: contact.guardianName || contact.relativeName || '', age: contact.age || '', category: contact.category || '' } : null,
-    canAct: mayAct(req.user, session), canManage: manages(req.user), missedReasons: MISSED_REASONS, closeReasons: CLOSE_REASONS, attemptOutcomes: ATTEMPT_LABEL,
+    canAct: mayAct(req.user, session), canManage: manages(req.user), missedReasons: MISSED_REASONS, closeReasons: closeReasonsFor(session), attemptOutcomes: ATTEMPT_LABEL,
   });
 });
 
@@ -189,8 +196,9 @@ const openOnly = (session) => { if (!C.isOpen(session)) fail(`This session is al
 // A development tracker is sent and filled (no call time, no form).
 const NO_CALL_FOR_TRACKER = 'A development tracker has no call time or form: record when it was sent, then paste the link of the filled tracker';
 const notTracker = (session) => { if (session.kind === 'tracker') fail(NO_CALL_FOR_TRACKER); };
-const callTime = (value) => {
-  const problem = C.callTimeProblem(value);
+// A call time: not in the past, not on a Wednesday or a clinic holiday.
+const callTime = async (value) => {
+  const problem = C.callTimeProblem(value, new Date(), await require('../utils/careService').clinicHolidays());
   if (problem) fail(problem);
   return new Date(value);
 };
@@ -202,7 +210,7 @@ const setCallTime = asyncHandler(async (req, res) => {
   openOnly(session);
   notTracker(session);
   if (session.callAt) fail('The call time is already set. Use Reschedule to change it.');
-  session.callAt = callTime(req.body?.callAt);
+  session.callAt = await callTime(req.body?.callAt);
   session.status = 'scheduled';
   syncCallReminder(session, req.user.name);
   note(session, req.user, `Call time set: ${C.istText(session.callAt)} (reminder 10 minutes before)`);
@@ -218,7 +226,7 @@ const reschedule = asyncHandler(async (req, res) => {
   if (session.reschedules.length >= C.RESCHEDULE_LIMIT) fail(`This session was already rescheduled ${C.RESCHEDULE_LIMIT} times. Complete it, mark it missed by the parents, or cancel it.`);
   const reason = text(req.body?.reason, 500);
   if (!reason) fail('Write why the call is rescheduled');
-  const to = callTime(req.body?.callAt);
+  const to = await callTime(req.body?.callAt);
   session.reschedules.push({ at: new Date(), by: req.user._id, byName: req.user.name, from: session.callAt, to, reason });
   session.callAt = to;
   session.status = 'scheduled';
@@ -376,7 +384,7 @@ const markMissed = asyncHandler(async (req, res) => {
 const closeSession = asyncHandler(async (req, res) => {
   const session = await loadSession(req, { act: true });
   openOnly(session);
-  const picked = CLOSE_REASONS.find((r) => r.label === String(req.body?.reason || ''));
+  const picked = closeReasonsFor(session).find((r) => r.label === String(req.body?.reason || ''));
   if (!picked) fail('Choose why it is closed');
   const details = text(req.body?.details, 1000);
   if (details.length < 3) fail('Write the details: what happened (calls made, messages sent, what the parent said)');
@@ -387,7 +395,10 @@ const closeSession = asyncHandler(async (req, res) => {
   if (picked.missed) Object.assign(session, { status: 'missed', missedAt: now, missedReason: line, missedByName: req.user.name });
   else Object.assign(session, { status: 'cancelled', cancelledAt: now, cancelReason: line, cancelledByName: req.user.name });
   note(session, req.user, `Closed: ${line} (${notConnected} call${notConnected === 1 ? '' : 's'} not connected)`);
-  await respond(req, res, session);
+  if (!C.notApplicable(session)) return respond(req, res, session);
+  await session.save();
+  const moved = await require('../utils/careService').repackFoundation({ session, user: req.user });
+  return respond(req, res, session, { moved });
 });
 
 // @route POST /api/care/sessions/:id/cancel  { reason }
@@ -762,8 +773,9 @@ const calendar = asyncHandler(async (req, res) => {
     (stage.familySessions || []).forEach((e) => add(e, 'family'));
   }));
   const days = [];
+  const holidays = await require('../utils/careService').clinicHolidays();
   for (let day = from; day <= to; day = C.addDays(day, 1)) {
-    days.push({ day, weekday: C.weekdayOf(day), closed: C.isOffDay(day), leave: leaveOn(leaves, userId, day), sessions: sessions.filter((s) => s.dueDay === day), old: old.filter((o) => o.day === day).sort((a, b) => new Date(a.at) - new Date(b.at)) });
+    days.push({ day, weekday: C.weekdayOf(day), closed: C.isOffDay(day, holidays), leave: leaveOn(leaves, userId, day), sessions: sessions.filter((s) => s.dueDay === day), old: old.filter((o) => o.day === day).sort((a, b) => new Date(a.at) - new Date(b.at)) });
   }
   const staff = seesAll(req.user) ? (await User.find({ role: { $in: PCC_ROLES }, isActive: { $ne: false } }).select('name').sort({ name: 1 }).lean()).map((u) => ({ id: String(u._id), name: u.name })) : [];
   res.json({ success: true, user: { id: String(person._id), name: person.name, role: person.role }, month, days, leaves: leaves.get(String(userId)) || [], staff, canMark: manages(req.user) || String(userId) === String(req.user._id) });

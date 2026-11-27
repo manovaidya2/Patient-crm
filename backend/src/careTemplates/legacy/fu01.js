@@ -1,5 +1,5 @@
 // MV-FU-01 • Medical Follow-up 01 (Day 10): Treatment Start, Medicine Routine & Parent Support.
-const { callInfo, greeting, triage, closing, crmSummary } = require('./blocks');
+const { callInfo, greeting, triage, closing, crmSummary } = require('../blocks');
 
 const NOT_ISSUE = (id, ok) => ({ id, not: ok });
 // One medicine slot of Step 3: the medicine from the approved prescription, the script, the answer and the reason.

@@ -11,6 +11,7 @@ export const STATE_STYLE = {
   cancelled: 'bg-charcoal/[0.08] text-charcoal/60',
 };
 export const KIND_STYLE = {
+  foundation: { chip: 'bg-[#E7F2EC] text-[#1F4F3D]', dot: 'bg-[#2F7A5B]', label: 'Foundation' },
   followup: { chip: 'bg-[#E6EEF8] text-[#24476F]', dot: 'bg-[#3B6EA8]', label: 'Follow-up' },
   family: { chip: 'bg-[#F1ECFA] text-[#4B2E83]', dot: 'bg-[#6B46C1]', label: 'Family session' },
   tracker: { chip: 'bg-[#FDF0E6] text-[#8A4B12]', dot: 'bg-[#C2620C]', label: 'Tracker' },

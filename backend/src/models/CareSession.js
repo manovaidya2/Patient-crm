@@ -1,13 +1,14 @@
 const mongoose = require('mongoose');
 
-// One medical follow-up, family session or development tracker of a patient's phase (Care Schedule). The schedule is
-// made from the medicine start date the PCC fills after the explanation (utils/careSchedule.js): FU-01 ... FU-07 on
-// day 10, 20, 50, 80, 110, 140, 170; FS-01 ... FS-03 on day 15, 105, 165; DT-01 ... DT-03 on day 60, 120, 180 -
-// only the days the supplied medicine covers.
+// One foundation session, medical follow-up, family session or development tracker of a patient's phase (Care
+// Schedule). The schedule is made from the medicine start date the PCC fills after the explanation
+// (utils/careSchedule.js): FCF-01 ... FCF-07 on day 1-7 (consecutive working days); FS-01 ... FS-03 on day 15, 105,
+// 165; FU-01 ... FU-06 on day 20, 50, 80, 110, 140, 170; DT-01, DT-02 on day 60, 120 - only the days the supplied
+// medicine covers. Sessions made on the earlier plan (FU-01 ... FU-07 from day 10, DT-03) stay as they were.
 // The call: the PCC sets the call time, may reschedule it (at most twice), records every call made (when, picked up or
 // not, how long, what was said), marks it missed by the parents or cancelled (with a reason), or fills the session's form and marks it done.
 const STATUSES = ['pending', 'scheduled', 'completed', 'missed', 'cancelled'];
-const KINDS = ['followup', 'family', 'tracker'];
+const KINDS = ['foundation', 'followup', 'family', 'tracker'];
 const ATTEMPTS = ['not_connected', 'busy', 'switched_off', 'wrong_number', 'callback', 'connected'];
 
 const by = {
@@ -70,7 +71,7 @@ const careSessionSchema = new mongoose.Schema(
       }, { _id: false })],
       default: [],
     },
-    // Development trackers (DT-01 ... DT-03) have no form and no call: the PCC records when the tracker was sent to the
+    // Development trackers (DT-01, DT-02) have no form and no call: the PCC records when the tracker was sent to the
     // parents, then pastes the link of the filled tracker, which completes the session.
     tracker: {
       type: new mongoose.Schema({

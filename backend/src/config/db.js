@@ -79,6 +79,11 @@ const connectDB = async () => {
         .then((out) => { if (out.moved || out.results.length) console.log(`Care Schedule: ${out.moved} old phase(s) moved, ${out.sessions} new session(s), ${out.closed} old entr(ies) closed${out.results.some((r) => !r.ok) ? `; not moved: ${out.results.filter((r) => !r.ok).map((r) => `${r.patientName} P${r.phase} (${r.reason})`).join(', ')}` : ''}`); })
         .catch((error) => console.error(`Care Schedule move skipped: ${error.message}`));
     }
+    // Sessions made on the earlier Care Schedule plan (FU-01 on day 10 ... FU-07, DT-03) move to the plan of 2026-11-26
+    // (utils/careReplan.js). Only phases already on the Care Schedule that still have such sessions are touched; once moved,
+    // never again. Old follow-ups / family sessions (not on the Care Schedule) are not touched here.
+    require('../utils/careReplan').replanSessions({ log: console.log })
+      .catch((error) => console.error(`Care Schedule new plan skipped: ${error.message}`));
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
     process.exit(1);

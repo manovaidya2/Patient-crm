@@ -33,7 +33,7 @@ const aSession = (extra = {}) => {
 const later = (days, hour = '11:00') => new Date(`${new Date(Date.now() + days * 86400000 + 19800000).toISOString().slice(0, 10)}T${hour}:00+05:30`);
 const notWednesday = (days) => { let d = days; while (later(d).getUTCDay() === 3 || new Date(later(d).getTime() + 19800000).getUTCDay() === 3) d += 1; return later(d); };
 
-test('1 + 5 months: the first month schedules day 10, 15, 20; the second supply goes on from its own start date', async () => {
+test('1 + 5 months: the first month schedules the foundation week, day 15 and 20; the second supply goes on from its own start date', async () => {
   const inserted = [];
   mock.method(CareSession, 'find', () => chain([]));
   mock.method(CareSession, 'insertMany', async (docs) => { inserted.push(...docs); return docs; });
@@ -44,7 +44,9 @@ test('1 + 5 months: the first month schedules day 10, 15, 20; the second supply 
   const made = await service.startCarePlan({ patient, stage, user: pcc, firstSave: true });
   assert.equal(made.status, 'created');
   assert.deepEqual(stage.carePlan.parts.map((p) => [p.requestId, p.days, p.startDate, p.offsetDays]), [['r1', 30, '2026-11-20', 0]]);
-  assert.deepEqual(inserted.map((s) => `${s.code}@${s.targetDate}`), ['FU-01@2026-11-30', 'FS-01@2026-12-05', 'FU-02@2026-12-10']);
+  // Friday 2026-11-20: the foundation week on consecutive working days (Wednesday 25 skipped), then day 15 and 20.
+  assert.deepEqual(inserted.map((s) => `${s.code}@${s.targetDate}`), ['FCF-01@2026-11-20', 'FCF-02@2026-11-21', 'FCF-03@2026-11-22', 'FCF-04@2026-11-23', 'FCF-05@2026-11-24', 'FCF-06@2026-11-26', 'FCF-07@2026-11-27', 'FS-01@2026-12-05', 'FU-01@2026-12-10']);
+  assert.equal(inserted[0].kind, 'foundation');
   assert.equal(inserted[0].assigneeName, pcc.name);
 
   inserted.length = 0;
@@ -54,8 +56,8 @@ test('1 + 5 months: the first month schedules day 10, 15, 20; the second supply 
   const next = await service.continueCarePlan({ patient, stage, request: second, day: '2026-12-20', user: pcc });
   assert.equal(next.status, 'continued');
   assert.deepEqual(stage.carePlan.parts.map((p) => [p.requestId, p.days, p.offsetDays]), [['r1', 30, 0], ['r2', 150, 30]]);
-  assert.equal(inserted.length, 10);
-  assert.equal(inserted[0].code, 'FU-03');
+  assert.equal(inserted.length, 9, 'FU-02 … FU-06, FS-02, FS-03, DT-01, DT-02');
+  assert.equal(inserted[0].code, 'FU-02');
   assert.equal(inserted[0].targetDate, '2027-01-09', 'day 50 = 20 days after the second start (2026-12-20)');
 });
 
@@ -68,7 +70,7 @@ test('an old phase (start date saved before the Care Schedule) gets nothing; mon
   assert.equal(stage.carePlan, undefined);
 });
 
-test('a corrected start date moves the open sessions (and a call time not yet rescheduled)', async () => {
+test('a corrected start date moves the open sessions (and a call time not yet rescheduled); an earlier-plan session keeps its own day', async () => {
   const doc = aSession({ code: 'FU-01', day: 10, targetDate: '2026-11-30', supplyKey: 'r1', callAt: new Date('2026-11-30T05:30:00Z'), status: 'scheduled' });
   mock.method(CareSession, 'find', async () => [doc]);
   const stage = { number: 1, carePlan: { parts: [{ requestId: 'r1', days: 30, startDate: '2026-11-20', offsetDays: 0 }] }, transit: { medicineStartDate: new Date('2026-11-23T00:00:00+05:30') }, medicineRequests: [], markModified() {} };

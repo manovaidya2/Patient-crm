@@ -1,5 +1,5 @@
 // MV-FS-01 • Family Session 01 (Day 15): Parent Foundation, Understanding & Home Training.
-const { callInfo, consent, contactRules, taskRegister, familyCompletion, CONCERN_AREAS, MANDATORY } = require('./blocks');
+const { callInfo, consent, contactRules, taskRegister, familyCompletion, CONCERN_AREAS, MANDATORY } = require('../blocks');
 
 const PROBLEM = { id: 'safety', any: ['परेशानी है'] };
 const PAPER_STATUS = ['Delivered & Explained', 'Delivered, Not Explained', 'Not Issued', 'Not Received', 'Not Applicable'];

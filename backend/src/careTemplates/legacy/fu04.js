@@ -2,7 +2,7 @@
 const {
   sessionInfo, greeting, safetyScreen, medicineContinuity, openIssues, parentSupport, futureConnection, closing, crmSummary,
   DIFFICULTY, DIFFICULTY_ACTION, GREETING_LINE, CLOSING_LINE, STATUS_BRANCH, EXCEPTION_TEXT, journeyRule,
-} = require('./blocks');
+} = require('../blocks');
 
 const A = { id: 'trackerBranch', any: ['Tracker 01 Completed & Approved → Script A'] };
 const B = { id: 'trackerBranch', any: ['Tracker 01 Pending → Script B'] };

@@ -11,7 +11,7 @@ const fu = (day, status = 'scheduled', followUpType = 'normal') => ({ _id: id(),
 const NOW = at('2026-11-21', '10:00');
 
 test('2 months left: only the new-pattern sessions of the days left, from today', () => {
-  // First follow-up 2026-07-25 -> start 2026-07-15; day 129 today; 6 months -> FU-06, FS-03, FU-07, DT-03 left.
+  // First follow-up 2026-07-25 -> start 2026-07-15; day 129 today; 6 months -> FU-05 (day 140), FS-03, FU-06 left (no DT-03 any more).
   const stage = {
     number: 1, followUps: [fu('2026-07-25', 'completed'), fu('2026-08-25', 'completed'), fu('2026-11-25'), fu('2026-12-08', 'scheduled', 'tracker'), fu('2027-01-04')],
     familySessions: [{ _id: id(), dateTime: at('2026-08-10'), status: 'completed' }, { _id: id(), dateTime: at('2026-12-26'), status: 'scheduled' }],
@@ -19,24 +19,24 @@ test('2 months left: only the new-pattern sessions of the days left, from today'
   const plan = planConversion(stage, NOW);
   assert.equal(plan.ok, true);
   assert.deepEqual([plan.anchor.day, plan.anchor.source.startsWith('10 days before'), plan.length.days], ['2026-07-15', true, 180]);
-  assert.deepEqual(plan.items.map((i) => i.code), ['FU-06', 'FS-03', 'FU-07', 'DT-03']);
-  assert.deepEqual(plan.items.map((i) => i.targetDate), ['2026-12-03', '2026-12-27', '2027-01-01', '2027-01-11']);
+  assert.deepEqual(plan.items.map((i) => i.code), ['FU-05', 'FS-03', 'FU-06']);
+  assert.deepEqual(plan.items.map((i) => i.targetDate), ['2026-12-03', '2026-12-27', '2027-01-01']);
   assert.equal(plan.close.length, 4, 'the 4 open old entries are closed');
   assert.equal(plan.kept, 3, 'the 3 done ones stay');
   // The old family session of 2026-12-26 is a day from FS-03 (2026-12-27): its call time is kept. The old follow-up of
-  // 2027-01-04 is 3 days from FU-07 (2027-01-01). FU-06 (2026-12-03): the nearest old follow-up (2026-11-25) is 8 days away -> none.
+  // 2027-01-04 is 3 days from FU-06 (2027-01-01). FU-05 (2026-12-03): the nearest old follow-up (2026-11-25) is 8 days away -> none.
   const carry = Object.fromEntries(plan.items.map((i) => [i.code, i.carry && i.carry.from]));
-  assert.deepEqual(carry, { 'FU-06': null, 'FS-03': '2026-12-26', 'FU-07': '2027-01-04', 'DT-03': null });
+  assert.deepEqual(carry, { 'FU-05': null, 'FS-03': '2026-12-26', 'FU-06': '2027-01-04' });
 });
 
 test('the start date and the length come from the record when they are there', () => {
   const base = { number: 2, followUps: [fu('2026-12-01')], familySessions: [] };
   const withStart = planConversion({ ...base, transit: { medicineStartDate: at('2026-11-01', '00:00') } }, NOW);
   assert.deepEqual([withStart.anchor.day, withStart.anchor.source], ['2026-11-01', 'medicine start date']);
-  assert.deepEqual(withStart.items.map((i) => i.code).slice(0, 3), ['FU-02', 'FU-03', 'DT-01'], 'day 20 = 2026-11-21 (today) onward');
+  assert.deepEqual(withStart.items.map((i) => i.code).slice(0, 3), ['FU-01', 'FU-02', 'DT-01'], 'day 20 = 2026-11-21 (today) onward; the foundation week is past');
   const twoMonths = planConversion({ ...base, transit: { medicineStartDate: at('2026-11-01', '00:00') }, medicineMonthsGiven: 2 }, NOW);
   assert.equal(twoMonths.length.days, 60);
-  assert.deepEqual(twoMonths.items.map((i) => i.code), ['FU-02', 'FU-03', 'DT-01']);
+  assert.deepEqual(twoMonths.items.map((i) => i.code), ['FU-01', 'FU-02', 'DT-01']);
   const received = planConversion({ ...base, transit: { medicineStartDate: at('2026-11-01', '00:00') }, medicineRequests: [{ requestId: 'r1', supplyPlan: '2+4', supplyPart: 'first', courier: { status: 'delivered' } }] }, NOW);
   assert.equal(received.length.days, 60);
 });
@@ -55,7 +55,7 @@ test('1 month given but the old schedule went to March: the phase is as long as 
   const plan = planConversion(stage, NOW);
   assert.deepEqual([plan.ok, plan.over, plan.length.days], [true, false, 180]);
   assert.match(plan.length.source, /old schedule/);
-  assert.equal(plan.items.at(-1).code, 'DT-03');
+  assert.equal(plan.items.at(-1).code, 'FU-06');
 });
 
 test('the update: Care Schedule part, old open entries closed with their status before, only once', () => {

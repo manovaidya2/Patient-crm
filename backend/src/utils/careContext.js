@@ -55,7 +55,47 @@ const actionsOf = (session) => {
   }).filter(Boolean).join('\n');
 };
 
-const buildContext = async (session, user) => {
+// An answer of an earlier form as text (the "ans:" keys): choices joined, a table one row per line ("row: a · b").
+const answerText = (value, labels = {}) => {
+  if (value == null || value === false) return '';
+  if (value === true) return 'Yes';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (Array.isArray(value)) {
+    if (value.every((v) => v == null || typeof v !== 'object')) return value.filter((v) => v != null && String(v).trim()).join(', ');
+    return value.map((v) => answerText(v)).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value).map(([key, cell]) => {
+      const text = cell && typeof cell === 'object' && !Array.isArray(cell)
+        ? Object.values(cell).map((v) => answerText(v)).filter(Boolean).join(' · ')
+        : answerText(cell);
+      return text ? `${labels[key] ? `${labels[key]}: ` : ''}${text}` : '';
+    }).filter(Boolean).join('\n');
+  }
+  return '';
+};
+// The value of an "ans:CODE:blockId" / "ans:CODE:blockId.rowId" key (CODE may be "A|B": the first one answered) from
+// the phase's sessions (their saved forms; row labels from the form each was filled on).
+const answerOf = (from, byCode) => {
+  const [, codes = '', path = ''] = String(from).split(':');
+  const [blockId, rowId] = path.split('.');
+  for (const code of codes.split('|')) {
+    const session = byCode.get(code);
+    const value = session?.form?.answers?.[blockId];
+    if (value == null) continue;
+    let template = null;
+    try { template = require('../careTemplates').templateForSession(session); } catch (error) { template = null; }
+    const block = (template?.sections || []).flatMap((section) => section.blocks || []).find((b) => b.id === blockId);
+    const labels = Object.fromEntries((Array.isArray(block?.rows) ? block.rows : []).map((r) => [r.id, r.label]));
+    const text = rowId ? answerText(value?.[rowId]) : answerText(value, labels);
+    if (text) return text;
+  }
+  return '';
+};
+// The "from" keys a template uses.
+const fromKeysOf = (template) => (template?.sections || []).flatMap((section) => (section.blocks || []).flatMap((b) => [b.from, ...(Array.isArray(b.rows) ? b.rows : []).map((r) => r.from)])).filter(Boolean);
+
+const buildContext = async (session, user, template = null) => {
   const Patient = require('../models/Patient');
   const CareSession = require('../models/CareSession');
   const patient = dbUp() ? await Patient.findById(session.patient)
@@ -63,7 +103,7 @@ const buildContext = async (session, user) => {
     .lean() : null;
   const stage = (patient?.stages || []).find((s) => s.number === session.phase) || {};
   const [sessions, job, advice] = dbUp() ? await Promise.all([
-    CareSession.find({ patient: session.patient, phase: session.phase }).select('code status targetDate callAt completedAt form.answers').lean(),
+    CareSession.find({ patient: session.patient, phase: session.phase }).select('code kind day title status targetDate callAt completedAt closed form').lean(),
     require('../models/MedicineJob').findOne({ patient: session.patient, phase: session.phase, formulation: { $ne: null } }).sort({ createdAt: -1 }).select('formulation').lean(),
     require('../models/AdviceRequest').find({ patient: session.patient, resolvedAt: null }).select('query status resolvedAt').lean(),
   ]) : [[], null, []];
@@ -105,10 +145,21 @@ const buildContext = async (session, user) => {
   };
   Object.entries(med).forEach(([slot, name]) => { values[`med:${slot}`] = name; });
   ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'].forEach((slot) => { if (!values[`med:${slot}`] && job?.formulation) values[`med:${slot}`] = 'Not Prescribed'; });
-  const sessionsInfo = Object.fromEntries(C.PLAN.map((item) => {
+  // The foundation sessions' status, one per line (FCF-07 / FS-01 staff preparation).
+  const foundation = C.PLAN.filter((item) => item.kind === 'foundation').map((item) => {
     const s = byCode.get(item.code);
+    const state = !s ? 'Not scheduled' : C.notApplicable(s) ? 'Not applicable' : STATUS_TEXT[s.status] || s.status;
     const day = s ? C.dueDayOf(s) : '';
-    return [item.code, {
+    return `${item.code} ${item.title.replace(/^Foundation \d+ · /, '')}: ${state}${day ? ` (${fmt(day)})` : ''}`;
+  });
+  values.foundationStatus = sessions.some((s) => s.kind === 'foundation') ? foundation.join('\n') : '';
+  fromKeysOf(template).filter((from) => String(from).startsWith('ans:')).forEach((from) => { values[from] = answerOf(from, byCode); });
+  // Every code of the plan, and the phase's sessions made on the earlier plan (FU-07, DT-03 ...).
+  const codes = [...new Set([...C.PLAN.map((item) => item.code), ...sessions.map((s) => s.code)])];
+  const sessionsInfo = Object.fromEntries(codes.map((code) => {
+    const s = byCode.get(code);
+    const day = s ? C.dueDayOf(s) : '';
+    return [code, {
       status: s ? STATUS_TEXT[s.status] || s.status : 'Not scheduled (no medicine for this day yet)',
       date: day ? fmt(day) : '', at: s?.callAt ? fmtAt(s.callAt) : '',
       final: s?.form?.answers?.final || '', actions: s ? actionsOf(s) : '', scheduled: Boolean(s), done: s?.status === 'completed',
@@ -131,4 +182,4 @@ const valueOf = (context, from) => {
   return context.values[from] ?? '';
 };
 
-module.exports = { buildContext, valueOf, prescriptionOf, slotOf, openIssuesOf };
+module.exports = { buildContext, valueOf, prescriptionOf, slotOf, openIssuesOf, answerText, answerOf };

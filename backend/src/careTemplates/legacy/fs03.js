@@ -2,7 +2,7 @@
 const {
   sessionInfo, consent, familyOpening, contactRules, taskRegister, familyCompletion,
   CONCERN_AREAS, PRE_SESSION_CHECKLIST, STAFF_SCOPE, DOS_DONTS, MANDATORY,
-} = require('./blocks');
+} = require('../blocks');
 
 const YPN = ['Y', 'Partly', 'N'];
 const NO_RECORDS = { id: 'trackerRecords', any: ['नहीं हैं → Clarification Task'] };
