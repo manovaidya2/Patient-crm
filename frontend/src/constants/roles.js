@@ -66,7 +66,8 @@ export const hasHrFullAccess = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 export const canHrDelete = (role) => HR_FULL_ACCESS_ROLES.includes(role);
 
 // Roles allowed to assign/reassign a patient's PCC
-export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+// Who may change a patient's PCC: the Admin, the Manager, the Doctor and In Transit (a new patient gets one automatically).
+export const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT];
 
 // Where a user lands right after logging in
 export const getDefaultRoute = (role) => {

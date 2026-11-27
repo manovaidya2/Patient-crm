@@ -7,7 +7,7 @@ import PccCalendar, { pccSlotProblem } from './PccCalendar.jsx';
 import UtrRows, { emptyUtrRow, isMultiUtr, utrTotal, utrEntriesPayload } from '../payments/UtrRows.jsx';
 import Button from '../ui/Button.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { isAdminLike } from '../../constants/roles.js';
+import { ASSIGN_DOCTOR_ROLES, isAdminLike } from '../../constants/roles.js';
 import { FixedNote } from '../medicine/MedicineDelay.jsx';
 
 // The In Transit handover / treatment-start actions (calls, delivery mode, pickup or dispatch, receipt, explanation).
@@ -183,17 +183,50 @@ export function ActionForm({ formKey, item, onDone, onCancel, compact }) {
 
 // After handover: In Transit assigns the PCC (Patient Care Coordinator, role assistant_doctor) who explains the medicine. A doctor already on the
 // patient record is pre-selected so they can be kept or changed; the explanation date fixed earlier can be adjusted.
+// The PCC is picked automatically for a patient who has none yet: the one with the fewest active patients now (an
+// equal count in turn — GET /transit/pcc-workload). A patient who already has a PCC keeps them (the same person for
+// the whole treatment). The Admin, Manager, Doctor and In Transit get the dropdown (filled with that choice) to change
+// it; anyone else sees the PCC without a dropdown (the server makes the same choice for them).
 export function AssignPccForm({ item, onDone }) {
+  const { user } = useAuth();
+  const canChoose = ASSIGN_DOCTOR_ROLES.includes(user?.role);
   const [staff, setStaff] = useState([]);
-  const existing = item.assignments.assistantDoctor;
-  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: existing?.id || '', postCounselorId: item.assignments.postCounselor?.id || ''});
+  const [workload, setWorkload] = useState(null);
+  const recorded = item.assignments.assistantDoctor;
+  // The PCC list and the workload hold active accounts only. A recorded PCC whose account was made inactive is not
+  // kept: the PCC with the fewest patients is filled in instead.
+  const recordedInactive = Boolean(recorded && workload?.pccs) && !workload.pccs.some((p) => p.id === String(recorded.id));
+  const existing = recordedInactive ? null : recorded;
+  const [values, setValues] = useState({ explanationAt: item.explanation.at ? localInput(item.explanation.at) : '', explanationMode: item.explanation.mode || 'phone', assistantDoctorId: recorded?.id || '', postCounselorId: item.assignments.postCounselor?.id || ''});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.get('/transit/staff', { skipCache: true }).then(({ data }) => setStaff(data.staff)).catch(() => setError('Could not load the staff list')); }, []);
+  useEffect(() => {
+    api.get('/transit/pcc-workload', { skipCache: true }).then(({ data }) => {
+      setWorkload(data);
+      // No PCC yet, or the one filled in is not an active PCC: the one with the fewest patients is filled in.
+      const active = new Set((data.pccs || []).map((p) => p.id));
+      if (data.suggestedId) setValues((old) => (old.assistantDoctorId && active.has(String(old.assistantDoctorId)) ? old : { ...old, assistantDoctorId: data.suggestedId }));
+    }).catch(() => setWorkload(null));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const loadOf = (id) => (workload?.pccs || []).find((p) => p.id === id);
+  const suggested = loadOf(workload?.suggestedId);
+  const autoPicked = Boolean(suggested) && !existing && values.assistantDoctorId === suggested.id;
+  const loadText = (p) => `${p.patients} patient${p.patients === 1 ? '' : 's'}`;
   const set = (key, value) => setValues((old) => ({ ...old, [key]: value }));
   const select = (key, label, role, req) => (
     <label className="block space-y-1 text-sm font-medium text-charcoal"><span>{label}{req && <span className="text-red-700"> *</span>}</span>
       <select className={inputClass} required={req} value={values[key]} onChange={(e) => set(key, e.target.value)}><option value="">Select</option>{staff.filter((s) => s.role === role).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+    </label>
+  );
+  const pccName = existing?.name || suggested?.name || '';
+  // The Admin / Manager / Doctor dropdown: no empty "Select" line (the PCC is always filled in), each PCC with their count.
+  const pccSelect = (
+    <label className="block space-y-1 text-sm font-medium text-charcoal"><span>PCC (Patient Care Coordinator)<span className="text-red-700"> *</span></span>
+      <select className={inputClass} required value={values.assistantDoctorId} onChange={(e) => set('assistantDoctorId', e.target.value)}>
+        {!values.assistantDoctorId && <option value="">{workload ? 'No active PCC found' : 'Picking the PCC...'}</option>}
+        {staff.filter((s) => s.role === 'assistant_doctor').map((s) => { const w = loadOf(s.id); return <option key={s.id} value={s.id}>{s.name}{w ? ` — ${loadText(w)}${w.id === workload?.suggestedId ? ' (fewest)' : ''}${w.onLeave ? ' · on leave today' : ''}` : ''}</option>; })}
+      </select>
     </label>
   );
   const slotProblem = pccSlotProblem(values.explanationAt);
@@ -203,17 +236,31 @@ export function AssignPccForm({ item, onDone }) {
     event.preventDefault();
     if (slotProblem) { setError(slotProblem); return; }
     setSaving(true); setError('');
-    try { onDone(await sendAction(item, 'assign_pcc', { ...values, explanationAt: values.explanationAt ? new Date(values.explanationAt).toISOString() : '' })); }
+    try { onDone(await sendAction(item, 'assign_pcc', { ...values, autoPicked, explanationAt: values.explanationAt ? new Date(values.explanationAt).toISOString() : '' })); }
     catch (err) { setError(err.response?.data?.message || 'Could not assign the PCC'); } finally { setSaving(false); }
   };
   return (
     <form onSubmit={submit} className="space-y-3">
       <h3 className="text-base font-bold text-charcoal">Medicine explanation date & PCC (Patient Care Coordinator)</h3>
-      {existing && !item.pcc?.assigned && <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900"><b>{existing.name}</b> is already the PCC on this patient's record. Keep them or pick another; saving confirms the PCC for Phase {item.stage}.</p>}
-      {item.pcc?.assigned && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">PCC for this phase: <b>{item.pcc.name || existing?.name}</b> (assigned by {item.pcc.byName}). Save to change.</p>}
+      {existing && !item.pcc?.assigned && <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900"><b>{existing.name}</b> is already the PCC on this patient's record — the explanation goes to them. {canChoose ? 'Pick another below only if needed.' : 'Only the Admin, Manager, Doctor or In Transit can change the PCC.'}</p>}
+      {item.pcc?.assigned && !recordedInactive && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">PCC for this phase: <b>{item.pcc.name || existing?.name}</b> (assigned by {item.pcc.byName}).</p>}
+      {recordedInactive && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"><b>{recorded.name || 'The recorded PCC'}</b>'s account is inactive, so a new PCC is filled in below. Saving gives this patient to the new PCC.</p>}
+      {autoPicked && <p className="rounded-lg bg-[#EEF3F0] px-3 py-2 text-sm text-[#1F4F3D]">Picked automatically: <b>{suggested.name}</b> — fewest patients now ({loadText(suggested)}). An equal count goes to each PCC in turn. {canChoose ? 'Change it below if needed.' : 'Only the Admin, Manager, Doctor or In Transit can change the PCC.'}</p>}
+      {workload?.pccs?.length > 0 && (
+        <details className="rounded-lg border border-cardline bg-white px-3 py-2 text-xs text-charcoal/75">
+          <summary className="cursor-pointer font-semibold text-charcoal">Patients of every PCC (workload)</summary>
+          <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+            {workload.pccs.map((p) => <li key={p.id} className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 ${p.id === workload.suggestedId ? 'bg-[#EEF3F0] font-semibold text-[#1F4F3D]' : 'bg-offwhite-200'}`}><span>{p.name}{p.onLeave ? ' · on leave today' : ''}</span><b>{loadText(p)}</b></li>)}
+          </ul>
+        </details>
+      )}
       {error && <p className="rounded-lg bg-[#8C3B2E]/8 px-3 py-2 text-sm text-[#8C3B2E]">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {select('assistantDoctorId', 'PCC (Patient Care Coordinator)', 'assistant_doctor', true)}
+        {canChoose ? pccSelect : (
+          <div className="space-y-1 text-sm font-medium text-charcoal"><span>PCC (Patient Care Coordinator) · automatic</span>
+            <p className="rounded-lg border border-cardline bg-offwhite-200 px-3 py-2 font-semibold">{pccName || (workload ? 'No active PCC found' : 'Picking the PCC...')}</p>
+          </div>
+        )}
         <label className="block space-y-1 text-sm font-medium text-charcoal"><span>Medicine explanation date & time<span className="text-red-700"> *</span></span><input className={inputClass} type="datetime-local" required value={values.explanationAt} onChange={(e) => set('explanationAt', e.target.value)} />{slotProblem && <span className="block text-xs font-semibold text-[#8C3B2E]">{slotProblem}</span>}</label>
         <Field field={['explanationMode', 'Explanation mode', 'pills', true, [['phone', 'Phone'], ['video', 'Video'], ['clinic', 'Clinic']]]} value={values.explanationMode} onChange={set} />
         {select('postCounselorId', `Post counselor (Phase ${item.stage}, optional)`, 'post_counselor', false)}

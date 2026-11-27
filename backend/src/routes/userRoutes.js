@@ -7,7 +7,8 @@ const router = express.Router();
 router.use(protect);
 
 // Used to populate the "Assigned Doctor" dropdown — not full Team Members access
-router.get('/assistant-doctors', authorize('admin', 'manager', 'post_counselor', 'in_transit'), getAssistantDoctors);
+// Active PCCs only (an inactive account is never offered). The Doctor changes a patient's PCC too (ASSIGN_DOCTOR_ROLES).
+router.get('/assistant-doctors', authorize('admin', 'manager', 'doctor', 'post_counselor', 'in_transit'), getAssistantDoctors);
 router.get('/psychologists', authorize('admin', 'manager', 'post_counselor', 'in_transit'), getPsychologists);
 router.get('/post-counselors', authorize('admin', 'manager', 'post_counselor'), getPostCounselors);
 

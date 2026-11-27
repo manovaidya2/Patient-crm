@@ -43,7 +43,8 @@ test('account pages accept receptionist and no accountant role remains', () => {
 });
 
 test('In Transit can open assignment staff lists and assignment update route', () => {
-  assert.equal(ASSIGN_DOCTOR_ROLES.includes(ROLES.IN_TRANSIT), true);
+  // The Admin, Manager, Doctor and In Transit change a PCC (asked 2026-11-27); a new patient's PCC is picked automatically.
+  assert.deepEqual(ASSIGN_DOCTOR_ROLES, [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT]);
   const patientGuard = routeGuard(patientRouter, '/:id', 'patch');
   const doctorGuard = routeGuard(userRouter, '/assistant-doctors', 'get');
   const psychologistGuard = routeGuard(userRouter, '/psychologists', 'get');

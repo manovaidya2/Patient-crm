@@ -14,6 +14,7 @@ router.post('/:patientId/:number/complete-explanation', authorize(ROLES.ADMIN, R
 router.post('/:patientId/:number/medicine-start', authorize(ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR), require('../controllers/transitController').setMedicineStart);
 router.post('/:patientId/:number/reschedule-explanation', authorize(ROLES.ADMIN, ROLES.ASSISTANT_DOCTOR), require('../controllers/transitController').rescheduleExplanation);
 router.get('/staff', authorize(...TRANSIT_ROLES), listStaff);
+router.get('/pcc-workload', authorize(...TRANSIT_ROLES), require('../controllers/transitController').pccWorkload);
 router.get('/staff/:id/calendar', authorize(...TRANSIT_ROLES, ROLES.ASSISTANT_DOCTOR), getPccCalendar);
 router.get('/', authorize(...TRANSIT_ROLES), listTransit);
 router.get('/follow-ups', authorize(...TRANSIT_ROLES), require('../controllers/transitController').listFollowUps);

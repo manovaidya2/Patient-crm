@@ -49,7 +49,9 @@ const PATIENT_FULL_ACCESS_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSE
 const PATIENT_ACCESS_ROLES = [...PATIENT_FULL_ACCESS_ROLES, ROLES.ASSISTANT_DOCTOR];
 
 // Roles allowed to assign/reassign a patient's Assistant Doctor and Psychologist.
-const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.POST_COUNSELOR, ROLES.IN_TRANSIT];
+// Who may change a patient's PCC (asked 2026-11-27): the Admin, the Manager, the Doctor and In Transit. A new patient
+// gets one automatically at "Schedule explanation & assign PCC" (fewest patients, utils/pccWorkload.js).
+const ASSIGN_DOCTOR_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.DOCTOR, ROLES.IN_TRANSIT];
 
 // The Manager works like the Admin everywhere (sees and fills every role's work), except deleting anything and
 // reading other people's private Team Chat - those stay with the Admin only.

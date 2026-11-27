@@ -127,6 +127,8 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Dr Asha', role: 'assistant_doctor' };
   const other = { _id: new mongoose.Types.ObjectId(), name: 'Dr Neha', role: 'assistant_doctor' };
   mock.method(User, 'findOne', (query) => ({ select: () => ({ lean: async () => ([doctor, other].find((p) => String(p._id) === String(query._id) && p.role === query.role)) }) }));
+  // A patient without a PCC gets the one with the fewest patients (Dr Asha here).
+  mock.method(require('../utils/pccWorkload'), 'loadPccWorkload', async () => [{ id: String(doctor._id), patients: 1 }, { id: String(other._id), patients: 9 }]);
   const schedule = { action: 'schedule_delivery', deliveryType: 'pickup', visitAt: future() };
   await assert.rejects(() => act(patient, schedule), /connected call/);
   // Step 1: call until it connects, then mark the call done.
@@ -153,7 +155,9 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   assert.equal(item.nextAction, 'assign_pcc');
   // The medicine explanation date and the PCC are their own step.
   await assert.rejects(() => act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) }), /explanation date/);
-  item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id), explanationAt: workDay(), explanationMode: 'clinic' });
+  // No PCC sent for a patient without one: the fewest-patients PCC is assigned.
+  item = await act(patient, { action: 'assign_pcc', explanationAt: workDay(), explanationMode: 'clinic' });
+  assert.equal(String(patient.assignedDoctor), String(doctor._id));
   assert.ok(stage.medicineExplainDate && stage.transit.explanationScheduledAt);
   assert.equal(stage.transit.explanationMode, 'clinic');
   assert.equal(item.pcc.assigned, true);
@@ -168,9 +172,14 @@ test('after "ready": calls until connected, then the delivery schedule, then the
   assert.equal(stage.transit.pickupScheduledAt, null);
   assert.ok(stage.transit.dispatchScheduledAt);
   assert.equal(item.steps.some((s) => s.key === 'received'), true);
+  // In Transit (like the Admin / Manager / Doctor) can change the PCC; a role outside them cannot.
   item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(other._id) });
   assert.equal(String(patient.assignedDoctor), String(other._id));
+  const counselorUser = { _id: new mongoose.Types.ObjectId(), name: 'Counselor', role: 'post_counselor' };
+  item = (await invoke(runAction, patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) }, counselorUser)).item;
+  assert.equal(String(patient.assignedDoctor), String(other._id), 'a post counselor cannot change the PCC');
   item = await act(patient, { action: 'assign_pcc', assistantDoctorId: String(doctor._id) });
+  assert.equal(String(patient.assignedDoctor), String(doctor._id));
   // Handover only after Medicine Department release (the parcel is packed there).
   stage.payments.push({ amount: 500, approvalStatus: 'approved' });
   await act(patient, { action: 'po_paper_signed', signed: 'true' });
@@ -228,6 +237,7 @@ test('self pickup requires schedule, release and full payment, then assigned doc
   const doctor = { _id: new mongoose.Types.ObjectId(), name: 'Doctor', role: 'assistant_doctor' };
   const counselor = { _id: new mongoose.Types.ObjectId(), name: 'Counselor', role: 'post_counselor' };
   mock.method(User, 'findOne', query => ({ select: () => ({ lean: async () => [doctor, counselor].find(p => String(p._id) === String(query._id) && p.role === query.role) }) }));
+  mock.method(require('../utils/pccWorkload'), 'loadPccWorkload', async () => [{ id: String(doctor._id), patients: 0 }]);
   const item = await act(patient, { action: 'start_treatment', explanationAt: workDay(Date.now()), assistantDoctorId: String(doctor._id), postCounselorId: String(counselor._id) });
   assert.equal(item.activated, false);
   assert.equal(item.step.key, 'explained');

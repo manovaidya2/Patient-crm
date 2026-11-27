@@ -2146,7 +2146,7 @@ const updatePatient = asyncHandler(async (req, res) => {
 
   if (assignedDoctor !== undefined) {
     if (!ASSIGN_DOCTOR_ROLES.includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: 'You do not have permission to assign patients' });
+      return res.status(403).json({ success: false, message: 'Only the Admin, Manager, Doctor or In Transit can change the PCC' });
     }
     if (!assignedDoctor) {
       if (patient.assignedDoctor) {

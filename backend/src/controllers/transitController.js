@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const Patient = require('../models/Patient');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const User = require('../models/User');
-const { ROLES, isAdminLike } = require('../constants/roles');
+const { ROLES, isAdminLike, ASSIGN_DOCTOR_ROLES } = require('../constants/roles');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { buildTransitCase, isInTransit, pickRequest, paymentSummary, SHIPPED_MODES, MODE_LABEL, refillOpen, roundTransit, beginSupplyRound, ensureSupplyRound, startRequestOf, pendingStart, requestKey } = require('../utils/transitFlow');
 const { parseUtrEntries, resolveUtrs } = require('../utils/utrEntries');
@@ -136,6 +136,13 @@ const listStaff = asyncHandler(async (req, res) => {
   const users = await User.find({ role: { $in: [ROLES.ASSISTANT_DOCTOR, ROLES.POST_COUNSELOR] }, isActive: { $ne: false } })
     .select('name role').sort({ name: 1 }).lean();
   res.json({ success: true, staff: users.map((u) => ({ id: String(u._id), name: u.name, role: u.role })) });
+});
+
+// @route GET /api/transit/pcc-workload   Every PCC's active patient count, ranked: the first is the automatic choice
+// for a new patient's medicine explanation (fewest patients; an equal count in turn; on leave today last).
+const pccWorkload = asyncHandler(async (req, res) => {
+  const pccs = await require('../utils/pccWorkload').loadPccWorkload();
+  res.json({ success: true, pccs, suggestedId: pccs[0]?.id || '' });
 });
 
 const logActivity = (patient, user, stageNumber, details) => patient.activityLog.push({ action: `In transit - Phase ${stageNumber}`, details, actorName: user.name, actorRole: user.role });
@@ -403,9 +410,23 @@ const ACTIONS = {
     // A newly picked date may not fall on the PCCs' day off (Wednesday).
     if (body.explanationAt) assertWorkingDay(explanationAt);
     if (!explanationAt) fail('Set the medicine explanation date and time');
-    const doctor = await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC');
+    // The PCC (asked 2026-11-27): the patient's own PCC stays; a patient without one (or whose PCC left) gets the PCC
+    // with the fewest patients (an equal count in turn). The Admin, Manager, Doctor and In Transit may pick another
+    // (their dropdown comes filled with that choice); for anyone else a PCC sent is ignored.
+    const canChoose = ASSIGN_DOCTOR_ROLES.includes(req.user.role);
+    let doctor = canChoose && body.assistantDoctorId ? await staffMember(body.assistantDoctorId, ROLES.ASSISTANT_DOCTOR, 'PCC') : null;
+    let autoPicked = Boolean(doctor) && (body.autoPicked === true || body.autoPicked === 'true');
+    if (!doctor) {
+      const current = patient.assignedDoctor?._id || patient.assignedDoctor || stage.transit.explanationDoctor;
+      doctor = current ? await User.findOne({ _id: current, role: ROLES.ASSISTANT_DOCTOR, isActive: { $ne: false } }).select('name').lean() : null;
+      if (!doctor) {
+        const first = (await require('../utils/pccWorkload').loadPccWorkload({ now }))[0];
+        if (first) { doctor = await staffMember(first.id, ROLES.ASSISTANT_DOCTOR, 'PCC'); autoPicked = true; }
+      }
+    }
+    body.autoPicked = autoPicked;
     const counselor = await staffMember(body.postCounselorId, ROLES.POST_COUNSELOR, 'post counselor');
-    if (!doctor) fail('Select the PCC (Patient Care Coordinator)');
+    if (!doctor) fail('No active PCC (Patient Care Coordinator) found to assign');
     setPcc({ patient, stage, doctor, explanationAt, req, now });
     if (counselor) stage.postCounselor = counselor._id;
     stage.medicineExplainDate = explanationAt;
@@ -413,7 +434,7 @@ const ACTIONS = {
       explanationScheduledAt: stage.transit.explanationScheduledAt || now, explanationScheduledByName: stage.transit.explanationScheduledByName || req.user.name,
       explanationMode: ['phone', 'video', 'clinic'].includes(body.explanationMode) ? body.explanationMode : (stage.transit.explanationMode || 'phone'),
     });
-    return `PCC assigned: ${doctor.name} | medicine explanation ${new Date(explanationAt).toISOString()}${counselor ? ` | post counselor ${counselor.name}` : ''}`;
+    return `PCC assigned: ${doctor.name}${body.autoPicked === true || body.autoPicked === 'true' ? ' (picked automatically: fewest patients)' : ''} | medicine explanation ${new Date(explanationAt).toISOString()}${counselor ? ` | post counselor ${counselor.name}` : ''}`;
   },
   // Older name of assign_pcc (kept for existing clients).
   start_treatment(context) { return ACTIONS.assign_pcc(context); },
@@ -781,4 +802,4 @@ const getTransitReminders = asyncHandler(async (req, res) => {
   res.json({ success: true, count: reminders.length, reminders });
 });
 
-module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation, rescheduleExplanation, listFollowUps, setMedicineStart };
+module.exports = { explanationOwner, listTransit, getTransitCase, listStaff, pccWorkload, getPccCalendar, runAction, removeFromTransit, restoreToTransit, ackExplanation, getTransitReminders, listExplanations, completeExplanation, rescheduleExplanation, listFollowUps, setMedicineStart };
