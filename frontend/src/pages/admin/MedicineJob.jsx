@@ -47,7 +47,6 @@ function ChitCard({ chit, patientName, checked, onToggle, disabled }) {
       <p className="mt-2 rounded-full border border-[#8A8494] px-3 py-0.5 text-xs">नाम &nbsp;{patientName || chit.patientName || '______________'}</p>
       <p className="my-1 text-center text-base">{chit.when}</p>
       <p className="whitespace-pre-line text-sm leading-relaxed">{chit.dose}</p>
-      <p className="text-right"><b className="text-lg" style={{ fontFamily: 'system-ui, sans-serif' }}>{chit.days}</b> दिवस</p>
       {chit.note && <p className="text-center text-[9px]">{chit.note}</p>}
       <p className="mt-1 flex items-center justify-between font-mono text-[10px] text-[#8A8494]"><span>{chit.name} · पैक {chit.n}/{chit.of}</span><span className="flex items-center gap-1 font-sans text-xs font-semibold text-charcoal"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={checked} disabled={disabled} onChange={onToggle} />Chit on pack</span></p>
     </label>

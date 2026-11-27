@@ -174,7 +174,6 @@ export default function FormulationSheet({ f, patientName, patientCode, remarks 
             <div className="grid gap-2 sm:grid-cols-2">
               {l.components ? l.components.map((c) => <FieldLabel key={c.code} label={`${c.name} (${c.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).components?.[c.code] ?? c.qty} onChange={(e) => setLine(l.key, { components: { ...(d(l.key).components || {}), [c.code]: e.target.value } })} /></FieldLabel>)
                 : l.unit ? <FieldLabel label={`Total quantity (${l.unit})`}><input className={poInput} type="number" step="0.001" min="0" value={d(l.key).qty ?? l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} /></FieldLabel> : null}
-              {l.packed && l.chitNo && <FieldLabel label="Packs (days each)"><input type="text" className={poInput} value={d(l.key).containers ?? l.packsText ?? l.containers.join(', ')} onChange={(e) => setLine(l.key, { containers: e.target.value })} placeholder={`e.g. 15 15 — empty: one pack of ${l.days || f.days} days`} /></FieldLabel>}
               <ExtraComponentsEditor components={d(l.key).extraComponents ?? l.extraComponents} medicineName={d(l.key).name ?? l.name} stockOptions={stockOptions} onChange={(extraComponents) => setLine(l.key, { extraComponents })} />
               {l.added && <FieldLabel label="Drawn from Stocks" className="sm:col-span-2"><StockPick value={d(l.key).stockCode ?? (l.stockCode || '')} options={stockOptions} onChange={(code) => setLine(l.key, { stockCode: code })} /></FieldLabel>}
             </div>
@@ -206,7 +205,6 @@ export default function FormulationSheet({ f, patientName, patientCode, remarks 
                 <FieldLabel label="Total quantity" required><input className={poInput} type="number" step="0.001" min="0" value={a.qty} onChange={(e) => setAdd({ qty: e.target.value })} /></FieldLabel>
                 <FieldLabel label="Unit"><select className={poInput} disabled={Boolean(a.ghritVariantCode)} value={a.unit} onChange={(e) => setAdd({ unit: e.target.value })}>{UNITS.map((u) => <option key={u} value={u}>{u}</option>)}</select></FieldLabel>
               </div>
-              <FieldLabel label="Packs (days each)"><input type="text" className={poInput} value={a.containers} onChange={(e) => setAdd({ containers: e.target.value })} placeholder={`e.g. 15 15 — empty: one pack of ${f.days} days`} /></FieldLabel>
               <DoseChitInput value={a} onChange={setAdd} />
               <ExtraComponentsEditor components={a.extraComponents} medicineName={a.name || "New medicine"} stockOptions={stockOptions} onChange={(extraComponents) => setAdd({ extraComponents })} />
               <FieldLabel label="Drawn from Stocks"><StockPick value={a.stockCode} options={stockOptions} onChange={(code) => setAdd({ stockCode: code })} /></FieldLabel>
@@ -259,7 +257,6 @@ export default function FormulationSheet({ f, patientName, patientCode, remarks 
               {(l.components?.length || l.extraComponents?.length) > 0 && <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">{[...(l.components || []), ...(l.extraComponents || [])].map((c, componentIndex) => <span key={`${c.code}-${componentIndex}`} className="rounded border border-cardline bg-white px-2 py-0.5">{c.name}: {num(c.qty)} {c.unit}{c.grams ? ` = ${num(c.grams)} g` : ''}{c.pinches ? ` / ${c.pinches} चुटकी` : ''}</span>)}</div>}
               {l.note && <p className="text-xs text-charcoal/55">{l.note}</p>}
               {l.honey && <p className="text-xs text-charcoal/55">शहद कुल: {num(l.honey[0])} {l.honey[1]} (औषधि से अलग, मरीज स्वयं)</p>}
-              {l.packsText ? <p className="text-xs text-charcoal/55">पैक: {l.packsText}</p> : l.containers?.length > 1 && <p className="text-xs text-charcoal/55">{l.containers.length} पैक: {l.containers.map((d) => `${d} दिन`).join(' + ')}</p>}
               {l.pending && <p className="text-[11px] font-semibold text-amber-800">पुष्टि बाकी: {l.pending}</p>}
               {l.packed && !l.components && !l.fromHome && !l.removed && (l.stockCode ? <p className="font-mono text-[11px] text-charcoal/55">Stocks: {l.stockCode}</p> : l.added || f.custom ? <p className="text-[11px] font-semibold text-sky-800">Not linked to Stocks - picked at preparation</p> : null)}
             </div>
