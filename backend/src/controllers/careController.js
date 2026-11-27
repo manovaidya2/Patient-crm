@@ -723,6 +723,8 @@ const remindersOf = (rows, now = new Date()) => {
 
 // Open sessions waiting on a person (sidebar count / Your pending work): red alert, overdue, today, no call time
 // within 3 days, a reminder due, or on a leave day (for the Manager / Admin).
+// Delayed: the call time / due day passed, or both reschedules used (red alert). These reach the Manager too.
+const DELAYED = ['alert', 'overdue'];
 const careWork = async (user, now = new Date()) => {
   if (mongoose.connection.readyState !== 1) return [];
   // Due within 3 days, or a reminder due, or (Manager / Admin) a reassign request waiting - whatever the day.
@@ -734,7 +736,12 @@ const careWork = async (user, now = new Date()) => {
   if (!seesAll(user)) filter.assignee = user._id;
   const rows = await CareSession.find(filter).select('patient patientName patientCode phase kind seq code title day targetDate callAt status owner ownerName assignee assigneeName reschedules cover reminders reassignRequest tracker').lean();
   const leaves = manages(user) ? await leavesFor(rows) : new Map();
-  return rows.map((s) => viewOf(s, { now, leaves })).filter((s) => WORK.includes(s.state) || s.leave || s.reminderDue || (manages(user) && s.reassignAsked))
+  const overseer = seesAll(user);
+  return rows.map((s) => viewOf(s, { now, leaves })).filter((s) => {
+    const own = !overseer || mine(user, s);
+    if (own && (WORK.includes(s.state) || s.reminderDue)) return true;
+    return (overseer && DELAYED.includes(s.state)) || s.leave || (manages(user) && s.reassignAsked);
+  })
     .sort((a, b) => ({ alert: 0, overdue: 1 }[a.state] ?? 2) - ({ alert: 0, overdue: 1 }[b.state] ?? 2) || String(a.dueDay).localeCompare(String(b.dueDay)));
 };
 

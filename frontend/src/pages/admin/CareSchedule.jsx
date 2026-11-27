@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowRightLeft, CalendarDays, CalendarHeart, ChevronLeft, ChevronRight, History, ListChecks, Search, Trash2, UserX } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, MessageCirclePlus, CalendarDays, CalendarHeart, ChevronLeft, ChevronRight, History, ListChecks, Search, Trash2, UserX } from 'lucide-react';
 import api from '../../api/axios.js';
 import useApiQuery from '../../api/useApiQuery.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
@@ -17,10 +17,12 @@ const VIEWS = [
 const KINDS = [['', 'All'], ['foundation', 'Foundation'], ['followup', 'Follow-ups'], ['family', 'Family sessions'], ['tracker', 'Trackers']];
 const errorText = (error) => error?.response?.data?.message || error?.message || 'Something went wrong';
 
-function SessionRow({ s, onOpen }) {
+// onQuery: the Manager / Admin raise a Team Chat query to the PCC about a delayed session (overdue / red alert).
+function SessionRow({ s, onOpen, onQuery }) {
   const kind = KIND_STYLE[s.kind] || KIND_STYLE.followup;
+  const delayed = ['overdue', 'alert'].includes(s.state);
   return (
-    <button type="button" onClick={() => onOpen(s.id)} className={`grid w-full gap-2 border-b border-cardline px-3 py-2.5 text-left transition hover:bg-[#FBF7ED] md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center ${s.state === 'alert' ? 'bg-[#FFF5F5]' : ''}`}>
+    <div role="button" tabIndex={0} onClick={() => onOpen(s.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(s.id); } }} className={`grid w-full cursor-pointer gap-2 border-b border-cardline px-3 py-2.5 text-left transition hover:bg-[#FBF7ED] md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center ${s.state === 'alert' ? 'bg-[#FFF5F5]' : ''}`}>
       <span className="min-w-0">
         <span className="flex flex-wrap items-center gap-1.5">
           <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-bold ${kind.chip}`}>{s.code}</span>
@@ -44,12 +46,13 @@ function SessionRow({ s, onOpen }) {
         <span className={`rounded-full px-2.5 py-0.5 text-[11.5px] font-bold ${STATE_STYLE[s.state] || ''}`}>{s.stateLabel}</span>
         {s.hasDraft && <span className="rounded-full bg-[#E6EEF8] px-2 py-0.5 text-[10.5px] font-bold text-[#24476F]">Draft</span>}
         {s.reassignAsked && <span className="rounded-full bg-[#EEF3FB] px-2 py-0.5 text-[10.5px] font-bold text-[#24476F]" title={s.reassignRequest?.reason}>Reassign asked</span>}
+        {onQuery && delayed && <button type="button" onClick={(e) => { e.stopPropagation(); onQuery(s.id); }} title="Ask the PCC about this delayed session (Team Chat)" className="inline-flex items-center gap-1 rounded-full border border-[#B4232F]/40 bg-white px-2 py-0.5 text-[11px] font-bold text-[#8A1C25] hover:bg-[#FDF0F0]"><MessageCirclePlus size={12} />Raise query</button>}
       </span>
-    </button>
+    </div>
   );
 }
 
-function Worklist({ onOpen }) {
+function Worklist({ onOpen, onQuery }) {
   const [view, setView] = useState('work');
   const [kind, setKind] = useState('');
   const [q, setQ] = useState('');
@@ -86,7 +89,7 @@ function Worklist({ onOpen }) {
         {loading && <p className="px-3 py-4 text-sm text-charcoal/55">Loading...</p>}
         {error && <p className="px-3 py-4 text-sm text-[#8A1C25]">{errorText(error)}</p>}
         {!loading && !error && !rows.length && <p className="px-3 py-6 text-center text-sm text-charcoal/55">{view === 'work' ? 'Nothing waiting right now.' : 'No sessions here.'}</p>}
-        {rows.map((s) => <SessionRow key={s.id} s={s} onOpen={onOpen} />)}
+        {rows.map((s) => <SessionRow key={s.id} s={s} onOpen={onOpen} onQuery={onQuery} />)}
       </div>
       <p className="text-[11.5px] text-charcoal/50">Foundation: Day 1–7 (one a day) · Family sessions: Day 15, 105, 165 · Follow-ups: Day 20, 50, 80, 110, 140, 170 · Trackers: Day 60, 120 (Day 180 in the clinic) — from the medicine start date, only the days the medicine covers. Clinic closed on Wednesday and holidays: a session falling on one moves to the next open day. A call can be rescheduled twice; then it must be completed, marked missed or cancelled.</p>
     </div>
@@ -224,7 +227,7 @@ export default function CareSchedule() {
           <button key={key} type="button" onClick={() => setTab(key)} className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-bold ${tab === key ? 'border-[#1F5F4A] text-[#1F5F4A]' : 'border-transparent text-charcoal/55'}`}><Icon size={15} />{label}</button>
         ))}
       </div>
-      {tab === 'list' && <Worklist onOpen={open} />}
+      {tab === 'list' && <Worklist onOpen={open} onQuery={canManage ? (id) => navigate(`/admin/team-chat?care=${id}`) : undefined} />}
       {tab === 'calendar' && <Calendar onOpen={open} />}
       {tab === 'old' && <OldRecords />}
       {tab === 'convert' && canManage && <ConvertOldPanel />}

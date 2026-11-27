@@ -82,8 +82,8 @@ async function revertJobTo(job, stageIndex, { request = null, phaseEntry = null,
 
 // Timeline order; reverting a step reverts every later done step first. Self pickup fixes the explanation & PCC before
 // the payment and the handover.
-const PO_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'fullpay', 'released', 'handover', 'pcc', 'received', 'explained', 'started'];
-const PICKUP_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'pcc', 'fullpay', 'released', 'handover', 'received', 'explained', 'started'];
+const PO_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'fullpay', 'release_request', 'released', 'handover', 'pcc', 'received', 'explained', 'started'];
+const PICKUP_REVERT_ORDER = ['details', 'payment', 'requested', 'accepted', 'ready', 'calls', 'scheduled', 'pcc', 'fullpay', 'release_request', 'released', 'handover', 'received', 'explained', 'started'];
 const orderOf = (steps = []) => { const at = (k) => steps.findIndex((s) => s.key === k); return at('pcc') >= 0 && at('fullpay') >= 0 && at('pcc') < at('fullpay') ? PICKUP_REVERT_ORDER : PO_REVERT_ORDER; };
 
 const courierOf = (request) => { if (!request.courier) request.courier = {}; return request.courier; };
@@ -185,6 +185,18 @@ const PO_REVERTS = {
     const snapshot = { request: take(request, ['status', 'sentToCourierAt', 'sentToCourierByName']), transit: take(round || {}, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']) };
     request.status = 'made'; clear(request, ['sentToCourierAt', 'sentToCourierByName']);
     if (round) clear(round, ['financialReleasedAt', 'financialReleasedByName', 'financialReleaseNote']);
+    return snapshot;
+  },
+  // In Transit's medicine release request goes back to "waiting for the request" (the payment review is done again).
+  // A released parcel is reverted by "released" first (it comes later in the order).
+  async release_request({ job }) {
+    const flow = job?.releaseRequest;
+    if (!flow?.requestedAt || job.status === 'released') return null;
+    const keys = ['requestedAt', 'requestedByName', 'requestNote', 'acceptedAt', 'acceptedByName', 'paymentSnapshot', 'transitPaymentVerifiedAt', 'transitPaymentVerifiedByName', 'transitPaymentFingerprint'];
+    const snapshot = { job: take(flow, keys) };
+    clear(flow, keys.filter((k) => k !== 'paymentSnapshot'));
+    flow.paymentSnapshot = null;
+    job.markModified?.('releaseRequest');
     return snapshot;
   },
   // Payments verified after the PO's own payment verification (the balance) go back to pending.

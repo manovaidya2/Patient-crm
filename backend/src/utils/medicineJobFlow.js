@@ -221,6 +221,8 @@ function jobSummary(jobDoc) {
   const v = buildJobView(jobDoc);
   return {
     id: v.id, status: v.status, currentKey: v.currentKey, progress: v.progress, hold: v.hold, returned: v.returned, photos: v.photos, urgency: v.urgency, readyByDate: v.readyByDate, delay: v.delay, boxReceipt: v.boxReceipt,
+    // In Transit's release request (asked from the PO timeline's "Request medicine release" step).
+    releaseRequest: v.releaseRequest,
     currentLabel: v.status === 'released' ? 'Released to In Transit' : v.status === 'ready' ? 'Medicine ready - awaiting release' : (STAGES[v.currentStage]?.label || ''),
     stages: v.stages.map((s) => ({
       key: s.key, n: s.n, label: s.label, state: s.state, doneAt: s.doneAt, doneByName: s.doneByName, purpose: s.purpose || '', roles: s.roles, checks: s.checks,

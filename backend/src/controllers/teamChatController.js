@@ -79,7 +79,7 @@ const summaryView = (chat, user) => {
     assignedToId: String(chat.assignedTo), assignedToName: chat.assignedToName, assignedToRole: chat.assignedToRole,
     participants: chat.participants.map(String),
     patientId: chat.patient ? String(chat.patient) : '', patientName: chat.patientName, patientCode: chat.patientCode,
-    context: { ...(chat.context?.toObject ? chat.context.toObject() : chat.context || {}), purchaseOrder: chat.context?.purchaseOrder ? String(chat.context.purchaseOrder) : '', medicineJob: chat.context?.medicineJob ? String(chat.context.medicineJob) : '' },
+    context: { ...(chat.context?.toObject ? chat.context.toObject() : chat.context || {}), purchaseOrder: chat.context?.purchaseOrder ? String(chat.context.purchaseOrder) : '', medicineJob: chat.context?.medicineJob ? String(chat.context.medicineJob) : '', careSession: chat.context?.careSession ? String(chat.context.careSession) : '' },
     resolution: chat.resolution, resolvedAt: chat.resolvedAt, resolvedByName: chat.resolvedByName, closedAt: chat.closedAt, closedByName: chat.closedByName,
     lastMessageAt: chat.lastMessageAt, createdAt: chat.createdAt,
     lastMessage: last ? { senderName: last.senderName, kind: last.kind, preview: last.deletedAt && user.role !== ROLES.ADMIN ? 'This message was deleted' : decryptText(last.body).slice(0, 120), at: last.createdAt } : null,
@@ -175,8 +175,40 @@ const staff = asyncHandler(async (req, res) => {
   res.json({ users: users.map((u) => ({ id: String(u._id), name: u.name, role: u.role })) });
 });
 
-// @route GET /api/team-chat/context?poId=   What a query raised from a PO carries: patient, PO, medicine state, delay.
+// What a query raised from a Care Schedule session carries: patient, session, due day, days late, its PCC (the query
+// goes to that PCC: suggest.userId).
+const careQueryContext = async (careId) => {
+  if (!mongoose.isValidObjectId(String(careId))) fail('Session not found', 404);
+  const C = require('../utils/careSchedule');
+  const s = await require('../models/CareSession').findById(careId).lean();
+  if (!s) fail('Session not found', 404);
+  const v = require('./careController').viewOf(s);
+  const today = C.dayOf(new Date());
+  const due = C.dueDayOf(s);
+  const late = ['overdue', 'alert'].includes(v.state) && due && due < today ? C.diffDays(today, due) : 0;
+  const day = (d) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
+  const notConnected = C.missedCalls(s).length;
+  const lines = [
+    `${s.code} · ${s.title} · Phase ${s.phase}`,
+    `Due ${day(due)}${s.callAt ? ` (call time ${C.istText(s.callAt)})` : ''}${late ? ` · ${late} day${late === 1 ? '' : 's'} late` : ''}`,
+    `Status: ${v.stateLabel}`,
+    `PCC: ${s.assigneeName || s.ownerName || '-'}`,
+    ...(notConnected ? [`${notConnected} call${notConnected === 1 ? '' : 's'} not connected`] : []),
+    ...((s.reschedules || []).length ? [`Rescheduled ${s.reschedules.length} time${s.reschedules.length === 1 ? '' : 's'}`] : []),
+  ];
+  return {
+    success: true,
+    suggest: { role: ROLES.ASSISTANT_DOCTOR, queryType: 'followup_pending', userId: s.assignee ? String(s.assignee) : '' },
+    context: { careSession: String(s._id), phase: s.phase, step: `${s.code} · ${v.stateLabel}`, summary: lines.join('\n') },
+    patient: { id: String(s.patient), patientName: s.patientName, patientCode: s.patientCode || '' },
+    subject: `${C.KIND_LABEL[s.kind] || 'Session'} ${late ? 'overdue' : 'pending'} - ${s.patientName} (${s.code})`,
+  };
+};
+
+// @route GET /api/team-chat/context?poId= | ?careId=   What a query raised from a PO carries: patient, PO, medicine
+// state, delay (or, from a Care Schedule session, the session and how late it is).
 const poContext = asyncHandler(async (req, res) => {
+  if (req.query.careId) return res.json(await careQueryContext(req.query.careId));
   if (!mongoose.isValidObjectId(String(req.query.poId))) fail('Purchase order not found', 404);
   const po = await PurchaseOrder.findById(req.query.poId).lean();
   if (!po) fail('Purchase order not found', 404);
@@ -224,6 +256,7 @@ const list = asyncHandler(async (req, res) => {
   if (req.query.poId && mongoose.isValidObjectId(String(req.query.poId))) filter['context.purchaseOrder'] = req.query.poId;
   if (req.query.patientId && mongoose.isValidObjectId(String(req.query.patientId))) filter.patient = req.query.patientId;
   if (req.query.jobId && mongoose.isValidObjectId(String(req.query.jobId))) filter['context.medicineJob'] = req.query.jobId;
+  if (req.query.careId && mongoose.isValidObjectId(String(req.query.careId))) filter['context.careSession'] = req.query.careId;
   if (req.query.withUser && mongoose.isValidObjectId(String(req.query.withUser))) filter.pairKey = pairKeyOf(req.user._id, req.query.withUser);
   filter.kind = { $ne: 'direct' };
   const search = text(req.query.search, 120).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -275,6 +308,7 @@ const create = asyncHandler(async (req, res) => {
     context: {
       purchaseOrder: mongoose.isValidObjectId(String(context.purchaseOrder || '')) ? context.purchaseOrder : null, poNumber: text(context.poNumber, 40), phase: Number(context.phase) || null,
       requestId: text(context.requestId, 80), medicineJob: mongoose.isValidObjectId(String(context.medicineJob || '')) ? context.medicineJob : null, step: text(context.step, 160), summary: text(context.summary, 1000),
+      careSession: mongoose.isValidObjectId(String(context.careSession || '')) ? context.careSession : null,
     },
     messages: [{ kind: 'message', sender: req.user._id, senderName: req.user.name, senderRole: req.user.role, body: encryptText(message), files, readBy: [{ user: req.user._id, at: new Date() }] }],
   });

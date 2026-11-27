@@ -523,7 +523,7 @@ const listExplanations = asyncHandler(async (req, res) => {
     items.push(item);
   }
   const MedicineJob = require('../models/MedicineJob');
-  const jobs = items.length && mongoose.connection.readyState === 1 ? await MedicineJob.find({ patient: { $in: items.map((i) => i.patientId) } }).select('patient phase requestId photos').lean() : [];
+  const jobs = items.length && mongoose.connection.readyState === 1 ? await MedicineJob.find({ patient: { $in: items.map((i) => i.patientId) } }).select('patient phase requestId photos formulation').lean() : [];
   const docsOf = new Map(await Promise.all([...new Set(items.map((i) => i.patientId))].map(async (id) => [id, await patientDocuments(patients.find((p) => String(p._id) === id))])));
   // The PO of each medicine, so the PCC can open the post-counselling record behind it.
   const poNumbers = [...new Set(items.map((i) => i.medicine?.poNumber).filter(Boolean))];
@@ -532,7 +532,8 @@ const listExplanations = asyncHandler(async (req, res) => {
     const po = pos.find((p) => p.poNumber === item.medicine?.poNumber);
     item = { ...item, poId: po ? String(po._id) : null, poFromConversion: po?.source === 'conversion' };
     const job = jobs.find((j) => String(j.patient) === item.patientId && j.phase === item.stage && j.requestId === item.medicine?.requestId);
-    return { ...item, treatmentPapers: { overview: job?.photos?.overview || [], paperSets: job?.photos?.paperSets || [], papers: job?.photos?.papers || [] }, patientDocuments: docsOf.get(item.patientId) || [] };
+    // The doctor's formulation sheet of this medicine (what the PCC explains the doses from).
+    return { ...item, treatmentPapers: { overview: job?.photos?.overview || [], paperSets: job?.photos?.paperSets || [], papers: job?.photos?.papers || [] }, formulation: job?.formulation || null, patientDocuments: docsOf.get(item.patientId) || [] };
   });
   // A later supply of a started phase that the patient has: its medicine start date is pending work of the PCC (no
   // new explanation), listed on the day the patient received it.

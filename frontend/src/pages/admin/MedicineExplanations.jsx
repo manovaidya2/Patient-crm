@@ -12,6 +12,7 @@ import { ROLES, isAdminLike } from '../../constants/roles.js';
 import { PageHeader } from '../../components/ui/Layout.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
+import FormulationSheet from '../../components/medicine/FormulationSheet.jsx';
 import PoPostCounselling from './PoPostCounselling.jsx';
 import PccCalendar, { pccSlotProblem } from '../../components/transit/PccCalendar.jsx';
 import LengthFields, { lengthBody, lengthDays, lengthFields } from '../../components/medicine/LengthFields.jsx';
@@ -60,6 +61,17 @@ function PcRecord({ poId }) {
     <details className="mt-3 rounded-[10px] bg-white/70 p-3 ring-1 ring-[#EFE3CF]" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="cursor-pointer text-sm font-bold text-charcoal">Post-counselling record (sections A to E)</summary>
       {open && <div className="mt-3"><PoPostCounselling poId={poId} /></div>}
+    </details>
+  );
+}
+
+// The doctor's formulation sheet of the medicine (read only), shown when opened.
+function DoctorFormulation({ formulation, patientName, patientCode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="mt-3 rounded-[10px] bg-white/70 p-3 ring-1 ring-[#EFE3CF]" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="cursor-pointer text-sm font-bold text-charcoal">Formulation sheet (doctor)</summary>
+      {open && <div className="mt-3 overflow-x-auto">{formulation ? <FormulationSheet f={formulation} patientName={patientName} patientCode={patientCode} /> : <p className="text-sm text-charcoal/55">The doctor's formulation sheet is not in the CRM for this medicine.</p>}</div>}
     </details>
   );
 }
@@ -253,6 +265,8 @@ export default function MedicineExplanations() {
                         </div>
                         <PatientFile documents={item.patientDocuments || []} className="ring-1 ring-[#EFE3CF]" />
                       </div>
+                      {/* The doctor's formulation sheet: the doses, timings and medicines the PCC explains. */}
+                      <DoctorFormulation formulation={item.formulation} patientName={item.patientName} patientCode={item.patientCode} />
                       {/* The post-counselling record behind this PO (sections A to E), as In Transit sees it. Loaded when opened. */}
                       {item.poId && item.poFromConversion && <PcRecord poId={item.poId} />}
                       {/* Step after the explanation: the medicine start date (the PCC; editable later). */}

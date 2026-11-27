@@ -110,3 +110,23 @@ test('each message: info shows who saw it and when; delete for me hides it for m
   assert.equal(a.body, 'First');
   assert.equal(a.deletedByName, 'Tanu');
 });
+
+test('a query raised from a delayed Care Schedule session carries the session, how late it is, and goes to its PCC', async () => {
+  const CareSession = require('../models/CareSession');
+  const pcc = new mongoose.Types.ObjectId();
+  const session = {
+    _id: new mongoose.Types.ObjectId(), patient: new mongoose.Types.ObjectId(), patientName: 'Dhruvika', patientCode: 'D-2257', phase: 2,
+    kind: 'followup', seq: 3, code: 'FU-03', title: 'Medical Follow-up 03', day: 80, targetDate: '2026-11-20', callAt: null, status: 'pending',
+    assignee: pcc, assigneeName: 'Sakshi', owner: pcc, ownerName: 'Sakshi', reschedules: [], attempts: [{ outcome: 'not_connected', at: new Date() }], reminders: [],
+  };
+  mock.method(CareSession, 'findById', () => ({ lean: async () => session }));
+  const out = await call(controller.poContext, admin, { query: { careId: String(session._id) } });
+  assert.equal(out.suggest.userId, String(pcc), 'the query goes to the session\'s PCC');
+  assert.equal(out.suggest.queryType, 'followup_pending');
+  assert.equal(out.context.careSession, String(session._id));
+  assert.match(out.subject, /^Medical Follow-up overdue - Dhruvika \(FU-03\)$/);
+  assert.match(out.context.summary, /days? late/);
+  assert.match(out.context.summary, /PCC: Sakshi/);
+  assert.match(out.context.summary, /1 call not connected/);
+  await assert.rejects(call(controller.poContext, admin, { query: { careId: 'nope' } }), /Session not found/);
+});

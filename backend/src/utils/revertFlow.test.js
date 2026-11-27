@@ -47,7 +47,7 @@ const doneKeys = (c) => stepsOf(c).filter((s) => s.done).map((s) => s.key);
 
 test('the finished case has every step done', () => {
   const c = finishedCase();
-  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'pcc', 'fullpay', 'handover', 'explained', 'started'], 'self pickup: explanation & PCC before the payment and handover');
+  assert.deepEqual(doneKeys(c), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'pcc', 'fullpay', 'release_request', 'handover', 'explained', 'started'], 'self pickup: explanation & PCC before the payment and handover');
 });
 
 test('reverting "Medicine ready" undoes everything after it, keeps preparation, and records what was cleared', async () => {

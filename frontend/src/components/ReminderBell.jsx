@@ -13,7 +13,10 @@ import { playChime } from '../utils/chime.js';
 // any is left.
 // The sound never plays alone: with it the reminders show on screen as a stack of cards at the top right (on every
 // bell, so the visible one shows it) - all pending ones on opening, then each new one - and are marked "New" in the list.
-const RING_EVENT = 'reminders:ring';
+// Other parts of the app (the Care Schedule call reminders) put cards on the same stack with RING_EVENT, and take them
+// off with UNRING_EVENT (a list of keys) when their work is done. Such cards carry `keep`: they stay until then.
+export const RING_EVENT = 'reminders:ring';
+export const UNRING_EVENT = 'reminders:unring';
 const REPEAT_MS = 30 * 60 * 1000;
 let seenKeys = null;
 let lastRemindAt = 0;
@@ -85,8 +88,10 @@ export default function ReminderBell({ dark = false }) {
       setFresh(new Set(cards.map((i) => i.key)));
       setStack((prev) => [...cards, ...prev.filter((p) => !cards.some((c) => c.key === p.key))]);
     };
+    const unring = (e) => { const keys = new Set(e.detail || []); setStack((prev) => prev.filter((c) => !keys.has(c.key))); };
     window.addEventListener(RING_EVENT, ring);
-    return () => window.removeEventListener(RING_EVENT, ring);
+    window.addEventListener(UNRING_EVENT, unring);
+    return () => { window.removeEventListener(RING_EVENT, ring); window.removeEventListener(UNRING_EVENT, unring); };
   }, []);
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,7 +115,7 @@ export default function ReminderBell({ dark = false }) {
   const urgent = items.some((i) => bucketOf(i) === 'overdue');
   useEffect(() => { if (data) soundFor(items); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   // Cards whose work is done leave the stack by themselves.
-  useEffect(() => { if (data) setStack((prev) => prev.filter((c) => items.some((i) => i.key === c.key))); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (data) setStack((prev) => prev.filter((c) => c.keep || items.some((i) => i.key === c.key))); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const dropCard = (key) => setStack((prev) => prev.filter((c) => c.key !== key));
   const seeAll = () => { setStack([]); setOpen(true); load(); };
   return (

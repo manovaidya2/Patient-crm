@@ -15,7 +15,7 @@ const input = 'w-full min-w-0 rounded-md border border-cardline bg-offwhite-100 
 // is shown and the types follow the person picked. From a PO (`poId`) the patient, PO, medicine state and delay are
 // prefilled. The thread opens in Team Chat once sent (or `onCreated` runs).
 // `inline`: shown as a card inside the chat instead of a modal; `initialType`: query type picked already (from the PO).
-export default function RaiseQueryModal({ open, onClose, poId = '', patient = null, person = null, onCreated, inline = false, initialType = '' }) {
+export default function RaiseQueryModal({ open, onClose, poId = '', careId = '', patient = null, person = null, onCreated, inline = false, initialType = '' }) {
   const navigate = useNavigate();
   const [staff, setStaff] = useState([]);
   const [draft, setDraft] = useState(null);
@@ -27,9 +27,9 @@ export default function RaiseQueryModal({ open, onClose, poId = '', patient = nu
     setError(''); setFiles([]);
     if (!person) api.get('/team-chat/people', { skipCache: true }).then(({ data }) => setStaff(data.people || [])).catch(() => setStaff([]));
     const base = { kind: 'query', queryType: '', subject: '', assignedTo: person?.id || '', message: '', patientName: patient?.patientName || '', patientReference: patient?.patientCode || '', patientId: patient?.id || '', patientInfo: patient || null, context: null };
-    if (poId) {
+    if (poId || careId) {
       setDraft(null);
-      api.get('/team-chat/context', { params: { poId }, skipCache: true })
+      api.get('/team-chat/context', { params: poId ? { poId } : { careId }, skipCache: true })
         .then(({ data }) => {
           const d = { ...base, subject: data.subject, patientId: data.patient.id, patientName: data.patient.patientName, patientReference: data.patient.patientCode, patientInfo: { ...data.patient, id: data.patient.id }, context: data.context };
           // The type picked already (from the PO, or suggested by where it stands) fills the subject / message.
@@ -37,9 +37,9 @@ export default function RaiseQueryModal({ open, onClose, poId = '', patient = nu
           const t = (person?.queryTypes || []).find((x) => x.key === typeKey);
           setDraft(t ? { ...d, queryType: t.key, subject: t.subject ? `${t.subject} - ${d.patientName} (${d.patientReference})` : d.subject, message: t.message } : d);
         })
-        .catch((err) => { setError(err.response?.data?.message || 'Could not read the purchase order'); setDraft(base); });
+        .catch((err) => { setError(err.response?.data?.message || (careId ? 'Could not read the session' : 'Could not read the purchase order')); setDraft(base); });
     } else setDraft(base);
-  }, [open, poId, patient, person, initialType]);
+  }, [open, poId, careId, patient, person, initialType]);
   if (!open) return null;
   const target = person || staff.find((s) => s.id === draft?.assignedTo) || null;
   const types = target?.queryTypes || [];

@@ -10,7 +10,7 @@ const { medicineDelays, fixedReadyDate, dispatchDelayInput, readyDateFromPostCou
 const { PO_REVERT_ORDER } = require('./revertFlow');
 const { paymentsOfPo, poPaymentSummary, paymentCleared } = require('./poPayment');
 const { STAGE_INDEX, STAGES: JOB_STAGES } = require('./medicineJobFlow');
-const { requestWithCompletedRelease } = require('./medicineRelease');
+const { requestWithCompletedRelease, releaseView } = require('./medicineRelease');
 
 // Older verified POs have no details/payment timestamps; for them "verified" means both steps were done.
 const detailsVerified = (po) => Boolean(po.detailsVerifiedAt) || po.status === 'verified';
@@ -143,6 +143,25 @@ function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = t
   const connected = transitCalls.some((c) => c.outcome === 'connected');
   // Older cases scheduled before the call step existed count it as done.
   const callsDone = (transitOwner && Boolean(t.callsDoneAt || t.fulfilmentSetAt)) || dispatched || delivered;
+  // In Transit's medicine release request (MedicineJob.releaseRequest): open once the job passed the doctor's final
+  // verification ("ready"); done when it is requested (or accepted / released). The old flow without a job: done with
+  // the release.
+  const release = job ? releaseView(job) : null;
+  const releaseAsked = released || ['requested', 'accepted', 'released'].includes(release?.state);
+  const releaseStep = {
+    key: 'release_request', group: 'handover', branch: 'transit', label: 'Request medicine release',
+    waitsOnMedicine: !releaseAsked && !(job && job.status === 'ready' && !job.hold?.active),
+    done: releaseAsked,
+    at: iso(release?.requestedAt || (released ? request?.sentToCourierAt : null)), by: release?.requestedByName || (released ? request?.sentToCourierByName || '' : ''),
+    text: release?.state === 'accepted' ? `Requested by ${release.requestedByName || 'In Transit'} · payment checked and accepted by ${release.acceptedByName}`
+      : release?.state === 'requested' ? `Requested by ${release.requestedByName || 'In Transit'} · Medicine Department checks the payment and accepts`
+        : released && !release?.requestedAt ? 'Released by Medicine Department' : '',
+    waitText: !job ? 'The medicine request is not with the Medicine Department yet'
+      : job.status === 'open' ? "Opens after the doctor's final verification of the medicine (Medicine Dept track)"
+        : release?.state === 'cancelled' ? 'Release request cancelled: In Transit requests it again with a reason'
+          : release?.overdue ? 'The 20-day deadline has passed: In Transit extends it or cancels the request'
+            : 'In Transit checks the payment and requests the medicine release from the Medicine Department',
+  };
   // The job waits on In Transit's final check (its packing is done).
   const finalDue = Boolean(job) && job.status === 'open' && !job.hold?.active && (job.currentStage || 0) === STAGE_INDEX.final;
   // Whose turn the open fulfilment step is (the doctor's formulation, the Manager's quality check, the PCC's papers ...).
@@ -193,8 +212,11 @@ function buildSteps({ po, request, courier, linked, transitOwner, phaseOwner = t
     // Self pickup: the explanation date and the PCC are fixed before the payment and the handover.
     ...(selfPickup ? [pccStep] : []),
     // Verify payment: no payment pending and some verified (a balance may stay, to a next PO), plus the PO paper signed.
+    // Then In Transit requests the medicine release (after the doctor's final verification); the Medicine Department
+    // checks the payment, accepts and releases the parcel on its track.
     { key: 'fullpay', group: 'handover', branch: 'transit', label: 'Verify payment', done: paymentCleared(pay) && poSigned, text: `Verified Rs ${pay.amountPaid} of Rs ${pay.totalAmount}${pay.remaining > 0 ? ` · balance Rs ${pay.remaining}` : ''}${supplyDays ? ` · ${lengthText(supplyDays)} of medicine` : ''}${poSigned ? ' · PO paper signed' : ''}`, waitText: pay.pendingCount ? 'In Transit verifies the pending payments' : !paymentCleared(pay) ? 'In Transit collects a payment and verifies it' : 'In Transit ticks "PO paper signed by patient"' },
-    { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Handover' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? 'Waiting for Medicine Department to release the parcel (Medicine Dept track)' : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
+    releaseStep,
+    { key: 'handover', group: 'handover', branch: 'transit', waitsOnMedicine: !released && !dispatched && !delivered, label: selfPickup ? 'Handover' : 'Dispatch courier', done: dispatched || (selfPickup && delivered), at: iso(courier.dispatchedAt || (selfPickup ? courier.deliveredAt : null)), by: courier.dispatchedByName || (selfPickup ? courier.deliveredByName : ''), text: selfPickup ? (courier.receivedByName ? `Collected by ${courier.receivedByName}` : '') : [courier.courierPartner, courier.trackingNumber].filter(Boolean).join(' / '), waitText: !released && !dispatched && !delivered ? (releaseAsked ? 'Release requested: waiting for Medicine Department to accept and release the parcel (Medicine Dept track)' : 'Request the medicine release first (step "Request medicine release"), then Medicine Department releases the parcel') : selfPickup ? 'In Transit hands the parcel over at the clinic' : 'In Transit dispatches by courier / porter' },
     // Porter / courier: after the dispatch.
     ...(selfPickup ? [] : [pccStep]),
     ...(selfPickup ? [] : [{ key: 'received', group: 'handover', branch: 'transit', label: 'Confirm receipt from patient', done: delivered, at: iso(courier.deliveredAt), by: courier.deliveredByName, text: courier.receivedByName ? `Received by ${courier.receivedByName}` : '', waitText: 'In Transit confirms the delivery' }]),
@@ -281,7 +303,7 @@ function actionByOf(po, stepKey, canRequest, step = null) {
     case 'ready': return step?.jobRoles?.length ? step.jobRoles : MED;
     case 'accepted': return step?.returned ? TRANSIT : MED;
     case 'released': return MED;
-    case 'calls': case 'scheduled': case 'fullpay': case 'handover': case 'received': case 'pcc': return TRANSIT;
+    case 'calls': case 'scheduled': case 'fullpay': case 'release_request': case 'handover': case 'received': case 'pcc': return TRANSIT;
     case 'explained': return ['admin', 'assistant_doctor'];
     // The start date of a later supply the patient already has (the first supply's is part of "explained").
     case 'started': return step?.startDue ? ['admin', 'assistant_doctor'] : [];

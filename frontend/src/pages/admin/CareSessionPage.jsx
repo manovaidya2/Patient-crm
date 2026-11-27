@@ -10,6 +10,7 @@ import Button from '../../components/ui/Button.jsx';
 import DictationButton from '../../components/ui/DictationButton.jsx';
 import CareForm, { withContext } from '../../components/care/CareForm.jsx';
 import CallRecording from '../../components/calls/CallRecording.jsx';
+import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 import { KIND_STYLE, STATE_STYLE, fmtAt, fmtDay } from '../../components/care/careUi.js';
 
 const errorText = (error) => error?.response?.data?.message || error?.message || 'Something went wrong';
@@ -282,6 +283,8 @@ export default function CareSessionPage() {
         )}
       </div>
 
+      {/* Queries about this session (Team Chat). The Manager / Admin raise one to the PCC when it is delayed. */}
+      <ChatQueries careId={s.id} canRaise={data.canManage && ['overdue', 'alert'].includes(s.state)} hideEmpty compact />
       {error && <p className="flex items-start gap-2 rounded-lg border border-[#B4232F]/30 bg-[#FDF0F0] px-3 py-2 text-[13px] font-semibold text-[#8A1C25]"><AlertTriangle size={15} className="mt-0.5 shrink-0" />{error}</p>}
       {notice && <p className="flex items-start gap-2 rounded-lg border border-[#1F5F4A]/30 bg-[#F2F7F4] px-3 py-2 text-[13px] font-semibold text-[#1F4F3D]"><CheckCircle2 size={15} className="mt-0.5 shrink-0" />{notice}</p>}
 

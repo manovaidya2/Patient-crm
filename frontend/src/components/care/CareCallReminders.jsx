@@ -1,28 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef } from 'react';
 import api from '../../api/axios.js';
 import useLiveEvent from '../../api/useLiveEvent.js';
-import Toast from '../ui/Toast.jsx';
+import { RING_EVENT, UNRING_EVENT } from '../ReminderBell.jsx';
 
-// Care Schedule reminders for the PCC a session is given to, on every page: the call time's own reminder (from 10
-// minutes before the call, made when the call time is set) and their own reminders. Each pops up until a call is
-// recorded, it is marked done or the session is closed; "Remind later" hides it for 5 minutes. A short bell rings when
-// a new one comes.
+// Care Schedule reminders for the PCC a session is given to: the call time's own reminder (from 10 minutes before the
+// call, made when the call time is set) and their own reminders. They go on the reminder bell's stack at the top right
+// (one card at a time, "1 of N", Next / Open / Remove all / See all — the same stack as every other reminder), not as
+// pop-ups one under another. A card comes when its reminder is due (with a short bell), again every 30 minutes while
+// it is still due, and leaves by itself once a call is recorded, the reminder is marked done or the session is closed.
+// A session has one card (the same key as its line in My Day, so the two never show twice).
 const POLL_MS = 30 * 1000;
-const MUTE_MS = 5 * 60 * 1000;
-const MAX_CARDS = 3;
-const MUTE_KEY = 'careReminderMute';
+const REPEAT_MS = 30 * 60 * 1000;
 
-const readMutes = () => { try { return new Map(Object.entries(JSON.parse(localStorage.getItem(MUTE_KEY) || '{}'))); } catch { return new Map(); } };
-const writeMutes = (mutes) => { try { localStorage.setItem(MUTE_KEY, JSON.stringify(Object.fromEntries(mutes))); } catch { /* private window */ } };
 const timeOf = (iso) => new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
-// "in 8 min (11:00 am)" / "now (11:00 am)" / "11:00 am — 5 min late"
-const callWhen = (iso) => {
+const keyOf = (r) => `/admin/care-schedule|${r.sessionId}`;
+// What to do now, in a few words: "call in 8 min (11:00 am)" / "call time 11:00 am reached" / "call time 11:00 am passed".
+const callText = (iso) => {
   const min = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
-  if (min > 0) return `in ${min} min (${timeOf(iso)})`;
-  if (min === 0) return `now (${timeOf(iso)})`;
-  return `${timeOf(iso)} — ${-min} min late`;
+  if (min > 0) return `Call in ${min} min (${timeOf(iso)})`;
+  if (min > -15) return `Call time ${timeOf(iso)} reached`;
+  return `Call time ${timeOf(iso)} passed`;
 };
+const cardOf = (r) => ({
+  key: keyOf(r),
+  keep: true,
+  page: '/admin/care-schedule',
+  href: `/admin/care-schedule/session/${r.sessionId}`,
+  due: r.kind === 'call' ? r.callAt || r.at : r.at,
+  title: `${r.patientName}${r.patientCode ? ` (${r.patientCode})` : ''}`,
+  detail: r.kind === 'call'
+    ? `${r.code} · Phase ${r.phase} · ${callText(r.callAt || r.at)} — call the parent, then record it in Call details`
+    : `${r.code} · Phase ${r.phase} · Reminder: ${r.note || r.title}`,
+});
 
 // Two soft bell strikes, made in the browser (no sound file). Browsers keep sound off until the page was touched once.
 let audio = null;
@@ -46,11 +55,8 @@ const ding = () => {
 };
 
 export default function CareCallReminders() {
-  const navigate = useNavigate();
-  const [items, setItems] = useState([]);
-  const [, setTick] = useState(0);
-  const mutes = useRef(readMutes());
-  const seen = useRef(new Set());
+  // When each session's card was last put on the stack (the session id -> time).
+  const rung = useRef(new Map());
   const last = useRef(0);
 
   const load = useCallback(async () => {
@@ -60,53 +66,32 @@ export default function CareCallReminders() {
       const { data } = await api.get('/care/reminders', { skipCache: true });
       const list = data.reminders || [];
       const now = Date.now();
-      mutes.current.forEach((until, id) => { if (until <= now || !list.some((r) => r.id === id)) mutes.current.delete(id); });
-      writeMutes(mutes.current);
-      if (list.some((r) => !seen.current.has(r.id) && !mutes.current.has(r.id))) ding();
-      list.forEach((r) => seen.current.add(r.id));
-      setItems(list);
+      // One card per session: its call reminder first, else its own reminder.
+      const bySession = new Map();
+      list.forEach((r) => { const had = bySession.get(r.sessionId); if (!had || (had.kind !== 'call' && r.kind === 'call')) bySession.set(r.sessionId, r); });
+      // Done / no longer due: off the stack.
+      const gone = [...rung.current.keys()].filter((id) => !bySession.has(id));
+      if (gone.length) {
+        gone.forEach((id) => rung.current.delete(id));
+        window.dispatchEvent(new CustomEvent(UNRING_EVENT, { detail: gone.map((id) => keyOf({ sessionId: id })) }));
+      }
+      // New, or still due 30 minutes after it was last shown: on the stack again, with the bell.
+      const ring = [...bySession.values()].filter((r) => !rung.current.has(r.sessionId) || now - rung.current.get(r.sessionId) >= REPEAT_MS);
+      if (ring.length) {
+        ring.forEach((r) => rung.current.set(r.sessionId, now));
+        window.dispatchEvent(new CustomEvent(RING_EVENT, { detail: ring.map(cardOf) }));
+        ding();
+      }
     } catch { /* reminders are extra: never block the page */ }
   }, []);
 
   useEffect(() => {
     load();
     const poll = window.setInterval(load, POLL_MS);
-    // Re-draw every 30 s so "in 8 min" stays right and a "Remind later" that ran out shows the card again.
-    const clock = window.setInterval(() => setTick((n) => n + 1), POLL_MS);
-    return () => { window.clearInterval(poll); window.clearInterval(clock); };
+    return () => window.clearInterval(poll);
   }, [load]);
   // A session changed (a call recorded, a reminder done, a new call time): look again at once.
   useLiveEvent('care:changed', () => { last.current = 0; load(); });
 
-  const now = Date.now();
-  const open = items.filter((r) => !(mutes.current.get(r.id) > now));
-  const toasts = open.slice(0, MAX_CARDS).map((r) => ({
-    id: r.id,
-    type: 'confirm',
-    persist: true,
-    title: r.kind === 'call' ? `Call ${callWhen(r.callAt || r.at)} — ${r.code}` : `Reminder — ${r.code}`,
-    message: r.kind === 'call'
-      ? `${r.patientName}${r.patientCode ? ` (${r.patientCode})` : ''} · Phase ${r.phase} · ${r.title}. Call the parent — after the call, record it in Call details.`
-      : `${r.patientName}${r.patientCode ? ` (${r.patientCode})` : ''} · ${r.title}: ${r.note}`,
-    actionLabel: 'Open',
-    cancelLabel: 'Remind later',
-    onAction: () => navigate(`/admin/care-schedule/session/${r.sessionId}`),
-  }));
-  if (open.length > MAX_CARDS) {
-    toasts.push({
-      id: '__more__', type: 'confirm', persist: true, title: 'More reminders',
-      message: `${open.length - MAX_CARDS} more Care Schedule reminder${open.length - MAX_CARDS > 1 ? 's' : ''} due.`,
-      actionLabel: 'View all', cancelLabel: 'Remind all later',
-      onAction: () => navigate('/admin/care-schedule'),
-    });
-  }
-
-  const dismiss = (id) => {
-    const until = Date.now() + MUTE_MS;
-    (id === '__more__' ? open.slice(MAX_CARDS) : [{ id }]).forEach((r) => mutes.current.set(r.id, until));
-    writeMutes(mutes.current);
-    setTick((n) => n + 1);
-  };
-
-  return <Toast toasts={toasts} onDismiss={dismiss} />;
+  return null;
 }

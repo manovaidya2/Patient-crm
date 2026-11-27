@@ -30,6 +30,10 @@ export default function TeamChat() {
   const pairKey = params.get('pair') || '';
   // From a PO's "Raise query": the query form opens inside the chat with the suggested person (Medicine Dept etc.).
   const poId = params.get('po') || '';
+  // From a Care Schedule session's "Raise query" (an overdue follow-up etc.): the query goes to that session's PCC.
+  const careId = params.get('care') || '';
+  const ctxId = poId || careId;
+  const ctxParams = poId ? { po: poId } : careId ? { care: careId } : {};
   const [poSuggest, setPoSuggest] = useState(null);
   const [people, setPeople] = useState([]);
   const [pairs, setPairs] = useState([]);
@@ -74,20 +78,24 @@ export default function TeamChat() {
   }, [queryId]);
   useEffect(() => { loadPeople(); }, [loadPeople]);
   useEffect(() => {
-    if (!poId) { setPoSuggest(null); return; }
-    api.get('/team-chat/context', { params: { poId }, skipCache: true }).then(({ data }) => setPoSuggest(data.suggest || null)).catch(() => setPoSuggest(null));
-  }, [poId]);
+    if (!poId && !careId) { setPoSuggest(null); return; }
+    api.get('/team-chat/context', { params: poId ? { poId } : { careId }, skipCache: true }).then(({ data }) => setPoSuggest(data.suggest || null)).catch(() => setPoSuggest(null));
+  }, [poId, careId]);
   // One person of the suggested role: open their chat straight away; several: the list shows that role to pick from.
   useEffect(() => {
-    if (!poId || withId || !poSuggest || !people.length) return;
+    if ((!poId && !careId) || withId || !poSuggest || !people.length) return;
+    const here = poId ? { po: poId } : { care: careId };
+    // The session's own PCC (from a Care Schedule session): their chat straight away.
+    const direct = poSuggest.userId && people.find((p) => p.id === poSuggest.userId);
+    if (direct) { setParams({ ...here, with: direct.id }); return; }
     const ofRole = people.filter((p) => p.role === poSuggest.role);
-    if (ofRole.length === 1) setParams({ po: poId, with: ofRole[0].id });
-  }, [poId, withId, poSuggest, people, setParams]);
+    if (ofRole.length === 1) setParams({ ...here, with: ofRole[0].id });
+  }, [poId, careId, withId, poSuggest, people, setParams]);
   useEffect(() => { loadConv(); }, [loadConv]);
   useEffect(() => { loadQuery(); }, [loadQuery]);
   useLiveEvent('team-chat:changed', () => { loadPeople(); loadConv(); loadQuery(); });
 
-  const openPerson = (id) => setParams(poId ? { po: poId, with: id } : { with: id });
+  const openPerson = (id) => setParams(ctxId ? { ...ctxParams, with: id } : { with: id });
   const openQuery = (id) => setParams({ ...(withId ? { with: withId } : {}), ...(pairKey ? { pair: pairKey } : {}), q: id });
   const closeQuery = () => setParams(withId ? { with: withId } : pairKey ? { pair: pairKey } : {});
   const act = async () => {
@@ -130,7 +138,7 @@ export default function TeamChat() {
         {/* People */}
         <aside className={`min-h-0 flex-col overflow-hidden rounded-[14px] border border-[#E8DFCB] bg-white ${withId || pairKey ? 'hidden lg:flex' : 'flex'}`}>
           <div className="space-y-2 border-b border-cardline p-3">
-            {poId && !withId && poSuggest && <p className="rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs font-semibold text-[#C2410C]">Pick the {ROLE_LABELS[poSuggest.role] || poSuggest.role} person this query goes to.</p>}
+            {ctxId && !withId && poSuggest && <p className="rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs font-semibold text-[#C2410C]">Pick the {ROLE_LABELS[poSuggest.role] || poSuggest.role} person this query goes to.</p>}
             {isAdmin && <div className="flex gap-1.5"><button type="button" className={chip(mode === 'people')} onClick={() => setMode('people')}><Users size={12} className="mr-1 inline" />My chats</button><button type="button" className={chip(mode === 'pairs')} onClick={() => setMode('pairs')}><Eye size={12} className="mr-1 inline" />All conversations</button></div>}
             <div className="relative"><Search size={14} className="absolute left-2.5 top-2.5 text-charcoal/40" /><input className={`${input} pl-8`} placeholder={mode === 'pairs' ? 'Search two people' : 'Search a person or role'} value={search} onChange={(e) => setSearch(e.target.value)} /></div>
           </div>
@@ -198,7 +206,7 @@ export default function TeamChat() {
                   {conv.chat && conv.chat.messages.length > 0 && <button type="button" onClick={() => setDeleting(conv.chat)} title={isAdmin ? 'Delete this chat for everyone' : 'Delete this chat from your side'} className="rounded-lg border border-cardline p-2 text-[#8C3B2E] hover:bg-[#8C3B2E]/10"><Trash2 size={15} /></button>}
                 </span>
               </header>
-              {poId && !person.pair && <div className="max-h-[55%] shrink-0 overflow-y-auto"><RaiseQueryModal open inline poId={poId} person={person} initialType={poSuggest?.queryType || ''} onClose={() => setParams({ with: withId })} onCreated={(c) => { setParams({ with: withId, q: c.id }); loadConv(); loadPeople(); }} /></div>}
+              {ctxId && !person.pair && <div className="max-h-[55%] shrink-0 overflow-y-auto"><RaiseQueryModal open inline poId={poId} careId={careId} person={person} initialType={poSuggest?.queryType || ''} onClose={() => setParams({ with: withId })} onCreated={(c) => { setParams({ with: withId, q: c.id }); loadConv(); loadPeople(); }} /></div>}
               {conv.queries.length > 0 && (
                 <div className="shrink-0 border-b border-cardline bg-[#FBF7ED] px-4 py-2">
                   <p className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-charcoal/50">Queries between you {conv.queries.some((x) => x.status !== 'closed') ? '' : '(all closed)'}</p>
@@ -220,7 +228,7 @@ export default function TeamChat() {
         </main>
       </div>
 
-      {person && !person.pair && !poId && <RaiseQueryModal open={raise} onClose={() => setRaise(false)} person={person} onCreated={(c) => { loadConv(); loadPeople(); openQuery(c.id); }} />}
+      {person && !person.pair && !ctxId && <RaiseQueryModal open={raise} onClose={() => setRaise(false)} person={person} onCreated={(c) => { loadConv(); loadPeople(); openQuery(c.id); }} />}
       <Modal open={Boolean(deleting)} onClose={() => !saving && setDeleting(null)} title={deleting?.kind === 'direct' ? 'Delete this chat' : 'Delete this query'} className="max-w-md">
         {deleting && <div className="space-y-3 text-sm">
           {isAdmin

@@ -22,6 +22,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { DelayTable, FixedNote } from '../../components/medicine/MedicineDelay.jsx';
 import PatientFile from '../../components/medicine/PatientFile.jsx';
 import MedicineBoxReceipt from '../../components/medicine/MedicineBoxReceipt.jsx';
+import MedicineReleaseFlow from '../../components/medicine/MedicineReleaseFlow.jsx';
 import { DosePapersView } from '../../components/medicine/DosePapers.jsx';
 import ChatQueries from '../../components/teamChat/ChatQueries.jsx';
 import { ROLES, isAdminLike, roleAllowed } from '../../constants/roles.js';
@@ -66,6 +67,7 @@ const STEP_SECTIONS = {
   calls: ['handover'],
   scheduled: ['handover'],
   fullpay: ['payments'],
+  release_request: ['release'],
   released: ['job'],
   handover: ['handover'],
   received: ['handover'],
@@ -594,7 +596,7 @@ function trackWork(key, item) {
     case 'handover':
       if (!(item.poPaperSigned?.done)) return { wait: 'Tick "PO paper signed by patient" at Verify payment first.' };
       if (!item.mode) return { wait: 'Schedule the delivery first (step "Schedule delivery").' };
-      if (!released && !shipped && !delivered) return { wait: 'Waiting for Medicine Department to release the parcel. Follow it on the Medicine Dept track.' };
+      if (!released && !shipped && !delivered) return { wait: 'Waiting for the medicine release: request it at the step "Request medicine release"; then Medicine Department checks the payment and releases the parcel (Medicine Dept track).' };
       if (!paid) return { wait: 'Verify the payment (none pending) before the handover.' };
       return item.mode === 'pickup' ? (delivered ? {} : { action: 'confirm_received' }) : (shipped ? {} : { action: 'dispatch' });
     case 'received': return !shipped ? { wait: 'Dispatch the medicine first.' } : delivered ? {} : { action: 'confirm_received' };
@@ -900,6 +902,12 @@ export function PurchaseOrderView({ poId, showPatientLink = true }) {
           )}
           {showAction && <div className={`rounded-[14px] p-4 sm:p-[18px] ${myTurn ? 'border-2 border-[#FDBA74] bg-gradient-to-b from-[#FFF7ED] to-white' : 'border border-[#E8DFCB] bg-gradient-to-b from-[#F3F6F2] to-white'}`}>{next || waiting}</div>}
           {show('final') && QC_ROLES.includes(role) && po.medicineJob?.currentKey === 'qc' && po.medicineJob.status === 'open' && !po.medicineJob.hold && (selected === 'all' || selected === 'job:qc' || selected === currentKey) && <QualityCheckPanel key={po.medicineJob.id} po={po} onDone={async (message) => { await load(); setNotice(message); }} />}
+          {/* In Transit's medicine release request, right after "Verify payment" (the fulfilment job's release request). */}
+          {show('release') && po.medicineJob && (selected === 'release_request' || po.medicineJob.releaseRequest) && (
+            <Section title="Request medicine release" icon={Truck} className={selectedStep?.key === 'release_request' && selectedStep.state !== 'done' ? 'border-2 border-[#FDBA74]' : ''} action={<Link to={`/admin/medicine-jobs/${po.medicineJob.id}`} className={smallLink}><ExternalLink size={13} />Open in fulfilment</Link>}>
+              <MedicineReleaseFlow key={po.medicineJob.id} job={po.medicineJob} onSaved={async () => { await load(); }} />
+            </Section>
+          )}
           {show('handover') && showHandover && (selected === 'all' || selectedStep?.state === 'current' || (selectedStep?.key === 'scheduled' && !['dispatched', 'delivered'].includes(po.handover?.courier?.status))) && <HandoverPanel po={po} step={selectedStep} onChanged={load} />}
           {selected === 'created' && po.source === 'conversion' && <Suspense fallback={<p className="py-6 text-center text-sm text-charcoal/55">Loading post-counselling record...</p>}><PoPostCounselling poId={po.id} /></Suspense>}
           {show('patient') && <Section title="Patient" icon={UserRound}>

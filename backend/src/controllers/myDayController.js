@@ -24,6 +24,12 @@ const callHandler = (handler, user, query = {}) => new Promise((resolve, reject)
   Promise.resolve(handler({ user, query, params: {}, body: {} }, res, reject)).catch(reject);
 });
 const item = (page, key, title, detail, due, href, extra = {}) => ({ page, key: `${page}|${key}`, title, detail, due: iso(due), href, ...extra });
+// "Overdue · 3 days late" for a Care Schedule session whose due day passed.
+const lateText = (dueDay) => {
+  const C = require('../utils/careSchedule');
+  const days = dueDay ? C.diffDays(C.dayOf(new Date()), dueDay) : 0;
+  return days > 0 ? `Overdue · ${days} day${days === 1 ? '' : 's'} late` : 'Overdue';
+};
 
 const REQUEST_STATUS = { requested: 'Accept the request', in_process: 'Being prepared', made: 'Made · waiting for release' };
 const requestItems = async (page, statuses, detailOf, extra = () => true) => {
@@ -172,7 +178,7 @@ const COLLECTORS = {
   },
   async '/admin/care-schedule'(user) {
     const work = await require('./careController').careWork(user);
-    return work.slice(0, LIMIT).map((w) => item('/admin/care-schedule', w.id, w.patientName, [w.patientCode, `Phase ${w.phase}`, `${w.code} (day ${w.day})`, w.reassignAsked && ['admin', 'manager'].includes(user.role) ? `Reassign requested by ${w.reassignRequest?.byName || 'PCC'}` : w.leave ? w.leave.text : w.reminderDue && !['alert', 'overdue', 'today'].includes(w.state) ? 'Reminder due' : w.stateLabel, w.assigneeName && w.assigneeName !== user.name ? w.assigneeName : ''].filter(Boolean).join(' · '), w.callAt || `${w.dueDay}T05:30:00.000Z`, `/admin/care-schedule/session/${w.id}`));
+    return work.slice(0, LIMIT).map((w) => item('/admin/care-schedule', w.id, w.patientName, [w.patientCode, `Phase ${w.phase}`, `${w.code} (day ${w.day})`, w.reassignAsked && ['admin', 'manager'].includes(user.role) ? `Reassign requested by ${w.reassignRequest?.byName || 'PCC'}` : w.leave ? w.leave.text : w.reminderDue && !['alert', 'overdue', 'today'].includes(w.state) ? 'Reminder due' : w.state === 'overdue' ? lateText(w.dueDay) : w.stateLabel, w.assigneeName && w.assigneeName !== user.name ? w.assigneeName : ''].filter(Boolean).join(' · '), w.callAt || `${w.dueDay}T05:30:00.000Z`, `/admin/care-schedule/session/${w.id}`));
   },
   async '/admin/team-chat'(user) {
     const TeamChat = require('../models/TeamChat');

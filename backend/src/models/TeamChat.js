@@ -50,6 +50,8 @@ const teamChatSchema = new mongoose.Schema({
     phase: { type: Number, default: null },
     requestId: { type: String, trim: true, default: '' },
     medicineJob: { type: mongoose.Schema.Types.ObjectId, ref: 'MedicineJob', default: null },
+    // A query raised from a Care Schedule session (an overdue follow-up / family session / tracker).
+    careSession: { type: mongoose.Schema.Types.ObjectId, ref: 'CareSession', default: null },
     step: { type: String, trim: true, default: '' },
     summary: { type: String, trim: true, default: '', maxlength: 1000 },
   },

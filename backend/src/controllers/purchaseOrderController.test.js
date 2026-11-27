@@ -305,7 +305,7 @@ test('the pipeline follows the medicine request and courier records', () => {
   const stage = patient.stages[0];
   stage.medicineRequests = [{ requestId: 'r1', status: 'sent_to_courier', requestedAt: new Date(), inProcessAt: new Date(), madeAt: new Date(), sentToCourierAt: new Date(), courier: { status: 'delivered', deliveryMode: 'courier', dispatchedAt: new Date(), deliveredAt: new Date() } }];
   const view = buildPoView({ _id: new mongoose.Types.ObjectId(), poNumber: 'PO-1234', phase: 1, status: 'verified', medicineRequestId: 'r1', paymentIds: [], createdAt: new Date() }, patient);
-  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'fullpay', 'handover', 'received']);
+  assert.deepEqual(view.steps.filter((s) => s.state === 'done').map((s) => s.key), ['created', 'details', 'payment', 'requested', 'accepted', 'ready', 'released', 'calls', 'scheduled', 'fullpay', 'release_request', 'handover', 'received']);
   assert.equal(view.stageKey, 'treatment');
   assert.equal(view.suggestedAgeBand, '4-12');
 });
@@ -320,24 +320,34 @@ test('after the medicine is accepted the timeline runs in two tracks, each with 
   let view = buildPoView(po, patient);
   const now = () => view.steps.filter((s) => s.state === 'current').map((s) => s.key);
   assert.deepEqual(now(), ['ready', 'calls'], 'Medicine Dept prepares while In Transit calls the patient');
-  assert.deepEqual(view.steps.filter((s) => s.branch).map((s) => `${s.branch}:${s.key}`), ['medicine:ready', 'medicine:released', 'transit:calls', 'transit:scheduled', 'transit:fullpay', 'transit:handover', 'transit:pcc', 'transit:received', 'transit:explained', 'transit:started']);
+  assert.deepEqual(view.steps.filter((s) => s.branch).map((s) => `${s.branch}:${s.key}`), ['medicine:ready', 'medicine:released', 'transit:calls', 'transit:scheduled', 'transit:fullpay', 'transit:release_request', 'transit:handover', 'transit:pcc', 'transit:received', 'transit:explained', 'transit:started']);
   assert.ok(view.actionBy.includes('medicine_department') && view.actionBy.includes('in_transit'), 'both teams have work');
   assert.equal(view.openSteps.find((s) => s.actionBy.includes('in_transit')).key, 'calls');
   // A connected call marked done moves In Transit to "Delivery scheduled".
   stage.transit = { calls: [{ at: new Date(), outcome: 'connected', notes: 'ok' }], callsDoneAt: new Date() };
   view = buildPoView(po, patient);
   assert.deepEqual(now(), ['ready', 'scheduled']);
-  // In Transit's handover waits for the release; nobody is asked to act on it yet.
+  // After "Verify payment" In Transit requests the medicine release; it waits for the medicine to be ready (the doctor's
+  // final verification), so nobody is asked to act on it yet. The handover waits for the release.
   stage.transit = { callsDoneAt: new Date(), fulfilmentMode: 'courier', dispatchScheduledAt: new Date(), assignedAt: new Date(), poPaperSignedAt: new Date() };
   stage.medicineExplainDate = new Date();
   stage.payments = [{ amount: 10000, approvalStatus: 'approved' }];
   view = buildPoView(po, patient);
-  assert.deepEqual(now(), ['ready', 'handover']);
+  assert.deepEqual(now(), ['ready', 'release_request']);
   assert.match(view.steps.find((s) => s.key === 'handover').waitText, /release/);
   assert.ok(!view.actionBy.includes('in_transit'));
   // Parcel packed: the final verification check (fulfilment step 11) is for the final-check PCC.
   view = buildPoView(po, patient, { job: { status: 'open', currentStage: MEDICINE_STAGE_INDEX.final } });
-  assert.deepEqual(now(), ['ready', 'handover']);
+  assert.deepEqual(now(), ['ready', 'release_request']);
+  assert.match(view.steps.find((s) => s.key === 'release_request').waitText, /final verification/);
+  // Final verification done (job ready): now it is In Transit's work to request the release.
+  view = buildPoView(po, patient, { job: { status: 'ready', currentStage: MEDICINE_STAGE_INDEX.final, stages: [{ key: 'final', doneAt: new Date() }] } });
+  assert.deepEqual(view.openSteps.find((s) => s.key === 'release_request').actionBy, ['admin', 'in_transit']);
+  // Requested: the step is done and the handover waits for the Medicine Department.
+  view = buildPoView(po, patient, { job: { status: 'ready', stages: [{ key: 'final', doneAt: new Date() }], releaseRequest: { requestedAt: new Date(), requestedByName: 'Transit' } } });
+  assert.equal(view.steps.find((s) => s.key === 'release_request').state, 'done');
+  assert.match(view.steps.find((s) => s.key === 'handover').waitText, /Release requested/);
+  view = buildPoView(po, patient, { job: { status: 'open', currentStage: MEDICINE_STAGE_INDEX.final } });
   assert.ok(view.actionBy.includes('assistant_doctor') && !view.actionBy.includes('medicine_department'));
   // Before the medicine is accepted there is one "now" step.
   stage.medicineRequests[0].status = 'requested';
