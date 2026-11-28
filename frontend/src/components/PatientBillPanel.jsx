@@ -185,8 +185,10 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
   const [consultationFee, setConsultationFee] = useState('0');
   const [treatment, setTreatment] = useState(amountText(stage.totalAmount));
   const [duration, setDuration] = useState(stage.medicineMonthsGiven ? `${stage.medicineMonthsGiven} month${stage.medicineMonthsGiven > 1 ? 's' : ''}` : '');
+  const [consultationDateOverride, setConsultationDateOverride] = useState(null);
   const [cardOn, setCardOn] = useState(false);
   const [cardCharge, setCardCharge] = useState('0.00');
+  const [cardDateOverride, setCardDateOverride] = useState(null);
   const [rows, setRows] = useState(() => approved.map((pay, index) => ({
     key: `treatment-${pay.id}`, source: 'treatment', include: true, date: dateOnly(pay.date), received: amountText(pay.amount),
     particulars: index === approved.length - 1 && Number(stage.remainingAmount || 0) <= 0 ? 'Final Instalment' : `First Instalment - ${pay.paymentMode === 'cash' ? 'Cash' : 'Online'}`,
@@ -232,10 +234,16 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
   const pick = (value) => (particulars.includes(value) ? value : particulars[0]);
   const cardRow = cardOn && toNumber(cardCharge) > 0 ? [{ date: info.date, particulars: 'Card Processing Charge', received: amountText(cardCharge) }] : [];
   const payments = [...rows.filter((row) => row.include).map(({ date, particulars: p, received }) => ({ date, particulars: p, received })), ...cardRow];
+  // Date / Duration column: the consultation fee shows its payment date(s), the card charge the invoice date; N/A when
+  // there is no amount. Either can be typed over.
+  const consultationDates = [...new Set(rows.filter((row) => row.include && row.date && pick(row.particulars) === 'Consultation Fee')
+    .sort((a, b) => new Date(a.date) - new Date(b.date)).map((row) => label(row.date)))].join(', ').slice(0, 80);
+  const consultationDate = consultationDateOverride ?? (consultationDates || (toNumber(consultationFee) > 0 ? '' : 'N/A'));
+  const cardDate = cardDateOverride ?? (cardOn && toNumber(cardCharge) > 0 ? label(info.date) : 'N/A');
   const items = [
-    { duration: '', amount: amountText(consultationFee) },
+    { duration: consultationDate, amount: amountText(consultationFee) },
     { duration, amount: amountText(treatment) },
-    { duration: '', amount: cardOn ? amountText(cardCharge) : '0.00' },
+    { duration: cardDate, amount: cardOn ? amountText(cardCharge) : '0.00' },
   ];
   let totals = { totalPayable: 0, amountReceived: 0, outstanding: 0, excessReceived: 0 };
   try { totals = calculateFinalBill(items, payments); } catch { /* the server reports invalid amounts */ }
@@ -288,15 +296,18 @@ function FinalBillForm({ patient, stage, onClose, onSaved }) {
         <h3 className="text-sm font-bold text-charcoal">Invoice details</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field title="Consultation fee (Rs.)"><input className={inputClass} type="number" min="0" step="0.01" value={consultationFee} onChange={(e) => setConsultationFee(e.target.value)} /></Field>
-          <span />
+          <Field title="Date / duration" hint="Filled from the consultation payment date; type N/A if not needed"><input className={inputClass} maxLength={80} value={consultationDate} onChange={(e) => setConsultationDateOverride(e.target.value)} placeholder="e.g. 22/11/2026 or N/A" /></Field>
           <Field title="Customized Ayurvedic formulations (Rs.)" hint="Total amount of this phase from Patient Details"><input className={inputClass} type="number" min="0" step="0.01" value={treatment} onChange={(e) => setTreatment(e.target.value)} /></Field>
           <Field title="Date / duration"><input className={inputClass} maxLength={80} value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="e.g. 1 month" /></Field>
         </div>
-        <CardToggle
-          checked={cardOn}
-          onChange={(on) => { setCardOn(on); setCardCharge(amountText(rows.filter((r) => r.include).reduce((sum, r) => sum + toNumber(r.received), 0) * CARD_RATE)); }}
-          charge={cardCharge} onCharge={setCardCharge} hint="Also added to the bill as a received payment row"
-        />
+        <div className="grid gap-3 sm:grid-cols-2 sm:items-start">
+          <CardToggle
+            checked={cardOn}
+            onChange={(on) => { setCardOn(on); setCardDateOverride(null); setCardCharge(amountText(rows.filter((r) => r.include).reduce((sum, r) => sum + toNumber(r.received), 0) * CARD_RATE)); }}
+            charge={cardCharge} onCharge={setCardCharge} hint="Also added to the bill as a received payment row"
+          />
+          <Field title="Card charge - date / duration" hint="Invoice date when a card charge is added, otherwise N/A"><input className={inputClass} maxLength={80} value={cardDate} onChange={(e) => setCardDateOverride(e.target.value)} placeholder="e.g. 27/11/2026 or N/A" /></Field>
+        </div>
       </section>
 
       <section className="space-y-2">
